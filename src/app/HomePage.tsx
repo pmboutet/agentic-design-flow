@@ -14,7 +14,7 @@ import { isValidAskKey, parseErrorMessage } from "@/lib/utils";
 /**
  * Main application page that handles the ASK session interface
  * Displays chat on 1/3 of screen and challenges on 2/3
- * Manages session state and API communication
+ * All data comes from external backend via webhooks
  */
 export default function HomePage() {
   const searchParams = useSearchParams();
@@ -56,42 +56,30 @@ export default function HomePage() {
       error: null
     }));
 
-    // Load session data
+    // Load session data from external backend
     loadSessionData(key);
   }, [searchParams]);
 
-  // Load session data from API
+  // Load session data from external backend via API
   const loadSessionData = async (key: string) => {
     try {
-      // Load ASK data
-      const askResponse = await fetch(`/api/ask/${key}`);
-      const askData: ApiResponse<Ask> = await askResponse.json();
+      // Call our API which will call the external backend
+      const response = await fetch(`/api/ask/${key}`);
+      const data: ApiResponse<{
+        ask: Ask;
+        messages: Message[];
+        challenges: Challenge[];
+      }> = await response.json();
 
-      if (!askData.success) {
-        throw new Error(askData.error || 'Failed to load ASK data');
-      }
-
-      // Load messages
-      const messagesResponse = await fetch(`/api/messages/${key}`);
-      const messagesData: ApiResponse<Message[]> = await messagesResponse.json();
-
-      if (!messagesData.success) {
-        throw new Error(messagesData.error || 'Failed to load messages');
-      }
-
-      // Load challenges
-      const challengesResponse = await fetch(`/api/challenges/${key}`);
-      const challengesData: ApiResponse<Challenge[]> = await challengesResponse.json();
-
-      if (!challengesData.success) {
-        throw new Error(challengesData.error || 'Failed to load challenges');
+      if (!data.success) {
+        throw new Error(data.error || 'Failed to load session data from backend');
       }
 
       setSessionData(prev => ({
         ...prev,
-        ask: askData.data!,
-        messages: messagesData.data || [],
-        challenges: challengesData.data || [],
+        ask: data.data!.ask,
+        messages: data.data!.messages,
+        challenges: data.data!.challenges,
         isLoading: false,
         error: null
       }));
@@ -106,7 +94,7 @@ export default function HomePage() {
     }
   };
 
-  // Handle sending messages
+  // Handle sending messages to external backend
   const handleSendMessage = async (
     content: string, 
     type: Message['type'] = 'text', 
@@ -117,31 +105,28 @@ export default function HomePage() {
     setSessionData(prev => ({ ...prev, isLoading: true }));
 
     try {
-      const response = await fetch(`/api/messages/${sessionData.askKey}`, {
+      // Send message to external backend via our API
+      const response = await fetch(`/api/ask/${sessionData.askKey}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          askKey: sessionData.askKey,
           content,
           type,
-          metadata
+          metadata,
+          timestamp: new Date().toISOString()
         })
       });
 
-      const data: ApiResponse<Message> = await response.json();
+      const data: ApiResponse = await response.json();
 
       if (!data.success) {
         throw new Error(data.error || 'Failed to send message');
       }
 
-      // Add message to local state
-      setSessionData(prev => ({
-        ...prev,
-        messages: [...prev.messages, data.data!],
-        isLoading: false
-      }));
+      // Reload session data to get updated messages and potential new challenges
+      await loadSessionData(sessionData.askKey);
 
     } catch (error) {
       console.error('Error sending message:', error);
@@ -153,30 +138,36 @@ export default function HomePage() {
     }
   };
 
-  // Handle challenge updates
+  // Handle challenge updates (send to backend)
   const handleUpdateChallenge = async (challenge: Challenge) => {
     if (!sessionData.askKey) return;
 
     try {
+      // Send challenge update to external backend
       const response = await fetch(`/api/challenges/${sessionData.askKey}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(challenge)
+        body: JSON.stringify({
+          askKey: sessionData.askKey,
+          challenge,
+          action: 'update_challenge',
+          timestamp: new Date().toISOString()
+        })
       });
 
-      const data: ApiResponse<Challenge> = await response.json();
+      const data: ApiResponse = await response.json();
 
       if (!data.success) {
         throw new Error(data.error || 'Failed to update challenge');
       }
 
-      // Update challenge in local state
+      // Update challenge in local state optimistically
       setSessionData(prev => ({
         ...prev,
         challenges: prev.challenges.map(c => 
-          c.id === challenge.id ? data.data! : c
+          c.id === challenge.id ? challenge : c
         )
       }));
 
@@ -238,7 +229,7 @@ export default function HomePage() {
           <CardContent className="flex items-center justify-center py-12">
             <div className="text-center space-y-4">
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
-              <p className="text-muted-foreground">Loading ASK session...</p>
+              <p className="text-muted-foreground">Loading session from backend...</p>
             </div>
           </CardContent>
         </Card>
