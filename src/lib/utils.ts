@@ -1,0 +1,176 @@
+import { type ClassValue, clsx } from "clsx";
+import { twMerge } from "tailwind-merge";
+
+/**
+ * Utility function to merge Tailwind CSS classes
+ * Combines clsx for conditional classes with tailwind-merge for proper overrides
+ */
+export function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
+}
+
+/**
+ * Format time remaining until a given date
+ * Returns a human-readable string showing time left
+ */
+export function formatTimeRemaining(endDate: string): string {
+  const now = new Date();
+  const end = new Date(endDate);
+  const diff = end.getTime() - now.getTime();
+
+  if (diff <= 0) {
+    return "Expired";
+  }
+
+  const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+  const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+  const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+
+  if (days > 0) {
+    return `${days}d ${hours}h remaining`;
+  } else if (hours > 0) {
+    return `${hours}h ${minutes}m remaining`;
+  } else if (minutes > 0) {
+    return `${minutes}m remaining`;
+  } else {
+    return "Less than 1m remaining";
+  }
+}
+
+/**
+ * Format file size in human-readable format
+ */
+export function formatFileSize(bytes: number): string {
+  if (bytes === 0) return "0 Bytes";
+
+  const k = 1024;
+  const sizes = ["Bytes", "KB", "MB", "GB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
+}
+
+/**
+ * Generate a unique ID for use in components
+ */
+export function generateId(): string {
+  return Math.random().toString(36).substr(2, 9);
+}
+
+/**
+ * Validate if a string is a valid ASK key format
+ */
+export function isValidAskKey(key: string): boolean {
+  // Simple validation - should be alphanumeric with possible dashes/underscores
+  return /^[a-zA-Z0-9_-]+$/.test(key) && key.length >= 8;
+}
+
+/**
+ * Parse error messages for user-friendly display
+ */
+export function parseErrorMessage(error: unknown): string {
+  if (typeof error === "string") {
+    return error;
+  }
+  
+  if (error instanceof Error) {
+    return error.message;
+  }
+  
+  if (error && typeof error === "object" && "message" in error) {
+    return String(error.message);
+  }
+  
+  return "An unexpected error occurred";
+}
+
+/**
+ * Debounce function for performance optimization
+ */
+export function debounce<T extends (...args: any[]) => any>(
+  func: T,
+  wait: number
+): (...args: Parameters<T>) => void {
+  let timeout: NodeJS.Timeout;
+  
+  return (...args: Parameters<T>) => {
+    clearTimeout(timeout);
+    timeout = setTimeout(() => func(...args), wait);
+  };
+}
+
+/**
+ * Check if ASK is still active based on end date
+ */
+export function isAskActive(endDate: string): boolean {
+  return new Date(endDate).getTime() > Date.now();
+}
+
+/**
+ * Validate file type for uploads
+ */
+export function validateFileType(file: File): { 
+  isValid: boolean; 
+  type: 'audio' | 'image' | 'document' | null;
+  error?: string;
+} {
+  const imageTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+  const audioTypes = ['audio/mpeg', 'audio/wav', 'audio/ogg', 'audio/mp4'];
+  const documentTypes = ['application/pdf', 'text/plain', 'application/msword', 
+                        'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
+
+  if (imageTypes.includes(file.type)) {
+    return { isValid: true, type: 'image' };
+  }
+  
+  if (audioTypes.includes(file.type)) {
+    return { isValid: true, type: 'audio' };
+  }
+  
+  if (documentTypes.includes(file.type)) {
+    return { isValid: true, type: 'document' };
+  }
+
+  return { 
+    isValid: false, 
+    type: null, 
+    error: 'File type not supported. Please upload images, audio files, or documents.' 
+  };
+}
+
+/**
+ * Create a safe JSON parser that handles potential errors
+ */
+export function safeJsonParse<T>(jsonString: string, fallback: T): T {
+  try {
+    return JSON.parse(jsonString) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+/**
+ * Deep clone an object safely
+ */
+export function deepClone<T>(obj: T): T {
+  if (obj === null || typeof obj !== "object") {
+    return obj;
+  }
+  
+  if (obj instanceof Date) {
+    return new Date(obj.getTime()) as unknown as T;
+  }
+  
+  if (Array.isArray(obj)) {
+    return obj.map(item => deepClone(item)) as unknown as T;
+  }
+  
+  const cloned = {} as T;
+  for (const key in obj) {
+    if (Object.prototype.hasOwnProperty.call(obj, key)) {
+      cloned[key] = deepClone(obj[key]);
+    }
+  }
+  
+  return cloned;
+}
