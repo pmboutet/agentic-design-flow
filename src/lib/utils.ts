@@ -59,10 +59,37 @@ export function generateId(): string {
 
 /**
  * Validate if a string is a valid ASK key format
+ * Updated to be more flexible with different key formats
  */
 export function isValidAskKey(key: string): boolean {
-  // Simple validation - should be alphanumeric with possible dashes/underscores
-  return /^[a-zA-Z0-9_-]+$/.test(key) && key.length >= 8;
+  // Remove whitespace
+  const trimmedKey = key.trim();
+  
+  // Must not be empty
+  if (!trimmedKey) {
+    return false;
+  }
+  
+  // Must be at least 3 characters (more flexible than before)
+  if (trimmedKey.length < 3) {
+    return false;
+  }
+  
+  // Allow alphanumeric, dashes, underscores, and periods (common in IDs)
+  // This is more flexible to accommodate different backend ID formats
+  const validPattern = /^[a-zA-Z0-9._-]+$/;
+  
+  if (!validPattern.test(trimmedKey)) {
+    return false;
+  }
+  
+  // Additional checks: should not be all special characters
+  const hasAlphanumeric = /[a-zA-Z0-9]/.test(trimmedKey);
+  if (!hasAlphanumeric) {
+    return false;
+  }
+  
+  return true;
 }
 
 /**
@@ -173,4 +200,59 @@ export function deepClone<T>(obj: T): T {
   }
   
   return cloned;
+}
+
+/**
+ * Enhanced ASK key validation with detailed error messages
+ */
+export function validateAskKey(key: string): { 
+  isValid: boolean; 
+  error?: string; 
+  suggestion?: string; 
+} {
+  const trimmedKey = key.trim();
+  
+  if (!trimmedKey) {
+    return { 
+      isValid: false, 
+      error: 'ASK key cannot be empty', 
+      suggestion: 'Please provide a valid ASK key in the URL parameter' 
+    };
+  }
+  
+  if (trimmedKey.length < 3) {
+    return { 
+      isValid: false, 
+      error: 'ASK key is too short', 
+      suggestion: 'ASK key must be at least 3 characters long' 
+    };
+  }
+  
+  if (trimmedKey.length > 100) {
+    return { 
+      isValid: false, 
+      error: 'ASK key is too long', 
+      suggestion: 'ASK key must be less than 100 characters' 
+    };
+  }
+  
+  const validPattern = /^[a-zA-Z0-9._-]+$/;
+  if (!validPattern.test(trimmedKey)) {
+    return { 
+      isValid: false, 
+      error: 'ASK key contains invalid characters', 
+      suggestion: 'ASK key can only contain letters, numbers, dots, dashes, and underscores' 
+    };
+  }
+  
+  const hasAlphanumeric = /[a-zA-Z0-9]/.test(trimmedKey);
+  if (!hasAlphanumeric) {
+    return { 
+      isValid: false, 
+      error: 'ASK key must contain at least one letter or number', 
+      suggestion: 'Please check your ASK key format' 
+    };
+  }
+  
+  return { isValid: true };
 }
