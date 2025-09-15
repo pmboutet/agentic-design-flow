@@ -49,8 +49,13 @@ export async function GET(
 
     const backendData = await response.json();
 
+    // Handle both n8n format (with data wrapper) and direct format
+    const askData = backendData.data?.ask || backendData.ask;
+    const messagesData = backendData.data?.messages || backendData.messages || [];
+    const challengesData = backendData.data?.challenges || backendData.challenges || [];
+
     // Validate backend response structure
-    if (!backendData.ask || !backendData.ask.question) {
+    if (!askData || !askData.question) {
       throw new Error('Invalid response from backend: missing ASK data');
     }
 
@@ -58,11 +63,11 @@ export async function GET(
     const ask: Ask = {
       id: key,
       key: key,
-      question: backendData.ask.question,
-      isActive: backendData.ask.isActive ?? true,
-      endDate: backendData.ask.endDate,
-      createdAt: backendData.ask.createdAt || new Date().toISOString(),
-      updatedAt: backendData.ask.updatedAt || new Date().toISOString()
+      question: askData.question,
+      isActive: askData.isActive ?? true,
+      endDate: askData.endDate,
+      createdAt: askData.createdAt || new Date().toISOString(),
+      updatedAt: askData.updatedAt || new Date().toISOString()
     };
 
     // Check if ASK is still active based on end date
@@ -78,8 +83,8 @@ export async function GET(
       success: true,
       data: {
         ask,
-        messages: backendData.messages || [],
-        challenges: backendData.challenges || []
+        messages: messagesData,
+        challenges: challengesData
       }
     });
 
