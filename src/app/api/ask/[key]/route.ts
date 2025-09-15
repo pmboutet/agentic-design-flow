@@ -1,13 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { WebhookAskPayload, ApiResponse, Ask } from '@/types';
+import { ApiResponse, Ask } from '@/types';
 import { isValidAskKey, parseErrorMessage } from '@/lib/utils';
 
-// In-memory storage for demo - replace with database in production
-const askStorage = new Map<string, Ask>();
-
 /**
- * GET /api/ask/[key] - Retrieve ASK data by key
- * This endpoint is called when a user clicks on an ASK link
+ * GET /api/ask/[key] - Retrieve ASK data from external backend
+ * This endpoint calls the external webhook to get ASK data and conversation state
  */
 export async function GET(
   request: NextRequest,
@@ -23,30 +20,71 @@ export async function GET(
       }, { status: 400 });
     }
 
-    const ask = askStorage.get(key);
+    const externalWebhook = process.env.EXTERNAL_RESPONSE_WEBHOOK;
     
-    if (!ask) {
+    if (!externalWebhook) {
       return NextResponse.json<ApiResponse>({
         success: false,
-        error: 'ASK not found'
-      }, { status: 404 });
+        error: 'External webhook not configured'
+      }, { status: 500 });
     }
 
-    // Check if ASK is still active
-    const isActive = new Date(ask.endDate).getTime() > Date.now();
-    
-    const responseData: Ask = {
-      ...ask,
-      isActive
+    // Call external backend to get ASK data and conversation state
+    const response = await fetch(externalWebhook, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Webhook-Source': 'agentic-design-flow',
+        'X-Request-Type': 'get-session'
+      },
+      body: JSON.stringify({
+        askKey: key,
+        action: 'get_session_data'
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`External webhook responded with status ${response.status}`);
+    }
+
+    const backendData = await response.json();
+
+    // Validate backend response structure
+    if (!backendData.ask || !backendData.ask.question) {
+      throw new Error('Invalid response from backend: missing ASK data');
+    }
+
+    // Transform backend data to our ASK format
+    const ask: Ask = {
+      id: key,
+      key: key,
+      question: backendData.ask.question,
+      isActive: backendData.ask.isActive ?? true,
+      endDate: backendData.ask.endDate,
+      createdAt: backendData.ask.createdAt || new Date().toISOString(),
+      updatedAt: backendData.ask.updatedAt || new Date().toISOString()
     };
 
-    return NextResponse.json<ApiResponse<Ask>>({
+    // Check if ASK is still active based on end date
+    if (ask.endDate) {
+      ask.isActive = new Date(ask.endDate).getTime() > Date.now();
+    }
+
+    return NextResponse.json<ApiResponse<{
+      ask: Ask;
+      messages: any[];
+      challenges: any[];
+    }>>({
       success: true,
-      data: responseData
+      data: {
+        ask,
+        messages: backendData.messages || [],
+        challenges: backendData.challenges || []
+      }
     });
 
   } catch (error) {
-    console.error('Error retrieving ASK:', error);
+    console.error('Error retrieving ASK from backend:', error);
     return NextResponse.json<ApiResponse>({
       success: false,
       error: parseErrorMessage(error)
@@ -55,8 +93,8 @@ export async function GET(
 }
 
 /**
- * POST /api/ask/[key] - Create or update ASK data
- * This endpoint receives ASK data from external systems
+ * POST /api/ask/[key] - Send message to external backend
+ * This endpoint forwards user messages to the external backend
  */
 export async function POST(
   request: NextRequest,
@@ -72,98 +110,46 @@ export async function POST(
       }, { status: 400 });
     }
 
-    const body: WebhookAskPayload = await request.json();
+    const messageData = await request.json();
 
-    if (!body.question || !body.endDate) {
-      return NextResponse.json<ApiResponse>({
-        success: false,
-        error: 'Missing required fields: question, endDate'
-      }, { status: 400 });
-    }
-
-    // Validate end date
-    const endDate = new Date(body.endDate);
-    if (isNaN(endDate.getTime())) {
-      return NextResponse.json<ApiResponse>({
-        success: false,
-        error: 'Invalid end date format'
-      }, { status: 400 });
-    }
-
-    const now = new Date().toISOString();
-    const isActive = endDate.getTime() > Date.now();
-
-    const ask: Ask = {
-      id: key,
-      key: key,
-      question: body.question,
-      isActive,
-      endDate: body.endDate,
-      createdAt: askStorage.get(key)?.createdAt || now,
-      updatedAt: now
-    };
-
-    askStorage.set(key, ask);
-
-    return NextResponse.json<ApiResponse<Ask>>({
-      success: true,
-      data: ask,
-      message: 'ASK created/updated successfully'
-    });
-
-  } catch (error) {
-    console.error('Error creating/updating ASK:', error);
-    return NextResponse.json<ApiResponse>({
-      success: false,
-      error: parseErrorMessage(error)
-    }, { status: 500 });
-  }
-}
-
-/**
- * DELETE /api/ask/[key] - Close/deactivate an ASK
- * This endpoint is called to close an ASK session
- */
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: { key: string } }
-) {
-  try {
-    const { key } = params;
-
-    if (!key || !isValidAskKey(key)) {
-      return NextResponse.json<ApiResponse>({
-        success: false,
-        error: 'Invalid ASK key format'
-      }, { status: 400 });
-    }
-
-    const ask = askStorage.get(key);
+    const externalWebhook = process.env.EXTERNAL_RESPONSE_WEBHOOK;
     
-    if (!ask) {
+    if (!externalWebhook) {
       return NextResponse.json<ApiResponse>({
         success: false,
-        error: 'ASK not found'
-      }, { status: 404 });
+        error: 'External webhook not configured'
+      }, { status: 500 });
     }
 
-    // Mark ASK as inactive
-    const updatedAsk: Ask = {
-      ...ask,
-      isActive: false,
-      updatedAt: new Date().toISOString()
-    };
+    // Forward message to external backend
+    const response = await fetch(externalWebhook, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Webhook-Source': 'agentic-design-flow',
+        'X-Request-Type': 'user-message'
+      },
+      body: JSON.stringify({
+        askKey: key,
+        action: 'user_message',
+        message: messageData
+      })
+    });
 
-    askStorage.set(key, updatedAsk);
+    if (!response.ok) {
+      throw new Error(`External webhook responded with status ${response.status}`);
+    }
 
-    return NextResponse.json<ApiResponse<Ask>>({
+    const result = await response.json();
+
+    return NextResponse.json<ApiResponse>({
       success: true,
-      data: updatedAsk,
-      message: 'ASK closed successfully'
+      data: result,
+      message: 'Message sent successfully'
     });
 
   } catch (error) {
-    console.error('Error closing ASK:', error);
+    console.error('Error sending message to backend:', error);
     return NextResponse.json<ApiResponse>({
       success: false,
       error: parseErrorMessage(error)
