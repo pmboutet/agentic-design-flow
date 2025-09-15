@@ -29,6 +29,9 @@ export default function HomePage() {
     error: null
   });
 
+  // Check if we're in test mode
+  const isTestMode = searchParams.get('mode') === 'test';
+
   // Initialize session from URL parameters
   useEffect(() => {
     const key = searchParams.get('key');
@@ -58,15 +61,17 @@ export default function HomePage() {
       error: null
     }));
 
-    // Load session data from external backend
+    // Load session data from external backend or test endpoint
     loadSessionData(key);
   }, [searchParams]);
 
   // Load session data from external backend via API
   const loadSessionData = async (key: string) => {
     try {
-      // Call our API which will call the external backend
-      const response = await fetch(`/api/ask/${key}`);
+      // Use test endpoint if in test mode, otherwise use real API
+      const endpoint = isTestMode ? `/api/test/${key}` : `/api/ask/${key}`;
+      
+      const response = await fetch(endpoint);
       const data: ApiResponse<{
         ask: Ask;
         messages: Message[];
@@ -107,8 +112,10 @@ export default function HomePage() {
     setSessionData(prev => ({ ...prev, isLoading: true }));
 
     try {
-      // Send message to external backend via our API
-      const response = await fetch(`/api/ask/${sessionData.askKey}`, {
+      // Use test endpoint if in test mode, otherwise use real API
+      const endpoint = isTestMode ? `/api/test/${sessionData.askKey}` : `/api/ask/${sessionData.askKey}`;
+      
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -215,6 +222,9 @@ export default function HomePage() {
                 <code className="text-xs text-muted-foreground">
                   https://your-domain.com/?key=your-ask-key-123
                 </code>
+                <p className="text-xs text-muted-foreground mt-2">
+                  For testing: add &mode=test to the URL
+                </p>
               </div>
             )}
             
@@ -242,7 +252,9 @@ export default function HomePage() {
           <CardContent className="flex items-center justify-center py-12">
             <div className="text-center space-y-4">
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
-              <p className="text-muted-foreground">Loading session from backend...</p>
+              <p className="text-muted-foreground">
+                {isTestMode ? 'Loading test session...' : 'Loading session from backend...'}
+              </p>
             </div>
           </CardContent>
         </Card>
@@ -260,6 +272,11 @@ export default function HomePage() {
               <div className="flex items-center gap-2">
                 <MessageSquare className="h-6 w-6 text-primary" />
                 <h1 className="text-xl font-bold">Agentic Design Flow</h1>
+                {isTestMode && (
+                  <span className="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded">
+                    TEST MODE
+                  </span>
+                )}
               </div>
               {sessionData.askKey && (
                 <div className="text-sm text-muted-foreground">
