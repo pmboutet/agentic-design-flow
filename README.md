@@ -46,6 +46,30 @@ Agentic Design Flow enables collective idea generation through AI-driven convers
 - ✅ Key-based session security
 - ✅ Real-time data synchronization
 
+## 🛠️ ASK Key Format & Troubleshooting
+
+### Valid ASK Key Format
+ASK keys must follow these rules:
+- **Length**: 3-100 characters
+- **Characters**: Only letters, numbers, dots (.), dashes (-), and underscores (_)
+- **Content**: Must contain at least one letter or number
+- **No spaces or special characters** like @, #, %, etc.
+
+### Examples
+✅ **Valid**: `test-key-123`, `user_session_456`, `ASK-2024-001`, `session.id.789`  
+❌ **Invalid**: `ab` (too short), `key with spaces`, `key@domain.com`, `---` (no alphanumeric)
+
+### Testing Your ASK Keys
+Visit `/test-key` to validate ASK key formats and debug issues:
+```
+https://your-domain.com/test-key
+```
+
+### Common Issues
+1. **"Invalid ASK key format"**: Check that your key meets the format requirements above
+2. **"No ASK key provided"**: Ensure your URL includes `?key=your-ask-key`
+3. **"Error Loading Session"**: Verify your backend webhook endpoints are configured correctly
+
 ## 📡 API Endpoints
 
 ### ASK Management
@@ -109,6 +133,27 @@ EXTERNAL_CHALLENGE_WEBHOOK=https://your-external-system.com/challenge-webhook
 
 # Security
 NEXT_PUBLIC_APP_URL=http://localhost:3000
+
+# ASK Key Configuration
+# ASK keys are used to identify sessions and should follow these rules:
+# - At least 3 characters long
+# - Less than 100 characters
+# - Only letters, numbers, dots (.), dashes (-), and underscores (_)
+# - Must contain at least one letter or number
+# 
+# Valid examples:
+# - test-key-123
+# - user_session_456  
+# - session.id.789
+# - ASK-2024-001
+#
+# Invalid examples:
+# - ab (too short)
+# - key with spaces (contains spaces)
+# - key@domain.com (contains @)
+# - --- (no alphanumeric characters)
+#
+# Test your ASK keys at: http://localhost:3000/test-key
 ```
 
 ## 🌐 Deployment
@@ -238,6 +283,9 @@ npm run build
 
 # Test the build
 npm start
+
+# Test ASK key validation
+# Visit http://localhost:3000/test-key
 ```
 
 ## 📚 Usage Examples
@@ -309,12 +357,13 @@ Users can drag & drop or click to upload:
 
 MIT License - see LICENSE file for details
 
-## 🆘 Support
+## 📞 Support
 
 For issues and questions:
 1. Check the GitHub Issues
 2. Review the API documentation above
-3. Create a new issue with detailed description
+3. Test your ASK keys at `/test-key`
+4. Create a new issue with detailed description
 
 ---
 
