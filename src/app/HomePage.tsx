@@ -9,7 +9,7 @@ import { ChallengeComponent } from "@/components/challenge/ChallengeComponent";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SessionData, Ask, Message, Challenge, ApiResponse } from "@/types";
-import { isValidAskKey, parseErrorMessage } from "@/lib/utils";
+import { isValidAskKey, validateAskKey, parseErrorMessage } from "@/lib/utils";
 
 /**
  * Main application page that handles the ASK session interface
@@ -41,10 +41,12 @@ export default function HomePage() {
       return;
     }
 
-    if (!isValidAskKey(key)) {
+    // Use enhanced validation with detailed error messages
+    const validation = validateAskKey(key);
+    if (!validation.isValid) {
       setSessionData(prev => ({
         ...prev,
-        error: 'Invalid ASK key format. Please check your link.'
+        error: `${validation.error}${validation.suggestion ? `. ${validation.suggestion}` : ''}`
       }));
       return;
     }
@@ -192,7 +194,7 @@ export default function HomePage() {
     setSessionData(prev => ({ ...prev, error: null }));
   };
 
-  // Render error state
+  // Render error state with enhanced UI
   if (sessionData.error) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-6">
@@ -205,6 +207,17 @@ export default function HomePage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <p className="text-muted-foreground">{sessionData.error}</p>
+            
+            {/* Show format example for ASK key errors */}
+            {sessionData.error.includes('ASK key') && (
+              <div className="p-3 bg-muted rounded-md">
+                <p className="text-sm font-medium mb-1">Expected URL format:</p>
+                <code className="text-xs text-muted-foreground">
+                  https://your-domain.com/?key=your-ask-key-123
+                </code>
+              </div>
+            )}
+            
             <div className="flex gap-2">
               {sessionData.askKey && (
                 <Button onClick={retryLoad} variant="outline">
