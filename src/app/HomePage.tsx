@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
-import { AlertCircle, MessageSquare, Target } from "lucide-react";
+import { AlertCircle, MessageSquare, Target, Sparkles } from "lucide-react";
 import { ChatComponent } from "@/components/chat/ChatComponent";
 import { ChallengeComponent } from "@/components/challenge/ChallengeComponent";
 import { Button } from "@/components/ui/button";
@@ -12,7 +12,7 @@ import { SessionData, Ask, Message, Challenge, ApiResponse } from "@/types";
 import { isValidAskKey, validateAskKey, parseErrorMessage } from "@/lib/utils";
 
 /**
- * Main application page that handles the ASK session interface
+ * Main application page with beautiful glassmorphic design
  * Displays chat on 1/3 of screen and challenges on 2/3
  * All data comes from external backend via webhooks
  */
@@ -201,117 +201,214 @@ export default function HomePage() {
     setSessionData(prev => ({ ...prev, error: null }));
   };
 
-  // Render error state with enhanced UI
+  // Render error state with beautiful UI
   if (sessionData.error) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center p-6">
-        <Card className="max-w-md w-full">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-destructive">
-              <AlertCircle className="h-5 w-5" />
-              Error Loading Session
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <p className="text-muted-foreground">{sessionData.error}</p>
-            
-            {/* Show format example for ASK key errors */}
-            {sessionData.error.includes('ASK key') && (
-              <div className="p-3 bg-muted rounded-md">
-                <p className="text-sm font-medium mb-1">Expected URL format:</p>
-                <code className="text-xs text-muted-foreground">
-                  https://your-domain.com/?key=your-ask-key-123
-                </code>
-                <p className="text-xs text-muted-foreground mt-2">
-                  For testing: add &mode=test to the URL
-                </p>
+      <div className="min-h-screen bg-gradient-to-br from-indigo-100 via-white to-indigo-200 flex items-center justify-center p-6">
+        <motion.div 
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="glass-card max-w-md w-full"
+        >
+          <Card className="border-0 bg-transparent shadow-none">
+            <CardHeader className="text-center">
+              <motion.div
+                initial={{ rotate: 0 }}
+                animate={{ rotate: [0, -10, 10, -10, 0] }}
+                transition={{ duration: 0.5, delay: 0.2 }}
+                className="mx-auto w-16 h-16 bg-gradient-to-br from-red-400 to-red-600 rounded-full flex items-center justify-center mb-4"
+              >
+                <AlertCircle className="h-8 w-8 text-white" />
+              </motion.div>
+              <CardTitle className="text-xl text-destructive">
+                Session Error
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="neumorphic-shadow p-4 rounded-lg">
+                <p className="text-muted-foreground text-center">{sessionData.error}</p>
               </div>
-            )}
-            
-            <div className="flex gap-2">
-              {sessionData.askKey && (
-                <Button onClick={retryLoad} variant="outline">
-                  Retry
-                </Button>
+              
+              {/* Show format example for ASK key errors */}
+              {sessionData.error.includes('ASK key') && (
+                <motion.div 
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.3 }}
+                  className="neumorphic-shadow p-4 rounded-lg bg-gradient-to-r from-blue-50 to-indigo-50"
+                >
+                  <p className="text-sm font-medium mb-2 text-primary">Expected URL format:</p>
+                  <code className="text-xs bg-white/50 px-2 py-1 rounded text-muted-foreground block">
+                    https://your-domain.com/?key=your-ask-key-123
+                  </code>
+                  <p className="text-xs text-muted-foreground mt-2 text-center">
+                    For testing: add <span className="font-mono bg-yellow-100 px-1 rounded">&mode=test</span>
+                  </p>
+                </motion.div>
               )}
-              <Button onClick={clearError} variant="ghost">
-                Dismiss
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+              
+              <div className="flex gap-3 pt-2">
+                {sessionData.askKey && (
+                  <Button 
+                    onClick={retryLoad} 
+                    variant="outline" 
+                    className="flex-1 neumorphic-raised border-0"
+                  >
+                    <Sparkles className="w-4 h-4 mr-2" />
+                    Retry
+                  </Button>
+                )}
+                <Button 
+                  onClick={clearError} 
+                  variant="ghost" 
+                  className="flex-1 neumorphic-shadow"
+                >
+                  Dismiss
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </motion.div>
       </div>
     );
   }
 
-  // Render loading state
+  // Render loading state with beautiful animations
   if (sessionData.isLoading && !sessionData.ask) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <Card className="max-w-md w-full">
-          <CardContent className="flex items-center justify-center py-12">
-            <div className="text-center space-y-4">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
-              <p className="text-muted-foreground">
-                {isTestMode ? 'Loading test session...' : 'Loading session from backend...'}
-              </p>
-            </div>
-          </CardContent>
-        </Card>
+      <div className="min-h-screen bg-gradient-to-br from-indigo-100 via-white to-indigo-200 flex items-center justify-center">
+        <motion.div 
+          initial={{ opacity: 0, scale: 0.8 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="glass-card max-w-md w-full"
+        >
+          <Card className="border-0 bg-transparent shadow-none">
+            <CardContent className="flex items-center justify-center py-12">
+              <div className="text-center space-y-6">
+                <motion.div
+                  animate={{ rotate: 360 }}
+                  transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+                  className="mx-auto w-16 h-16 bg-gradient-to-r from-primary to-accent rounded-full flex items-center justify-center"
+                >
+                  <Sparkles className="h-8 w-8 text-white" />
+                </motion.div>
+                
+                <div className="space-y-3">
+                  <motion.h3 
+                    animate={{ opacity: [0.5, 1, 0.5] }}
+                    transition={{ duration: 2, repeat: Infinity }}
+                    className="text-lg font-semibold text-foreground"
+                  >
+                    {isTestMode ? 'Loading Test Session' : 'Connecting to Backend'}
+                  </motion.h3>
+                  
+                  <div className="space-y-2">
+                    <div className="h-2 bg-muted rounded-full overflow-hidden">
+                      <motion.div
+                        animate={{ x: [-100, 400] }}
+                        transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+                        className="h-full w-24 bg-gradient-to-r from-primary to-accent"
+                      />
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      Please wait while we establish your session...
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </motion.div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* Header */}
-      <header className="border-b bg-card">
+    <div className="min-h-screen bg-gradient-to-br from-indigo-100 via-white to-indigo-200">
+      {/* Beautiful Header */}
+      <motion.header 
+        initial={{ opacity: 0, y: -20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="app-header border-0 sticky top-0 z-50"
+      >
         <div className="container mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="flex items-center gap-2">
-                <MessageSquare className="h-6 w-6 text-primary" />
-                <h1 className="text-xl font-bold">Agentic Design Flow</h1>
-                {isTestMode && (
-                  <span className="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded">
-                    TEST MODE
-                  </span>
-                )}
-              </div>
-              {sessionData.askKey && (
-                <div className="text-sm text-muted-foreground">
-                  Session: {sessionData.askKey}
+            <div className="flex items-center gap-4">
+              <motion.div 
+                className="flex items-center gap-3"
+                whileHover={{ scale: 1.05 }}
+                transition={{ type: "spring", stiffness: 400 }}
+              >
+                <div className="w-10 h-10 bg-gradient-to-br from-primary to-accent rounded-xl flex items-center justify-center shadow-lg">
+                  <MessageSquare className="h-6 w-6 text-white" />
                 </div>
+                <div>
+                  <h1 className="text-xl font-bold bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
+                    Agentic Design Flow
+                  </h1>
+                  {isTestMode && (
+                    <span className="test-mode-badge">
+                      TEST MODE
+                    </span>
+                  )}
+                </div>
+              </motion.div>
+              
+              {sessionData.askKey && (
+                <motion.div 
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  className="neumorphic-shadow px-3 py-1 rounded-lg bg-white/50"
+                >
+                  <span className="text-sm text-muted-foreground">Session:</span>
+                  <span className="text-sm font-mono ml-1 text-foreground">{sessionData.askKey}</span>
+                </motion.div>
               )}
             </div>
             
             <div className="flex items-center gap-4">
               {sessionData.ask && (
-                <div className="text-sm text-muted-foreground">
-                  {sessionData.ask.isActive ? (
-                    <span className="text-green-600 font-medium">Active</span>
-                  ) : (
-                    <span className="text-red-600 font-medium">Closed</span>
-                  )}
-                </div>
+                <motion.div
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  className={sessionData.ask.isActive ? 'session-active' : 'session-closed'}
+                >
+                  {sessionData.ask.isActive ? 'Active' : 'Closed'}
+                </motion.div>
               )}
             </div>
           </div>
         </div>
-      </header>
+      </motion.header>
 
-      {/* Main Content */}
-      <main className="flex h-[calc(100vh-80px)]">
-        {/* Chat Section - 1/3 of screen */}
+      {/* Main Content with Beautiful Layout */}
+      <main className="flex h-[calc(100vh-88px)] gap-6 p-6">
+        {/* Chat Section - 1/3 of screen with glass effect */}
         <motion.div 
-          initial={{ opacity: 0, x: -20 }}
+          initial={{ opacity: 0, x: -40 }}
           animate={{ opacity: 1, x: 0 }}
-          className="w-1/3 border-r bg-card"
+          transition={{ duration: 0.6 }}
+          className="w-1/3"
         >
-          <div className="h-full p-6">
-            <div className="flex items-center gap-2 mb-4">
-              <MessageSquare className="h-5 w-5 text-primary" />
-              <h2 className="text-lg font-semibold">Conversation</h2>
+          <div className="chat-container h-full">
+            <div className="p-6 border-b border-white/20">
+              <div className="flex items-center gap-3 mb-2">
+                <div className="w-8 h-8 bg-gradient-to-br from-green-400 to-blue-500 rounded-lg flex items-center justify-center">
+                  <MessageSquare className="h-5 w-5 text-white" />
+                </div>
+                <h2 className="text-lg font-semibold text-foreground">Conversation</h2>
+              </div>
+              
+              {sessionData.ask && (
+                <motion.p 
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: 0.3 }}
+                  className="text-sm text-muted-foreground bg-white/30 rounded-lg p-3"
+                >
+                  {sessionData.ask.question}
+                </motion.p>
+              )}
             </div>
             
             <ChatComponent
@@ -324,59 +421,78 @@ export default function HomePage() {
           </div>
         </motion.div>
 
-        {/* Challenge Section - 2/3 of screen */}
+        {/* Challenge Section - 2/3 of screen with enhanced styling */}
         <motion.div 
-          initial={{ opacity: 0, x: 20 }}
+          initial={{ opacity: 0, x: 40 }}
           animate={{ opacity: 1, x: 0 }}
-          className="flex-1 bg-background"
+          transition={{ duration: 0.6, delay: 0.2 }}
+          className="flex-1"
         >
-          <div className="h-full">
-            <div className="border-b bg-card p-6">
-              <div className="flex items-center gap-2">
-                <Target className="h-5 w-5 text-primary" />
-                <h2 className="text-lg font-semibold">Challenges</h2>
-                <span className="text-sm text-muted-foreground">
-                  ({sessionData.challenges.length})
-                </span>
+          <div className="glass-card h-full flex flex-col">
+            <div className="p-6 border-b border-white/20">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 bg-gradient-to-br from-purple-400 to-pink-500 rounded-lg flex items-center justify-center">
+                    <Target className="h-5 w-5 text-white" />
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-semibold text-foreground">Challenges</h2>
+                    <p className="text-sm text-muted-foreground">
+                      AI-generated insights from your conversation
+                    </p>
+                  </div>
+                </div>
+                
+                <motion.div
+                  animate={{ scale: [1, 1.1, 1] }}
+                  transition={{ duration: 2, repeat: Infinity }}
+                  className="neumorphic-shadow px-3 py-1 rounded-full bg-gradient-to-r from-primary/10 to-accent/10"
+                >
+                  <span className="text-sm font-medium text-primary">
+                    {sessionData.challenges.length} insights
+                  </span>
+                </motion.div>
               </div>
             </div>
             
-            <ChallengeComponent
-              challenges={sessionData.challenges}
-              onUpdateChallenge={handleUpdateChallenge}
-              askKey={sessionData.askKey}
-            />
+            <div className="flex-1 overflow-hidden">
+              <ChallengeComponent
+                challenges={sessionData.challenges}
+                onUpdateChallenge={handleUpdateChallenge}
+                askKey={sessionData.askKey}
+              />
+            </div>
           </div>
         </motion.div>
       </main>
 
-      {/* Error Toast */}
+      {/* Floating Error Toast */}
       {sessionData.error && (
         <motion.div
-          initial={{ opacity: 0, y: 50 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: 50 }}
-          className="fixed bottom-6 right-6 max-w-md"
+          initial={{ opacity: 0, y: 100, scale: 0.8 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, y: 100, scale: 0.8 }}
+          className="fixed bottom-6 right-6 max-w-md z-50"
         >
-          <Card className="border-destructive">
-            <CardContent className="pt-4">
-              <div className="flex items-start gap-3">
-                <AlertCircle className="h-5 w-5 text-destructive mt-0.5" />
-                <div className="flex-1">
-                  <p className="text-sm font-medium">Error</p>
-                  <p className="text-sm text-muted-foreground">{sessionData.error}</p>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={clearError}
-                  className="h-6 w-6 p-0"
-                >
-                  ×
-                </Button>
+          <div className="error-toast p-4 rounded-xl">
+            <div className="flex items-start gap-3">
+              <div className="w-8 h-8 bg-gradient-to-br from-red-400 to-red-600 rounded-lg flex items-center justify-center flex-shrink-0">
+                <AlertCircle className="h-5 w-5 text-white" />
               </div>
-            </CardContent>
-          </Card>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-destructive">Error</p>
+                <p className="text-sm text-muted-foreground mt-1">{sessionData.error}</p>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={clearError}
+                className="h-8 w-8 p-0 hover:bg-white/20 rounded-full"
+              >
+                ×
+              </Button>
+            </div>
+          </div>
         </motion.div>
       )}
     </div>
