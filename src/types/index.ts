@@ -113,3 +113,76 @@ export interface ChallengeComponentProps {
   onUpdateChallenge: (challenge: Challenge) => void;
   askKey: string;
 }
+
+// Admin backoffice data
+export interface ClientRecord {
+  id: string;
+  name: string;
+  status: string;
+  email?: string | null;
+  company?: string | null;
+  industry?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ManagedUser {
+  id: string;
+  email: string;
+  firstName?: string | null;
+  lastName?: string | null;
+  fullName?: string | null;
+  role: string;
+  clientId?: string | null;
+  clientName?: string | null;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProjectRecord {
+  id: string;
+  name: string;
+  description?: string | null;
+  status: string;
+  clientId: string;
+  clientName?: string | null;
+  startDate: string;
+  endDate: string;
+  createdBy?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ChallengeRecord {
+  id: string;
+  name: string;
+  description?: string | null;
+  status: string;
+  priority?: string | null;
+  category?: string | null;
+  projectId?: string | null;
+  projectName?: string | null;
+  assignedTo?: string | null;
+  dueDate?: string | null;
+  updatedAt: string;
+}
+
+export interface AskSessionRecord {
+  id: string;
+  askKey: string;
+  name: string;
+  question: string;
+  description?: string | null;
+  status: string;
+  projectId: string;
+  projectName?: string | null;
+  challengeId?: string | null;
+  startDate: string;
+  endDate: string;
+  isAnonymous: boolean;
+  maxParticipants?: number | null;
+  createdBy?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
