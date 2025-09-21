@@ -22,21 +22,21 @@ export function AskManager({ challenges, asks, onCreate, onUpdate, isLoading }: 
       <CardContent className="space-y-6">
         <div className="grid gap-6 md:grid-cols-2">
           <div className="space-y-4">
-            <h4 className="font-semibold text-sm text-muted-foreground">Créer une nouvelle session</h4>
+            <h4 className="font-semibold text-sm text-muted-foreground">Create a new session</h4>
             <AskCreateForm challenges={challenges} onSubmit={onCreate} isLoading={isLoading} />
           </div>
 
           <div className="space-y-4">
-            <h4 className="font-semibold text-sm text-muted-foreground">Modifier une session</h4>
+            <h4 className="font-semibold text-sm text-muted-foreground">Edit a session</h4>
             <AskEditForm asks={asks} onSubmit={onUpdate} isLoading={isLoading} />
           </div>
         </div>
 
         <div className="space-y-3">
-          <h4 className="font-semibold text-sm text-muted-foreground">Sessions ASK existantes</h4>
+          <h4 className="font-semibold text-sm text-muted-foreground">Existing ASK sessions</h4>
           <div className="space-y-2 max-h-60 overflow-y-auto pr-2">
             {asks.length === 0 && (
-              <p className="text-sm text-muted-foreground">Aucune session ASK enregistrée.</p>
+              <p className="text-sm text-muted-foreground">No ASK sessions registered yet.</p>
             )}
             {asks.map(ask => (
               <div key={ask.id} className="neumorphic-shadow p-3 rounded-lg bg-white/60">

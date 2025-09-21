@@ -32,7 +32,7 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
 
   const payload = await response.json();
   if (!response.ok || !payload.success) {
-    throw new Error(payload.error || payload.message || "Requête échouée");
+    throw new Error(payload.error || payload.message || "Request failed");
   }
   return payload.data as T;
 }
@@ -66,7 +66,7 @@ export function useAdminResources() {
       } catch (error) {
         setFeedback({
           type: "error",
-          message: error instanceof Error ? error.message : "Chargement impossible"
+          message: error instanceof Error ? error.message : "Unable to load data"
         });
       } finally {
         setIsLoading(false);
@@ -85,7 +85,7 @@ export function useAdminResources() {
     } catch (error) {
       setFeedback({
         type: "error",
-        message: error instanceof Error ? error.message : "Une erreur est survenue"
+        message: error instanceof Error ? error.message : "An error occurred"
       });
     } finally {
       setIsBusy(false);
@@ -107,39 +107,39 @@ export function useAdminResources() {
       await request("/api/admin/clients", { method: "POST", body: JSON.stringify(values) });
       const data = await request<ClientRecord[]>("/api/admin/clients");
       setClients(data ?? []);
-    }, "Client créé avec succès");
+    }, "Client created successfully");
 
   const createUser = (values: UserFormValues) =>
     handleAction(async () => {
       await request("/api/admin/users", { method: "POST", body: JSON.stringify(values) });
       const data = await request<ManagedUser[]>("/api/admin/users");
       setUsers(data ?? []);
-    }, "Utilisateur créé");
+    }, "User created");
 
   const createProject = (values: ProjectFormValues) =>
     handleAction(async () => {
       await request("/api/admin/projects", { method: "POST", body: JSON.stringify(values) });
       const data = await request<ProjectRecord[]>("/api/admin/projects");
       setProjects(data ?? []);
-    }, "Projet enregistré");
+    }, "Project saved");
 
   const updateChallenge = (challengeId: string, values: ChallengeFormValues) =>
     handleAction(async () => {
       await request(`/api/admin/challenges/${challengeId}`, { method: "PATCH", body: JSON.stringify(values) });
       await refreshChallenges();
-    }, "Challenge mis à jour");
+    }, "Challenge updated");
 
   const createAsk = (values: AskCreateFormValues & { projectId: string }) =>
     handleAction(async () => {
       await request("/api/admin/asks", { method: "POST", body: JSON.stringify(values) });
       await refreshAsks();
-    }, "Session ASK créée");
+    }, "ASK session created");
 
   const updateAsk = (askId: string, values: Omit<AskEditFormValues, "askId">) =>
     handleAction(async () => {
       await request(`/api/admin/asks/${askId}`, { method: "PATCH", body: JSON.stringify(values) });
       await refreshAsks();
-    }, "Session ASK mise à jour");
+    }, "ASK session updated");
 
   return {
     clients,
