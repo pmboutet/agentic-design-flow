@@ -121,29 +121,60 @@ npm run dev
 ```
 
 ### Environment Variables
+
+Create a `.env.local` file from the provided example and supply the values below. The sections are grouped so you can identify which settings you need for your deployment.
+
+#### Webhook Configuration
 ```env
-# Webhook Configuration
 WEBHOOK_SECRET=your-webhook-secret-here
 WEBHOOK_ENDPOINT=http://localhost:3000/api/webhook
 
-# External System Webhooks
 EXTERNAL_ASK_WEBHOOK=https://your-external-system.com/ask-webhook
 EXTERNAL_RESPONSE_WEBHOOK=https://your-external-system.com/response-webhook
 EXTERNAL_CHALLENGE_WEBHOOK=https://your-external-system.com/challenge-webhook
+```
 
-# Security
+#### Database & Persistence (Supabase via Vercel integration)
+```env
+# Core Supabase credentials (synced automatically when you connect the Vercel ↔ Supabase integration)
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_ANON_KEY=your-supabase-anon-key
+SUPABASE_SERVICE_ROLE_KEY=your-supabase-service-role-key
+SUPABASE_JWT_SECRET=your-supabase-jwt-secret
+
+# Mirror the project URL and anon key above so the browser can call Supabase directly
+NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your-supabase-anon-key
+
+# Optional: Postgres connection strings that Vercel keeps in sync with Supabase
+POSTGRES_URL=postgresql://user:password@host:6543/postgres
+POSTGRES_PRISMA_URL=postgresql://user:password@host:5432/postgres?pgbouncer=true&connection_limit=1
+POSTGRES_URL_NON_POOLING=postgresql://user:password@host:5432/postgres
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=super-secret-password
+POSTGRES_HOST=db.supabase.co
+POSTGRES_DATABASE=postgres
+```
+
+- When the Vercel project is linked to Supabase, these variables appear automatically in **Settings → Environment Variables**. For local development, run `vercel env pull .env.local` or copy the values into `.env.local` manually.
+- `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` should match the server-side values and are safe to expose to the browser.
+- Keep `SUPABASE_SERVICE_ROLE_KEY` and `SUPABASE_JWT_SECRET` **server-only**; never ship them to the client or commit them to version control.
+- Use the `POSTGRES_*` connection strings for SQL migrations, Prisma, BI tools, or debugging sessions instead of crafting your own `DATABASE_URL`.
+- The recommended schema and sample data remain documented in [`DATABASE_SETUP.md`](./DATABASE_SETUP.md).
+
+#### App URL & ASK Key Validation
+```env
 NEXT_PUBLIC_APP_URL=http://localhost:3000
 
-# ASK Key Configuration
 # ASK keys are used to identify sessions and should follow these rules:
 # - At least 3 characters long
 # - Less than 100 characters
 # - Only letters, numbers, dots (.), dashes (-), and underscores (_)
 # - Must contain at least one letter or number
-# 
+#
 # Valid examples:
 # - test-key-123
-# - user_session_456  
+# - user_session_456
 # - session.id.789
 # - ASK-2024-001
 #
@@ -169,6 +200,9 @@ vercel
 # Set environment variables in Vercel dashboard
 # Configure your production webhook URLs
 ```
+
+- Install the **Supabase** integration from your Vercel project settings to sync database credentials automatically.
+- Pull those variables locally with `vercel env pull .env.local` so development uses the same connection details.
 
 ## 🔗 Integration Guide
 
