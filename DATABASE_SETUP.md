@@ -301,7 +301,9 @@ POSTGRES_DATABASE=postgres
 EXTERNAL_RESPONSE_WEBHOOK=your-n8n-webhook-url
 ```
 
+
 - Run `vercel env pull .env.local` to copy the integration-managed variables into a local `.env.local` file for development.
 - `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` allow the front-end to connect to Supabase.
 - `SUPABASE_SERVICE_ROLE_KEY` and `SUPABASE_JWT_SECRET` provide privileged access and must stay server-side (environment variables only).
 - Use the `POSTGRES_*` variables for migrations, connecting BI tools, or executing SQL scripts locally instead of crafting a custom connection string.
+

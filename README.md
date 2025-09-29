@@ -134,6 +134,7 @@ EXTERNAL_RESPONSE_WEBHOOK=https://your-external-system.com/response-webhook
 EXTERNAL_CHALLENGE_WEBHOOK=https://your-external-system.com/challenge-webhook
 ```
 
+
 #### Database & Persistence (Supabase via Vercel integration)
 ```env
 # Core Supabase credentials (synced automatically when you connect the Vercel ↔ Supabase integration)
@@ -161,6 +162,7 @@ POSTGRES_DATABASE=postgres
 - Keep `SUPABASE_SERVICE_ROLE_KEY` and `SUPABASE_JWT_SECRET` **server-only**; never ship them to the client or commit them to version control.
 - Use the `POSTGRES_*` connection strings for SQL migrations, Prisma, BI tools, or debugging sessions instead of crafting your own `DATABASE_URL`.
 - The recommended schema and sample data remain documented in [`DATABASE_SETUP.md`](./DATABASE_SETUP.md).
+
 
 #### App URL & ASK Key Validation
 ```env
