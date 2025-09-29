@@ -104,3 +104,26 @@ export async function PATCH(
     }, { status });
   }
 }
+
+export async function DELETE(
+  _request: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const askId = z.string().uuid().parse(params.id);
+
+    const supabase = getAdminSupabaseClient();
+    const { error } = await supabase.from("ask_sessions").delete().eq("id", askId);
+
+    if (error) {
+      throw error;
+    }
+
+    return NextResponse.json<ApiResponse>({ success: true });
+  } catch (error) {
+    return NextResponse.json<ApiResponse>({
+      success: false,
+      error: error instanceof z.ZodError ? error.errors[0]?.message || "Invalid ASK id" : parseErrorMessage(error)
+    }, { status: error instanceof z.ZodError ? 400 : 500 });
+  }
+}
