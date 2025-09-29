@@ -277,19 +277,33 @@ https://your-app.vercel.app/test-key
 ### Environment Variables:
 
 ```env
-# Supabase (required for persisted storage)
+# Supabase credentials (synced automatically by the Vercel ↔ Supabase integration)
+SUPABASE_URL=your-supabase-project-url
+SUPABASE_ANON_KEY=your-supabase-anon-key
+SUPABASE_SERVICE_ROLE_KEY=your-supabase-service-role-key
+SUPABASE_JWT_SECRET=your-supabase-jwt-secret
+# Never expose the service role key or JWT secret in client-side code or public repos
+
+# Expose the project URL and anon key to the browser for Supabase client access
 NEXT_PUBLIC_SUPABASE_URL=your-supabase-project-url
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your-supabase-anon-key
-SUPABASE_SERVICE_ROLE_KEY=your-supabase-service-role-key
-# Never expose the service role key in client-side code or public repos
 
-# Optional: direct Postgres connection string when using Prisma or SQL clients
-# DATABASE_URL=postgresql://user:password@host:port/database
+# Postgres connection strings Vercel keeps in sync (helpful for SQL tooling and migrations)
+POSTGRES_URL=postgresql://user:password@host:6543/postgres
+POSTGRES_PRISMA_URL=postgresql://user:password@host:5432/postgres?pgbouncer=true&connection_limit=1
+POSTGRES_URL_NON_POOLING=postgresql://user:password@host:5432/postgres
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=super-secret-password
+POSTGRES_HOST=db.supabase.co
+POSTGRES_DATABASE=postgres
 
 # n8n Webhook
 EXTERNAL_RESPONSE_WEBHOOK=your-n8n-webhook-url
 ```
 
+
+- Run `vercel env pull .env.local` to copy the integration-managed variables into a local `.env.local` file for development.
 - `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` allow the front-end to connect to Supabase.
-- `SUPABASE_SERVICE_ROLE_KEY` provides admin access and must stay server-side (environment variables only).
-- `DATABASE_URL` is helpful when running migrations, connecting BI tools, or executing SQL scripts locally.
+- `SUPABASE_SERVICE_ROLE_KEY` and `SUPABASE_JWT_SECRET` provide privileged access and must stay server-side (environment variables only).
+- Use the `POSTGRES_*` variables for migrations, connecting BI tools, or executing SQL scripts locally instead of crafting a custom connection string.
+
