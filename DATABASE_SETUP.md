@@ -277,11 +277,19 @@ https://your-app.vercel.app/test-key
 ### Environment Variables:
 
 ```env
-# Supabase
+# Supabase (required for persisted storage)
 NEXT_PUBLIC_SUPABASE_URL=your-supabase-project-url
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your-supabase-anon-key
 SUPABASE_SERVICE_ROLE_KEY=your-supabase-service-role-key
+# Never expose the service role key in client-side code or public repos
+
+# Optional: direct Postgres connection string when using Prisma or SQL clients
+# DATABASE_URL=postgresql://user:password@host:port/database
 
 # n8n Webhook
 EXTERNAL_RESPONSE_WEBHOOK=your-n8n-webhook-url
 ```
+
+- `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` allow the front-end to connect to Supabase.
+- `SUPABASE_SERVICE_ROLE_KEY` provides admin access and must stay server-side (environment variables only).
+- `DATABASE_URL` is helpful when running migrations, connecting BI tools, or executing SQL scripts locally.

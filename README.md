@@ -121,29 +121,47 @@ npm run dev
 ```
 
 ### Environment Variables
+
+Create a `.env.local` file from the provided example and supply the values below. The sections are grouped so you can identify which settings you need for your deployment.
+
+#### Webhook Configuration
 ```env
-# Webhook Configuration
 WEBHOOK_SECRET=your-webhook-secret-here
 WEBHOOK_ENDPOINT=http://localhost:3000/api/webhook
 
-# External System Webhooks
 EXTERNAL_ASK_WEBHOOK=https://your-external-system.com/ask-webhook
 EXTERNAL_RESPONSE_WEBHOOK=https://your-external-system.com/response-webhook
 EXTERNAL_CHALLENGE_WEBHOOK=https://your-external-system.com/challenge-webhook
+```
 
-# Security
+#### Database & Persistence (Supabase)
+```env
+NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your-supabase-anon-key
+SUPABASE_SERVICE_ROLE_KEY=your-supabase-service-role-key
+
+# Optional: direct connection string if you access Postgres without Supabase client helpers
+DATABASE_URL=postgresql://user:password@host:port/database
+```
+
+- `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` are required when the UI needs to read data directly from Supabase (they are safe to expose to the browser).
+- `SUPABASE_SERVICE_ROLE_KEY` is **server-only** and enables privileged operations such as challenge management; never expose it to the browser or commit it to version control.
+- `DATABASE_URL` is optional and useful if you connect to the Postgres instance through tools like Prisma or direct SQL clients.
+- The recommended schema and seed data are documented in [`DATABASE_SETUP.md`](./DATABASE_SETUP.md).
+
+#### App URL & ASK Key Validation
+```env
 NEXT_PUBLIC_APP_URL=http://localhost:3000
 
-# ASK Key Configuration
 # ASK keys are used to identify sessions and should follow these rules:
 # - At least 3 characters long
 # - Less than 100 characters
 # - Only letters, numbers, dots (.), dashes (-), and underscores (_)
 # - Must contain at least one letter or number
-# 
+#
 # Valid examples:
 # - test-key-123
-# - user_session_456  
+# - user_session_456
 # - session.id.789
 # - ASK-2024-001
 #
