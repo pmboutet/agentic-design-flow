@@ -31,8 +31,8 @@ export function AdminDashboard() {
 
   const stats = [
     { label: "Clients", value: clients.length, icon: Building2 },
-    { label: "Utilisateurs", value: users.length, icon: Users },
-    { label: "Projets", value: projects.length, icon: ClipboardList },
+    { label: "Users", value: users.length, icon: Users },
+    { label: "Projects", value: projects.length, icon: ClipboardList },
     { label: "ASK", value: asks.length, icon: MessageSquare }
   ];
 
@@ -49,7 +49,7 @@ export function AdminDashboard() {
               <h1 className="text-2xl font-bold bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
                 Backoffice Agentic Design Flow
               </h1>
-              <p className="text-sm text-muted-foreground">Gestion centralisée des clients, projets, challenges et sessions ASK</p>
+              <p className="text-sm text-muted-foreground">Centralized management of clients, projects, challenges, and ASK sessions</p>
             </div>
           </div>
         </div>
@@ -67,7 +67,7 @@ export function AdminDashboard() {
               onClick={() => setFeedback(null)}
               className="text-xs text-muted-foreground underline"
             >
-              Fermer
+              Close
             </button>
           </Alert>
         )}
@@ -87,7 +87,7 @@ export function AdminDashboard() {
         </div>
 
         {isLoading ? (
-          <div className="text-center text-muted-foreground">Chargement des données...</div>
+          <div className="text-center text-muted-foreground">Loading data...</div>
         ) : (
           <div className="space-y-8">
             <div className="grid gap-6 md:grid-cols-2">

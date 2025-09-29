@@ -12,7 +12,7 @@ import { type ClientRecord, type ManagedUser } from "@/types";
 const roles = ["full_admin", "project_admin", "facilitator", "manager", "participant", "user"] as const;
 
 const formSchema = z.object({
-  email: z.string().trim().email("Email invalide").max(255),
+  email: z.string().trim().email("Invalid email").max(255),
   firstName: z.string().trim().max(100).optional().or(z.literal("")),
   lastName: z.string().trim().max(100).optional().or(z.literal("")),
   role: z.enum(roles),
@@ -50,71 +50,100 @@ export function UserManager({ clients, users, onCreate, isLoading }: UserManager
   return (
     <Card className="glass-card">
       <CardHeader>
-        <CardTitle>Utilisateurs</CardTitle>
+        <CardTitle>Users</CardTitle>
       </CardHeader>
       <CardContent className="space-y-6">
         <form onSubmit={form.handleSubmit(handleSubmit)} className="grid gap-4 md:grid-cols-3">
           <div className="flex flex-col gap-2">
             <Label htmlFor="user-email">Email</Label>
-            <Input id="user-email" type="email" {...form.register("email")}
-              placeholder="utilisateur@client.com" disabled={isLoading} />
+            <Input
+              id="user-email"
+              type="email"
+              {...form.register("email")}
+              placeholder="user@client.com"
+              disabled={isLoading}
+            />
             {form.formState.errors.email && (
               <p className="text-sm text-destructive">{form.formState.errors.email.message}</p>
             )}
           </div>
 
           <div className="flex flex-col gap-2">
-            <Label htmlFor="user-first">Prénom</Label>
-            <Input id="user-first" {...form.register("firstName")}
-              placeholder="Prénom" disabled={isLoading} />
+            <Label htmlFor="user-first">First name</Label>
+            <Input
+              id="user-first"
+              {...form.register("firstName")}
+              placeholder="First name"
+              disabled={isLoading}
+            />
           </div>
 
           <div className="flex flex-col gap-2">
-            <Label htmlFor="user-last">Nom</Label>
-            <Input id="user-last" {...form.register("lastName")}
-              placeholder="Nom" disabled={isLoading} />
+            <Label htmlFor="user-last">Last name</Label>
+            <Input
+              id="user-last"
+              {...form.register("lastName")}
+              placeholder="Last name"
+              disabled={isLoading}
+            />
           </div>
 
           <div className="flex flex-col gap-2">
-            <Label htmlFor="user-role">Rôle</Label>
-            <select id="user-role" {...form.register("role")}
-              className="h-10 rounded-md border border-border bg-white/70 px-3 text-sm" disabled={isLoading}>
+            <Label htmlFor="user-role">Role</Label>
+            <select
+              id="user-role"
+              {...form.register("role")}
+              className="h-10 rounded-md border border-border bg-white/70 px-3 text-sm"
+              disabled={isLoading}
+            >
               {roles.map(role => (
-                <option key={role} value={role}>{role}</option>
+                <option key={role} value={role}>
+                  {role}
+                </option>
               ))}
             </select>
           </div>
 
           <div className="flex flex-col gap-2">
             <Label htmlFor="user-client">Client</Label>
-            <select id="user-client" {...form.register("clientId")}
-              className="h-10 rounded-md border border-border bg-white/70 px-3 text-sm" disabled={isLoading}>
-              <option value="">Aucun</option>
+            <select
+              id="user-client"
+              {...form.register("clientId")}
+              className="h-10 rounded-md border border-border bg-white/70 px-3 text-sm"
+              disabled={isLoading}
+            >
+              <option value="">None</option>
               {clients.map(client => (
-                <option key={client.id} value={client.id}>{client.name}</option>
+                <option key={client.id} value={client.id}>
+                  {client.name}
+                </option>
               ))}
             </select>
           </div>
 
           <div className="flex items-center gap-2">
-            <input id="user-active" type="checkbox" className="h-4 w-4"
+            <input
+              id="user-active"
+              type="checkbox"
+              className="h-4 w-4"
               {...form.register("isActive")}
-              disabled={isLoading} />
-            <Label htmlFor="user-active">Actif</Label>
+              disabled={isLoading}
+            />
+            <Label htmlFor="user-active">Active</Label>
           </div>
 
           <div className="md:col-span-3 flex justify-end">
             <Button type="submit" className="neumorphic-raised" disabled={isLoading}>
-              Créer l'utilisateur
+              Create user
             </Button>
           </div>
         </form>
 
         <div className="space-y-3">
-          <h4 className="font-semibold text-sm text-muted-foreground">Derniers utilisateurs</h4>
+          <h4 className="font-semibold text-sm text-muted-foreground">Recent users</h4>
           <div className="space-y-2 max-h-60 overflow-y-auto pr-2">
             {users.length === 0 && (
-              <p className="text-sm text-muted-foreground">Aucun utilisateur enregistré pour le moment.</p>
+              <p className="text-sm text-muted-foreground">No users registered yet.</p>
             )}
             {users.map(user => (
               <div key={user.id} className="neumorphic-shadow p-3 rounded-lg bg-white/60">
@@ -128,8 +157,8 @@ export function UserManager({ clients, users, onCreate, isLoading }: UserManager
                   </span>
                 </div>
                 <div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
-                  <span>{user.clientName || "Sans client"}</span>
-                  <span>{user.isActive ? "Actif" : "Inactif"}</span>
+                  <span>{user.clientName || "No client"}</span>
+                  <span>{user.isActive ? "Active" : "Inactive"}</span>
                 </div>
               </div>
             ))}

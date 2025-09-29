@@ -15,7 +15,7 @@ const statusOptions = ["open", "in_progress", "active", "closed", "archived"] as
 const priorityOptions = ["low", "medium", "high", "critical"] as const;
 
 const formSchema = z.object({
-  name: z.string().trim().min(1, "Le nom est requis").max(255),
+  name: z.string().trim().min(1, "Name is required").max(255),
   description: z.string().trim().max(2000).optional().or(z.literal("")),
   status: z.enum(statusOptions),
   priority: z.enum(priorityOptions),
@@ -86,7 +86,7 @@ export function ChallengeEditor({ challenges, users, onSave, isLoading }: Challe
       </CardHeader>
       <CardContent className="space-y-6">
         <div className="flex flex-col gap-2">
-          <Label htmlFor="challenge-select">Sélectionner un challenge</Label>
+          <Label htmlFor="challenge-select">Select a challenge</Label>
           <select
             id="challenge-select"
             value={selectedId}
@@ -105,68 +105,101 @@ export function ChallengeEditor({ challenges, users, onSave, isLoading }: Challe
         {selectedChallenge ? (
           <form onSubmit={form.handleSubmit(handleSubmit)} className="grid gap-4 md:grid-cols-2">
             <div className="flex flex-col gap-2 md:col-span-2">
-              <Label htmlFor="challenge-name">Nom</Label>
-              <Input id="challenge-name" {...form.register("name")}
-                disabled={isLoading} />
+              <Label htmlFor="challenge-name">Name</Label>
+              <Input
+                id="challenge-name"
+                {...form.register("name")}
+                disabled={isLoading}
+              />
             </div>
 
             <div className="flex flex-col gap-2 md:col-span-2">
               <Label htmlFor="challenge-description">Description</Label>
-              <Textarea id="challenge-description" rows={3} {...form.register("description")}
-                disabled={isLoading} />
+              <Textarea
+                id="challenge-description"
+                rows={3}
+                {...form.register("description")}
+                disabled={isLoading}
+              />
             </div>
 
             <div className="flex flex-col gap-2">
-              <Label htmlFor="challenge-status">Statut</Label>
-              <select id="challenge-status" {...form.register("status")}
-                className="h-10 rounded-md border border-border bg-white/70 px-3 text-sm" disabled={isLoading}>
+              <Label htmlFor="challenge-status">Status</Label>
+              <select
+                id="challenge-status"
+                {...form.register("status")}
+                className="h-10 rounded-md border border-border bg-white/70 px-3 text-sm"
+                disabled={isLoading}
+              >
                 {statusOptions.map(status => (
-                  <option key={status} value={status}>{status}</option>
+                  <option key={status} value={status}>
+                    {status}
+                  </option>
                 ))}
               </select>
             </div>
 
             <div className="flex flex-col gap-2">
-              <Label htmlFor="challenge-priority">Priorité</Label>
-              <select id="challenge-priority" {...form.register("priority")}
-                className="h-10 rounded-md border border-border bg-white/70 px-3 text-sm" disabled={isLoading}>
+              <Label htmlFor="challenge-priority">Priority</Label>
+              <select
+                id="challenge-priority"
+                {...form.register("priority")}
+                className="h-10 rounded-md border border-border bg-white/70 px-3 text-sm"
+                disabled={isLoading}
+              >
                 {priorityOptions.map(priority => (
-                  <option key={priority} value={priority}>{priority}</option>
+                  <option key={priority} value={priority}>
+                    {priority}
+                  </option>
                 ))}
               </select>
             </div>
 
             <div className="flex flex-col gap-2">
-              <Label htmlFor="challenge-category">Catégorie</Label>
-              <Input id="challenge-category" {...form.register("category")}
-                placeholder="Opérationnel, Technique…" disabled={isLoading} />
+              <Label htmlFor="challenge-category">Category</Label>
+              <Input
+                id="challenge-category"
+                {...form.register("category")}
+                placeholder="Operational, Technical…"
+                disabled={isLoading}
+              />
             </div>
 
             <div className="flex flex-col gap-2">
-              <Label htmlFor="challenge-owner">Assigné à</Label>
-              <select id="challenge-owner" {...form.register("assignedTo")}
-                className="h-10 rounded-md border border-border bg-white/70 px-3 text-sm" disabled={isLoading}>
-                <option value="">Aucun</option>
+              <Label htmlFor="challenge-owner">Assigned to</Label>
+              <select
+                id="challenge-owner"
+                {...form.register("assignedTo")}
+                className="h-10 rounded-md border border-border bg-white/70 px-3 text-sm"
+                disabled={isLoading}
+              >
+                <option value="">None</option>
                 {users.map(user => (
-                  <option key={user.id} value={user.id}>{user.fullName || user.email}</option>
+                  <option key={user.id} value={user.id}>
+                    {user.fullName || user.email}
+                  </option>
                 ))}
               </select>
             </div>
 
             <div className="flex flex-col gap-2">
-              <Label htmlFor="challenge-due">Échéance</Label>
-              <Input id="challenge-due" type="datetime-local" {...form.register("dueDate")}
-                disabled={isLoading} />
+              <Label htmlFor="challenge-due">Due date</Label>
+              <Input
+                id="challenge-due"
+                type="datetime-local"
+                {...form.register("dueDate")}
+                disabled={isLoading}
+              />
             </div>
 
             <div className="md:col-span-2 flex justify-end">
               <Button type="submit" className="neumorphic-raised" disabled={isLoading}>
-                Mettre à jour le challenge
+                Update challenge
               </Button>
             </div>
           </form>
         ) : (
-          <p className="text-sm text-muted-foreground">Aucun challenge à afficher.</p>
+          <p className="text-sm text-muted-foreground">No challenges to display.</p>
         )}
       </CardContent>
     </Card>
