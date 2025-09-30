@@ -13,7 +13,8 @@ const formSchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(255),
   email: z.string().trim().email("Invalid email").max(255).optional().or(z.literal("")),
   company: z.string().trim().max(255).optional().or(z.literal("")),
-  industry: z.string().trim().max(100).optional().or(z.literal(""))
+  industry: z.string().trim().max(100).optional().or(z.literal("")),
+  status: z.enum(["active", "inactive"]).default("active")
 });
 
 export type ClientFormValues = z.infer<typeof formSchema>;
@@ -21,10 +22,11 @@ export type ClientFormValues = z.infer<typeof formSchema>;
 interface ClientManagerProps {
   clients: ClientRecord[];
   onCreate: (values: ClientFormValues) => Promise<void>;
+  onUpdate: (clientId: string, values: ClientFormValues) => Promise<void>;
   isLoading?: boolean;
 }
 
-export function ClientManager({ clients, onCreate, isLoading }: ClientManagerProps) {
+export function ClientManager({ clients, onCreate, onUpdate, isLoading }: ClientManagerProps) {
   const form = useForm<ClientFormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: { name: "", email: "", company: "", industry: "" }

@@ -12,6 +12,7 @@ import {
   ClipboardList,
   FolderKanban,
   LayoutDashboard,
+  Pencil,
   MessageSquare,
   Search,
   Settings,
@@ -29,7 +30,8 @@ const clientFormSchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(255),
   email: z.string().trim().email("Invalid email address").max(255).optional().or(z.literal("")),
   company: z.string().trim().max(255).optional().or(z.literal("")),
-  industry: z.string().trim().max(100).optional().or(z.literal(""))
+  industry: z.string().trim().max(100).optional().or(z.literal("")),
+  status: z.enum(["active", "inactive"]).default("active")
 });
 
 const projectStatuses = ["active", "paused", "completed", "archived"] as const;
@@ -77,10 +79,22 @@ const askFormSchema = z.object({
     )
 });
 
+const userRoles = ["full_admin", "project_admin", "facilitator", "manager", "participant", "user"] as const;
+
+const userFormSchema = z.object({
+  email: z.string().trim().email("Invalid email").max(255),
+  firstName: z.string().trim().max(100).optional().or(z.literal("")),
+  lastName: z.string().trim().max(100).optional().or(z.literal("")),
+  role: z.enum(userRoles).default("user"),
+  clientId: z.string().trim().optional().or(z.literal("")),
+  isActive: z.boolean().default(true)
+});
+
 type ClientFormInput = z.infer<typeof clientFormSchema>;
 type ProjectFormInput = z.infer<typeof projectFormSchema>;
 type ChallengeFormInput = z.infer<typeof challengeFormSchema>;
 type AskFormInput = z.infer<typeof askFormSchema>;
+type UserFormInput = z.infer<typeof userFormSchema>;
 
 const gradientButtonClasses =
   "bg-gradient-to-r from-pink-500 via-fuchsia-500 to-indigo-500 text-white shadow-lg hover:shadow-xl focus-visible:ring-white/70";
@@ -90,6 +104,44 @@ type ColumnWidths = [number, number, number];
 const defaultColumnWidths: ColumnWidths = [320, 360, 460];
 const minColumnWidths: ColumnWidths = [260, 300, 360];
 const maxColumnWidths: ColumnWidths = [520, 560, 680];
+
+const defaultClientFormValues: ClientFormInput = {
+  name: "",
+  email: "",
+  company: "",
+  industry: "",
+  status: "active"
+};
+
+const defaultProjectFormValues: ProjectFormInput = {
+  name: "",
+  description: "",
+  startDate: "",
+  endDate: "",
+  status: "active",
+  createdBy: ""
+};
+
+const defaultAskFormValues: AskFormInput = {
+  askKey: "",
+  name: "",
+  question: "",
+  description: "",
+  startDate: "",
+  endDate: "",
+  status: "active",
+  isAnonymous: false,
+  maxParticipants: undefined
+};
+
+const defaultUserFormValues: UserFormInput = {
+  email: "",
+  firstName: "",
+  lastName: "",
+  role: "user",
+  clientId: "",
+  isActive: true
+};
 
 const navigationItems = [
   { label: "Dashboard", icon: LayoutDashboard, targetId: "section-dashboard" },
@@ -131,6 +183,17 @@ function generateAskKey(base: string) {
   return `${slug || "ask"}-${randomSuffix}`;
 }
 
+function toInputDate(value: string | null | undefined) {
+  if (!value) {
+    return "";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  return date.toISOString().slice(0, 16);
+}
+
 export function AdminDashboard() {
   const {
     clients,
@@ -143,9 +206,14 @@ export function AdminDashboard() {
     isLoading,
     isBusy,
     createClient,
+    updateClient,
+    createUser,
+    updateUser,
     createProject,
+    updateProject,
     updateChallenge,
     createAsk,
+    updateAsk,
     deleteClient,
     deleteProject,
     deleteChallenge,
@@ -159,10 +227,16 @@ export function AdminDashboard() {
   const [showClientForm, setShowClientForm] = useState(false);
   const [showProjectForm, setShowProjectForm] = useState(false);
   const [showAskForm, setShowAskForm] = useState(false);
+  const [showUserForm, setShowUserForm] = useState(false);
   const [manualAskKey, setManualAskKey] = useState(false);
   const [activeSection, setActiveSection] = useState<SectionLabel>(navigationItems[0].label);
   const [columnWidths, setColumnWidths] = useState<ColumnWidths>(defaultColumnWidths);
   const [isLargeScreen, setIsLargeScreen] = useState(false);
+
+  const [editingClientId, setEditingClientId] = useState<string | null>(null);
+  const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
+  const [editingAskId, setEditingAskId] = useState<string | null>(null);
+  const [editingUserId, setEditingUserId] = useState<string | null>(null);
 
   const dashboardRef = useRef<HTMLDivElement>(null);
   const clientsRef = useRef<HTMLDivElement>(null);
@@ -193,12 +267,12 @@ export function AdminDashboard() {
 
   const clientForm = useForm<ClientFormInput>({
     resolver: zodResolver(clientFormSchema),
-    defaultValues: { name: "", email: "", company: "", industry: "" }
+    defaultValues: defaultClientFormValues
   });
 
   const projectForm = useForm<ProjectFormInput>({
     resolver: zodResolver(projectFormSchema),
-    defaultValues: { name: "", description: "", startDate: "", endDate: "", status: "active", createdBy: "" }
+    defaultValues: defaultProjectFormValues
   });
 
   const challengeForm = useForm<ChallengeFormInput>({
@@ -216,17 +290,12 @@ export function AdminDashboard() {
 
   const askForm = useForm<AskFormInput>({
     resolver: zodResolver(askFormSchema),
-    defaultValues: {
-      askKey: "",
-      name: "",
-      question: "",
-      description: "",
-      startDate: "",
-      endDate: "",
-      status: "active",
-      isAnonymous: false,
-      maxParticipants: undefined
-    }
+    defaultValues: defaultAskFormValues
+  });
+
+  const userForm = useForm<UserFormInput>({
+    resolver: zodResolver(userFormSchema),
+    defaultValues: defaultUserFormValues
   });
 
   const askNameValue = askForm.watch("name");
@@ -325,6 +394,11 @@ export function AdminDashboard() {
     () => challenges.find(challenge => challenge.id === selectedChallengeId) ?? null,
     [challenges, selectedChallengeId]
   );
+
+  const isEditingClient = Boolean(editingClientId);
+  const isEditingProject = Boolean(editingProjectId);
+  const isEditingAsk = Boolean(editingAskId);
+  const isEditingUser = Boolean(editingUserId);
 
   useEffect(() => {
     if (!selectedChallenge) {
@@ -481,21 +555,82 @@ export function AdminDashboard() {
     [sectionRefMap]
   );
 
-  const handleCreateClient = async (values: ClientFormInput) => {
-    await createClient(values);
-    clientForm.reset({ name: "", email: "", company: "", industry: "" });
+  const resetClientForm = () => {
+    clientForm.reset(defaultClientFormValues);
+    setEditingClientId(null);
+  };
+
+  const handleSubmitClient = async (values: ClientFormInput) => {
+    if (editingClientId) {
+      await updateClient(editingClientId, values);
+    } else {
+      await createClient(values);
+    }
+    resetClientForm();
     setShowClientForm(false);
   };
 
-  const handleCreateProject = async (values: ProjectFormInput) => {
-    if (!selectedClientId) {
+  const startClientEdit = (clientId: string) => {
+    const client = clients.find(item => item.id === clientId);
+    if (!client) {
       return;
     }
-    await createProject({
-      ...values,
-      clientId: selectedClientId
+    setShowClientForm(true);
+    setEditingClientId(client.id);
+    clientForm.reset({
+      name: client.name,
+      email: client.email ?? "",
+      company: client.company ?? "",
+      industry: client.industry ?? "",
+      status: (client.status as ClientFormInput["status"]) || "active"
     });
-    projectForm.reset({ name: "", description: "", startDate: "", endDate: "", status: "active", createdBy: "" });
+  };
+
+  const cancelClientEdit = () => {
+    resetClientForm();
+    setShowClientForm(false);
+  };
+
+  const resetProjectForm = () => {
+    projectForm.reset(defaultProjectFormValues);
+    setEditingProjectId(null);
+  };
+
+  const handleSubmitProject = async (values: ProjectFormInput) => {
+    const targetClientId = selectedClientId || selectedProject?.clientId;
+    if (!targetClientId) {
+      return;
+    }
+
+    if (editingProjectId) {
+      await updateProject(editingProjectId, { ...values, clientId: targetClientId });
+    } else {
+      await createProject({ ...values, clientId: targetClientId });
+    }
+
+    resetProjectForm();
+    setShowProjectForm(false);
+  };
+
+  const startProjectEdit = (projectId: string) => {
+    const project = projects.find(item => item.id === projectId);
+    if (!project) {
+      return;
+    }
+    setShowProjectForm(true);
+    setEditingProjectId(project.id);
+    projectForm.reset({
+      name: project.name,
+      description: project.description ?? "",
+      startDate: toInputDate(project.startDate),
+      endDate: toInputDate(project.endDate),
+      status: (project.status as ProjectFormInput["status"]) || "active",
+      createdBy: project.createdBy ?? ""
+    });
+  };
+
+  const cancelProjectEdit = () => {
+    resetProjectForm();
     setShowProjectForm(false);
   };
 
@@ -506,28 +641,94 @@ export function AdminDashboard() {
     await updateChallenge(selectedChallenge.id, values);
   };
 
-  const handleCreateAsk = async (values: AskFormInput) => {
+  const resetAskForm = () => {
+    askForm.reset(defaultAskFormValues);
+    setEditingAskId(null);
+    setManualAskKey(false);
+  };
+
+  const handleSubmitAsk = async (values: AskFormInput) => {
     if (!selectedChallenge || !selectedProject) {
       return;
     }
-    await createAsk({
-      ...values,
-      projectId: selectedProject.id,
-      challengeId: selectedChallenge.id
-    });
-    askForm.reset({
-      askKey: "",
-      name: "",
-      question: "",
-      description: "",
-      startDate: "",
-      endDate: "",
-      status: "active",
-      isAnonymous: false,
-      maxParticipants: undefined
-    });
+
+    if (editingAskId) {
+      const { askKey: _askKey, ...payload } = values;
+      await updateAsk(editingAskId, payload);
+    } else {
+      await createAsk({
+        ...values,
+        projectId: selectedProject.id,
+        challengeId: selectedChallenge.id
+      });
+    }
+
+    resetAskForm();
     setShowAskForm(false);
-    setManualAskKey(false);
+  };
+
+  const startAskEdit = (askId: string) => {
+    const session = asks.find(item => item.id === askId);
+    if (!session) {
+      return;
+    }
+    setShowAskForm(true);
+    setEditingAskId(session.id);
+    setManualAskKey(true);
+    askForm.reset({
+      askKey: session.askKey,
+      name: session.name,
+      question: session.question,
+      description: session.description ?? "",
+      startDate: toInputDate(session.startDate),
+      endDate: toInputDate(session.endDate),
+      status: (session.status as AskFormInput["status"]) || "active",
+      isAnonymous: session.isAnonymous,
+      maxParticipants: session.maxParticipants ?? undefined
+    });
+  };
+
+  const cancelAskEdit = () => {
+    resetAskForm();
+    setShowAskForm(false);
+  };
+
+  const resetUserForm = () => {
+    userForm.reset({ ...defaultUserFormValues, clientId: selectedClientId ?? "" });
+    setEditingUserId(null);
+  };
+
+  const handleSubmitUser = async (values: UserFormInput) => {
+    const payload = { ...values };
+    if (editingUserId) {
+      await updateUser(editingUserId, payload);
+    } else {
+      await createUser(payload);
+    }
+    resetUserForm();
+    setShowUserForm(false);
+  };
+
+  const startUserEdit = (userId: string) => {
+    const user = users.find(item => item.id === userId);
+    if (!user) {
+      return;
+    }
+    setShowUserForm(true);
+    setEditingUserId(user.id);
+    userForm.reset({
+      email: user.email,
+      firstName: user.firstName ?? "",
+      lastName: user.lastName ?? "",
+      role: (user.role as UserFormInput["role"]) || "user",
+      clientId: user.clientId ?? "",
+      isActive: user.isActive
+    });
+  };
+
+  const cancelUserEdit = () => {
+    resetUserForm();
+    setShowUserForm(false);
   };
 
   const handleDeleteClient = async (clientId: string) => {
@@ -728,7 +929,14 @@ export function AdminDashboard() {
                     <Button
                       type="button"
                       className={`${gradientButtonClasses} h-9 px-4 text-xs`}
-                      onClick={() => setShowClientForm(value => !value)}
+                      onClick={() => {
+                        if (showClientForm) {
+                          cancelClientEdit();
+                        } else {
+                          resetClientForm();
+                          setShowClientForm(true);
+                        }
+                      }}
                       disabled={isBusy}
                     >
                       {showClientForm ? "Close" : "Add client"}
@@ -737,9 +945,14 @@ export function AdminDashboard() {
 
                   {showClientForm && (
                     <form
-                      onSubmit={clientForm.handleSubmit(handleCreateClient)}
+                      onSubmit={clientForm.handleSubmit(handleSubmitClient)}
                       className="space-y-3 rounded-2xl border border-white/10 bg-slate-900/40 p-4"
                     >
+                      {isEditingClient && (
+                        <p className="text-xs font-medium text-amber-300">
+                          Editing {clients.find(client => client.id === editingClientId)?.name}
+                        </p>
+                      )}
                       <div className="flex flex-col gap-2">
                         <Label htmlFor="client-name">Name</Label>
                         <Input
@@ -782,9 +995,32 @@ export function AdminDashboard() {
                           disabled={isBusy}
                         />
                       </div>
-                      <div className="flex justify-end">
+                      <div className="flex flex-col gap-2">
+                        <Label htmlFor="client-status">Status</Label>
+                        <select
+                          id="client-status"
+                          className="h-10 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm text-white"
+                          {...clientForm.register("status")}
+                          disabled={isBusy}
+                        >
+                          <option value="active">Active</option>
+                          <option value="inactive">Inactive</option>
+                        </select>
+                      </div>
+                      <div className="flex justify-end gap-2">
+                        {isEditingClient && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="border-white/20 bg-transparent text-white hover:bg-white/10"
+                            onClick={cancelClientEdit}
+                            disabled={isBusy}
+                          >
+                            Cancel
+                          </Button>
+                        )}
                         <Button type="submit" className={`${gradientButtonClasses} px-4`} disabled={isBusy}>
-                          Save client
+                          {isEditingClient ? "Update client" : "Save client"}
                         </Button>
                       </div>
                     </form>
@@ -824,14 +1060,24 @@ export function AdminDashboard() {
                             <span>
                               {projects.filter(project => project.clientId === client.id).length} projects
                             </span>
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteClient(client.id)}
-                              className="text-red-300 hover:text-red-200"
-                              disabled={isBusy}
-                            >
-                              Delete
-                            </button>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => startClientEdit(client.id)}
+                                className="text-slate-200 hover:text-white"
+                                disabled={isBusy}
+                              >
+                                Edit
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteClient(client.id)}
+                                className="text-red-300 hover:text-red-200"
+                                disabled={isBusy}
+                              >
+                                Delete
+                              </button>
+                            </div>
                           </div>
                         </article>
                       ))
@@ -863,7 +1109,14 @@ export function AdminDashboard() {
                     <Button
                       type="button"
                       className={`${gradientButtonClasses} h-9 px-4 text-xs`}
-                      onClick={() => setShowProjectForm(value => !value)}
+                      onClick={() => {
+                        if (showProjectForm) {
+                          cancelProjectEdit();
+                        } else {
+                          resetProjectForm();
+                          setShowProjectForm(true);
+                        }
+                      }}
                       disabled={!selectedClient || isBusy}
                     >
                       {showProjectForm ? "Close" : "Add project"}
@@ -878,9 +1131,14 @@ export function AdminDashboard() {
 
                   {showProjectForm && selectedClient && (
                     <form
-                      onSubmit={projectForm.handleSubmit(handleCreateProject)}
+                      onSubmit={projectForm.handleSubmit(handleSubmitProject)}
                       className="space-y-3 rounded-2xl border border-white/10 bg-slate-900/40 p-4"
                     >
+                      {isEditingProject && (
+                        <p className="text-xs font-medium text-amber-300">
+                          Editing {projects.find(project => project.id === editingProjectId)?.name}
+                        </p>
+                      )}
                       <div className="flex flex-col gap-2">
                         <Label htmlFor="project-name">Name</Label>
                         <Input
@@ -952,9 +1210,20 @@ export function AdminDashboard() {
                           </select>
                         </div>
                       </div>
-                      <div className="flex justify-end">
+                      <div className="flex justify-end gap-2">
+                        {isEditingProject && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="border-white/20 bg-transparent text-white hover:bg-white/10"
+                            onClick={cancelProjectEdit}
+                            disabled={isBusy}
+                          >
+                            Cancel
+                          </Button>
+                        )}
                         <Button type="submit" className={`${gradientButtonClasses} px-4`} disabled={isBusy}>
-                          Save project
+                          {isEditingProject ? "Update project" : "Save project"}
                         </Button>
                       </div>
                     </form>
@@ -990,14 +1259,24 @@ export function AdminDashboard() {
                             <span>
                               {challenges.filter(challenge => challenge.projectId === project.id).length} challenges
                             </span>
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteProject(project.id)}
-                              className="text-red-300 hover:text-red-200"
-                              disabled={isBusy}
-                            >
-                              Delete
-                            </button>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => startProjectEdit(project.id)}
+                                className="text-slate-200 hover:text-white"
+                                disabled={isBusy}
+                              >
+                                Edit
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteProject(project.id)}
+                                className="text-red-300 hover:text-red-200"
+                                disabled={isBusy}
+                              >
+                                Delete
+                              </button>
+                            </div>
                           </div>
                         </article>
                       ))
@@ -1192,20 +1471,11 @@ export function AdminDashboard() {
                                   type="button"
                                   className={`${gradientButtonClasses} h-9 px-3 text-xs`}
                                   onClick={() => {
-                                    setShowAskForm(value => !value);
-                                    if (!showAskForm) {
-                                      askForm.reset({
-                                        askKey: "",
-                                        name: "",
-                                        question: "",
-                                        description: "",
-                                        startDate: "",
-                                        endDate: "",
-                                        status: "active",
-                                        isAnonymous: false,
-                                        maxParticipants: undefined
-                                      });
-                                      setManualAskKey(false);
+                                    if (showAskForm) {
+                                      cancelAskEdit();
+                                    } else {
+                                      resetAskForm();
+                                      setShowAskForm(true);
                                     }
                                   }}
                                   disabled={isBusy}
@@ -1215,7 +1485,12 @@ export function AdminDashboard() {
                               </div>
 
                               {showAskForm && (
-                                <form onSubmit={askForm.handleSubmit(handleCreateAsk)} className="space-y-3 rounded-2xl border border-white/10 bg-slate-950/40 p-4">
+                                <form onSubmit={askForm.handleSubmit(handleSubmitAsk)} className="space-y-3 rounded-2xl border border-white/10 bg-slate-950/40 p-4">
+                                  {isEditingAsk && (
+                                    <p className="text-xs font-medium text-amber-300">
+                                      Editing {asks.find(ask => ask.id === editingAskId)?.name}
+                                    </p>
+                                  )}
                                   <div className="flex flex-col gap-2">
                                     <Label htmlFor="ask-name">Name</Label>
                                     <Input
@@ -1237,7 +1512,7 @@ export function AdminDashboard() {
                                         {...askForm.register("askKey", {
                                           onChange: () => setManualAskKey(true)
                                         })}
-                                        disabled={isBusy}
+                                        disabled={isBusy || isEditingAsk}
                                       />
                                       <Button
                                         type="button"
@@ -1248,6 +1523,7 @@ export function AdminDashboard() {
                                           askForm.setValue("askKey", generateAskKey(name || "ask"));
                                           setManualAskKey(false);
                                         }}
+                                        disabled={isBusy || isEditingAsk}
                                       >
                                         Regenerate
                                       </Button>
@@ -1329,9 +1605,20 @@ export function AdminDashboard() {
                                       disabled={isBusy}
                                     />
                                   </div>
-                                  <div className="flex justify-end">
+                                  <div className="flex justify-end gap-2">
+                                    {isEditingAsk && (
+                                      <Button
+                                        type="button"
+                                        variant="outline"
+                                        className="border-white/20 bg-transparent text-white hover:bg-white/10"
+                                        onClick={cancelAskEdit}
+                                        disabled={isBusy}
+                                      >
+                                        Cancel
+                                      </Button>
+                                    )}
                                     <Button type="submit" className={`${gradientButtonClasses} px-4`} disabled={isBusy}>
-                                      Launch ASK
+                                      {isEditingAsk ? "Update ASK" : "Launch ASK"}
                                     </Button>
                                   </div>
                                 </form>
@@ -1360,14 +1647,24 @@ export function AdminDashboard() {
                                       </p>
                                       <div className="mt-3 flex items-center justify-between text-xs text-slate-400">
                                         <span>{session.isAnonymous ? "Anonymous" : "Identified"} participants</span>
-                                        <button
-                                          type="button"
-                                          onClick={() => handleDeleteAsk(session.id)}
-                                          className="text-red-300 hover:text-red-200"
-                                          disabled={isBusy}
-                                        >
-                                          Delete
-                                        </button>
+                                        <div className="flex items-center gap-2">
+                                          <button
+                                            type="button"
+                                            onClick={() => startAskEdit(session.id)}
+                                            className="text-slate-200 hover:text-white"
+                                            disabled={isBusy}
+                                          >
+                                            Edit
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => handleDeleteAsk(session.id)}
+                                            className="text-red-300 hover:text-red-200"
+                                            disabled={isBusy}
+                                          >
+                                            Delete
+                                          </button>
+                                        </div>
                                       </div>
                                     </div>
                                   ))
@@ -1409,9 +1706,17 @@ export function AdminDashboard() {
                   type="button"
                   variant="outline"
                   className="border-white/20 bg-white/10 text-white hover:bg-white/20"
+                  onClick={() => {
+                    if (showUserForm) {
+                      cancelUserEdit();
+                    } else {
+                      resetUserForm();
+                      setShowUserForm(true);
+                    }
+                  }}
                   disabled={isBusy}
                 >
-                  Invite user
+                  {showUserForm ? "Close form" : "Invite user"}
                 </Button>
               </div>
 
@@ -1433,11 +1738,117 @@ export function AdminDashboard() {
                 </div>
               </div>
 
+              {showUserForm && (
+                <form
+                  onSubmit={userForm.handleSubmit(handleSubmitUser)}
+                  className="space-y-3 rounded-2xl border border-white/10 bg-slate-900/40 p-4"
+                >
+                  {isEditingUser && (
+                    <p className="text-xs font-medium text-amber-300">
+                      Editing {users.find(user => user.id === editingUserId)?.fullName || users.find(user => user.id === editingUserId)?.email}
+                    </p>
+                  )}
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div className="flex flex-col gap-2">
+                      <Label htmlFor="user-email-admin">Email</Label>
+                      <Input
+                        id="user-email-admin"
+                        type="email"
+                        placeholder="user@client.com"
+                        {...userForm.register("email")}
+                        disabled={isBusy || isEditingUser}
+                      />
+                      {userForm.formState.errors.email && (
+                        <p className="text-xs text-red-400">{userForm.formState.errors.email.message}</p>
+                      )}
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      <Label htmlFor="user-role-admin">Role</Label>
+                      <select
+                        id="user-role-admin"
+                        className="h-10 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm text-white"
+                        {...userForm.register("role")}
+                        disabled={isBusy}
+                      >
+                        {userRoles.map(role => (
+                          <option key={role} value={role}>
+                            {role}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div className="flex flex-col gap-2">
+                      <Label htmlFor="user-first-admin">First name</Label>
+                      <Input
+                        id="user-first-admin"
+                        placeholder="First name"
+                        {...userForm.register("firstName")}
+                        disabled={isBusy}
+                      />
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      <Label htmlFor="user-last-admin">Last name</Label>
+                      <Input
+                        id="user-last-admin"
+                        placeholder="Last name"
+                        {...userForm.register("lastName")}
+                        disabled={isBusy}
+                      />
+                    </div>
+                  </div>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div className="flex flex-col gap-2">
+                      <Label htmlFor="user-client-admin">Client</Label>
+                      <select
+                        id="user-client-admin"
+                        className="h-10 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm text-white"
+                        {...userForm.register("clientId")}
+                        disabled={isBusy}
+                      >
+                        <option value="">No client</option>
+                        {clients.map(client => (
+                          <option key={client.id} value={client.id}>
+                            {client.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <label className="flex items-center gap-2 text-sm text-slate-300">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 rounded border-white/20 bg-slate-900"
+                        {...userForm.register("isActive")}
+                        disabled={isBusy}
+                      />
+                      Active
+                    </label>
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    {isEditingUser && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="border-white/20 bg-transparent text-white hover:bg-white/10"
+                        onClick={cancelUserEdit}
+                        disabled={isBusy}
+                      >
+                        Cancel
+                      </Button>
+                    )}
+                    <Button type="submit" className={`${gradientButtonClasses} px-4`} disabled={isBusy}>
+                      {isEditingUser ? "Update user" : "Send invite"}
+                    </Button>
+                  </div>
+                </form>
+              )}
+
               <div className="space-y-2">
                 {filteredUsers.length === 0 ? (
                   <p className="text-sm text-slate-400">No users linked to the current selection.</p>
                 ) : (
-                  filteredUsers.slice(0, 5).map(user => (
+                  filteredUsers.map(user => (
                     <div
                       key={user.id}
                       className="flex items-center justify-between rounded-2xl border border-white/10 bg-slate-900/40 p-3 text-sm text-slate-200"
@@ -1446,13 +1857,25 @@ export function AdminDashboard() {
                         <p className="font-semibold text-white">{user.fullName || user.email}</p>
                         <p className="text-xs text-slate-400">{user.email}</p>
                       </div>
-                      <span
-                        className={`text-xs uppercase tracking-wide ${
-                          user.isActive ? "text-emerald-300" : "text-slate-500"
-                        }`}
-                      >
-                        {user.role.replace(/_/g, " ")} • {user.isActive ? "Active" : "Inactive"}
-                      </span>
+                      <div className="flex items-center gap-3">
+                        <span
+                          className={`text-xs uppercase tracking-wide ${
+                            user.isActive ? "text-emerald-300" : "text-slate-500"
+                          }`}
+                        >
+                          {user.role.replace(/_/g, " ")} • {user.isActive ? "Active" : "Inactive"}
+                        </span>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="border-white/20 bg-transparent text-white hover:bg-white/10"
+                          onClick={() => startUserEdit(user.id)}
+                          disabled={isBusy}
+                        >
+                          Edit
+                        </Button>
+                      </div>
                     </div>
                   ))
                 )}
