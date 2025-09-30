@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { MouseEvent as ReactMouseEvent } from "react";
+import type { MouseEvent as ReactMouseEvent, RefObject } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -100,7 +100,10 @@ const navigationItems = [
   { label: "Users", icon: Users, targetId: "section-users" },
   { label: "Insights", icon: ClipboardList, targetId: "section-insights" },
   { label: "Settings", icon: Settings, targetId: "section-settings" }
-];
+] as const;
+
+type SectionId = (typeof navigationItems)[number]["targetId"];
+type SectionLabel = (typeof navigationItems)[number]["label"];
 
 function formatDateTime(value: string | null | undefined) {
   if (!value) {
@@ -157,7 +160,7 @@ export function AdminDashboard() {
   const [showProjectForm, setShowProjectForm] = useState(false);
   const [showAskForm, setShowAskForm] = useState(false);
   const [manualAskKey, setManualAskKey] = useState(false);
-  const [activeSection, setActiveSection] = useState(navigationItems[0].label);
+  const [activeSection, setActiveSection] = useState<SectionLabel>(navigationItems[0].label);
   const [columnWidths, setColumnWidths] = useState<ColumnWidths>(defaultColumnWidths);
   const [isLargeScreen, setIsLargeScreen] = useState(false);
 
@@ -170,7 +173,7 @@ export function AdminDashboard() {
   const insightsRef = useRef<HTMLDivElement>(null);
   const settingsRef = useRef<HTMLDivElement>(null);
 
-  const sectionRefMap = useMemo(
+  const sectionRefMap = useMemo<Record<SectionId, RefObject<HTMLDivElement>>>(
     () => ({
       "section-dashboard": dashboardRef,
       "section-clients": clientsRef,
@@ -181,7 +184,7 @@ export function AdminDashboard() {
       "section-insights": insightsRef,
       "section-settings": settingsRef
     }),
-    [dashboardRef, clientsRef, projectsRef, challengesRef, asksRef, usersRef, insightsRef, settingsRef]
+    []
   );
 
   const resizeStartXRef = useRef(0);
