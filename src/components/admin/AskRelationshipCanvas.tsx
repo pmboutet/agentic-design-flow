@@ -51,6 +51,9 @@ interface AskRelationshipCanvasProps {
   onProjectSelect?: (projectId: string) => void;
   onChallengeSelect?: (challengeId: string) => void;
   onAskSelect?: (askId: string) => void;
+  className?: string;
+  height?: number | string;
+  minHeight?: number | string;
 }
 
 const PROJECT_NODE = { width: 260, height: 104 } as const;
@@ -268,6 +271,13 @@ function buildLayout(
   return { nodes, edges };
 }
 
+function toCssSize(value?: number | string | null) {
+  if (value === null || value === undefined) {
+    return undefined;
+  }
+  return typeof value === "number" ? `${value}px` : value;
+}
+
 export function AskRelationshipCanvas({
   projects,
   challenges,
@@ -277,13 +287,19 @@ export function AskRelationshipCanvas({
   focusAskId,
   onProjectSelect,
   onChallengeSelect,
-  onAskSelect
+  onAskSelect,
+  className,
+  height,
+  minHeight
 }: AskRelationshipCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [viewport, setViewport] = useState({ x: 0, y: 0, scale: 0.9 });
   const [hasInteracted, setHasInteracted] = useState(false);
   const [forceCenterKey, setForceCenterKey] = useState(0);
   const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
+
+  const resolvedMinHeight = toCssSize(minHeight) ?? "520px";
+  const resolvedHeight = toCssSize(height) ?? resolvedMinHeight;
 
   const { nodes, edges } = useMemo(() => buildLayout(projects, challenges, asks), [projects, challenges, asks]);
 
@@ -405,6 +421,10 @@ export function AskRelationshipCanvas({
 
   const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) {
+      return;
+    }
+    const target = event.target as HTMLElement | null;
+    if (target?.closest("[data-canvas-interactive]")) {
       return;
     }
     setHasInteracted(true);
@@ -539,9 +559,17 @@ export function AskRelationshipCanvas({
 
   if (nodes.length === 0) {
     return (
-      <div className="relative flex h-[420px] w-full flex-col items-center justify-center rounded-3xl border border-white/10 bg-slate-950/70 text-center text-sm text-slate-400">
+      <div
+        className={cn(
+          "relative flex w-full flex-col items-center justify-center rounded-3xl border border-white/10 bg-slate-950/70 text-center text-sm text-slate-400",
+          className
+        )}
+        style={{ minHeight: resolvedMinHeight, height: resolvedHeight }}
+      >
         <p>Pas encore de challenges ou d'ASK à cartographier.</p>
-        <p className="mt-2 text-xs text-slate-500">Créez des challenges et des sessions ASK pour voir leur relation ici.</p>
+        <p className="mt-2 text-xs text-slate-500">
+          Créez des challenges et des sessions ASK pour voir leur relation ici.
+        </p>
       </div>
     );
   }
@@ -549,8 +577,11 @@ export function AskRelationshipCanvas({
   return (
     <div
       ref={containerRef}
-      className="relative h-[520px] w-full overflow-hidden rounded-3xl border border-white/10 bg-slate-950/80 shadow-inner"
-      style={{ touchAction: "none" }}
+      className={cn(
+        "relative w-full overflow-hidden rounded-3xl border border-white/10 bg-slate-950/80 shadow-inner",
+        className
+      )}
+      style={{ touchAction: "none", minHeight: resolvedMinHeight, height: resolvedHeight }}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={stopPanning}
@@ -651,6 +682,8 @@ export function AskRelationshipCanvas({
 
             return (
               <div
+                data-canvas-node
+                data-canvas-interactive
                 key={node.id}
                 role="button"
                 tabIndex={0}
@@ -710,6 +743,7 @@ export function AskRelationshipCanvas({
       <div className="pointer-events-auto absolute right-6 top-6 flex items-center gap-2">
         <button
           type="button"
+          data-canvas-interactive
           onClick={handleResetView}
           className="rounded-full border border-white/10 bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-white shadow hover:bg-white/20"
         >
@@ -724,6 +758,7 @@ export function AskRelationshipCanvas({
 
       {minimap && layoutBounds && (
         <div
+          data-canvas-interactive
           className="pointer-events-auto absolute bottom-6 right-6 rounded-2xl border border-white/15 bg-slate-900/80 p-3 shadow-lg"
           onPointerDown={handleMiniMapPointerDown}
         >

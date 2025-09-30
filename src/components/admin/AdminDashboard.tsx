@@ -246,6 +246,7 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
   const [columnWidths, setColumnWidths] = useState<ColumnWidths>(defaultColumnWidths);
   const [isLargeScreen, setIsLargeScreen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(true);
+  const [workspaceHeight, setWorkspaceHeight] = useState(520);
 
   const [editingClientId, setEditingClientId] = useState<string | null>(null);
   const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
@@ -286,6 +287,24 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
     return navigationItems;
   }, [showOnlyChallengeWorkspace]);
 
+  const updateWorkspaceHeight = useCallback(() => {
+    if (!showOnlyChallengeWorkspace) {
+      return;
+    }
+    if (typeof window === "undefined") {
+      return;
+    }
+    const element = challengesRef.current;
+    if (!element) {
+      return;
+    }
+    const rect = element.getBoundingClientRect();
+    const viewportHeight = window.innerHeight;
+    const padding = 48;
+    const available = Math.max(520, Math.floor(viewportHeight - rect.top - padding));
+    setWorkspaceHeight(available);
+  }, [showOnlyChallengeWorkspace]);
+
   useEffect(() => {
     if (!navigationMenu.some(item => item.label === activeSection)) {
       setActiveSection(navigationMenu[0]?.label ?? navigationItems[0].label);
@@ -297,6 +316,34 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
       setActiveSection("Challenges");
     }
   }, [showOnlyChallengeWorkspace]);
+
+  useEffect(() => {
+    if (!showOnlyChallengeWorkspace) {
+      setWorkspaceHeight(520);
+      return;
+    }
+    updateWorkspaceHeight();
+    window.addEventListener("resize", updateWorkspaceHeight);
+    return () => window.removeEventListener("resize", updateWorkspaceHeight);
+  }, [showOnlyChallengeWorkspace, updateWorkspaceHeight]);
+
+  useEffect(() => {
+    if (!showOnlyChallengeWorkspace) {
+      return;
+    }
+    const frame = window.requestAnimationFrame(updateWorkspaceHeight);
+    return () => window.cancelAnimationFrame(frame);
+  }, [
+    showOnlyChallengeWorkspace,
+    updateWorkspaceHeight,
+    projects.length,
+    challenges.length,
+    asks.length,
+    selectedProjectId,
+    selectedChallengeId,
+    showAskForm,
+    editingAskId
+  ]);
 
   const resizeStartXRef = useRef(0);
   const startColumnWidthsRef = useRef<ColumnWidths>(defaultColumnWidths);
@@ -905,8 +952,8 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
     <div
       ref={challengesRef}
       id="section-challenges"
-      className={`flex flex-col gap-4 rounded-3xl border border-white/10 bg-white/5 p-5 backdrop-blur ${
-        showOnlyChallengeWorkspace ? "xl:mx-auto xl:max-w-6xl xl:p-6 2xl:max-w-7xl" : ""
+      className={`flex w-full flex-col gap-4 rounded-3xl border border-white/10 bg-white/5 p-5 backdrop-blur ${
+        showOnlyChallengeWorkspace ? "lg:p-8" : ""
       }`}
     >
       <header className="flex flex-col gap-1">
@@ -916,7 +963,7 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
         </p>
       </header>
 
-      <div className="space-y-6">
+      <div className={showOnlyChallengeWorkspace ? "flex flex-col gap-6" : "space-y-6"}>
         {projectContextMissing && (
           <Alert className="border-red-500/40 bg-red-500/10 text-red-100">
             <AlertDescription>
@@ -934,6 +981,7 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
           onProjectSelect={handleCanvasProjectSelect}
           onChallengeSelect={handleCanvasChallengeSelect}
           onAskSelect={handleCanvasAskSelect}
+          height={showOnlyChallengeWorkspace ? workspaceHeight : undefined}
         />
         {selectedProject ? (
           <div
