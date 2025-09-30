@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { MouseEvent as ReactMouseEvent } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -84,15 +85,21 @@ type AskFormInput = z.infer<typeof askFormSchema>;
 const gradientButtonClasses =
   "bg-gradient-to-r from-pink-500 via-fuchsia-500 to-indigo-500 text-white shadow-lg hover:shadow-xl focus-visible:ring-white/70";
 
+type ColumnWidths = [number, number, number];
+
+const defaultColumnWidths: ColumnWidths = [320, 360, 460];
+const minColumnWidths: ColumnWidths = [260, 300, 360];
+const maxColumnWidths: ColumnWidths = [520, 560, 680];
+
 const navigationItems = [
-  { label: "Dashboard", icon: LayoutDashboard },
-  { label: "Clients", icon: Building2 },
-  { label: "Projects", icon: FolderKanban },
-  { label: "Challenges", icon: Target },
-  { label: "ASK Sessions", icon: MessageSquare },
-  { label: "Users", icon: Users },
-  { label: "Insights", icon: ClipboardList },
-  { label: "Settings", icon: Settings }
+  { label: "Dashboard", icon: LayoutDashboard, targetId: "section-dashboard" },
+  { label: "Clients", icon: Building2, targetId: "section-clients" },
+  { label: "Projects", icon: FolderKanban, targetId: "section-projects" },
+  { label: "Challenges", icon: Target, targetId: "section-challenges" },
+  { label: "ASK Sessions", icon: MessageSquare, targetId: "section-asks" },
+  { label: "Users", icon: Users, targetId: "section-users" },
+  { label: "Insights", icon: ClipboardList, targetId: "section-insights" },
+  { label: "Settings", icon: Settings, targetId: "section-settings" }
 ];
 
 function formatDateTime(value: string | null | undefined) {
@@ -150,6 +157,36 @@ export function AdminDashboard() {
   const [showProjectForm, setShowProjectForm] = useState(false);
   const [showAskForm, setShowAskForm] = useState(false);
   const [manualAskKey, setManualAskKey] = useState(false);
+  const [activeSection, setActiveSection] = useState(navigationItems[0].label);
+  const [columnWidths, setColumnWidths] = useState<ColumnWidths>(defaultColumnWidths);
+  const [isLargeScreen, setIsLargeScreen] = useState(false);
+
+  const dashboardRef = useRef<HTMLDivElement>(null);
+  const clientsRef = useRef<HTMLDivElement>(null);
+  const projectsRef = useRef<HTMLDivElement>(null);
+  const challengesRef = useRef<HTMLDivElement>(null);
+  const asksRef = useRef<HTMLDivElement>(null);
+  const usersRef = useRef<HTMLDivElement>(null);
+  const insightsRef = useRef<HTMLDivElement>(null);
+  const settingsRef = useRef<HTMLDivElement>(null);
+
+  const sectionRefMap = useMemo(
+    () => ({
+      "section-dashboard": dashboardRef,
+      "section-clients": clientsRef,
+      "section-projects": projectsRef,
+      "section-challenges": challengesRef,
+      "section-asks": asksRef,
+      "section-users": usersRef,
+      "section-insights": insightsRef,
+      "section-settings": settingsRef
+    }),
+    [dashboardRef, clientsRef, projectsRef, challengesRef, asksRef, usersRef, insightsRef, settingsRef]
+  );
+
+  const resizeStartXRef = useRef(0);
+  const startColumnWidthsRef = useRef<ColumnWidths>(defaultColumnWidths);
+  const activeResizeIndexRef = useRef<number | null>(null);
 
   const clientForm = useForm<ClientFormInput>({
     resolver: zodResolver(clientFormSchema),
@@ -190,6 +227,17 @@ export function AdminDashboard() {
   });
 
   const askNameValue = askForm.watch("name");
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const mediaQuery = window.matchMedia("(min-width: 1024px)");
+    const updateMatch = () => setIsLargeScreen(mediaQuery.matches);
+    updateMatch();
+    mediaQuery.addEventListener("change", updateMatch);
+    return () => mediaQuery.removeEventListener("change", updateMatch);
+  }, []);
 
   useEffect(() => {
     if (!manualAskKey && askNameValue && !askForm.getValues("askKey")) {
@@ -237,6 +285,28 @@ export function AdminDashboard() {
     () => asks.filter(ask => ask.challengeId === selectedChallengeId),
     [asks, selectedChallengeId]
   );
+
+  const nextDueChallenge = useMemo(() => {
+    let closest: (typeof challengesForProject)[number] | null = null;
+    for (const challenge of challengesForProject) {
+      if (!challenge.dueDate) {
+        continue;
+      }
+      const dueTime = new Date(challenge.dueDate).getTime();
+      if (Number.isNaN(dueTime)) {
+        continue;
+      }
+      if (!closest) {
+        closest = challenge;
+        continue;
+      }
+      const closestTime = closest.dueDate ? new Date(closest.dueDate).getTime() : Number.POSITIVE_INFINITY;
+      if (Number.isNaN(closestTime) || dueTime < closestTime) {
+        closest = challenge;
+      }
+    }
+    return closest;
+  }, [challengesForProject]);
 
   const selectedClient = useMemo(
     () => clients.find(client => client.id === selectedClientId) ?? null,
@@ -286,6 +356,112 @@ export function AdminDashboard() {
       { label: "ASK sessions", value: asks.length, icon: MessageSquare }
     ],
     [clients.length, projects.length, challenges.length, asks.length]
+  );
+
+  const columnTemplate = useMemo(
+    () => (isLargeScreen ? `${columnWidths[0]}px ${columnWidths[1]}px ${columnWidths[2]}px` : undefined),
+    [columnWidths, isLargeScreen]
+  );
+
+  const handleResizeMove = useCallback((event: MouseEvent) => {
+    const index = activeResizeIndexRef.current;
+    if (index === null) {
+      return;
+    }
+
+    const neighborIndex = index + 1;
+    if (neighborIndex >= startColumnWidthsRef.current.length) {
+      return;
+    }
+
+    const delta = event.clientX - resizeStartXRef.current;
+
+    let nextWidth = startColumnWidthsRef.current[index] + delta;
+    nextWidth = Math.min(maxColumnWidths[index], Math.max(minColumnWidths[index], nextWidth));
+
+    let neighborWidth =
+      startColumnWidthsRef.current[neighborIndex] -
+      (nextWidth - startColumnWidthsRef.current[index]);
+    neighborWidth = Math.min(
+      maxColumnWidths[neighborIndex],
+      Math.max(minColumnWidths[neighborIndex], neighborWidth)
+    );
+
+    const adjustedDelta = startColumnWidthsRef.current[neighborIndex] - neighborWidth;
+    nextWidth = startColumnWidthsRef.current[index] + adjustedDelta;
+
+    const updated = [...startColumnWidthsRef.current] as ColumnWidths;
+    updated[index] = Math.round(nextWidth);
+    updated[neighborIndex] = Math.round(neighborWidth);
+    setColumnWidths(updated as ColumnWidths);
+  }, []);
+
+  const handleResizeEnd = useCallback(() => {
+    activeResizeIndexRef.current = null;
+    document.removeEventListener("mousemove", handleResizeMove);
+    document.removeEventListener("mouseup", handleResizeEnd);
+  }, [handleResizeMove]);
+
+  const handleResizeStart = useCallback(
+    (event: ReactMouseEvent<HTMLDivElement>, columnIndex: number) => {
+      if (!isLargeScreen) {
+        return;
+      }
+      event.preventDefault();
+      activeResizeIndexRef.current = columnIndex;
+      resizeStartXRef.current = event.clientX;
+      startColumnWidthsRef.current = [...columnWidths] as ColumnWidths;
+      document.addEventListener("mousemove", handleResizeMove);
+      document.addEventListener("mouseup", handleResizeEnd);
+    },
+    [columnWidths, handleResizeEnd, handleResizeMove, isLargeScreen]
+  );
+
+  useEffect(() => {
+    return () => {
+      document.removeEventListener("mousemove", handleResizeMove);
+      document.removeEventListener("mouseup", handleResizeEnd);
+    };
+  }, [handleResizeEnd, handleResizeMove]);
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      entries => {
+        entries.forEach(entry => {
+          if (entry.isIntersecting) {
+            const matchingItem = navigationItems.find(item => item.targetId === entry.target.id);
+            if (matchingItem) {
+              setActiveSection(matchingItem.label);
+            }
+          }
+        });
+      },
+      { threshold: 0.25, rootMargin: "-120px 0px -55%" }
+    );
+
+    const observedElements: Element[] = [];
+    Object.entries(sectionRefMap).forEach(([, ref]) => {
+      if (ref.current) {
+        observer.observe(ref.current);
+        observedElements.push(ref.current);
+      }
+    });
+
+    return () => {
+      observedElements.forEach(element => observer.unobserve(element));
+      observer.disconnect();
+    };
+  }, [sectionRefMap, selectedProjectId, selectedChallengeId]);
+
+  const handleNavigationClick = useCallback(
+    (item: (typeof navigationItems)[number]) => {
+      setActiveSection(item.label);
+      const ref = sectionRefMap[item.targetId];
+      if (ref?.current) {
+        ref.current.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    },
+    [sectionRefMap]
   );
 
   const handleCreateClient = async (values: ClientFormInput) => {
@@ -384,6 +560,12 @@ export function AdminDashboard() {
     return users.filter(user => user.clientId === selectedClientId);
   }, [users, selectedClientId]);
 
+  const activeUserCount = useMemo(
+    () => filteredUsers.filter(user => user.isActive).length,
+    [filteredUsers]
+  );
+  const inactiveUserCount = filteredUsers.length - activeUserCount;
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
       <div className="flex h-full min-h-screen">
@@ -395,7 +577,7 @@ export function AdminDashboard() {
           <nav className="flex flex-1 flex-col gap-2">
             {navigationItems.map(item => {
               const Icon = item.icon;
-              const isActive = item.label === "Clients";
+              const isActive = activeSection === item.label;
               return (
                 <button
                   key={item.label}
@@ -405,6 +587,8 @@ export function AdminDashboard() {
                       ? "bg-white/10 text-white shadow-lg"
                       : "text-slate-400 hover:bg-white/5 hover:text-white"
                   }`}
+                  onClick={() => handleNavigationClick(item)}
+                  aria-current={isActive ? "page" : undefined}
                 >
                   <Icon className="h-4 w-4" />
                   {item.label}
@@ -430,7 +614,7 @@ export function AdminDashboard() {
                   <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
                   <Input
                     placeholder="Search across clients, projects, sessions..."
-                    className="w-full rounded-xl border-white/10 bg-white/5 pl-9 text-sm placeholder:text-slate-500"
+                    className="w-full rounded-xl border-white/10 bg-white/5 pl-9 text-sm text-white placeholder:text-slate-300"
                   />
                 </div>
               </div>
@@ -461,7 +645,7 @@ export function AdminDashboard() {
               </Alert>
             )}
 
-            <section>
+            <section ref={dashboardRef} id="section-dashboard">
               <div className="flex items-center justify-between">
                 <h1 className="text-3xl font-semibold">Operational dashboard</h1>
                 <div className="hidden gap-3 md:flex">
@@ -510,8 +694,15 @@ export function AdminDashboard() {
                 <p className="text-sm text-slate-400">Drill down to manage everything from one place.</p>
               </div>
 
-              <div className="grid gap-6 lg:grid-cols-[minmax(260px,1fr)_minmax(320px,1.2fr)_minmax(380px,1.6fr)]">
-                <div className="flex flex-col gap-4 rounded-3xl border border-white/10 bg-white/5 p-5 backdrop-blur">
+              <div
+                className="grid gap-6 lg:grid-cols-3"
+                style={columnTemplate ? { gridTemplateColumns: columnTemplate } : undefined}
+              >
+                <div
+                  ref={clientsRef}
+                  id="section-clients"
+                  className="relative flex flex-col gap-4 rounded-3xl border border-white/10 bg-white/5 p-5 backdrop-blur"
+                >
                   <header className="flex items-center justify-between">
                     <div>
                       <h3 className="text-lg font-semibold text-white">Clients</h3>
@@ -629,9 +820,24 @@ export function AdminDashboard() {
                       ))
                     )}
                   </div>
+                  {isLargeScreen && (
+                    <div
+                      role="separator"
+                      aria-label="Resize clients column"
+                      aria-orientation="vertical"
+                      className="absolute inset-y-0 right-[-8px] hidden w-4 cursor-col-resize items-center justify-center lg:flex"
+                      onMouseDown={event => handleResizeStart(event, 0)}
+                    >
+                      <span className="pointer-events-none h-12 w-px rounded-full bg-white/20" />
+                    </div>
+                  )}
                 </div>
 
-                <div className="flex flex-col gap-4 rounded-3xl border border-white/10 bg-white/5 p-5 backdrop-blur">
+                <div
+                  ref={projectsRef}
+                  id="section-projects"
+                  className="relative flex flex-col gap-4 rounded-3xl border border-white/10 bg-white/5 p-5 backdrop-blur"
+                >
                   <header className="flex items-center justify-between">
                     <div>
                       <h3 className="text-lg font-semibold text-white">Projects</h3>
@@ -701,7 +907,7 @@ export function AdminDashboard() {
                           <Label htmlFor="project-status">Status</Label>
                           <select
                             id="project-status"
-                            className="h-10 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm"
+                            className="h-10 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm text-white"
                             {...projectForm.register("status")}
                             disabled={isBusy}
                           >
@@ -716,7 +922,7 @@ export function AdminDashboard() {
                           <Label htmlFor="project-owner">Owner</Label>
                           <select
                             id="project-owner"
-                            className="h-10 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm"
+                            className="h-10 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm text-white"
                             {...projectForm.register("createdBy")}
                             disabled={isBusy}
                           >
@@ -780,9 +986,24 @@ export function AdminDashboard() {
                       ))
                     )}
                   </div>
+                  {isLargeScreen && (
+                    <div
+                      role="separator"
+                      aria-label="Resize projects column"
+                      aria-orientation="vertical"
+                      className="absolute inset-y-0 right-[-8px] hidden w-4 cursor-col-resize items-center justify-center lg:flex"
+                      onMouseDown={event => handleResizeStart(event, 1)}
+                    >
+                      <span className="pointer-events-none h-12 w-px rounded-full bg-white/20" />
+                    </div>
+                  )}
                 </div>
 
-                <div className="flex flex-col gap-4 rounded-3xl border border-white/10 bg-white/5 p-5 backdrop-blur">
+                <div
+                  ref={challengesRef}
+                  id="section-challenges"
+                  className="flex flex-col gap-4 rounded-3xl border border-white/10 bg-white/5 p-5 backdrop-blur"
+                >
                   <header className="flex flex-col gap-1">
                     <h3 className="text-lg font-semibold text-white">Challenges & ASK sessions</h3>
                     <p className="text-xs text-slate-400">
@@ -790,13 +1011,7 @@ export function AdminDashboard() {
                     </p>
                   </header>
 
-                  {!selectedProject && (
-                    <p className="rounded-2xl border border-dashed border-white/10 bg-slate-900/40 p-6 text-sm text-slate-400">
-                      Pick a project to access its challenges.
-                    </p>
-                  )}
-
-                  {selectedProject && (
+                  {selectedProject ? (
                     <div className="grid gap-4 xl:grid-cols-[minmax(240px,0.9fr)_minmax(260px,1.1fr)]">
                       <div className="space-y-3">
                         <div className="flex items-center justify-between">
@@ -851,7 +1066,11 @@ export function AdminDashboard() {
                         </div>
                       </div>
 
-                      <div className="space-y-4 rounded-2xl border border-white/10 bg-slate-900/40 p-4">
+                      <div
+                        ref={asksRef}
+                        id="section-asks"
+                        className="space-y-4 rounded-2xl border border-white/10 bg-slate-900/40 p-4"
+                      >
                         {selectedChallenge ? (
                           <>
                             <div className="flex items-center justify-between">
@@ -885,7 +1104,7 @@ export function AdminDashboard() {
                                 <Label htmlFor="challenge-status">Status</Label>
                                 <select
                                   id="challenge-status"
-                                  className="h-10 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm"
+                                  className="h-10 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm text-white"
                                   {...challengeForm.register("status")}
                                   disabled={isBusy}
                                 >
@@ -900,7 +1119,7 @@ export function AdminDashboard() {
                                 <Label htmlFor="challenge-priority">Priority</Label>
                                 <select
                                   id="challenge-priority"
-                                  className="h-10 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm"
+                                  className="h-10 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm text-white"
                                   {...challengeForm.register("priority")}
                                   disabled={isBusy}
                                 >
@@ -924,7 +1143,7 @@ export function AdminDashboard() {
                                 <Label htmlFor="challenge-owner">Assignee</Label>
                                 <select
                                   id="challenge-owner"
-                                  className="h-10 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm"
+                                  className="h-10 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm text-white"
                                   {...challengeForm.register("assignedTo")}
                                   disabled={isBusy}
                                 >
@@ -1061,7 +1280,7 @@ export function AdminDashboard() {
                                       <Label htmlFor="ask-status">Status</Label>
                                       <select
                                         id="ask-status"
-                                        className="h-10 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm"
+                                        className="h-10 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm text-white"
                                         {...askForm.register("status")}
                                         disabled={isBusy}
                                       >
@@ -1144,10 +1363,172 @@ export function AdminDashboard() {
                         )}
                       </div>
                     </div>
+                  ) : (
+                    <div
+                      ref={asksRef}
+                      id="section-asks"
+                      className="rounded-2xl border border-dashed border-white/10 bg-slate-900/40 p-6 text-sm text-slate-400"
+                    >
+                      Pick a project to access its challenges.
+                    </div>
                   )}
                 </div>
               </div>
             </section>
+
+            <section
+              ref={usersRef}
+              id="section-users"
+              className="space-y-6 rounded-3xl border border-white/10 bg-white/5 p-6 backdrop-blur"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <div>
+                  <h2 className="text-2xl font-semibold">Users</h2>
+                  <p className="text-sm text-slate-400">
+                    Directory scoped to the selected client when one is active.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="border-white/20 bg-white/10 text-white hover:bg-white/20"
+                  disabled={isBusy}
+                >
+                  Invite user
+                </Button>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-3">
+                <div className="rounded-2xl border border-white/10 bg-slate-900/40 p-4">
+                  <p className="text-xs uppercase tracking-wide text-slate-400">Active</p>
+                  <p className="mt-2 text-2xl font-semibold text-white">{activeUserCount}</p>
+                  <p className="mt-1 text-xs text-slate-500">Within the current context.</p>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-slate-900/40 p-4">
+                  <p className="text-xs uppercase tracking-wide text-slate-400">Inactive</p>
+                  <p className="mt-2 text-2xl font-semibold text-white">{inactiveUserCount}</p>
+                  <p className="mt-1 text-xs text-slate-500">Awaiting activation or archive.</p>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-slate-900/40 p-4">
+                  <p className="text-xs uppercase tracking-wide text-slate-400">Total users</p>
+                  <p className="mt-2 text-2xl font-semibold text-white">{filteredUsers.length}</p>
+                  <p className="mt-1 text-xs text-slate-500">Filtered by the selected client.</p>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                {filteredUsers.length === 0 ? (
+                  <p className="text-sm text-slate-400">No users linked to the current selection.</p>
+                ) : (
+                  filteredUsers.slice(0, 5).map(user => (
+                    <div
+                      key={user.id}
+                      className="flex items-center justify-between rounded-2xl border border-white/10 bg-slate-900/40 p-3 text-sm text-slate-200"
+                    >
+                      <div>
+                        <p className="font-semibold text-white">{user.fullName || user.email}</p>
+                        <p className="text-xs text-slate-400">{user.email}</p>
+                      </div>
+                      <span
+                        className={`text-xs uppercase tracking-wide ${
+                          user.isActive ? "text-emerald-300" : "text-slate-500"
+                        }`}
+                      >
+                        {user.role.replace(/_/g, " ")} • {user.isActive ? "Active" : "Inactive"}
+                      </span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </section>
+
+            <section
+              ref={insightsRef}
+              id="section-insights"
+              className="space-y-6 rounded-3xl border border-white/10 bg-white/5 p-6 backdrop-blur"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <div>
+                  <h2 className="text-2xl font-semibold">Insights</h2>
+                  <p className="text-sm text-slate-400">Key indicators for the current drilldown.</p>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="border-white/20 bg-white/10 text-white hover:bg-white/20"
+                >
+                  Export snapshot
+                </Button>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-3">
+                <div className="rounded-2xl border border-white/10 bg-slate-900/40 p-4">
+                  <p className="text-xs uppercase tracking-wide text-slate-400">Projects for client</p>
+                  <p className="mt-2 text-2xl font-semibold text-white">{projectsForClient.length}</p>
+                  <p className="mt-1 text-xs text-slate-500">Visible because of the selected client filter.</p>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-slate-900/40 p-4">
+                  <p className="text-xs uppercase tracking-wide text-slate-400">Challenges in focus</p>
+                  <p className="mt-2 text-2xl font-semibold text-white">{challengesForProject.length}</p>
+                  <p className="mt-1 text-xs text-slate-500">Scoped to the highlighted project.</p>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-slate-900/40 p-4">
+                  <p className="text-xs uppercase tracking-wide text-slate-400">ASK sessions</p>
+                  <p className="mt-2 text-2xl font-semibold text-white">{asksForChallenge.length}</p>
+                  <p className="mt-1 text-xs text-slate-500">Connected to the active challenge.</p>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-white/10 bg-slate-900/40 p-4 text-sm text-slate-200">
+                <p className="font-semibold text-white">Upcoming due date</p>
+                <p className="mt-1 text-slate-400">
+                  {nextDueChallenge?.dueDate
+                    ? `${nextDueChallenge.name} • ${formatDateTime(nextDueChallenge.dueDate)}`
+                    : "No upcoming challenge due date for the current project."}
+                </p>
+              </div>
+            </section>
+
+            <section
+              ref={settingsRef}
+              id="section-settings"
+              className="space-y-6 rounded-3xl border border-white/10 bg-white/5 p-6 backdrop-blur"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <div>
+                  <h2 className="text-2xl font-semibold">Settings</h2>
+                  <p className="text-sm text-slate-400">Quick administrative preferences for the workspace.</p>
+                </div>
+                <Button type="button" className={`${gradientButtonClasses} px-4`}>
+                  Save preferences
+                </Button>
+              </div>
+
+              <div className="space-y-4">
+                <label className="flex items-center justify-between rounded-2xl border border-white/10 bg-slate-900/40 p-4 text-sm text-slate-200">
+                  <span>Send weekly summary emails</span>
+                  <input type="checkbox" className="h-4 w-4 rounded border-white/20 bg-slate-900" defaultChecked />
+                </label>
+                <label className="flex items-center justify-between rounded-2xl border border-white/10 bg-slate-900/40 p-4 text-sm text-slate-200">
+                  <span>Enable beta features for facilitators</span>
+                  <input type="checkbox" className="h-4 w-4 rounded border-white/20 bg-slate-900" />
+                </label>
+                <div className="rounded-2xl border border-white/10 bg-slate-900/40 p-4 text-sm text-slate-200">
+                  <p className="font-semibold text-white">Environment</p>
+                  <p className="mt-1 text-xs text-slate-400">
+                    Sync configuration with partner integrations and deployment targets from here.
+                  </p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="mt-4 border-white/20 bg-white/10 text-white hover:bg-white/20"
+                  >
+                    Open advanced settings
+                  </Button>
+                </div>
+              </div>
+            </section>
+
           </main>
         </div>
       </div>

@@ -106,7 +106,7 @@ export function ProjectManager({ clients, users, projects, onCreate, isLoading }
             <select
               id="project-client"
               {...form.register("clientId")}
-              className="h-10 rounded-md border border-border bg-white/70 px-3 text-sm"
+              className="h-10 rounded-md border border-border bg-white/70 px-3 text-sm text-slate-900"
               disabled={isLoading}
             >
               {clients.map(client => (
@@ -122,7 +122,7 @@ export function ProjectManager({ clients, users, projects, onCreate, isLoading }
             <select
               id="project-owner"
               {...form.register("createdBy")}
-              className="h-10 rounded-md border border-border bg-white/70 px-3 text-sm"
+              className="h-10 rounded-md border border-border bg-white/70 px-3 text-sm text-slate-900"
               disabled={isLoading}
             >
               <option value="">None</option>
@@ -165,7 +165,7 @@ export function ProjectManager({ clients, users, projects, onCreate, isLoading }
             <select
               id="project-status"
               {...form.register("status")}
-              className="h-10 rounded-md border border-border bg-white/70 px-3 text-sm"
+              className="h-10 rounded-md border border-border bg-white/70 px-3 text-sm text-slate-900"
               disabled={isLoading}
             >
               {statuses.map(status => (

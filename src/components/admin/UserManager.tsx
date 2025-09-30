@@ -93,7 +93,7 @@ export function UserManager({ clients, users, onCreate, isLoading }: UserManager
             <select
               id="user-role"
               {...form.register("role")}
-              className="h-10 rounded-md border border-border bg-white/70 px-3 text-sm"
+              className="h-10 rounded-md border border-border bg-white/70 px-3 text-sm text-slate-900"
               disabled={isLoading}
             >
               {roles.map(role => (
@@ -109,7 +109,7 @@ export function UserManager({ clients, users, onCreate, isLoading }: UserManager
             <select
               id="user-client"
               {...form.register("clientId")}
-              className="h-10 rounded-md border border-border bg-white/70 px-3 text-sm"
+              className="h-10 rounded-md border border-border bg-white/70 px-3 text-sm text-slate-900"
               disabled={isLoading}
             >
               <option value="">None</option>

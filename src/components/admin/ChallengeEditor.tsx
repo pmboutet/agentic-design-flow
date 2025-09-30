@@ -91,7 +91,7 @@ export function ChallengeEditor({ challenges, users, onSave, isLoading }: Challe
             id="challenge-select"
             value={selectedId}
             onChange={event => setSelectedId(event.target.value)}
-            className="h-10 rounded-md border border-border bg-white/70 px-3 text-sm"
+            className="h-10 rounded-md border border-border bg-white/70 px-3 text-sm text-slate-900"
             disabled={isLoading}
           >
             {challenges.map(challenge => (
@@ -128,7 +128,7 @@ export function ChallengeEditor({ challenges, users, onSave, isLoading }: Challe
               <select
                 id="challenge-status"
                 {...form.register("status")}
-                className="h-10 rounded-md border border-border bg-white/70 px-3 text-sm"
+                className="h-10 rounded-md border border-border bg-white/70 px-3 text-sm text-slate-900"
                 disabled={isLoading}
               >
                 {statusOptions.map(status => (
@@ -144,7 +144,7 @@ export function ChallengeEditor({ challenges, users, onSave, isLoading }: Challe
               <select
                 id="challenge-priority"
                 {...form.register("priority")}
-                className="h-10 rounded-md border border-border bg-white/70 px-3 text-sm"
+                className="h-10 rounded-md border border-border bg-white/70 px-3 text-sm text-slate-900"
                 disabled={isLoading}
               >
                 {priorityOptions.map(priority => (
@@ -170,7 +170,7 @@ export function ChallengeEditor({ challenges, users, onSave, isLoading }: Challe
               <select
                 id="challenge-owner"
                 {...form.register("assignedTo")}
-                className="h-10 rounded-md border border-border bg-white/70 px-3 text-sm"
+                className="h-10 rounded-md border border-border bg-white/70 px-3 text-sm text-slate-900"
                 disabled={isLoading}
               >
                 <option value="">None</option>

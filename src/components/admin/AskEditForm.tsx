@@ -103,7 +103,7 @@ export function AskEditForm({ asks, onSubmit, isLoading }: AskEditFormProps) {
         <select
           id="edit-ask"
           {...form.register("askId")}
-          className="h-10 rounded-md border border-border bg-white/70 px-3 text-sm"
+          className="h-10 rounded-md border border-border bg-white/70 px-3 text-sm text-slate-900"
           disabled={isLoading}
         >
           {asks.map(ask => (
@@ -170,7 +170,7 @@ export function AskEditForm({ asks, onSubmit, isLoading }: AskEditFormProps) {
           <select
             id="edit-status"
             {...form.register("status")}
-            className="h-10 rounded-md border border-border bg-white/70 px-3 text-sm"
+            className="h-10 rounded-md border border-border bg-white/70 px-3 text-sm text-slate-900"
             disabled={isLoading}
           >
             {statusOptions.map(status => (
