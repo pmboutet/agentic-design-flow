@@ -186,3 +186,76 @@ export interface AskSessionRecord {
   createdAt: string;
   updatedAt: string;
 }
+
+// Types for the project journey board view
+export type InsightCategory = "pain" | "gain" | "signal" | "idea";
+
+export interface ProjectInsightKpi {
+  id: string;
+  label: string;
+  current?: string;
+  target?: string;
+  delta?: string;
+  unit?: string;
+  comment?: string;
+}
+
+export interface ProjectParticipantInsight {
+  id: string;
+  title: string;
+  type: InsightCategory;
+  description: string;
+  updatedAt: string;
+  isCompleted: boolean;
+  relatedChallengeIds: string[];
+  kpis: ProjectInsightKpi[];
+}
+
+export interface ProjectAskParticipant {
+  id: string;
+  name: string;
+  role: string;
+  avatarInitials: string;
+  avatarColor?: string;
+  insights: ProjectParticipantInsight[];
+}
+
+export interface ProjectAskOverview {
+  id: string;
+  title: string;
+  summary: string;
+  status: string;
+  theme: string;
+  dueDate: string;
+  participants: ProjectAskParticipant[];
+}
+
+export interface ProjectParticipantOption {
+  id: string;
+  name: string;
+  role: string;
+  avatarInitials: string;
+  avatarColor?: string;
+}
+
+export interface ProjectChallengeNode {
+  id: string;
+  title: string;
+  description: string;
+  status: string;
+  impact: "low" | "medium" | "high" | "critical";
+  owner?: string;
+  relatedInsightIds: string[];
+  children?: ProjectChallengeNode[];
+}
+
+export interface ProjectJourneyBoardData {
+  projectId: string;
+  projectName: string;
+  clientName: string;
+  projectGoal: string;
+  timeframe: string;
+  asks: ProjectAskOverview[];
+  challenges: ProjectChallengeNode[];
+  availableUsers: ProjectParticipantOption[];
+}
