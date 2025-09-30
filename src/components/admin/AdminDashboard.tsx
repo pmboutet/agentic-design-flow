@@ -361,10 +361,24 @@ export function AdminDashboard() {
     [clients.length, projects.length, challenges.length, asks.length]
   );
 
-  const columnTemplate = useMemo(
-    () => (isLargeScreen ? `${columnWidths[0]}px ${columnWidths[1]}px ${columnWidths[2]}px` : undefined),
-    [columnWidths, isLargeScreen]
-  );
+  const columnTemplate = useMemo(() => {
+    if (!isLargeScreen) {
+      return undefined;
+    }
+
+    const total = columnWidths.reduce((sum, width) => sum + width, 0);
+
+    if (total === 0) {
+      return undefined;
+    }
+
+    return columnWidths
+      .map((width, index) => {
+        const fraction = width / total;
+        return `minmax(${minColumnWidths[index]}px, ${fraction}fr)`;
+      })
+      .join(" ");
+  }, [columnWidths, isLargeScreen]);
 
   const handleResizeMove = useCallback((event: MouseEvent) => {
     const index = activeResizeIndexRef.current;
