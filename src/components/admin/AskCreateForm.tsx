@@ -95,7 +95,7 @@ export function AskCreateForm({ challenges, onSubmit, isLoading }: AskCreateForm
         <select
           id="create-challenge"
           {...form.register("challengeId")}
-          className="h-10 rounded-md border border-border bg-white/70 px-3 text-sm"
+          className="h-10 rounded-md border border-border bg-white/70 px-3 text-sm text-slate-900"
           disabled={isLoading}
         >
           {challenges.map(challenge => (
@@ -178,7 +178,7 @@ export function AskCreateForm({ challenges, onSubmit, isLoading }: AskCreateForm
           <select
             id="create-status"
             {...form.register("status")}
-            className="h-10 rounded-md border border-border bg-white/70 px-3 text-sm"
+            className="h-10 rounded-md border border-border bg-white/70 px-3 text-sm text-slate-900"
             disabled={isLoading}
           >
             {statusOptions.map(status => (
