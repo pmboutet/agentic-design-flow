@@ -25,6 +25,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { ProjectJourneyBoard } from "@/components/project/ProjectJourneyBoard";
+import { AskRelationshipCanvas } from "./AskRelationshipCanvas";
 import { useAdminResources } from "./useAdminResources";
 
 const clientFormSchema = z.object({
@@ -714,6 +715,43 @@ export function AdminDashboard() {
     setShowAskForm(false);
   };
 
+  const handleCanvasProjectSelect = (projectId: string) => {
+    const project = projects.find(item => item.id === projectId);
+    if (!project) {
+      return;
+    }
+    setSelectedClientId(project.clientId ?? null);
+    setSelectedProjectId(project.id);
+    setActiveSection("Challenges");
+  };
+
+  const handleCanvasChallengeSelect = (challengeId: string) => {
+    const challenge = challenges.find(item => item.id === challengeId);
+    if (!challenge) {
+      return;
+    }
+    if (challenge.projectId) {
+      handleCanvasProjectSelect(challenge.projectId);
+    }
+    setSelectedChallengeId(challenge.id);
+    setActiveSection("Challenges");
+  };
+
+  const handleCanvasAskSelect = (askId: string) => {
+    const session = asks.find(item => item.id === askId);
+    if (!session) {
+      return;
+    }
+    if (session.projectId) {
+      handleCanvasProjectSelect(session.projectId);
+    }
+    if (session.challengeId) {
+      setSelectedChallengeId(session.challengeId);
+    }
+    startAskEdit(session.id);
+    setActiveSection("ASK Sessions");
+  };
+
   const resetUserForm = () => {
     userForm.reset({ ...defaultUserFormValues, clientId: selectedClientId ?? "" });
     setEditingUserId(null);
@@ -1378,7 +1416,19 @@ export function AdminDashboard() {
                     </p>
                   </header>
 
-                  {selectedProject ? (
+                  <div className="space-y-6">
+                    <AskRelationshipCanvas
+                      projects={projects}
+                      challenges={challenges}
+                      asks={asks}
+                      focusProjectId={selectedProjectId}
+                      focusChallengeId={selectedChallengeId}
+                      focusAskId={editingAskId}
+                      onProjectSelect={handleCanvasProjectSelect}
+                      onChallengeSelect={handleCanvasChallengeSelect}
+                      onAskSelect={handleCanvasAskSelect}
+                    />
+                    {selectedProject ? (
                     <div className="grid gap-4 xl:grid-cols-[minmax(240px,0.9fr)_minmax(260px,1.1fr)]">
                       <div className="space-y-3">
                         <div className="flex items-center justify-between">
@@ -1757,6 +1807,7 @@ export function AdminDashboard() {
                       Pick a project to access its challenges.
                     </div>
                   )}
+                  </div>
                 </div>
               </div>
             </section>
