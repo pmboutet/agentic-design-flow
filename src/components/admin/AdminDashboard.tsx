@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent as ReactMouseEvent, RefObject } from "react";
 import { useForm } from "react-hook-form";
@@ -10,6 +11,7 @@ import {
   Bell,
   Building2,
   ClipboardList,
+  Compass,
   FolderKanban,
   LayoutDashboard,
   Pencil,
@@ -1260,6 +1262,17 @@ export function AdminDashboard() {
                               {challenges.filter(challenge => challenge.projectId === project.id).length} challenges
                             </span>
                             <div className="flex items-center gap-2">
+                              <Button
+                                asChild
+                                size="sm"
+                                variant="secondary"
+                                className="h-8 rounded-full border border-white/20 bg-white/10 px-3 text-[11px] font-semibold uppercase tracking-wide text-indigo-100 hover:bg-white/20"
+                              >
+                                <Link href={`/projects/${project.id}`} className="flex items-center gap-1">
+                                  <Compass className="h-3.5 w-3.5" />
+                                  Explorer
+                                </Link>
+                              </Button>
                               <button
                                 type="button"
                                 onClick={() => startProjectEdit(project.id)}
