@@ -91,3 +91,26 @@ export async function PATCH(
     }, { status });
   }
 }
+
+export async function DELETE(
+  _request: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const challengeId = z.string().uuid().parse(params.id);
+
+    const supabase = getAdminSupabaseClient();
+    const { error } = await supabase.from("challenges").delete().eq("id", challengeId);
+
+    if (error) {
+      throw error;
+    }
+
+    return NextResponse.json<ApiResponse>({ success: true });
+  } catch (error) {
+    return NextResponse.json<ApiResponse>({
+      success: false,
+      error: error instanceof z.ZodError ? error.errors[0]?.message || "Invalid challenge id" : parseErrorMessage(error)
+    }, { status: error instanceof z.ZodError ? 400 : 500 });
+  }
+}

@@ -102,6 +102,16 @@ export function useAdminResources() {
     setAsks(data ?? []);
   };
 
+  const refreshProjects = async () => {
+    const data = await request<ProjectRecord[]>("/api/admin/projects");
+    setProjects(data ?? []);
+  };
+
+  const refreshClients = async () => {
+    const data = await request<ClientRecord[]>("/api/admin/clients");
+    setClients(data ?? []);
+  };
+
   const createClient = (values: ClientFormValues) =>
     handleAction(async () => {
       await request("/api/admin/clients", { method: "POST", body: JSON.stringify(values) });
@@ -141,6 +151,30 @@ export function useAdminResources() {
       await refreshAsks();
     }, "ASK session updated");
 
+  const deleteClient = (clientId: string) =>
+    handleAction(async () => {
+      await request(`/api/admin/clients/${clientId}`, { method: "DELETE" });
+      await Promise.all([refreshClients(), refreshProjects(), refreshChallenges(), refreshAsks()]);
+    }, "Client removed");
+
+  const deleteProject = (projectId: string) =>
+    handleAction(async () => {
+      await request(`/api/admin/projects/${projectId}`, { method: "DELETE" });
+      await Promise.all([refreshProjects(), refreshChallenges(), refreshAsks()]);
+    }, "Project removed");
+
+  const deleteChallenge = (challengeId: string) =>
+    handleAction(async () => {
+      await request(`/api/admin/challenges/${challengeId}`, { method: "DELETE" });
+      await Promise.all([refreshChallenges(), refreshAsks()]);
+    }, "Challenge removed");
+
+  const deleteAsk = (askId: string) =>
+    handleAction(async () => {
+      await request(`/api/admin/asks/${askId}`, { method: "DELETE" });
+      await refreshAsks();
+    }, "ASK session removed");
+
   return {
     clients,
     users,
@@ -156,6 +190,10 @@ export function useAdminResources() {
     createProject,
     updateChallenge,
     createAsk,
-    updateAsk
+    updateAsk,
+    deleteClient,
+    deleteProject,
+    deleteChallenge,
+    deleteAsk
   };
 }
