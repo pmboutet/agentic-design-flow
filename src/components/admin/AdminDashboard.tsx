@@ -1,5 +1,4 @@
 "use client";
-
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent as ReactMouseEvent, RefObject } from "react";
 import { useForm } from "react-hook-form";
@@ -10,6 +9,7 @@ import {
   Bell,
   Building2,
   ClipboardList,
+  Compass,
   FolderKanban,
   LayoutDashboard,
   Pencil,
@@ -24,6 +24,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { ProjectJourneyBoard } from "@/components/project/ProjectJourneyBoard";
 import { useAdminResources } from "./useAdminResources";
 
 const clientFormSchema = z.object({
@@ -229,6 +230,7 @@ export function AdminDashboard() {
   const [showAskForm, setShowAskForm] = useState(false);
   const [showUserForm, setShowUserForm] = useState(false);
   const [manualAskKey, setManualAskKey] = useState(false);
+  const [showJourneyBoard, setShowJourneyBoard] = useState(false);
   const [activeSection, setActiveSection] = useState<SectionLabel>(navigationItems[0].label);
   const [columnWidths, setColumnWidths] = useState<ColumnWidths>(defaultColumnWidths);
   const [isLargeScreen, setIsLargeScreen] = useState(false);
@@ -337,6 +339,25 @@ export function AdminDashboard() {
       setSelectedProjectId(null);
     }
   }, [projectsForClient, selectedProjectId]);
+
+  useEffect(() => {
+    if (!selectedProjectId && showJourneyBoard) {
+      setShowJourneyBoard(false);
+    }
+  }, [selectedProjectId, showJourneyBoard]);
+
+  useEffect(() => {
+    if (!showJourneyBoard) {
+      return;
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setShowJourneyBoard(false);
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [showJourneyBoard]);
 
   const challengesForProject = useMemo(
     () => challenges.filter(challenge => challenge.projectId === selectedProjectId),
@@ -785,7 +806,42 @@ export function AdminDashboard() {
   const inactiveUserCount = filteredUsers.length - activeUserCount;
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
+    <>
+      {showJourneyBoard && selectedProjectId && (
+        <div className="fixed inset-0 z-50 flex flex-col bg-slate-950/95 backdrop-blur">
+          <div className="flex items-center justify-between border-b border-white/10 px-6 py-4">
+            <div>
+              <p className="text-xs uppercase tracking-wide text-indigo-200">Back office</p>
+              <h2 className="text-xl font-semibold text-white">
+                {selectedProject?.name || "Parcours projet"}
+              </h2>
+              <p className="text-sm text-slate-300">
+                Visualisez les ASKs, insights et challenges connectés à ce projet.
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="rounded-full border border-white/20 px-3 py-1 text-xs uppercase tracking-wide text-slate-200">
+                {selectedClient?.name || "Client"}
+              </span>
+              <Button
+                type="button"
+                variant="secondary"
+                className="border-white/20 bg-white/10 text-white hover:bg-white/20"
+                onClick={() => setShowJourneyBoard(false)}
+              >
+                Fermer
+              </Button>
+            </div>
+          </div>
+          <div className="flex-1 overflow-hidden px-4 py-6">
+            <div className="mx-auto h-full max-w-6xl overflow-hidden rounded-3xl border border-white/10 bg-slate-900/60 p-4 shadow-2xl">
+              <ProjectJourneyBoard projectId={selectedProjectId} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="min-h-screen bg-slate-950 text-slate-100">
       <div className="flex h-full min-h-screen">
         <aside className="hidden w-64 flex-col border-r border-white/10 bg-white/5 p-6 backdrop-blur lg:flex">
           <div className="mb-8">
@@ -1260,6 +1316,21 @@ export function AdminDashboard() {
                               {challenges.filter(challenge => challenge.projectId === project.id).length} challenges
                             </span>
                             <div className="flex items-center gap-2">
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="secondary"
+                                className="h-8 rounded-full border border-white/20 bg-white/10 px-3 text-[11px] font-semibold uppercase tracking-wide text-indigo-100 hover:bg-white/20"
+                                onClick={() => {
+                                  setSelectedProjectId(project.id);
+                                  setShowJourneyBoard(true);
+                                }}
+                              >
+                                <div className="flex items-center gap-1">
+                                  <Compass className="h-3.5 w-3.5" />
+                                  Explorer
+                                </div>
+                              </Button>
                               <button
                                 type="button"
                                 onClick={() => startProjectEdit(project.id)}
@@ -1973,5 +2044,6 @@ export function AdminDashboard() {
         </div>
       </div>
     </div>
+    </>
   );
 }
