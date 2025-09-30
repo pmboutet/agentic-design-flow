@@ -142,27 +142,14 @@ interface ProjectJourneyBoardProps {
 
 export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
   const [boardData, setBoardData] = useState<ProjectJourneyBoardData>(() => getMockProjectJourneyData(projectId));
-  const [selectedAskId, setSelectedAskId] = useState<string | null>(boardData.asks[0]?.id ?? null);
+  const [selectedAskId, setSelectedAskId] = useState<string | null>(null);
   const [selectedChallengeId, setSelectedChallengeId] = useState<string | null>(null);
   const [focusedChallengeAskId, setFocusedChallengeAskId] = useState<string | null>(null);
   const [pendingUserInputs, setPendingUserInputs] = useState<Record<string, string>>({});
   const [pendingUserErrors, setPendingUserErrors] = useState<Record<string, string | null>>({});
   const [hoveredInsightId, setHoveredInsightId] = useState<string | null>(null);
   const [hoveredChallengeId, setHoveredChallengeId] = useState<string | null>(null);
-  const [expandedChallenges, setExpandedChallenges] = useState<Record<string, boolean>>(() => {
-    const initial: Record<string, boolean> = {};
-    const populate = (nodes: ProjectChallengeNode[]) => {
-      nodes.forEach(node => {
-        initial[node.id] = true;
-        if (node.children?.length) {
-          populate(node.children);
-        }
-      });
-    };
-    populate(boardData.challenges);
-    return initial;
-  });
-
+  const [expandedChallenges, setExpandedChallenges] = useState<Record<string, boolean>>({});
   const flattenedChallenges = useMemo(() => flattenChallenges(boardData.challenges), [boardData.challenges]);
 
   const challengeMap = useMemo(() => {
@@ -279,17 +266,46 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
     setSelectedChallengeId(challengeId);
     setFocusedChallengeAskId(null);
   };
+  const handleSelectAsk = (
+    askId: string,
+    options?: {
+      toggle?: boolean;
+      preserveFocus?: boolean;
+    },
+  ) => {
+    const shouldToggle = options?.toggle ?? true;
 
-  const handleSelectAsk = (askId: string) => {
-    setSelectedAskId(askId);
-    setFocusedChallengeAskId(null);
+    if (shouldToggle) {
+      let nextValue: string | null = null;
+      setSelectedAskId(prev => {
+        const next = prev === askId ? null : askId;
+        nextValue = next;
+        return next;
+      });
+
+      if (!options?.preserveFocus) {
+        setFocusedChallengeAskId(prevFocus =>
+          nextValue === null ? (prevFocus === askId ? null : prevFocus) : null,
+        );
+      }
+      return;
+    }
+
+    setSelectedAskId(prev => {
+      if (prev === askId) {
+        return prev;
+      }
+      return askId;
+    });
+
+    if (!options?.preserveFocus) {
+      setFocusedChallengeAskId(null);
+    }
   };
 
   const handleFocusAskFromChallenge = (askId: string) => {
     setFocusedChallengeAskId(askId);
-    if (!selectedAskId) {
-      setSelectedAskId(askId);
-    }
+    handleSelectAsk(askId, { toggle: false, preserveFocus: true });
   };
 
   const handleOpenChallengeFromInsight = (challengeId: string) => {
@@ -356,7 +372,7 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
     const associatedAsks = associatedAskIds
       .map(askId => askMap.get(askId))
       .filter((ask): ask is ProjectAskOverview => Boolean(ask));
-    const isExpanded = expandedChallenges[node.id] ?? true;
+    const isExpanded = expandedChallenges[node.id] ?? false;
     const isSelected = selectedChallengeId === node.id;
     const isHovered = hoveredChallengeId === node.id;
 
@@ -536,7 +552,7 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
                     onClick={() => {
                       if (!item) return;
                       if (slot.kind === "ask") {
-                        handleSelectAsk(item.id);
+                        handleSelectAsk(item.id, { toggle: false });
                       } else {
                         handleSelectChallenge(item.id);
                       }
@@ -591,11 +607,22 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
                           <div className="space-y-1">
                             <button
                               type="button"
-                              className="text-left"
+                              className="flex w-full items-center gap-3 text-left"
                               onClick={() => handleSelectAsk(ask.id)}
+                              aria-expanded={isSelected}
                             >
-                              <CardTitle className="text-lg font-semibold text-slate-900">{ask.title}</CardTitle>
-                              <p className="text-sm text-slate-600">{ask.summary}</p>
+                              <span className="flex-1">
+                                <CardTitle className="text-lg font-semibold text-slate-900">{ask.title}</CardTitle>
+                                <p className="text-sm text-slate-600">{ask.summary}</p>
+                              </span>
+                              <span
+                                className={cn(
+                                  "mt-1 flex h-7 w-7 items-center justify-center rounded-full border border-slate-200/60 bg-white text-slate-500 transition",
+                                  isSelected ? "rotate-0" : "-rotate-90",
+                                )}
+                              >
+                                <ChevronDown className="h-4 w-4" />
+                              </span>
                             </button>
                           </div>
                           <div className="flex flex-col items-end gap-2 text-xs text-slate-500">
@@ -627,9 +654,10 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
                           ))}
                         </div>
                       </CardHeader>
-                      <CardContent className="space-y-6 py-6">
-                        <div className="space-y-5">
-                          {ask.participants.map(participant => {
+                      {isSelected && (
+                        <CardContent className="space-y-6 py-6">
+                          <div className="space-y-5">
+                            {ask.participants.map(participant => {
                             const groupedInsights = groupInsightsByType(participant.insights);
                             const participantHasLink = participant.insights.some(insight =>
                               insight.relatedChallengeIds.includes(selectedChallengeId ?? ""),
@@ -783,8 +811,9 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
                               Ajouter
                             </Button>
                           </form>
-                        </div>
-                      </CardContent>
+                          </div>
+                        </CardContent>
+                      )}
                     </Card>
                   </motion.div>
                 );
