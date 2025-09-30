@@ -901,6 +901,431 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
     [filteredUsers]
   );
   const inactiveUserCount = filteredUsers.length - activeUserCount;
+  const renderChallengeWorkspace = (): JSX.Element => (
+    <div
+      ref={challengesRef}
+      id="section-challenges"
+      className={`flex flex-col gap-4 rounded-3xl border border-white/10 bg-white/5 p-5 backdrop-blur ${
+        showOnlyChallengeWorkspace ? "xl:mx-auto xl:max-w-6xl xl:p-6 2xl:max-w-7xl" : ""
+      }`}
+    >
+      <header className="flex flex-col gap-1">
+        <h3 className="text-lg font-semibold text-white">Challenges & ASK sessions</h3>
+        <p className="text-xs text-slate-400">
+          Select a challenge to update it and orchestrate new ASK conversations.
+        </p>
+      </header>
+
+      <div className="space-y-6">
+        {projectContextMissing && (
+          <Alert className="border-red-500/40 bg-red-500/10 text-red-100">
+            <AlertDescription>
+              Ce projet n'existe plus ou n'est pas accessible. Sélectionnez un autre projet dans la carte.
+            </AlertDescription>
+          </Alert>
+        )}
+        <AskRelationshipCanvas
+          projects={projects}
+          challenges={challenges}
+          asks={asks}
+          focusProjectId={selectedProjectId}
+          focusChallengeId={selectedChallengeId}
+          focusAskId={editingAskId}
+          onProjectSelect={handleCanvasProjectSelect}
+          onChallengeSelect={handleCanvasChallengeSelect}
+          onAskSelect={handleCanvasAskSelect}
+        />
+        {selectedProject ? (
+          <div
+            className={`grid gap-4 ${
+              showOnlyChallengeWorkspace
+                ? "xl:grid-cols-[minmax(260px,0.85fr)_minmax(360px,1.15fr)]"
+                : "xl:grid-cols-[minmax(240px,0.9fr)_minmax(260px,1.1fr)]"
+            }`}
+          >
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h4 className="text-sm font-semibold uppercase tracking-wide text-slate-300">Challenges</h4>
+              <span className="text-xs text-slate-400">
+                {challengesForProject.length} total
+              </span>
+            </div>
+            <div className="space-y-2 overflow-y-auto pr-2">
+              {challengesForProject.length === 0 ? (
+                <p className="text-sm text-slate-400">No challenges captured yet.</p>
+              ) : (
+                challengesForProject.map(challenge => (
+                  <article
+                    key={challenge.id}
+                    className={`rounded-2xl border px-4 py-3 transition hover:border-indigo-400 ${
+                      challenge.id === selectedChallengeId
+                        ? "border-indigo-400 bg-indigo-500/10"
+                        : "border-white/10 bg-slate-900/40"
+                    }`}
+                  >
+                    <button
+                      type="button"
+                      className="flex w-full items-start justify-between gap-3"
+                      onClick={() => setSelectedChallengeId(challenge.id)}
+                    >
+                      <div className="text-left">
+                        <h5 className="text-sm font-semibold text-white">{challenge.name}</h5>
+                        <p className="text-xs text-slate-400 line-clamp-2">
+                          {challenge.description || "No description"}
+                        </p>
+                      </div>
+                      <div className="flex flex-col items-end gap-1 text-[10px] uppercase tracking-wide text-slate-300">
+                        <span>{challenge.status}</span>
+                        {challenge.priority && <span className="text-red-300">{challenge.priority}</span>}
+                      </div>
+                    </button>
+                    <div className="mt-2 flex items-center justify-between text-xs text-slate-500">
+                      <span>{asks.filter(ask => ask.challengeId === challenge.id).length} ASK sessions</span>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteChallenge(challenge.id)}
+                        className="text-red-300 hover:text-red-200"
+                        disabled={isBusy}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </article>
+                ))
+              )}
+            </div>
+          </div>
+
+          <div
+            ref={asksRef}
+            id="section-asks"
+            className="space-y-4 rounded-2xl border border-white/10 bg-slate-900/40 p-4"
+          >
+            {selectedChallenge ? (
+              <>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="text-base font-semibold text-white">{selectedChallenge.name}</h4>
+                    <p className="text-xs text-slate-400">
+                      Last update {formatDateTime(selectedChallenge.updatedAt)}
+                    </p>
+                  </div>
+                  <span className="rounded-full bg-white/10 px-2 py-1 text-[10px] uppercase tracking-wide text-slate-200">
+                    {selectedChallenge.status}
+                  </span>
+                </div>
+
+                <form onSubmit={challengeForm.handleSubmit(handleUpdateChallenge)} className="grid gap-3 md:grid-cols-2">
+                  <div className="flex flex-col gap-2 md:col-span-2">
+                    <Label htmlFor="challenge-name">Name</Label>
+                    <Input id="challenge-name" placeholder="Update the challenge name" {...challengeForm.register("name")} disabled={isBusy} />
+                  </div>
+                  <div className="flex flex-col gap-2 md:col-span-2">
+                    <Label htmlFor="challenge-description">Description</Label>
+                    <Textarea
+                      id="challenge-description"
+                      rows={3}
+                      placeholder="Provide a concise description"
+                      {...challengeForm.register("description")}
+                      disabled={isBusy}
+                    />
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <Label htmlFor="challenge-status">Status</Label>
+                    <select
+                      id="challenge-status"
+                      className="h-10 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm text-white"
+                      {...challengeForm.register("status")}
+                      disabled={isBusy}
+                    >
+                      {challengeStatuses.map(status => (
+                        <option key={status} value={status}>
+                          {status}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <Label htmlFor="challenge-priority">Priority</Label>
+                    <select
+                      id="challenge-priority"
+                      className="h-10 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm text-white"
+                      {...challengeForm.register("priority")}
+                      disabled={isBusy}
+                    >
+                      {challengePriorities.map(priority => (
+                        <option key={priority} value={priority}>
+                          {priority}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <Label htmlFor="challenge-category">Category</Label>
+                    <Input
+                      id="challenge-category"
+                      placeholder="Operational, Culture, Experience..."
+                      {...challengeForm.register("category")}
+                      disabled={isBusy}
+                    />
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <Label htmlFor="challenge-owner">Assignee</Label>
+                    <select
+                      id="challenge-owner"
+                      className="h-10 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm text-white"
+                      {...challengeForm.register("assignedTo")}
+                      disabled={isBusy}
+                    >
+                      <option value="">Unassigned</option>
+                      {filteredUsers.map(user => (
+                        <option key={user.id} value={user.id}>
+                          {user.fullName || user.email}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <Label htmlFor="challenge-due">Due date</Label>
+                    <Input id="challenge-due" type="datetime-local" {...challengeForm.register("dueDate")}
+                      disabled={isBusy}
+                    />
+                  </div>
+                  <div className="md:col-span-2 flex justify-end">
+                    <Button type="submit" className={`${gradientButtonClasses} px-4`} disabled={isBusy}>
+                      Update challenge
+                    </Button>
+                  </div>
+                </form>
+
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h5 className="text-sm font-semibold text-slate-200">ASK sessions</h5>
+                    <Button
+                      type="button"
+                      className={`${gradientButtonClasses} h-9 px-3 text-xs`}
+                      onClick={() => {
+                        if (showAskForm) {
+                          cancelAskEdit();
+                        } else {
+                          resetAskForm();
+                          setShowAskForm(true);
+                        }
+                      }}
+                      disabled={isBusy}
+                    >
+                      {showAskForm ? "Close" : "Create ASK"}
+                    </Button>
+                  </div>
+
+                  {showAskForm && (
+                    <form onSubmit={askForm.handleSubmit(handleSubmitAsk)} className="space-y-3 rounded-2xl border border-white/10 bg-slate-950/40 p-4">
+                      {isEditingAsk && (
+                        <p className="text-xs font-medium text-amber-300">
+                          Editing {asks.find(ask => ask.id === editingAskId)?.name}
+                        </p>
+                      )}
+                      <div className="flex flex-col gap-2">
+                        <Label htmlFor="ask-name">Name</Label>
+                        <Input
+                          id="ask-name"
+                          placeholder="Session name"
+                          {...askForm.register("name")}
+                          disabled={isBusy}
+                        />
+                        {askForm.formState.errors.name && (
+                          <p className="text-xs text-red-400">{askForm.formState.errors.name.message}</p>
+                        )}
+                      </div>
+                      <div className="flex flex-col gap-2">
+                        <Label htmlFor="ask-key">ASK key</Label>
+                        <div className="flex gap-2">
+                          <Input
+                            id="ask-key"
+                            placeholder="Auto generated"
+                            {...askForm.register("askKey", {
+                              onChange: () => setManualAskKey(true)
+                            })}
+                            disabled={isBusy || isEditingAsk}
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="border-white/20 bg-white/10 text-white hover:bg-white/20"
+                            onClick={() => {
+                              const name = askForm.getValues("name");
+                              askForm.setValue("askKey", generateAskKey(name || "ask"));
+                              setManualAskKey(false);
+                            }}
+                            disabled={isBusy || isEditingAsk}
+                          >
+                            Regenerate
+                          </Button>
+                        </div>
+                        {askForm.formState.errors.askKey && (
+                          <p className="text-xs text-red-400">{askForm.formState.errors.askKey.message}</p>
+                        )}
+                      </div>
+                      <div className="flex flex-col gap-2">
+                        <Label htmlFor="ask-question">Guiding question</Label>
+                        <Textarea
+                          id="ask-question"
+                          rows={3}
+                          placeholder="What do you want the team to explore?"
+                          {...askForm.register("question")}
+                          disabled={isBusy}
+                        />
+                      </div>
+                      <div className="flex flex-col gap-2">
+                        <Label htmlFor="ask-description">Description</Label>
+                        <Textarea
+                          id="ask-description"
+                          rows={2}
+                          placeholder="Share additional context"
+                          {...askForm.register("description")}
+                          disabled={isBusy}
+                        />
+                      </div>
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <div className="flex flex-col gap-2">
+                          <Label htmlFor="ask-start">Start</Label>
+                          <Input id="ask-start" type="datetime-local" {...askForm.register("startDate")} disabled={isBusy} />
+                          {askForm.formState.errors.startDate && (
+                            <p className="text-xs text-red-400">{askForm.formState.errors.startDate.message}</p>
+                          )}
+                        </div>
+                        <div className="flex flex-col gap-2">
+                          <Label htmlFor="ask-end">End</Label>
+                          <Input id="ask-end" type="datetime-local" {...askForm.register("endDate")} disabled={isBusy} />
+                          {askForm.formState.errors.endDate && (
+                            <p className="text-xs text-red-400">{askForm.formState.errors.endDate.message}</p>
+                          )}
+                        </div>
+                      </div>
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <div className="flex flex-col gap-2">
+                          <Label htmlFor="ask-status">Status</Label>
+                          <select
+                            id="ask-status"
+                            className="h-10 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm text-white"
+                            {...askForm.register("status")}
+                            disabled={isBusy}
+                          >
+                            {askStatuses.map(status => (
+                              <option key={status} value={status}>
+                                {status}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <label className="flex items-center gap-2 text-sm text-slate-300">
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 rounded border-white/20 bg-slate-900"
+                            {...askForm.register("isAnonymous")}
+                            disabled={isBusy}
+                          />
+                          Allow anonymous participation
+                        </label>
+                      </div>
+                      <div className="flex flex-col gap-2">
+                        <Label htmlFor="ask-max">Max participants</Label>
+                        <Input
+                          id="ask-max"
+                          type="number"
+                          min={1}
+                          placeholder="e.g. 50"
+                          {...askForm.register("maxParticipants")}
+                          disabled={isBusy}
+                        />
+                      </div>
+                      <div className="flex justify-end gap-2">
+                        {isEditingAsk && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="border-white/20 bg-transparent text-white hover:bg-white/10"
+                            onClick={cancelAskEdit}
+                            disabled={isBusy}
+                          >
+                            Cancel
+                          </Button>
+                        )}
+                        <Button type="submit" className={`${gradientButtonClasses} px-4`} disabled={isBusy}>
+                          {isEditingAsk ? "Update ASK" : "Launch ASK"}
+                        </Button>
+                      </div>
+                    </form>
+                  )}
+
+                  <div className="space-y-2">
+                    {asksForChallenge.length === 0 ? (
+                      <p className="text-sm text-slate-400">No ASK sessions have been created yet.</p>
+                    ) : (
+                      asksForChallenge.map(session => (
+                        <div
+                          key={session.id}
+                          className="rounded-2xl border border-white/10 bg-slate-950/40 p-4 text-sm text-slate-200"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="font-semibold text-white">{session.name}</p>
+                              <p className="text-xs text-slate-400">Key: {session.askKey}</p>
+                            </div>
+                            <span className="rounded-full bg-white/10 px-2 py-1 text-[10px] uppercase tracking-wide text-slate-200">
+                              {session.status}
+                            </span>
+                          </div>
+                          <p className="mt-2 text-xs text-slate-400">
+                            {formatDateTime(session.startDate)} → {formatDateTime(session.endDate)}
+                          </p>
+                          <div className="mt-3 flex items-center justify-between text-xs text-slate-400">
+                            <span>{session.isAnonymous ? "Anonymous" : "Identified"} participants</span>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => startAskEdit(session.id)}
+                                className="text-slate-200 hover:text-white"
+                                disabled={isBusy}
+                              >
+                                Edit
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteAsk(session.id)}
+                                className="text-red-300 hover:text-red-200"
+                                disabled={isBusy}
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </>
+            ) : (
+              <p className="text-sm text-slate-400">Select a challenge to review its details.</p>
+            )}
+          </div>
+        </div>
+      ) : (
+        <div
+          ref={asksRef}
+          id="section-asks"
+          className="rounded-2xl border border-dashed border-white/10 bg-slate-900/40 p-6 text-sm text-slate-400"
+        >
+          Pick a project to access its challenges.
+        </div>
+      )}
+      </div>
+    </div>
+  );
+
+
+
 
   return (
     <>
@@ -1054,9 +1479,9 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                   </button>
                 </div>
               </Alert>
-            )}
+              )}
 
-            {!showOnlyChallengeWorkspace && (
+              {!showOnlyChallengeWorkspace && (
               <section ref={dashboardRef} id="section-dashboard">
                 <div className="flex items-center justify-between">
                   <h1 className="text-3xl font-semibold">Operational dashboard</h1>
@@ -1516,430 +1941,11 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                     </div>
                   )}
                 </div>
-
-                <div
-                  ref={challengesRef}
-                  id="section-challenges"
-                  className={`flex flex-col gap-4 rounded-3xl border border-white/10 bg-white/5 p-5 backdrop-blur ${
-                    showOnlyChallengeWorkspace ? "xl:p-6" : ""
-                  }`}
-                >
-                  <header className="flex flex-col gap-1">
-                    <h3 className="text-lg font-semibold text-white">Challenges & ASK sessions</h3>
-                    <p className="text-xs text-slate-400">
-                      Select a challenge to update it and orchestrate new ASK conversations.
-                    </p>
-                  </header>
-
-                  <div className="space-y-6">
-                    {projectContextMissing && (
-                      <Alert className="border-red-500/40 bg-red-500/10 text-red-100">
-                        <AlertDescription>
-                          Ce projet n'existe plus ou n'est pas accessible. Sélectionnez un autre projet dans la carte.
-                        </AlertDescription>
-                      </Alert>
-                    )}
-                    <AskRelationshipCanvas
-                      projects={projects}
-                      challenges={challenges}
-                      asks={asks}
-                      focusProjectId={selectedProjectId}
-                      focusChallengeId={selectedChallengeId}
-                      focusAskId={editingAskId}
-                      onProjectSelect={handleCanvasProjectSelect}
-                      onChallengeSelect={handleCanvasChallengeSelect}
-                      onAskSelect={handleCanvasAskSelect}
-                    />
-                    {selectedProject ? (
-                    <div
-                      className={`grid gap-4 ${
-                        showOnlyChallengeWorkspace
-                          ? "xl:grid-cols-[minmax(260px,0.85fr)_minmax(360px,1.15fr)]"
-                          : "xl:grid-cols-[minmax(240px,0.9fr)_minmax(260px,1.1fr)]"
-                      }`}
-                    >
-                      <div className="space-y-3">
-                        <div className="flex items-center justify-between">
-                          <h4 className="text-sm font-semibold uppercase tracking-wide text-slate-300">Challenges</h4>
-                          <span className="text-xs text-slate-400">
-                            {challengesForProject.length} total
-                          </span>
-                        </div>
-                        <div className="space-y-2 overflow-y-auto pr-2">
-                          {challengesForProject.length === 0 ? (
-                            <p className="text-sm text-slate-400">No challenges captured yet.</p>
-                          ) : (
-                            challengesForProject.map(challenge => (
-                              <article
-                                key={challenge.id}
-                                className={`rounded-2xl border px-4 py-3 transition hover:border-indigo-400 ${
-                                  challenge.id === selectedChallengeId
-                                    ? "border-indigo-400 bg-indigo-500/10"
-                                    : "border-white/10 bg-slate-900/40"
-                                }`}
-                              >
-                                <button
-                                  type="button"
-                                  className="flex w-full items-start justify-between gap-3"
-                                  onClick={() => setSelectedChallengeId(challenge.id)}
-                                >
-                                  <div className="text-left">
-                                    <h5 className="text-sm font-semibold text-white">{challenge.name}</h5>
-                                    <p className="text-xs text-slate-400 line-clamp-2">
-                                      {challenge.description || "No description"}
-                                    </p>
-                                  </div>
-                                  <div className="flex flex-col items-end gap-1 text-[10px] uppercase tracking-wide text-slate-300">
-                                    <span>{challenge.status}</span>
-                                    {challenge.priority && <span className="text-red-300">{challenge.priority}</span>}
-                                  </div>
-                                </button>
-                                <div className="mt-2 flex items-center justify-between text-xs text-slate-500">
-                                  <span>{asks.filter(ask => ask.challengeId === challenge.id).length} ASK sessions</span>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleDeleteChallenge(challenge.id)}
-                                    className="text-red-300 hover:text-red-200"
-                                    disabled={isBusy}
-                                  >
-                                    Delete
-                                  </button>
-                                </div>
-                              </article>
-                            ))
-                          )}
-                        </div>
-                      </div>
-
-                      <div
-                        ref={asksRef}
-                        id="section-asks"
-                        className="space-y-4 rounded-2xl border border-white/10 bg-slate-900/40 p-4"
-                      >
-                        {selectedChallenge ? (
-                          <>
-                            <div className="flex items-center justify-between">
-                              <div>
-                                <h4 className="text-base font-semibold text-white">{selectedChallenge.name}</h4>
-                                <p className="text-xs text-slate-400">
-                                  Last update {formatDateTime(selectedChallenge.updatedAt)}
-                                </p>
-                              </div>
-                              <span className="rounded-full bg-white/10 px-2 py-1 text-[10px] uppercase tracking-wide text-slate-200">
-                                {selectedChallenge.status}
-                              </span>
-                            </div>
-
-                            <form onSubmit={challengeForm.handleSubmit(handleUpdateChallenge)} className="grid gap-3 md:grid-cols-2">
-                              <div className="flex flex-col gap-2 md:col-span-2">
-                                <Label htmlFor="challenge-name">Name</Label>
-                                <Input id="challenge-name" placeholder="Update the challenge name" {...challengeForm.register("name")} disabled={isBusy} />
-                              </div>
-                              <div className="flex flex-col gap-2 md:col-span-2">
-                                <Label htmlFor="challenge-description">Description</Label>
-                                <Textarea
-                                  id="challenge-description"
-                                  rows={3}
-                                  placeholder="Provide a concise description"
-                                  {...challengeForm.register("description")}
-                                  disabled={isBusy}
-                                />
-                              </div>
-                              <div className="flex flex-col gap-2">
-                                <Label htmlFor="challenge-status">Status</Label>
-                                <select
-                                  id="challenge-status"
-                                  className="h-10 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm text-white"
-                                  {...challengeForm.register("status")}
-                                  disabled={isBusy}
-                                >
-                                  {challengeStatuses.map(status => (
-                                    <option key={status} value={status}>
-                                      {status}
-                                    </option>
-                                  ))}
-                                </select>
-                              </div>
-                              <div className="flex flex-col gap-2">
-                                <Label htmlFor="challenge-priority">Priority</Label>
-                                <select
-                                  id="challenge-priority"
-                                  className="h-10 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm text-white"
-                                  {...challengeForm.register("priority")}
-                                  disabled={isBusy}
-                                >
-                                  {challengePriorities.map(priority => (
-                                    <option key={priority} value={priority}>
-                                      {priority}
-                                    </option>
-                                  ))}
-                                </select>
-                              </div>
-                              <div className="flex flex-col gap-2">
-                                <Label htmlFor="challenge-category">Category</Label>
-                                <Input
-                                  id="challenge-category"
-                                  placeholder="Operational, Culture, Experience..."
-                                  {...challengeForm.register("category")}
-                                  disabled={isBusy}
-                                />
-                              </div>
-                              <div className="flex flex-col gap-2">
-                                <Label htmlFor="challenge-owner">Assignee</Label>
-                                <select
-                                  id="challenge-owner"
-                                  className="h-10 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm text-white"
-                                  {...challengeForm.register("assignedTo")}
-                                  disabled={isBusy}
-                                >
-                                  <option value="">Unassigned</option>
-                                  {filteredUsers.map(user => (
-                                    <option key={user.id} value={user.id}>
-                                      {user.fullName || user.email}
-                                    </option>
-                                  ))}
-                                </select>
-                              </div>
-                              <div className="flex flex-col gap-2">
-                                <Label htmlFor="challenge-due">Due date</Label>
-                                <Input id="challenge-due" type="datetime-local" {...challengeForm.register("dueDate")}
-                                  disabled={isBusy}
-                                />
-                              </div>
-                              <div className="md:col-span-2 flex justify-end">
-                                <Button type="submit" className={`${gradientButtonClasses} px-4`} disabled={isBusy}>
-                                  Update challenge
-                                </Button>
-                              </div>
-                            </form>
-
-                            <div className="space-y-3">
-                              <div className="flex items-center justify-between">
-                                <h5 className="text-sm font-semibold text-slate-200">ASK sessions</h5>
-                                <Button
-                                  type="button"
-                                  className={`${gradientButtonClasses} h-9 px-3 text-xs`}
-                                  onClick={() => {
-                                    if (showAskForm) {
-                                      cancelAskEdit();
-                                    } else {
-                                      resetAskForm();
-                                      setShowAskForm(true);
-                                    }
-                                  }}
-                                  disabled={isBusy}
-                                >
-                                  {showAskForm ? "Close" : "Create ASK"}
-                                </Button>
-                              </div>
-
-                              {showAskForm && (
-                                <form onSubmit={askForm.handleSubmit(handleSubmitAsk)} className="space-y-3 rounded-2xl border border-white/10 bg-slate-950/40 p-4">
-                                  {isEditingAsk && (
-                                    <p className="text-xs font-medium text-amber-300">
-                                      Editing {asks.find(ask => ask.id === editingAskId)?.name}
-                                    </p>
-                                  )}
-                                  <div className="flex flex-col gap-2">
-                                    <Label htmlFor="ask-name">Name</Label>
-                                    <Input
-                                      id="ask-name"
-                                      placeholder="Session name"
-                                      {...askForm.register("name")}
-                                      disabled={isBusy}
-                                    />
-                                    {askForm.formState.errors.name && (
-                                      <p className="text-xs text-red-400">{askForm.formState.errors.name.message}</p>
-                                    )}
-                                  </div>
-                                  <div className="flex flex-col gap-2">
-                                    <Label htmlFor="ask-key">ASK key</Label>
-                                    <div className="flex gap-2">
-                                      <Input
-                                        id="ask-key"
-                                        placeholder="Auto generated"
-                                        {...askForm.register("askKey", {
-                                          onChange: () => setManualAskKey(true)
-                                        })}
-                                        disabled={isBusy || isEditingAsk}
-                                      />
-                                      <Button
-                                        type="button"
-                                        variant="outline"
-                                        className="border-white/20 bg-white/10 text-white hover:bg-white/20"
-                                        onClick={() => {
-                                          const name = askForm.getValues("name");
-                                          askForm.setValue("askKey", generateAskKey(name || "ask"));
-                                          setManualAskKey(false);
-                                        }}
-                                        disabled={isBusy || isEditingAsk}
-                                      >
-                                        Regenerate
-                                      </Button>
-                                    </div>
-                                    {askForm.formState.errors.askKey && (
-                                      <p className="text-xs text-red-400">{askForm.formState.errors.askKey.message}</p>
-                                    )}
-                                  </div>
-                                  <div className="flex flex-col gap-2">
-                                    <Label htmlFor="ask-question">Guiding question</Label>
-                                    <Textarea
-                                      id="ask-question"
-                                      rows={3}
-                                      placeholder="What do you want the team to explore?"
-                                      {...askForm.register("question")}
-                                      disabled={isBusy}
-                                    />
-                                  </div>
-                                  <div className="flex flex-col gap-2">
-                                    <Label htmlFor="ask-description">Description</Label>
-                                    <Textarea
-                                      id="ask-description"
-                                      rows={2}
-                                      placeholder="Share additional context"
-                                      {...askForm.register("description")}
-                                      disabled={isBusy}
-                                    />
-                                  </div>
-                                  <div className="grid gap-3 md:grid-cols-2">
-                                    <div className="flex flex-col gap-2">
-                                      <Label htmlFor="ask-start">Start</Label>
-                                      <Input id="ask-start" type="datetime-local" {...askForm.register("startDate")} disabled={isBusy} />
-                                      {askForm.formState.errors.startDate && (
-                                        <p className="text-xs text-red-400">{askForm.formState.errors.startDate.message}</p>
-                                      )}
-                                    </div>
-                                    <div className="flex flex-col gap-2">
-                                      <Label htmlFor="ask-end">End</Label>
-                                      <Input id="ask-end" type="datetime-local" {...askForm.register("endDate")} disabled={isBusy} />
-                                      {askForm.formState.errors.endDate && (
-                                        <p className="text-xs text-red-400">{askForm.formState.errors.endDate.message}</p>
-                                      )}
-                                    </div>
-                                  </div>
-                                  <div className="grid gap-3 md:grid-cols-2">
-                                    <div className="flex flex-col gap-2">
-                                      <Label htmlFor="ask-status">Status</Label>
-                                      <select
-                                        id="ask-status"
-                                        className="h-10 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm text-white"
-                                        {...askForm.register("status")}
-                                        disabled={isBusy}
-                                      >
-                                        {askStatuses.map(status => (
-                                          <option key={status} value={status}>
-                                            {status}
-                                          </option>
-                                        ))}
-                                      </select>
-                                    </div>
-                                    <label className="flex items-center gap-2 text-sm text-slate-300">
-                                      <input
-                                        type="checkbox"
-                                        className="h-4 w-4 rounded border-white/20 bg-slate-900"
-                                        {...askForm.register("isAnonymous")}
-                                        disabled={isBusy}
-                                      />
-                                      Allow anonymous participation
-                                    </label>
-                                  </div>
-                                  <div className="flex flex-col gap-2">
-                                    <Label htmlFor="ask-max">Max participants</Label>
-                                    <Input
-                                      id="ask-max"
-                                      type="number"
-                                      min={1}
-                                      placeholder="e.g. 50"
-                                      {...askForm.register("maxParticipants")}
-                                      disabled={isBusy}
-                                    />
-                                  </div>
-                                  <div className="flex justify-end gap-2">
-                                    {isEditingAsk && (
-                                      <Button
-                                        type="button"
-                                        variant="outline"
-                                        className="border-white/20 bg-transparent text-white hover:bg-white/10"
-                                        onClick={cancelAskEdit}
-                                        disabled={isBusy}
-                                      >
-                                        Cancel
-                                      </Button>
-                                    )}
-                                    <Button type="submit" className={`${gradientButtonClasses} px-4`} disabled={isBusy}>
-                                      {isEditingAsk ? "Update ASK" : "Launch ASK"}
-                                    </Button>
-                                  </div>
-                                </form>
-                              )}
-
-                              <div className="space-y-2">
-                                {asksForChallenge.length === 0 ? (
-                                  <p className="text-sm text-slate-400">No ASK sessions have been created yet.</p>
-                                ) : (
-                                  asksForChallenge.map(session => (
-                                    <div
-                                      key={session.id}
-                                      className="rounded-2xl border border-white/10 bg-slate-950/40 p-4 text-sm text-slate-200"
-                                    >
-                                      <div className="flex items-start justify-between gap-3">
-                                        <div>
-                                          <p className="font-semibold text-white">{session.name}</p>
-                                          <p className="text-xs text-slate-400">Key: {session.askKey}</p>
-                                        </div>
-                                        <span className="rounded-full bg-white/10 px-2 py-1 text-[10px] uppercase tracking-wide text-slate-200">
-                                          {session.status}
-                                        </span>
-                                      </div>
-                                      <p className="mt-2 text-xs text-slate-400">
-                                        {formatDateTime(session.startDate)} → {formatDateTime(session.endDate)}
-                                      </p>
-                                      <div className="mt-3 flex items-center justify-between text-xs text-slate-400">
-                                        <span>{session.isAnonymous ? "Anonymous" : "Identified"} participants</span>
-                                        <div className="flex items-center gap-2">
-                                          <button
-                                            type="button"
-                                            onClick={() => startAskEdit(session.id)}
-                                            className="text-slate-200 hover:text-white"
-                                            disabled={isBusy}
-                                          >
-                                            Edit
-                                          </button>
-                                          <button
-                                            type="button"
-                                            onClick={() => handleDeleteAsk(session.id)}
-                                            className="text-red-300 hover:text-red-200"
-                                            disabled={isBusy}
-                                          >
-                                            Delete
-                                          </button>
-                                        </div>
-                                      </div>
-                                    </div>
-                                  ))
-                                )}
-                              </div>
-                            </div>
-                          </>
-                        ) : (
-                          <p className="text-sm text-slate-400">Select a challenge to review its details.</p>
-                        )}
-                      </div>
-                    </div>
-                  ) : (
-                    <div
-                      ref={asksRef}
-                      id="section-asks"
-                      className="rounded-2xl border border-dashed border-white/10 bg-slate-900/40 p-6 text-sm text-slate-400"
-                    >
-                      Pick a project to access its challenges.
-                    </div>
-                  )}
-                  </div>
-                </div>
+                {renderChallengeWorkspace()}
                 </div>
               </section>
             )}
+            {showOnlyChallengeWorkspace && renderChallengeWorkspace()}
 
             {!showOnlyChallengeWorkspace && (
               <section
