@@ -5,13 +5,17 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { motion } from "framer-motion";
+import { useRouter } from "next/navigation";
 import {
   Bell,
   Building2,
   ClipboardList,
+  ChevronLeft,
+  ChevronRight,
   Compass,
   FolderKanban,
   LayoutDashboard,
+  Menu,
   Pencil,
   MessageSquare,
   Search,
@@ -25,7 +29,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { ProjectJourneyBoard } from "@/components/project/ProjectJourneyBoard";
+import { AskRelationshipCanvas } from "./AskRelationshipCanvas";
 import { useAdminResources } from "./useAdminResources";
+
+interface AdminDashboardProps {
+  initialProjectId?: string | null;
+  mode?: "default" | "project-relationships";
+}
 
 const clientFormSchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(255),
@@ -195,7 +205,8 @@ function toInputDate(value: string | null | undefined) {
   return date.toISOString().slice(0, 16);
 }
 
-export function AdminDashboard() {
+export function AdminDashboard({ initialProjectId = null, mode = "default" }: AdminDashboardProps = {}) {
+  const router = useRouter();
   const {
     clients,
     users,
@@ -222,7 +233,7 @@ export function AdminDashboard() {
   } = useAdminResources();
 
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
-  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(initialProjectId ?? null);
   const [selectedChallengeId, setSelectedChallengeId] = useState<string | null>(null);
 
   const [showClientForm, setShowClientForm] = useState(false);
@@ -234,11 +245,14 @@ export function AdminDashboard() {
   const [activeSection, setActiveSection] = useState<SectionLabel>(navigationItems[0].label);
   const [columnWidths, setColumnWidths] = useState<ColumnWidths>(defaultColumnWidths);
   const [isLargeScreen, setIsLargeScreen] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(true);
 
   const [editingClientId, setEditingClientId] = useState<string | null>(null);
   const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
   const [editingAskId, setEditingAskId] = useState<string | null>(null);
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
+
+  const showOnlyChallengeWorkspace = mode === "project-relationships";
 
   const dashboardRef = useRef<HTMLDivElement>(null);
   const clientsRef = useRef<HTMLDivElement>(null);
@@ -262,6 +276,27 @@ export function AdminDashboard() {
     }),
     []
   );
+
+  const navigationMenu = useMemo(() => {
+    if (showOnlyChallengeWorkspace) {
+      return navigationItems.filter(item =>
+        item.targetId === "section-challenges" || item.targetId === "section-asks"
+      );
+    }
+    return navigationItems;
+  }, [showOnlyChallengeWorkspace]);
+
+  useEffect(() => {
+    if (!navigationMenu.some(item => item.label === activeSection)) {
+      setActiveSection(navigationMenu[0]?.label ?? navigationItems[0].label);
+    }
+  }, [navigationMenu, activeSection]);
+
+  useEffect(() => {
+    if (showOnlyChallengeWorkspace) {
+      setActiveSection("Challenges");
+    }
+  }, [showOnlyChallengeWorkspace]);
 
   const resizeStartXRef = useRef(0);
   const startColumnWidthsRef = useRef<ColumnWidths>(defaultColumnWidths);
@@ -301,6 +336,25 @@ export function AdminDashboard() {
   });
 
   const askNameValue = askForm.watch("name");
+
+  useEffect(() => {
+    if (initialProjectId) {
+      setSelectedProjectId(initialProjectId);
+    }
+  }, [initialProjectId]);
+
+  useEffect(() => {
+    if (!showOnlyChallengeWorkspace) {
+      return;
+    }
+    if (!selectedProjectId) {
+      return;
+    }
+    const project = projects.find(item => item.id === selectedProjectId);
+    if (project && project.clientId !== selectedClientId) {
+      setSelectedClientId(project.clientId ?? null);
+    }
+  }, [projects, selectedProjectId, showOnlyChallengeWorkspace, selectedClientId]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -414,6 +468,12 @@ export function AdminDashboard() {
   const selectedChallenge = useMemo(
     () => challenges.find(challenge => challenge.id === selectedChallengeId) ?? null,
     [challenges, selectedChallengeId]
+  );
+
+  const projectContextMissing = useMemo(
+    () =>
+      showOnlyChallengeWorkspace && Boolean(initialProjectId) && !isLoading && !selectedProject,
+    [showOnlyChallengeWorkspace, initialProjectId, isLoading, selectedProject]
   );
 
   const isEditingClient = Boolean(editingClientId);
@@ -541,7 +601,7 @@ export function AdminDashboard() {
       entries => {
         entries.forEach(entry => {
           if (entry.isIntersecting) {
-            const matchingItem = navigationItems.find(item => item.targetId === entry.target.id);
+            const matchingItem = navigationMenu.find(item => item.targetId === entry.target.id);
             if (matchingItem) {
               setActiveSection(matchingItem.label);
             }
@@ -563,7 +623,7 @@ export function AdminDashboard() {
       observedElements.forEach(element => observer.unobserve(element));
       observer.disconnect();
     };
-  }, [sectionRefMap, selectedProjectId, selectedChallengeId]);
+  }, [sectionRefMap, selectedProjectId, selectedChallengeId, navigationMenu]);
 
   const handleNavigationClick = useCallback(
     (item: (typeof navigationItems)[number]) => {
@@ -714,6 +774,43 @@ export function AdminDashboard() {
     setShowAskForm(false);
   };
 
+  const handleCanvasProjectSelect = (projectId: string) => {
+    const project = projects.find(item => item.id === projectId);
+    if (!project) {
+      return;
+    }
+    setSelectedClientId(project.clientId ?? null);
+    setSelectedProjectId(project.id);
+    setActiveSection("Challenges");
+  };
+
+  const handleCanvasChallengeSelect = (challengeId: string) => {
+    const challenge = challenges.find(item => item.id === challengeId);
+    if (!challenge) {
+      return;
+    }
+    if (challenge.projectId) {
+      handleCanvasProjectSelect(challenge.projectId);
+    }
+    setSelectedChallengeId(challenge.id);
+    setActiveSection("Challenges");
+  };
+
+  const handleCanvasAskSelect = (askId: string) => {
+    const session = asks.find(item => item.id === askId);
+    if (!session) {
+      return;
+    }
+    if (session.projectId) {
+      handleCanvasProjectSelect(session.projectId);
+    }
+    if (session.challengeId) {
+      setSelectedChallengeId(session.challengeId);
+    }
+    startAskEdit(session.id);
+    setActiveSection("ASK Sessions");
+  };
+
   const resetUserForm = () => {
     userForm.reset({ ...defaultUserFormValues, clientId: selectedClientId ?? "" });
     setEditingUserId(null);
@@ -804,6 +901,431 @@ export function AdminDashboard() {
     [filteredUsers]
   );
   const inactiveUserCount = filteredUsers.length - activeUserCount;
+  const renderChallengeWorkspace = (): JSX.Element => (
+    <div
+      ref={challengesRef}
+      id="section-challenges"
+      className={`flex flex-col gap-4 rounded-3xl border border-white/10 bg-white/5 p-5 backdrop-blur ${
+        showOnlyChallengeWorkspace ? "xl:mx-auto xl:max-w-6xl xl:p-6 2xl:max-w-7xl" : ""
+      }`}
+    >
+      <header className="flex flex-col gap-1">
+        <h3 className="text-lg font-semibold text-white">Challenges & ASK sessions</h3>
+        <p className="text-xs text-slate-400">
+          Select a challenge to update it and orchestrate new ASK conversations.
+        </p>
+      </header>
+
+      <div className="space-y-6">
+        {projectContextMissing && (
+          <Alert className="border-red-500/40 bg-red-500/10 text-red-100">
+            <AlertDescription>
+              Ce projet n'existe plus ou n'est pas accessible. Sélectionnez un autre projet dans la carte.
+            </AlertDescription>
+          </Alert>
+        )}
+        <AskRelationshipCanvas
+          projects={projects}
+          challenges={challenges}
+          asks={asks}
+          focusProjectId={selectedProjectId}
+          focusChallengeId={selectedChallengeId}
+          focusAskId={editingAskId}
+          onProjectSelect={handleCanvasProjectSelect}
+          onChallengeSelect={handleCanvasChallengeSelect}
+          onAskSelect={handleCanvasAskSelect}
+        />
+        {selectedProject ? (
+          <div
+            className={`grid gap-4 ${
+              showOnlyChallengeWorkspace
+                ? "xl:grid-cols-[minmax(260px,0.85fr)_minmax(360px,1.15fr)]"
+                : "xl:grid-cols-[minmax(240px,0.9fr)_minmax(260px,1.1fr)]"
+            }`}
+          >
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h4 className="text-sm font-semibold uppercase tracking-wide text-slate-300">Challenges</h4>
+              <span className="text-xs text-slate-400">
+                {challengesForProject.length} total
+              </span>
+            </div>
+            <div className="space-y-2 overflow-y-auto pr-2">
+              {challengesForProject.length === 0 ? (
+                <p className="text-sm text-slate-400">No challenges captured yet.</p>
+              ) : (
+                challengesForProject.map(challenge => (
+                  <article
+                    key={challenge.id}
+                    className={`rounded-2xl border px-4 py-3 transition hover:border-indigo-400 ${
+                      challenge.id === selectedChallengeId
+                        ? "border-indigo-400 bg-indigo-500/10"
+                        : "border-white/10 bg-slate-900/40"
+                    }`}
+                  >
+                    <button
+                      type="button"
+                      className="flex w-full items-start justify-between gap-3"
+                      onClick={() => setSelectedChallengeId(challenge.id)}
+                    >
+                      <div className="text-left">
+                        <h5 className="text-sm font-semibold text-white">{challenge.name}</h5>
+                        <p className="text-xs text-slate-400 line-clamp-2">
+                          {challenge.description || "No description"}
+                        </p>
+                      </div>
+                      <div className="flex flex-col items-end gap-1 text-[10px] uppercase tracking-wide text-slate-300">
+                        <span>{challenge.status}</span>
+                        {challenge.priority && <span className="text-red-300">{challenge.priority}</span>}
+                      </div>
+                    </button>
+                    <div className="mt-2 flex items-center justify-between text-xs text-slate-500">
+                      <span>{asks.filter(ask => ask.challengeId === challenge.id).length} ASK sessions</span>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteChallenge(challenge.id)}
+                        className="text-red-300 hover:text-red-200"
+                        disabled={isBusy}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </article>
+                ))
+              )}
+            </div>
+          </div>
+
+          <div
+            ref={asksRef}
+            id="section-asks"
+            className="space-y-4 rounded-2xl border border-white/10 bg-slate-900/40 p-4"
+          >
+            {selectedChallenge ? (
+              <>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="text-base font-semibold text-white">{selectedChallenge.name}</h4>
+                    <p className="text-xs text-slate-400">
+                      Last update {formatDateTime(selectedChallenge.updatedAt)}
+                    </p>
+                  </div>
+                  <span className="rounded-full bg-white/10 px-2 py-1 text-[10px] uppercase tracking-wide text-slate-200">
+                    {selectedChallenge.status}
+                  </span>
+                </div>
+
+                <form onSubmit={challengeForm.handleSubmit(handleUpdateChallenge)} className="grid gap-3 md:grid-cols-2">
+                  <div className="flex flex-col gap-2 md:col-span-2">
+                    <Label htmlFor="challenge-name">Name</Label>
+                    <Input id="challenge-name" placeholder="Update the challenge name" {...challengeForm.register("name")} disabled={isBusy} />
+                  </div>
+                  <div className="flex flex-col gap-2 md:col-span-2">
+                    <Label htmlFor="challenge-description">Description</Label>
+                    <Textarea
+                      id="challenge-description"
+                      rows={3}
+                      placeholder="Provide a concise description"
+                      {...challengeForm.register("description")}
+                      disabled={isBusy}
+                    />
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <Label htmlFor="challenge-status">Status</Label>
+                    <select
+                      id="challenge-status"
+                      className="h-10 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm text-white"
+                      {...challengeForm.register("status")}
+                      disabled={isBusy}
+                    >
+                      {challengeStatuses.map(status => (
+                        <option key={status} value={status}>
+                          {status}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <Label htmlFor="challenge-priority">Priority</Label>
+                    <select
+                      id="challenge-priority"
+                      className="h-10 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm text-white"
+                      {...challengeForm.register("priority")}
+                      disabled={isBusy}
+                    >
+                      {challengePriorities.map(priority => (
+                        <option key={priority} value={priority}>
+                          {priority}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <Label htmlFor="challenge-category">Category</Label>
+                    <Input
+                      id="challenge-category"
+                      placeholder="Operational, Culture, Experience..."
+                      {...challengeForm.register("category")}
+                      disabled={isBusy}
+                    />
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <Label htmlFor="challenge-owner">Assignee</Label>
+                    <select
+                      id="challenge-owner"
+                      className="h-10 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm text-white"
+                      {...challengeForm.register("assignedTo")}
+                      disabled={isBusy}
+                    >
+                      <option value="">Unassigned</option>
+                      {filteredUsers.map(user => (
+                        <option key={user.id} value={user.id}>
+                          {user.fullName || user.email}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <Label htmlFor="challenge-due">Due date</Label>
+                    <Input id="challenge-due" type="datetime-local" {...challengeForm.register("dueDate")}
+                      disabled={isBusy}
+                    />
+                  </div>
+                  <div className="md:col-span-2 flex justify-end">
+                    <Button type="submit" className={`${gradientButtonClasses} px-4`} disabled={isBusy}>
+                      Update challenge
+                    </Button>
+                  </div>
+                </form>
+
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h5 className="text-sm font-semibold text-slate-200">ASK sessions</h5>
+                    <Button
+                      type="button"
+                      className={`${gradientButtonClasses} h-9 px-3 text-xs`}
+                      onClick={() => {
+                        if (showAskForm) {
+                          cancelAskEdit();
+                        } else {
+                          resetAskForm();
+                          setShowAskForm(true);
+                        }
+                      }}
+                      disabled={isBusy}
+                    >
+                      {showAskForm ? "Close" : "Create ASK"}
+                    </Button>
+                  </div>
+
+                  {showAskForm && (
+                    <form onSubmit={askForm.handleSubmit(handleSubmitAsk)} className="space-y-3 rounded-2xl border border-white/10 bg-slate-950/40 p-4">
+                      {isEditingAsk && (
+                        <p className="text-xs font-medium text-amber-300">
+                          Editing {asks.find(ask => ask.id === editingAskId)?.name}
+                        </p>
+                      )}
+                      <div className="flex flex-col gap-2">
+                        <Label htmlFor="ask-name">Name</Label>
+                        <Input
+                          id="ask-name"
+                          placeholder="Session name"
+                          {...askForm.register("name")}
+                          disabled={isBusy}
+                        />
+                        {askForm.formState.errors.name && (
+                          <p className="text-xs text-red-400">{askForm.formState.errors.name.message}</p>
+                        )}
+                      </div>
+                      <div className="flex flex-col gap-2">
+                        <Label htmlFor="ask-key">ASK key</Label>
+                        <div className="flex gap-2">
+                          <Input
+                            id="ask-key"
+                            placeholder="Auto generated"
+                            {...askForm.register("askKey", {
+                              onChange: () => setManualAskKey(true)
+                            })}
+                            disabled={isBusy || isEditingAsk}
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="border-white/20 bg-white/10 text-white hover:bg-white/20"
+                            onClick={() => {
+                              const name = askForm.getValues("name");
+                              askForm.setValue("askKey", generateAskKey(name || "ask"));
+                              setManualAskKey(false);
+                            }}
+                            disabled={isBusy || isEditingAsk}
+                          >
+                            Regenerate
+                          </Button>
+                        </div>
+                        {askForm.formState.errors.askKey && (
+                          <p className="text-xs text-red-400">{askForm.formState.errors.askKey.message}</p>
+                        )}
+                      </div>
+                      <div className="flex flex-col gap-2">
+                        <Label htmlFor="ask-question">Guiding question</Label>
+                        <Textarea
+                          id="ask-question"
+                          rows={3}
+                          placeholder="What do you want the team to explore?"
+                          {...askForm.register("question")}
+                          disabled={isBusy}
+                        />
+                      </div>
+                      <div className="flex flex-col gap-2">
+                        <Label htmlFor="ask-description">Description</Label>
+                        <Textarea
+                          id="ask-description"
+                          rows={2}
+                          placeholder="Share additional context"
+                          {...askForm.register("description")}
+                          disabled={isBusy}
+                        />
+                      </div>
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <div className="flex flex-col gap-2">
+                          <Label htmlFor="ask-start">Start</Label>
+                          <Input id="ask-start" type="datetime-local" {...askForm.register("startDate")} disabled={isBusy} />
+                          {askForm.formState.errors.startDate && (
+                            <p className="text-xs text-red-400">{askForm.formState.errors.startDate.message}</p>
+                          )}
+                        </div>
+                        <div className="flex flex-col gap-2">
+                          <Label htmlFor="ask-end">End</Label>
+                          <Input id="ask-end" type="datetime-local" {...askForm.register("endDate")} disabled={isBusy} />
+                          {askForm.formState.errors.endDate && (
+                            <p className="text-xs text-red-400">{askForm.formState.errors.endDate.message}</p>
+                          )}
+                        </div>
+                      </div>
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <div className="flex flex-col gap-2">
+                          <Label htmlFor="ask-status">Status</Label>
+                          <select
+                            id="ask-status"
+                            className="h-10 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm text-white"
+                            {...askForm.register("status")}
+                            disabled={isBusy}
+                          >
+                            {askStatuses.map(status => (
+                              <option key={status} value={status}>
+                                {status}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <label className="flex items-center gap-2 text-sm text-slate-300">
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 rounded border-white/20 bg-slate-900"
+                            {...askForm.register("isAnonymous")}
+                            disabled={isBusy}
+                          />
+                          Allow anonymous participation
+                        </label>
+                      </div>
+                      <div className="flex flex-col gap-2">
+                        <Label htmlFor="ask-max">Max participants</Label>
+                        <Input
+                          id="ask-max"
+                          type="number"
+                          min={1}
+                          placeholder="e.g. 50"
+                          {...askForm.register("maxParticipants")}
+                          disabled={isBusy}
+                        />
+                      </div>
+                      <div className="flex justify-end gap-2">
+                        {isEditingAsk && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="border-white/20 bg-transparent text-white hover:bg-white/10"
+                            onClick={cancelAskEdit}
+                            disabled={isBusy}
+                          >
+                            Cancel
+                          </Button>
+                        )}
+                        <Button type="submit" className={`${gradientButtonClasses} px-4`} disabled={isBusy}>
+                          {isEditingAsk ? "Update ASK" : "Launch ASK"}
+                        </Button>
+                      </div>
+                    </form>
+                  )}
+
+                  <div className="space-y-2">
+                    {asksForChallenge.length === 0 ? (
+                      <p className="text-sm text-slate-400">No ASK sessions have been created yet.</p>
+                    ) : (
+                      asksForChallenge.map(session => (
+                        <div
+                          key={session.id}
+                          className="rounded-2xl border border-white/10 bg-slate-950/40 p-4 text-sm text-slate-200"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="font-semibold text-white">{session.name}</p>
+                              <p className="text-xs text-slate-400">Key: {session.askKey}</p>
+                            </div>
+                            <span className="rounded-full bg-white/10 px-2 py-1 text-[10px] uppercase tracking-wide text-slate-200">
+                              {session.status}
+                            </span>
+                          </div>
+                          <p className="mt-2 text-xs text-slate-400">
+                            {formatDateTime(session.startDate)} → {formatDateTime(session.endDate)}
+                          </p>
+                          <div className="mt-3 flex items-center justify-between text-xs text-slate-400">
+                            <span>{session.isAnonymous ? "Anonymous" : "Identified"} participants</span>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => startAskEdit(session.id)}
+                                className="text-slate-200 hover:text-white"
+                                disabled={isBusy}
+                              >
+                                Edit
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteAsk(session.id)}
+                                className="text-red-300 hover:text-red-200"
+                                disabled={isBusy}
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </>
+            ) : (
+              <p className="text-sm text-slate-400">Select a challenge to review its details.</p>
+            )}
+          </div>
+        </div>
+      ) : (
+        <div
+          ref={asksRef}
+          id="section-asks"
+          className="rounded-2xl border border-dashed border-white/10 bg-slate-900/40 p-6 text-sm text-slate-400"
+        >
+          Pick a project to access its challenges.
+        </div>
+      )}
+      </div>
+    </div>
+  );
+
+
+
 
   return (
     <>
@@ -843,37 +1365,63 @@ export function AdminDashboard() {
 
       <div className="min-h-screen bg-slate-950 text-slate-100">
       <div className="flex h-full min-h-screen">
-        <aside className="hidden w-64 flex-col border-r border-white/10 bg-white/5 p-6 backdrop-blur lg:flex">
-          <div className="mb-8">
-            <div className="text-xl font-semibold">Agentic Admin</div>
-            <p className="text-sm text-slate-400">Operate the entire flow</p>
+        <aside
+          className={`hidden flex-col border-r border-white/10 bg-white/5 backdrop-blur transition-all duration-200 lg:flex ${
+            isSidebarCollapsed ? "w-20 px-3" : "w-64 px-6"
+          }`}
+        >
+          <div
+            className={`mb-8 flex items-center ${
+              isSidebarCollapsed ? "justify-center" : "justify-between"
+            }`}
+          >
+            {isSidebarCollapsed ? (
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 text-sm font-semibold">
+                AD
+              </div>
+            ) : (
+              <div>
+                <div className="text-xl font-semibold">Agentic Admin</div>
+                <p className="text-sm text-slate-400">Operate the entire flow</p>
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={() => setIsSidebarCollapsed(value => !value)}
+              className="ml-2 rounded-xl border border-white/10 bg-white/10 p-2 text-slate-200 transition hover:bg-white/20"
+              aria-label={isSidebarCollapsed ? "Expand navigation" : "Collapse navigation"}
+            >
+              {isSidebarCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+            </button>
           </div>
           <nav className="flex flex-1 flex-col gap-2">
-            {navigationItems.map(item => {
+            {navigationMenu.map(item => {
               const Icon = item.icon;
               const isActive = activeSection === item.label;
               return (
                 <button
                   key={item.label}
                   type="button"
-                  className={`flex items-center gap-3 rounded-xl px-3 py-2 text-sm transition ${
+                  className={`flex items-center gap-3 rounded-xl py-2 text-sm transition ${
                     isActive
                       ? "bg-white/10 text-white shadow-lg"
                       : "text-slate-400 hover:bg-white/5 hover:text-white"
-                  }`}
+                  } ${isSidebarCollapsed ? "justify-center px-2" : "justify-start px-3"}`}
                   onClick={() => handleNavigationClick(item)}
                   aria-current={isActive ? "page" : undefined}
                 >
                   <Icon className="h-4 w-4" />
-                  {item.label}
+                  <span className={isSidebarCollapsed ? "sr-only" : ""}>{item.label}</span>
                 </button>
               );
             })}
           </nav>
-          <div className="mt-6 rounded-2xl bg-white/5 p-4 text-sm text-slate-300">
-            <p className="font-medium text-white">Need help?</p>
-            <p className="mt-1">Review the playbook or contact the product team.</p>
-          </div>
+          {!isSidebarCollapsed && (
+            <div className="mt-6 rounded-2xl bg-white/5 p-4 text-sm text-slate-300">
+              <p className="font-medium text-white">Need help?</p>
+              <p className="mt-1">Review the playbook or contact the product team.</p>
+            </div>
+          )}
         </aside>
 
         <div className="flex flex-1 flex-col">
@@ -883,13 +1431,23 @@ export function AdminDashboard() {
             className="sticky top-0 z-40 border-b border-white/10 bg-slate-950/80 backdrop-blur"
           >
             <div className="flex items-center justify-between px-6 py-4">
-              <div className="hidden md:flex md:max-w-md md:flex-1">
-                <div className="relative w-full">
-                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
-                  <Input
-                    placeholder="Search across clients, projects, sessions..."
-                    className="w-full rounded-xl border-white/10 bg-white/5 pl-9 text-sm text-white placeholder:text-slate-300"
-                  />
+              <div className="flex flex-1 items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setIsSidebarCollapsed(value => !value)}
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-white transition hover:bg-white/10"
+                  aria-label={isSidebarCollapsed ? "Expand navigation" : "Collapse navigation"}
+                >
+                  {isSidebarCollapsed ? <Menu className="h-5 w-5" /> : <ChevronLeft className="h-5 w-5" />}
+                </button>
+                <div className="hidden md:flex md:max-w-md md:flex-1">
+                  <div className="relative w-full">
+                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+                    <Input
+                      placeholder="Search across clients, projects, sessions..."
+                      className="w-full rounded-xl border-white/10 bg-white/5 pl-9 text-sm text-white placeholder:text-slate-300"
+                    />
+                  </div>
                 </div>
               </div>
               <div className="flex items-center gap-4">
@@ -904,7 +1462,11 @@ export function AdminDashboard() {
             </div>
           </motion.header>
 
-          <main className="flex-1 space-y-8 overflow-y-auto px-6 py-8">
+          <main
+            className={`flex-1 overflow-y-auto ${
+              showOnlyChallengeWorkspace ? "space-y-6 px-6 py-6 lg:px-10" : "space-y-8 px-6 py-8"
+            }`}
+          >
             {feedback && (
               <Alert
                 variant={feedback.type === "error" ? "destructive" : "default"}
@@ -917,14 +1479,15 @@ export function AdminDashboard() {
                   </button>
                 </div>
               </Alert>
-            )}
+              )}
 
-            <section ref={dashboardRef} id="section-dashboard">
-              <div className="flex items-center justify-between">
-                <h1 className="text-3xl font-semibold">Operational dashboard</h1>
-                <div className="hidden gap-3 md:flex">
-                  <Button
-                    type="button"
+              {!showOnlyChallengeWorkspace && (
+              <section ref={dashboardRef} id="section-dashboard">
+                <div className="flex items-center justify-between">
+                  <h1 className="text-3xl font-semibold">Operational dashboard</h1>
+                  <div className="hidden gap-3 md:flex">
+                    <Button
+                      type="button"
                     className={gradientButtonClasses}
                     onClick={() => setShowClientForm(true)}
                   >
@@ -960,13 +1523,15 @@ export function AdminDashboard() {
                   );
                 })}
               </div>
-            </section>
+              </section>
+            )}
 
-            <section className="space-y-6">
-              <div className="flex items-center justify-between">
-                <h2 className="text-2xl font-semibold">Clients → Projects → Challenges → ASK</h2>
-                <p className="text-sm text-slate-400">Drill down to manage everything from one place.</p>
-              </div>
+            {!showOnlyChallengeWorkspace && (
+              <section className="space-y-6">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-2xl font-semibold">Clients → Projects → Challenges → ASK</h2>
+                  <p className="text-sm text-slate-400">Drill down to manage everything from one place.</p>
+                </div>
 
               <div
                 className="grid gap-6 lg:grid-cols-3"
@@ -1331,6 +1896,17 @@ export function AdminDashboard() {
                                   Explorer
                                 </div>
                               </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                className="h-8 rounded-full bg-indigo-500/80 px-3 text-[11px] font-semibold uppercase tracking-wide text-white shadow hover:bg-indigo-500"
+                                onClick={() => {
+                                  setSelectedProjectId(project.id);
+                                  router.push(`/admin/projects/${project.id}/relationships`);
+                                }}
+                              >
+                                Ouvrir
+                              </Button>
                               <button
                                 type="button"
                                 onClick={() => startProjectEdit(project.id)}
@@ -1365,407 +1941,18 @@ export function AdminDashboard() {
                     </div>
                   )}
                 </div>
-
-                <div
-                  ref={challengesRef}
-                  id="section-challenges"
-                  className="flex flex-col gap-4 rounded-3xl border border-white/10 bg-white/5 p-5 backdrop-blur"
-                >
-                  <header className="flex flex-col gap-1">
-                    <h3 className="text-lg font-semibold text-white">Challenges & ASK sessions</h3>
-                    <p className="text-xs text-slate-400">
-                      Select a challenge to update it and orchestrate new ASK conversations.
-                    </p>
-                  </header>
-
-                  {selectedProject ? (
-                    <div className="grid gap-4 xl:grid-cols-[minmax(240px,0.9fr)_minmax(260px,1.1fr)]">
-                      <div className="space-y-3">
-                        <div className="flex items-center justify-between">
-                          <h4 className="text-sm font-semibold uppercase tracking-wide text-slate-300">Challenges</h4>
-                          <span className="text-xs text-slate-400">
-                            {challengesForProject.length} total
-                          </span>
-                        </div>
-                        <div className="space-y-2 overflow-y-auto pr-2">
-                          {challengesForProject.length === 0 ? (
-                            <p className="text-sm text-slate-400">No challenges captured yet.</p>
-                          ) : (
-                            challengesForProject.map(challenge => (
-                              <article
-                                key={challenge.id}
-                                className={`rounded-2xl border px-4 py-3 transition hover:border-indigo-400 ${
-                                  challenge.id === selectedChallengeId
-                                    ? "border-indigo-400 bg-indigo-500/10"
-                                    : "border-white/10 bg-slate-900/40"
-                                }`}
-                              >
-                                <button
-                                  type="button"
-                                  className="flex w-full items-start justify-between gap-3"
-                                  onClick={() => setSelectedChallengeId(challenge.id)}
-                                >
-                                  <div className="text-left">
-                                    <h5 className="text-sm font-semibold text-white">{challenge.name}</h5>
-                                    <p className="text-xs text-slate-400 line-clamp-2">
-                                      {challenge.description || "No description"}
-                                    </p>
-                                  </div>
-                                  <div className="flex flex-col items-end gap-1 text-[10px] uppercase tracking-wide text-slate-300">
-                                    <span>{challenge.status}</span>
-                                    {challenge.priority && <span className="text-red-300">{challenge.priority}</span>}
-                                  </div>
-                                </button>
-                                <div className="mt-2 flex items-center justify-between text-xs text-slate-500">
-                                  <span>{asks.filter(ask => ask.challengeId === challenge.id).length} ASK sessions</span>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleDeleteChallenge(challenge.id)}
-                                    className="text-red-300 hover:text-red-200"
-                                    disabled={isBusy}
-                                  >
-                                    Delete
-                                  </button>
-                                </div>
-                              </article>
-                            ))
-                          )}
-                        </div>
-                      </div>
-
-                      <div
-                        ref={asksRef}
-                        id="section-asks"
-                        className="space-y-4 rounded-2xl border border-white/10 bg-slate-900/40 p-4"
-                      >
-                        {selectedChallenge ? (
-                          <>
-                            <div className="flex items-center justify-between">
-                              <div>
-                                <h4 className="text-base font-semibold text-white">{selectedChallenge.name}</h4>
-                                <p className="text-xs text-slate-400">
-                                  Last update {formatDateTime(selectedChallenge.updatedAt)}
-                                </p>
-                              </div>
-                              <span className="rounded-full bg-white/10 px-2 py-1 text-[10px] uppercase tracking-wide text-slate-200">
-                                {selectedChallenge.status}
-                              </span>
-                            </div>
-
-                            <form onSubmit={challengeForm.handleSubmit(handleUpdateChallenge)} className="grid gap-3 md:grid-cols-2">
-                              <div className="flex flex-col gap-2 md:col-span-2">
-                                <Label htmlFor="challenge-name">Name</Label>
-                                <Input id="challenge-name" placeholder="Update the challenge name" {...challengeForm.register("name")} disabled={isBusy} />
-                              </div>
-                              <div className="flex flex-col gap-2 md:col-span-2">
-                                <Label htmlFor="challenge-description">Description</Label>
-                                <Textarea
-                                  id="challenge-description"
-                                  rows={3}
-                                  placeholder="Provide a concise description"
-                                  {...challengeForm.register("description")}
-                                  disabled={isBusy}
-                                />
-                              </div>
-                              <div className="flex flex-col gap-2">
-                                <Label htmlFor="challenge-status">Status</Label>
-                                <select
-                                  id="challenge-status"
-                                  className="h-10 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm text-white"
-                                  {...challengeForm.register("status")}
-                                  disabled={isBusy}
-                                >
-                                  {challengeStatuses.map(status => (
-                                    <option key={status} value={status}>
-                                      {status}
-                                    </option>
-                                  ))}
-                                </select>
-                              </div>
-                              <div className="flex flex-col gap-2">
-                                <Label htmlFor="challenge-priority">Priority</Label>
-                                <select
-                                  id="challenge-priority"
-                                  className="h-10 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm text-white"
-                                  {...challengeForm.register("priority")}
-                                  disabled={isBusy}
-                                >
-                                  {challengePriorities.map(priority => (
-                                    <option key={priority} value={priority}>
-                                      {priority}
-                                    </option>
-                                  ))}
-                                </select>
-                              </div>
-                              <div className="flex flex-col gap-2">
-                                <Label htmlFor="challenge-category">Category</Label>
-                                <Input
-                                  id="challenge-category"
-                                  placeholder="Operational, Culture, Experience..."
-                                  {...challengeForm.register("category")}
-                                  disabled={isBusy}
-                                />
-                              </div>
-                              <div className="flex flex-col gap-2">
-                                <Label htmlFor="challenge-owner">Assignee</Label>
-                                <select
-                                  id="challenge-owner"
-                                  className="h-10 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm text-white"
-                                  {...challengeForm.register("assignedTo")}
-                                  disabled={isBusy}
-                                >
-                                  <option value="">Unassigned</option>
-                                  {filteredUsers.map(user => (
-                                    <option key={user.id} value={user.id}>
-                                      {user.fullName || user.email}
-                                    </option>
-                                  ))}
-                                </select>
-                              </div>
-                              <div className="flex flex-col gap-2">
-                                <Label htmlFor="challenge-due">Due date</Label>
-                                <Input id="challenge-due" type="datetime-local" {...challengeForm.register("dueDate")}
-                                  disabled={isBusy}
-                                />
-                              </div>
-                              <div className="md:col-span-2 flex justify-end">
-                                <Button type="submit" className={`${gradientButtonClasses} px-4`} disabled={isBusy}>
-                                  Update challenge
-                                </Button>
-                              </div>
-                            </form>
-
-                            <div className="space-y-3">
-                              <div className="flex items-center justify-between">
-                                <h5 className="text-sm font-semibold text-slate-200">ASK sessions</h5>
-                                <Button
-                                  type="button"
-                                  className={`${gradientButtonClasses} h-9 px-3 text-xs`}
-                                  onClick={() => {
-                                    if (showAskForm) {
-                                      cancelAskEdit();
-                                    } else {
-                                      resetAskForm();
-                                      setShowAskForm(true);
-                                    }
-                                  }}
-                                  disabled={isBusy}
-                                >
-                                  {showAskForm ? "Close" : "Create ASK"}
-                                </Button>
-                              </div>
-
-                              {showAskForm && (
-                                <form onSubmit={askForm.handleSubmit(handleSubmitAsk)} className="space-y-3 rounded-2xl border border-white/10 bg-slate-950/40 p-4">
-                                  {isEditingAsk && (
-                                    <p className="text-xs font-medium text-amber-300">
-                                      Editing {asks.find(ask => ask.id === editingAskId)?.name}
-                                    </p>
-                                  )}
-                                  <div className="flex flex-col gap-2">
-                                    <Label htmlFor="ask-name">Name</Label>
-                                    <Input
-                                      id="ask-name"
-                                      placeholder="Session name"
-                                      {...askForm.register("name")}
-                                      disabled={isBusy}
-                                    />
-                                    {askForm.formState.errors.name && (
-                                      <p className="text-xs text-red-400">{askForm.formState.errors.name.message}</p>
-                                    )}
-                                  </div>
-                                  <div className="flex flex-col gap-2">
-                                    <Label htmlFor="ask-key">ASK key</Label>
-                                    <div className="flex gap-2">
-                                      <Input
-                                        id="ask-key"
-                                        placeholder="Auto generated"
-                                        {...askForm.register("askKey", {
-                                          onChange: () => setManualAskKey(true)
-                                        })}
-                                        disabled={isBusy || isEditingAsk}
-                                      />
-                                      <Button
-                                        type="button"
-                                        variant="outline"
-                                        className="border-white/20 bg-white/10 text-white hover:bg-white/20"
-                                        onClick={() => {
-                                          const name = askForm.getValues("name");
-                                          askForm.setValue("askKey", generateAskKey(name || "ask"));
-                                          setManualAskKey(false);
-                                        }}
-                                        disabled={isBusy || isEditingAsk}
-                                      >
-                                        Regenerate
-                                      </Button>
-                                    </div>
-                                    {askForm.formState.errors.askKey && (
-                                      <p className="text-xs text-red-400">{askForm.formState.errors.askKey.message}</p>
-                                    )}
-                                  </div>
-                                  <div className="flex flex-col gap-2">
-                                    <Label htmlFor="ask-question">Guiding question</Label>
-                                    <Textarea
-                                      id="ask-question"
-                                      rows={3}
-                                      placeholder="What do you want the team to explore?"
-                                      {...askForm.register("question")}
-                                      disabled={isBusy}
-                                    />
-                                  </div>
-                                  <div className="flex flex-col gap-2">
-                                    <Label htmlFor="ask-description">Description</Label>
-                                    <Textarea
-                                      id="ask-description"
-                                      rows={2}
-                                      placeholder="Share additional context"
-                                      {...askForm.register("description")}
-                                      disabled={isBusy}
-                                    />
-                                  </div>
-                                  <div className="grid gap-3 md:grid-cols-2">
-                                    <div className="flex flex-col gap-2">
-                                      <Label htmlFor="ask-start">Start</Label>
-                                      <Input id="ask-start" type="datetime-local" {...askForm.register("startDate")} disabled={isBusy} />
-                                      {askForm.formState.errors.startDate && (
-                                        <p className="text-xs text-red-400">{askForm.formState.errors.startDate.message}</p>
-                                      )}
-                                    </div>
-                                    <div className="flex flex-col gap-2">
-                                      <Label htmlFor="ask-end">End</Label>
-                                      <Input id="ask-end" type="datetime-local" {...askForm.register("endDate")} disabled={isBusy} />
-                                      {askForm.formState.errors.endDate && (
-                                        <p className="text-xs text-red-400">{askForm.formState.errors.endDate.message}</p>
-                                      )}
-                                    </div>
-                                  </div>
-                                  <div className="grid gap-3 md:grid-cols-2">
-                                    <div className="flex flex-col gap-2">
-                                      <Label htmlFor="ask-status">Status</Label>
-                                      <select
-                                        id="ask-status"
-                                        className="h-10 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm text-white"
-                                        {...askForm.register("status")}
-                                        disabled={isBusy}
-                                      >
-                                        {askStatuses.map(status => (
-                                          <option key={status} value={status}>
-                                            {status}
-                                          </option>
-                                        ))}
-                                      </select>
-                                    </div>
-                                    <label className="flex items-center gap-2 text-sm text-slate-300">
-                                      <input
-                                        type="checkbox"
-                                        className="h-4 w-4 rounded border-white/20 bg-slate-900"
-                                        {...askForm.register("isAnonymous")}
-                                        disabled={isBusy}
-                                      />
-                                      Allow anonymous participation
-                                    </label>
-                                  </div>
-                                  <div className="flex flex-col gap-2">
-                                    <Label htmlFor="ask-max">Max participants</Label>
-                                    <Input
-                                      id="ask-max"
-                                      type="number"
-                                      min={1}
-                                      placeholder="e.g. 50"
-                                      {...askForm.register("maxParticipants")}
-                                      disabled={isBusy}
-                                    />
-                                  </div>
-                                  <div className="flex justify-end gap-2">
-                                    {isEditingAsk && (
-                                      <Button
-                                        type="button"
-                                        variant="outline"
-                                        className="border-white/20 bg-transparent text-white hover:bg-white/10"
-                                        onClick={cancelAskEdit}
-                                        disabled={isBusy}
-                                      >
-                                        Cancel
-                                      </Button>
-                                    )}
-                                    <Button type="submit" className={`${gradientButtonClasses} px-4`} disabled={isBusy}>
-                                      {isEditingAsk ? "Update ASK" : "Launch ASK"}
-                                    </Button>
-                                  </div>
-                                </form>
-                              )}
-
-                              <div className="space-y-2">
-                                {asksForChallenge.length === 0 ? (
-                                  <p className="text-sm text-slate-400">No ASK sessions have been created yet.</p>
-                                ) : (
-                                  asksForChallenge.map(session => (
-                                    <div
-                                      key={session.id}
-                                      className="rounded-2xl border border-white/10 bg-slate-950/40 p-4 text-sm text-slate-200"
-                                    >
-                                      <div className="flex items-start justify-between gap-3">
-                                        <div>
-                                          <p className="font-semibold text-white">{session.name}</p>
-                                          <p className="text-xs text-slate-400">Key: {session.askKey}</p>
-                                        </div>
-                                        <span className="rounded-full bg-white/10 px-2 py-1 text-[10px] uppercase tracking-wide text-slate-200">
-                                          {session.status}
-                                        </span>
-                                      </div>
-                                      <p className="mt-2 text-xs text-slate-400">
-                                        {formatDateTime(session.startDate)} → {formatDateTime(session.endDate)}
-                                      </p>
-                                      <div className="mt-3 flex items-center justify-between text-xs text-slate-400">
-                                        <span>{session.isAnonymous ? "Anonymous" : "Identified"} participants</span>
-                                        <div className="flex items-center gap-2">
-                                          <button
-                                            type="button"
-                                            onClick={() => startAskEdit(session.id)}
-                                            className="text-slate-200 hover:text-white"
-                                            disabled={isBusy}
-                                          >
-                                            Edit
-                                          </button>
-                                          <button
-                                            type="button"
-                                            onClick={() => handleDeleteAsk(session.id)}
-                                            className="text-red-300 hover:text-red-200"
-                                            disabled={isBusy}
-                                          >
-                                            Delete
-                                          </button>
-                                        </div>
-                                      </div>
-                                    </div>
-                                  ))
-                                )}
-                              </div>
-                            </div>
-                          </>
-                        ) : (
-                          <p className="text-sm text-slate-400">Select a challenge to review its details.</p>
-                        )}
-                      </div>
-                    </div>
-                  ) : (
-                    <div
-                      ref={asksRef}
-                      id="section-asks"
-                      className="rounded-2xl border border-dashed border-white/10 bg-slate-900/40 p-6 text-sm text-slate-400"
-                    >
-                      Pick a project to access its challenges.
-                    </div>
-                  )}
+                {renderChallengeWorkspace()}
                 </div>
-              </div>
-            </section>
+              </section>
+            )}
+            {showOnlyChallengeWorkspace && renderChallengeWorkspace()}
 
-            <section
-              ref={usersRef}
-              id="section-users"
-              className="space-y-6 rounded-3xl border border-white/10 bg-white/5 p-6 backdrop-blur"
-            >
+            {!showOnlyChallengeWorkspace && (
+              <section
+                ref={usersRef}
+                id="section-users"
+                className="space-y-6 rounded-3xl border border-white/10 bg-white/5 p-6 backdrop-blur"
+              >
               <div className="flex flex-wrap items-center justify-between gap-4">
                 <div>
                   <h2 className="text-2xl font-semibold">Users</h2>
@@ -1951,13 +2138,15 @@ export function AdminDashboard() {
                   ))
                 )}
               </div>
-            </section>
+              </section>
+            )}
 
-            <section
-              ref={insightsRef}
-              id="section-insights"
-              className="space-y-6 rounded-3xl border border-white/10 bg-white/5 p-6 backdrop-blur"
-            >
+            {!showOnlyChallengeWorkspace && (
+              <section
+                ref={insightsRef}
+                id="section-insights"
+                className="space-y-6 rounded-3xl border border-white/10 bg-white/5 p-6 backdrop-blur"
+              >
               <div className="flex flex-wrap items-center justify-between gap-4">
                 <div>
                   <h2 className="text-2xl font-semibold">Insights</h2>
@@ -1998,13 +2187,15 @@ export function AdminDashboard() {
                     : "No upcoming challenge due date for the current project."}
                 </p>
               </div>
-            </section>
+              </section>
+            )}
 
-            <section
-              ref={settingsRef}
-              id="section-settings"
-              className="space-y-6 rounded-3xl border border-white/10 bg-white/5 p-6 backdrop-blur"
-            >
+            {!showOnlyChallengeWorkspace && (
+              <section
+                ref={settingsRef}
+                id="section-settings"
+                className="space-y-6 rounded-3xl border border-white/10 bg-white/5 p-6 backdrop-blur"
+              >
               <div className="flex flex-wrap items-center justify-between gap-4">
                 <div>
                   <h2 className="text-2xl font-semibold">Settings</h2>
@@ -2038,7 +2229,8 @@ export function AdminDashboard() {
                   </Button>
                 </div>
               </div>
-            </section>
+              </section>
+            )}
 
           </main>
         </div>

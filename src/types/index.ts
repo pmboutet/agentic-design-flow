@@ -163,6 +163,7 @@ export interface ChallengeRecord {
   category?: string | null;
   projectId?: string | null;
   projectName?: string | null;
+  parentChallengeId?: string | null;
   assignedTo?: string | null;
   dueDate?: string | null;
   updatedAt: string;
