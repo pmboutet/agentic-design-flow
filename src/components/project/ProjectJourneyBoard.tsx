@@ -150,7 +150,6 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
   const [hoveredInsightId, setHoveredInsightId] = useState<string | null>(null);
   const [hoveredChallengeId, setHoveredChallengeId] = useState<string | null>(null);
   const [expandedChallenges, setExpandedChallenges] = useState<Record<string, boolean>>({});
-
   const flattenedChallenges = useMemo(() => flattenChallenges(boardData.challenges), [boardData.challenges]);
 
   const challengeMap = useMemo(() => {
@@ -267,7 +266,6 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
     setSelectedChallengeId(challengeId);
     setFocusedChallengeAskId(null);
   };
-
   const handleSelectAsk = (
     askId: string,
     options?: {
