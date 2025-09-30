@@ -1,8 +1,30 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getAdminSupabaseClient } from "@/lib/supabaseAdmin";
 import { parseErrorMessage } from "@/lib/utils";
-import { type ApiResponse } from "@/types";
+import { type ApiResponse, type ClientRecord } from "@/types";
+import { sanitizeOptional, sanitizeText } from "@/lib/sanitize";
+
+const updateSchema = z.object({
+  name: z.string().trim().min(1).max(255).optional(),
+  email: z.string().trim().email().max(255).optional().or(z.literal("")),
+  company: z.string().trim().max(255).optional().or(z.literal("")),
+  industry: z.string().trim().max(100).optional().or(z.literal("")),
+  status: z.enum(["active", "inactive"]).optional()
+});
+
+function mapClient(row: any): ClientRecord {
+  return {
+    id: row.id,
+    name: row.name,
+    status: row.status,
+    email: row.email,
+    company: row.company,
+    industry: row.industry,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
 
 export async function DELETE(
   _request: Request,
@@ -24,5 +46,53 @@ export async function DELETE(
       success: false,
       error: error instanceof z.ZodError ? error.errors[0]?.message || "Invalid client id" : parseErrorMessage(error)
     }, { status: error instanceof z.ZodError ? 400 : 500 });
+  }
+}
+
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const clientId = z.string().uuid().parse(params.id);
+    const body = await request.json();
+    const payload = updateSchema.parse(body);
+
+    const updateData: Record<string, any> = {};
+    if (payload.name !== undefined) updateData.name = sanitizeText(payload.name);
+    if (payload.email !== undefined) updateData.email = sanitizeOptional(payload.email || null);
+    if (payload.company !== undefined) updateData.company = sanitizeOptional(payload.company || null);
+    if (payload.industry !== undefined) updateData.industry = sanitizeOptional(payload.industry || null);
+    if (payload.status !== undefined) updateData.status = payload.status;
+
+    if (Object.keys(updateData).length === 0) {
+      return NextResponse.json<ApiResponse>({
+        success: false,
+        error: "No valid fields provided"
+      }, { status: 400 });
+    }
+
+    const supabase = getAdminSupabaseClient();
+    const { data, error } = await supabase
+      .from("clients")
+      .update(updateData)
+      .eq("id", clientId)
+      .select()
+      .single();
+
+    if (error) {
+      throw error;
+    }
+
+    return NextResponse.json<ApiResponse<ClientRecord>>({
+      success: true,
+      data: mapClient(data)
+    });
+  } catch (error) {
+    const status = error instanceof z.ZodError ? 400 : 500;
+    return NextResponse.json<ApiResponse>({
+      success: false,
+      error: error instanceof z.ZodError ? error.errors[0]?.message || "Invalid payload" : parseErrorMessage(error)
+    }, { status });
   }
 }

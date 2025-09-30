@@ -119,6 +119,12 @@ export function useAdminResources() {
       setClients(data ?? []);
     }, "Client created successfully");
 
+  const updateClient = (clientId: string, values: ClientFormValues) =>
+    handleAction(async () => {
+      await request(`/api/admin/clients/${clientId}`, { method: "PATCH", body: JSON.stringify(values) });
+      await refreshClients();
+    }, "Client updated");
+
   const createUser = (values: UserFormValues) =>
     handleAction(async () => {
       await request("/api/admin/users", { method: "POST", body: JSON.stringify(values) });
@@ -126,12 +132,25 @@ export function useAdminResources() {
       setUsers(data ?? []);
     }, "User created");
 
+  const updateUser = (userId: string, values: Partial<UserFormValues>) =>
+    handleAction(async () => {
+      await request(`/api/admin/users/${userId}`, { method: "PATCH", body: JSON.stringify(values) });
+      const data = await request<ManagedUser[]>("/api/admin/users");
+      setUsers(data ?? []);
+    }, "User updated");
+
   const createProject = (values: ProjectFormValues) =>
     handleAction(async () => {
       await request("/api/admin/projects", { method: "POST", body: JSON.stringify(values) });
       const data = await request<ProjectRecord[]>("/api/admin/projects");
       setProjects(data ?? []);
     }, "Project saved");
+
+  const updateProject = (projectId: string, values: ProjectFormValues | Partial<ProjectFormValues>) =>
+    handleAction(async () => {
+      await request(`/api/admin/projects/${projectId}`, { method: "PATCH", body: JSON.stringify(values) });
+      await refreshProjects();
+    }, "Project updated");
 
   const updateChallenge = (challengeId: string, values: ChallengeFormValues) =>
     handleAction(async () => {
@@ -186,8 +205,11 @@ export function useAdminResources() {
     isLoading,
     isBusy,
     createClient,
+    updateClient,
     createUser,
+    updateUser,
     createProject,
+    updateProject,
     updateChallenge,
     createAsk,
     updateAsk,
