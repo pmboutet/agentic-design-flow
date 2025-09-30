@@ -546,7 +546,7 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
                       {slot.kind === "ask" ? "Ask" : "Challenge"}
                     </span>
                     <span className="text-sm font-medium text-slate-700">
-                      {item ? item.title ?? item.name ?? "" : slot.placeholder}
+                      {item ? item.title ?? "" : slot.placeholder}
                     </span>
                   </div>
                   {index < breadcrumbSlots.length - 1 && <ChevronRight className="h-4 w-4 text-slate-300" />}
