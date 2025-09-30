@@ -5,13 +5,17 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { motion } from "framer-motion";
+import { useRouter } from "next/navigation";
 import {
   Bell,
   Building2,
   ClipboardList,
+  ChevronLeft,
+  ChevronRight,
   Compass,
   FolderKanban,
   LayoutDashboard,
+  Menu,
   Pencil,
   MessageSquare,
   Search,
@@ -27,6 +31,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { ProjectJourneyBoard } from "@/components/project/ProjectJourneyBoard";
 import { AskRelationshipCanvas } from "./AskRelationshipCanvas";
 import { useAdminResources } from "./useAdminResources";
+
+interface AdminDashboardProps {
+  initialProjectId?: string | null;
+  mode?: "default" | "project-relationships";
+}
 
 const clientFormSchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(255),
@@ -196,7 +205,8 @@ function toInputDate(value: string | null | undefined) {
   return date.toISOString().slice(0, 16);
 }
 
-export function AdminDashboard() {
+export function AdminDashboard({ initialProjectId = null, mode = "default" }: AdminDashboardProps = {}) {
+  const router = useRouter();
   const {
     clients,
     users,
@@ -223,7 +233,7 @@ export function AdminDashboard() {
   } = useAdminResources();
 
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
-  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(initialProjectId ?? null);
   const [selectedChallengeId, setSelectedChallengeId] = useState<string | null>(null);
 
   const [showClientForm, setShowClientForm] = useState(false);
@@ -235,11 +245,14 @@ export function AdminDashboard() {
   const [activeSection, setActiveSection] = useState<SectionLabel>(navigationItems[0].label);
   const [columnWidths, setColumnWidths] = useState<ColumnWidths>(defaultColumnWidths);
   const [isLargeScreen, setIsLargeScreen] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(true);
 
   const [editingClientId, setEditingClientId] = useState<string | null>(null);
   const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
   const [editingAskId, setEditingAskId] = useState<string | null>(null);
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
+
+  const showOnlyChallengeWorkspace = mode === "project-relationships";
 
   const dashboardRef = useRef<HTMLDivElement>(null);
   const clientsRef = useRef<HTMLDivElement>(null);
@@ -263,6 +276,27 @@ export function AdminDashboard() {
     }),
     []
   );
+
+  const navigationMenu = useMemo(() => {
+    if (showOnlyChallengeWorkspace) {
+      return navigationItems.filter(item =>
+        item.targetId === "section-challenges" || item.targetId === "section-asks"
+      );
+    }
+    return navigationItems;
+  }, [showOnlyChallengeWorkspace]);
+
+  useEffect(() => {
+    if (!navigationMenu.some(item => item.label === activeSection)) {
+      setActiveSection(navigationMenu[0]?.label ?? navigationItems[0].label);
+    }
+  }, [navigationMenu, activeSection]);
+
+  useEffect(() => {
+    if (showOnlyChallengeWorkspace) {
+      setActiveSection("Challenges");
+    }
+  }, [showOnlyChallengeWorkspace]);
 
   const resizeStartXRef = useRef(0);
   const startColumnWidthsRef = useRef<ColumnWidths>(defaultColumnWidths);
@@ -302,6 +336,25 @@ export function AdminDashboard() {
   });
 
   const askNameValue = askForm.watch("name");
+
+  useEffect(() => {
+    if (initialProjectId) {
+      setSelectedProjectId(initialProjectId);
+    }
+  }, [initialProjectId]);
+
+  useEffect(() => {
+    if (!showOnlyChallengeWorkspace) {
+      return;
+    }
+    if (!selectedProjectId) {
+      return;
+    }
+    const project = projects.find(item => item.id === selectedProjectId);
+    if (project && project.clientId !== selectedClientId) {
+      setSelectedClientId(project.clientId ?? null);
+    }
+  }, [projects, selectedProjectId, showOnlyChallengeWorkspace, selectedClientId]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -415,6 +468,12 @@ export function AdminDashboard() {
   const selectedChallenge = useMemo(
     () => challenges.find(challenge => challenge.id === selectedChallengeId) ?? null,
     [challenges, selectedChallengeId]
+  );
+
+  const projectContextMissing = useMemo(
+    () =>
+      showOnlyChallengeWorkspace && Boolean(initialProjectId) && !isLoading && !selectedProject,
+    [showOnlyChallengeWorkspace, initialProjectId, isLoading, selectedProject]
   );
 
   const isEditingClient = Boolean(editingClientId);
@@ -542,7 +601,7 @@ export function AdminDashboard() {
       entries => {
         entries.forEach(entry => {
           if (entry.isIntersecting) {
-            const matchingItem = navigationItems.find(item => item.targetId === entry.target.id);
+            const matchingItem = navigationMenu.find(item => item.targetId === entry.target.id);
             if (matchingItem) {
               setActiveSection(matchingItem.label);
             }
@@ -564,7 +623,7 @@ export function AdminDashboard() {
       observedElements.forEach(element => observer.unobserve(element));
       observer.disconnect();
     };
-  }, [sectionRefMap, selectedProjectId, selectedChallengeId]);
+  }, [sectionRefMap, selectedProjectId, selectedChallengeId, navigationMenu]);
 
   const handleNavigationClick = useCallback(
     (item: (typeof navigationItems)[number]) => {
@@ -881,37 +940,63 @@ export function AdminDashboard() {
 
       <div className="min-h-screen bg-slate-950 text-slate-100">
       <div className="flex h-full min-h-screen">
-        <aside className="hidden w-64 flex-col border-r border-white/10 bg-white/5 p-6 backdrop-blur lg:flex">
-          <div className="mb-8">
-            <div className="text-xl font-semibold">Agentic Admin</div>
-            <p className="text-sm text-slate-400">Operate the entire flow</p>
+        <aside
+          className={`hidden flex-col border-r border-white/10 bg-white/5 backdrop-blur transition-all duration-200 lg:flex ${
+            isSidebarCollapsed ? "w-20 px-3" : "w-64 px-6"
+          }`}
+        >
+          <div
+            className={`mb-8 flex items-center ${
+              isSidebarCollapsed ? "justify-center" : "justify-between"
+            }`}
+          >
+            {isSidebarCollapsed ? (
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 text-sm font-semibold">
+                AD
+              </div>
+            ) : (
+              <div>
+                <div className="text-xl font-semibold">Agentic Admin</div>
+                <p className="text-sm text-slate-400">Operate the entire flow</p>
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={() => setIsSidebarCollapsed(value => !value)}
+              className="ml-2 rounded-xl border border-white/10 bg-white/10 p-2 text-slate-200 transition hover:bg-white/20"
+              aria-label={isSidebarCollapsed ? "Expand navigation" : "Collapse navigation"}
+            >
+              {isSidebarCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+            </button>
           </div>
           <nav className="flex flex-1 flex-col gap-2">
-            {navigationItems.map(item => {
+            {navigationMenu.map(item => {
               const Icon = item.icon;
               const isActive = activeSection === item.label;
               return (
                 <button
                   key={item.label}
                   type="button"
-                  className={`flex items-center gap-3 rounded-xl px-3 py-2 text-sm transition ${
+                  className={`flex items-center gap-3 rounded-xl py-2 text-sm transition ${
                     isActive
                       ? "bg-white/10 text-white shadow-lg"
                       : "text-slate-400 hover:bg-white/5 hover:text-white"
-                  }`}
+                  } ${isSidebarCollapsed ? "justify-center px-2" : "justify-start px-3"}`}
                   onClick={() => handleNavigationClick(item)}
                   aria-current={isActive ? "page" : undefined}
                 >
                   <Icon className="h-4 w-4" />
-                  {item.label}
+                  <span className={isSidebarCollapsed ? "sr-only" : ""}>{item.label}</span>
                 </button>
               );
             })}
           </nav>
-          <div className="mt-6 rounded-2xl bg-white/5 p-4 text-sm text-slate-300">
-            <p className="font-medium text-white">Need help?</p>
-            <p className="mt-1">Review the playbook or contact the product team.</p>
-          </div>
+          {!isSidebarCollapsed && (
+            <div className="mt-6 rounded-2xl bg-white/5 p-4 text-sm text-slate-300">
+              <p className="font-medium text-white">Need help?</p>
+              <p className="mt-1">Review the playbook or contact the product team.</p>
+            </div>
+          )}
         </aside>
 
         <div className="flex flex-1 flex-col">
@@ -921,13 +1006,23 @@ export function AdminDashboard() {
             className="sticky top-0 z-40 border-b border-white/10 bg-slate-950/80 backdrop-blur"
           >
             <div className="flex items-center justify-between px-6 py-4">
-              <div className="hidden md:flex md:max-w-md md:flex-1">
-                <div className="relative w-full">
-                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
-                  <Input
-                    placeholder="Search across clients, projects, sessions..."
-                    className="w-full rounded-xl border-white/10 bg-white/5 pl-9 text-sm text-white placeholder:text-slate-300"
-                  />
+              <div className="flex flex-1 items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setIsSidebarCollapsed(value => !value)}
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-white transition hover:bg-white/10"
+                  aria-label={isSidebarCollapsed ? "Expand navigation" : "Collapse navigation"}
+                >
+                  {isSidebarCollapsed ? <Menu className="h-5 w-5" /> : <ChevronLeft className="h-5 w-5" />}
+                </button>
+                <div className="hidden md:flex md:max-w-md md:flex-1">
+                  <div className="relative w-full">
+                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+                    <Input
+                      placeholder="Search across clients, projects, sessions..."
+                      className="w-full rounded-xl border-white/10 bg-white/5 pl-9 text-sm text-white placeholder:text-slate-300"
+                    />
+                  </div>
                 </div>
               </div>
               <div className="flex items-center gap-4">
@@ -942,7 +1037,11 @@ export function AdminDashboard() {
             </div>
           </motion.header>
 
-          <main className="flex-1 space-y-8 overflow-y-auto px-6 py-8">
+          <main
+            className={`flex-1 overflow-y-auto ${
+              showOnlyChallengeWorkspace ? "space-y-6 px-6 py-6 lg:px-10" : "space-y-8 px-6 py-8"
+            }`}
+          >
             {feedback && (
               <Alert
                 variant={feedback.type === "error" ? "destructive" : "default"}
@@ -957,12 +1056,13 @@ export function AdminDashboard() {
               </Alert>
             )}
 
-            <section ref={dashboardRef} id="section-dashboard">
-              <div className="flex items-center justify-between">
-                <h1 className="text-3xl font-semibold">Operational dashboard</h1>
-                <div className="hidden gap-3 md:flex">
-                  <Button
-                    type="button"
+            {!showOnlyChallengeWorkspace && (
+              <section ref={dashboardRef} id="section-dashboard">
+                <div className="flex items-center justify-between">
+                  <h1 className="text-3xl font-semibold">Operational dashboard</h1>
+                  <div className="hidden gap-3 md:flex">
+                    <Button
+                      type="button"
                     className={gradientButtonClasses}
                     onClick={() => setShowClientForm(true)}
                   >
@@ -998,13 +1098,15 @@ export function AdminDashboard() {
                   );
                 })}
               </div>
-            </section>
+              </section>
+            )}
 
-            <section className="space-y-6">
-              <div className="flex items-center justify-between">
-                <h2 className="text-2xl font-semibold">Clients → Projects → Challenges → ASK</h2>
-                <p className="text-sm text-slate-400">Drill down to manage everything from one place.</p>
-              </div>
+            {!showOnlyChallengeWorkspace && (
+              <section className="space-y-6">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-2xl font-semibold">Clients → Projects → Challenges → ASK</h2>
+                  <p className="text-sm text-slate-400">Drill down to manage everything from one place.</p>
+                </div>
 
               <div
                 className="grid gap-6 lg:grid-cols-3"
@@ -1369,6 +1471,17 @@ export function AdminDashboard() {
                                   Explorer
                                 </div>
                               </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                className="h-8 rounded-full bg-indigo-500/80 px-3 text-[11px] font-semibold uppercase tracking-wide text-white shadow hover:bg-indigo-500"
+                                onClick={() => {
+                                  setSelectedProjectId(project.id);
+                                  router.push(`/admin/projects/${project.id}/relationships`);
+                                }}
+                              >
+                                Ouvrir
+                              </Button>
                               <button
                                 type="button"
                                 onClick={() => startProjectEdit(project.id)}
@@ -1407,7 +1520,9 @@ export function AdminDashboard() {
                 <div
                   ref={challengesRef}
                   id="section-challenges"
-                  className="flex flex-col gap-4 rounded-3xl border border-white/10 bg-white/5 p-5 backdrop-blur"
+                  className={`flex flex-col gap-4 rounded-3xl border border-white/10 bg-white/5 p-5 backdrop-blur ${
+                    showOnlyChallengeWorkspace ? "xl:p-6" : ""
+                  }`}
                 >
                   <header className="flex flex-col gap-1">
                     <h3 className="text-lg font-semibold text-white">Challenges & ASK sessions</h3>
@@ -1417,6 +1532,13 @@ export function AdminDashboard() {
                   </header>
 
                   <div className="space-y-6">
+                    {projectContextMissing && (
+                      <Alert className="border-red-500/40 bg-red-500/10 text-red-100">
+                        <AlertDescription>
+                          Ce projet n'existe plus ou n'est pas accessible. Sélectionnez un autre projet dans la carte.
+                        </AlertDescription>
+                      </Alert>
+                    )}
                     <AskRelationshipCanvas
                       projects={projects}
                       challenges={challenges}
@@ -1429,7 +1551,13 @@ export function AdminDashboard() {
                       onAskSelect={handleCanvasAskSelect}
                     />
                     {selectedProject ? (
-                    <div className="grid gap-4 xl:grid-cols-[minmax(240px,0.9fr)_minmax(260px,1.1fr)]">
+                    <div
+                      className={`grid gap-4 ${
+                        showOnlyChallengeWorkspace
+                          ? "xl:grid-cols-[minmax(260px,0.85fr)_minmax(360px,1.15fr)]"
+                          : "xl:grid-cols-[minmax(240px,0.9fr)_minmax(260px,1.1fr)]"
+                      }`}
+                    >
                       <div className="space-y-3">
                         <div className="flex items-center justify-between">
                           <h4 className="text-sm font-semibold uppercase tracking-wide text-slate-300">Challenges</h4>
@@ -1809,14 +1937,16 @@ export function AdminDashboard() {
                   )}
                   </div>
                 </div>
-              </div>
-            </section>
+                </div>
+              </section>
+            )}
 
-            <section
-              ref={usersRef}
-              id="section-users"
-              className="space-y-6 rounded-3xl border border-white/10 bg-white/5 p-6 backdrop-blur"
-            >
+            {!showOnlyChallengeWorkspace && (
+              <section
+                ref={usersRef}
+                id="section-users"
+                className="space-y-6 rounded-3xl border border-white/10 bg-white/5 p-6 backdrop-blur"
+              >
               <div className="flex flex-wrap items-center justify-between gap-4">
                 <div>
                   <h2 className="text-2xl font-semibold">Users</h2>
@@ -2002,13 +2132,15 @@ export function AdminDashboard() {
                   ))
                 )}
               </div>
-            </section>
+              </section>
+            )}
 
-            <section
-              ref={insightsRef}
-              id="section-insights"
-              className="space-y-6 rounded-3xl border border-white/10 bg-white/5 p-6 backdrop-blur"
-            >
+            {!showOnlyChallengeWorkspace && (
+              <section
+                ref={insightsRef}
+                id="section-insights"
+                className="space-y-6 rounded-3xl border border-white/10 bg-white/5 p-6 backdrop-blur"
+              >
               <div className="flex flex-wrap items-center justify-between gap-4">
                 <div>
                   <h2 className="text-2xl font-semibold">Insights</h2>
@@ -2049,13 +2181,15 @@ export function AdminDashboard() {
                     : "No upcoming challenge due date for the current project."}
                 </p>
               </div>
-            </section>
+              </section>
+            )}
 
-            <section
-              ref={settingsRef}
-              id="section-settings"
-              className="space-y-6 rounded-3xl border border-white/10 bg-white/5 p-6 backdrop-blur"
-            >
+            {!showOnlyChallengeWorkspace && (
+              <section
+                ref={settingsRef}
+                id="section-settings"
+                className="space-y-6 rounded-3xl border border-white/10 bg-white/5 p-6 backdrop-blur"
+              >
               <div className="flex flex-wrap items-center justify-between gap-4">
                 <div>
                   <h2 className="text-2xl font-semibold">Settings</h2>
@@ -2089,7 +2223,8 @@ export function AdminDashboard() {
                   </Button>
                 </div>
               </div>
-            </section>
+              </section>
+            )}
 
           </main>
         </div>
