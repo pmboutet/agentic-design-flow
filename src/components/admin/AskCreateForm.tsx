@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -8,9 +8,12 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
-import { type ChallengeRecord } from "@/types";
+import { type ChallengeRecord, type ManagedUser } from "@/types";
 
 const statusOptions = ["active", "inactive", "draft", "closed"] as const;
+const deliveryModes = ["physical", "digital"] as const;
+const audienceScopes = ["individual", "group"] as const;
+const responseModes = ["collective", "simultaneous"] as const;
 
 const parseNumber = (value: unknown) => {
   if (value === "" || value === undefined || value === null) {
@@ -30,18 +33,24 @@ const formSchema = z.object({
   endDate: z.string().trim().min(1, "End date is required"),
   status: z.enum(statusOptions),
   isAnonymous: z.boolean().default(false),
-  maxParticipants: z.preprocess(parseNumber, z.number().int().positive().max(10000).optional())
+  maxParticipants: z.preprocess(parseNumber, z.number().int().positive().max(10000).optional()),
+  deliveryMode: z.enum(deliveryModes),
+  audienceScope: z.enum(audienceScopes),
+  responseMode: z.enum(responseModes),
+  participantIds: z.array(z.string().uuid()).default([]),
+  spokespersonId: z.string().uuid().optional().or(z.literal(""))
 });
 
 export type AskCreateFormValues = z.infer<typeof formSchema>;
 
 interface AskCreateFormProps {
   challenges: ChallengeRecord[];
+  availableUsers: ManagedUser[];
   onSubmit: (values: AskCreateFormValues & { projectId: string }) => Promise<void>;
   isLoading?: boolean;
 }
 
-export function AskCreateForm({ challenges, onSubmit, isLoading }: AskCreateFormProps) {
+export function AskCreateForm({ challenges, availableUsers, onSubmit, isLoading }: AskCreateFormProps) {
   const initialChallenge = challenges[0]?.id ?? "";
 
   const form = useForm<AskCreateFormValues>({
@@ -56,9 +65,43 @@ export function AskCreateForm({ challenges, onSubmit, isLoading }: AskCreateForm
       endDate: "",
       status: "active",
       isAnonymous: false,
-      maxParticipants: undefined
+      maxParticipants: undefined,
+      deliveryMode: "digital",
+      audienceScope: "individual",
+      responseMode: "collective",
+      participantIds: [],
+      spokespersonId: ""
     }
   });
+
+  const selectedChallengeId = form.watch("challengeId");
+  const selectedAudience = form.watch("audienceScope");
+  const selectedParticipants = form.watch("participantIds");
+  const selectedSpokesperson = form.watch("spokespersonId");
+
+  const selectedChallenge = challenges.find(item => item.id === selectedChallengeId);
+  const eligibleUsers = useMemo(() => {
+    const projectId = selectedChallenge?.projectId ?? null;
+
+    return availableUsers.filter(user => {
+      const normalizedRole = user.role?.toLowerCase?.() ?? "";
+      const isGlobal = normalizedRole.includes("admin") || normalizedRole.includes("owner");
+
+      if (!projectId) {
+        return true;
+      }
+
+      if (isGlobal) {
+        return true;
+      }
+
+      if (!user.projectIds || user.projectIds.length === 0) {
+        return false;
+      }
+
+      return user.projectIds.includes(projectId);
+    });
+  }, [availableUsers, selectedChallenge]);
 
   useEffect(() => {
     const firstChallenge = challenges[0]?.id;
@@ -66,6 +109,25 @@ export function AskCreateForm({ challenges, onSubmit, isLoading }: AskCreateForm
       form.setValue("challengeId", firstChallenge);
     }
   }, [challenges, form]);
+
+  useEffect(() => {
+    if (selectedSpokesperson && !selectedParticipants.includes(selectedSpokesperson)) {
+      form.setValue("spokespersonId", "");
+    }
+  }, [form, selectedParticipants, selectedSpokesperson]);
+
+  const toggleParticipant = (userId: string) => {
+    const current = form.getValues("participantIds") ?? [];
+    if (current.includes(userId)) {
+      const next = current.filter(id => id !== userId);
+      form.setValue("participantIds", next, { shouldDirty: true });
+      if (form.getValues("spokespersonId") === userId) {
+        form.setValue("spokespersonId", "", { shouldDirty: true });
+      }
+    } else {
+      form.setValue("participantIds", [...current, userId], { shouldDirty: true });
+    }
+  };
 
   const handleSubmit = async (values: AskCreateFormValues) => {
     const challenge = challenges.find(item => item.id === values.challengeId);
@@ -84,7 +146,12 @@ export function AskCreateForm({ challenges, onSubmit, isLoading }: AskCreateForm
       endDate: "",
       status: "active",
       isAnonymous: false,
-      maxParticipants: undefined
+      maxParticipants: undefined,
+      deliveryMode: "digital",
+      audienceScope: "individual",
+      responseMode: "collective",
+      participantIds: [],
+      spokespersonId: ""
     });
   };
 
@@ -199,6 +266,115 @@ export function AskCreateForm({ challenges, onSubmit, isLoading }: AskCreateForm
           <Label htmlFor="create-anon">Anonymous</Label>
         </div>
       </div>
+
+      <div className="grid gap-3 md:grid-cols-2">
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="create-delivery">Mode d'interaction</Label>
+          <select
+            id="create-delivery"
+            {...form.register("deliveryMode")}
+            className="h-10 rounded-md border border-border bg-white/70 px-3 text-sm text-slate-900"
+            disabled={isLoading}
+          >
+            {deliveryModes.map(mode => (
+              <option key={mode} value={mode}>
+                {mode === "physical" ? "Physique" : "Digital"}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="create-audience">Participants attendus</Label>
+          <select
+            id="create-audience"
+            {...form.register("audienceScope")}
+            className="h-10 rounded-md border border-border bg-white/70 px-3 text-sm text-slate-900"
+            disabled={isLoading}
+          >
+            {audienceScopes.map(scope => (
+              <option key={scope} value={scope}>
+                {scope === "individual" ? "Une seule personne" : "Plusieurs personnes"}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {selectedAudience === "group" && (
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="create-response-mode">Mode de réponse</Label>
+          <select
+            id="create-response-mode"
+            {...form.register("responseMode")}
+            className="h-10 rounded-md border border-border bg-white/70 px-3 text-sm text-slate-900"
+            disabled={isLoading}
+          >
+            {responseModes.map(mode => (
+              <option key={mode} value={mode}>
+                {mode === "collective" ? "Un porte-parole pour le groupe" : "Réponses individuelles simultanées"}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      <div className="space-y-2">
+        <Label>Contacts de la session</Label>
+        <p className="text-xs text-muted-foreground">
+          Sélectionnez uniquement les personnes affectées au projet. Les rôles administrateurs restent disponibles pour tous les projets.
+        </p>
+        <div className="max-h-44 space-y-2 overflow-y-auto rounded-md border border-border bg-white/70 p-3">
+          {eligibleUsers.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Aucun contact disponible pour ce projet.</p>
+          ) : (
+            eligibleUsers.map(user => {
+              const isSelected = selectedParticipants.includes(user.id);
+              const displayName = user.fullName || `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim() || user.email;
+              return (
+                <label
+                  key={user.id}
+                  className="flex items-center justify-between rounded-md border border-border/60 bg-white/60 px-3 py-2 text-sm shadow-sm"
+                >
+                  <div>
+                    <p className="font-medium text-slate-800">{displayName}</p>
+                    <p className="text-xs text-muted-foreground">{user.role}</p>
+                  </div>
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4"
+                    checked={isSelected}
+                    onChange={() => toggleParticipant(user.id)}
+                    disabled={isLoading}
+                  />
+                </label>
+              );
+            })
+          )}
+        </div>
+      </div>
+
+      {selectedAudience === "group" && selectedParticipants.length > 0 && (
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="create-spokesperson">Porte-parole (optionnel)</Label>
+          <select
+            id="create-spokesperson"
+            {...form.register("spokespersonId")}
+            className="h-10 rounded-md border border-border bg-white/70 px-3 text-sm text-slate-900"
+            disabled={isLoading}
+          >
+            <option value="">Aucun porte-parole dédié</option>
+            {selectedParticipants.map(participantId => {
+              const user = eligibleUsers.find(item => item.id === participantId) || availableUsers.find(item => item.id === participantId);
+              const displayName = user?.fullName || `${user?.firstName ?? ""} ${user?.lastName ?? ""}`.trim() || user?.email || participantId;
+              return (
+                <option key={participantId} value={participantId}>
+                  {displayName}
+                </option>
+              );
+            })}
+          </select>
+        </div>
+      )}
 
       <div className="flex flex-col gap-2">
         <Label htmlFor="create-max">Max participants</Label>

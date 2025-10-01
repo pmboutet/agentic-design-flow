@@ -79,6 +79,9 @@ CREATE TABLE ask_sessions (
     status VARCHAR(50) NOT NULL DEFAULT 'active',
     is_anonymous BOOLEAN DEFAULT false,
     max_participants INTEGER,
+    delivery_mode VARCHAR(20) NOT NULL DEFAULT 'digital', -- physical or digital
+    audience_scope VARCHAR(20) NOT NULL DEFAULT 'individual', -- individual or group
+    response_mode VARCHAR(20) NOT NULL DEFAULT 'collective', -- collective or simultaneous
     challenge_id UUID REFERENCES challenges(id) ON DELETE SET NULL,
     project_id UUID REFERENCES projects(id) ON DELETE CASCADE,
     created_by UUID REFERENCES users(id) ON DELETE SET NULL,
@@ -96,6 +99,7 @@ CREATE TABLE ask_participants (
     participant_name VARCHAR(255), -- for anonymous participants
     participant_email VARCHAR(255), -- for anonymous participants
     role VARCHAR(50) DEFAULT 'participant',
+    is_spokesperson BOOLEAN DEFAULT false,
     joined_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     last_active TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     UNIQUE(ask_session_id, user_id)
@@ -236,8 +240,9 @@ INSERT INTO challenges (id, name, description, status, priority, category, proje
 ('550e8400-e29b-41d4-a716-446655440031', 'Communication Bottlenecks', 'Team experiencing delays due to unclear communication channels and decision-making processes', 'open', 'high', 'operational', '550e8400-e29b-41d4-a716-446655440021', '550e8400-e29b-41d4-a716-446655440012');
 
 -- Insert test ASK session
-INSERT INTO ask_sessions (id, ask_key, name, question, description, start_date, end_date, status, challenge_id, project_id, created_by, ai_config, metadata) VALUES 
-('550e8400-e29b-41d4-a716-446655440041', 'team-productivity-session-001', 'Team Productivity Deep Dive', 'Our team is struggling with meeting deadlines and communication gaps. What systemic changes could improve our workflow efficiency?', 'Interactive session to identify productivity blockers and generate actionable improvement strategies', '2025-09-15 14:00:00+00', '2025-09-16 14:00:00+00', 'active', '550e8400-e29b-41d4-a716-446655440031', '550e8400-e29b-41d4-a716-446655440021', '550e8400-e29b-41d4-a716-446655440011', 
+INSERT INTO ask_sessions (id, ask_key, name, question, description, start_date, end_date, status, challenge_id, project_id, created_by, delivery_mode, audience_scope, response_mode, ai_config, metadata) VALUES
+('550e8400-e29b-41d4-a716-446655440041', 'team-productivity-session-001', 'Team Productivity Deep Dive', 'Our team is struggling with meeting deadlines and communication gaps. What systemic changes could improve our workflow efficiency?', 'Interactive session to identify productivity blockers and generate actionable improvement strategies', '2025-09-15 14:00:00+00', '2025-09-16 14:00:00+00', 'active', '550e8400-e29b-41d4-a716-446655440031', '550e8400-e29b-41d4-a716-446655440021', '550e8400-e29b-41d4-a716-446655440011',
+'physical', 'group', 'simultaneous',
 '{"personality": "analytical", "questioning_style": "exploratory", "response_depth": "detailed", "language": "en"}',
 '{"department": "Product Development", "team_size": 8, "industry": "SaaS", "priority": "high"}');
 
@@ -299,6 +304,39 @@ POSTGRES_DATABASE=postgres
 
 # n8n Webhook
 EXTERNAL_RESPONSE_WEBHOOK=your-n8n-webhook-url
+```
+
+
+## Post-migration validation for ASK sessions
+
+- Check that the new session columns exist:
+
+```sql
+SELECT column_name
+FROM information_schema.columns
+WHERE table_name = 'ask_sessions'
+  AND column_name IN ('delivery_mode', 'audience_scope', 'response_mode');
+```
+
+- Ensure the `ask_participants.is_spokesperson` flag is available and aligned with historic data:
+
+```sql
+ALTER TABLE ask_participants
+  ADD COLUMN IF NOT EXISTS is_spokesperson BOOLEAN DEFAULT false;
+
+UPDATE ask_participants
+SET is_spokesperson = TRUE
+WHERE role = 'spokesperson';
+```
+
+- Normalise legacy ASK sessions so the admin dashboard receives consistent metadata:
+
+```sql
+UPDATE ask_sessions
+SET delivery_mode = COALESCE(delivery_mode, 'digital'),
+    audience_scope = COALESCE(audience_scope, CASE WHEN max_participants = 1 THEN 'individual' ELSE 'group' END),
+    response_mode = COALESCE(response_mode, 'collective')
+WHERE delivery_mode IS NULL OR audience_scope IS NULL OR response_mode IS NULL;
 ```
 
 

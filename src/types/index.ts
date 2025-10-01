@@ -1,4 +1,17 @@
 // Types for the ASK system and conversations
+export type AskDeliveryMode = "physical" | "digital";
+export type AskAudienceScope = "individual" | "group";
+export type AskGroupResponseMode = "collective" | "simultaneous";
+
+export interface AskParticipant {
+  id: string;
+  name: string;
+  email?: string | null;
+  role?: string | null;
+  isSpokesperson?: boolean;
+  isActive: boolean;
+}
+
 export interface Ask {
   id: string;
   key: string;
@@ -7,6 +20,11 @@ export interface Ask {
   endDate: string; // ISO string
   createdAt: string;
   updatedAt: string;
+  deliveryMode: AskDeliveryMode;
+  audienceScope: AskAudienceScope;
+  responseMode: AskGroupResponseMode;
+  participants: AskParticipant[];
+  askSessionId?: string;
 }
 
 // Types for conversation messages
@@ -54,6 +72,36 @@ export interface Challenge {
   isHighlighted?: boolean; // For visual feedback on updates
 }
 
+export interface InsightKpi {
+  id: string;
+  label: string;
+  value?: Record<string, any>;
+  description?: string | null;
+}
+
+export type InsightStatus = "new" | "reviewed" | "implemented" | "archived";
+export type InsightType = "pain" | "gain" | "opportunity" | "risk" | "signal" | "idea";
+
+export interface Insight {
+  id: string;
+  askId: string;
+  askSessionId: string;
+  challengeId?: string | null;
+  authorId?: string | null;
+  authorName?: string | null;
+  content: string;
+  summary?: string | null;
+  type: InsightType;
+  category?: string | null;
+  status: InsightStatus;
+  priority?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  relatedChallengeIds: string[];
+  kpis: InsightKpi[];
+  sourceMessageId?: string | null;
+}
+
 // Types for webhook payloads
 export interface WebhookAskPayload {
   askKey: string;
@@ -71,6 +119,7 @@ export interface WebhookResponsePayload {
 export interface WebhookChallengePayload {
   askKey: string;
   challenges: Challenge[];
+  insights?: Insight[];
   action: 'update' | 'replace';
 }
 
@@ -94,7 +143,8 @@ export interface SessionData {
   askKey: string;
   ask: Ask | null;
   messages: Message[];
-  challenges: Challenge[];
+  insights: Insight[];
+  challenges?: Challenge[];
   isLoading: boolean;
   error: string | null;
 }
@@ -106,11 +156,18 @@ export interface ChatComponentProps {
   messages: Message[];
   onSendMessage: (content: string, type?: Message['type'], metadata?: Message['metadata']) => void;
   isLoading: boolean;
+  onHumanTyping?: (isTyping: boolean) => void;
 }
 
 export interface ChallengeComponentProps {
   challenges: Challenge[];
   onUpdateChallenge: (challenge: Challenge) => void;
+  askKey: string;
+}
+
+export interface InsightPanelProps {
+  insights: Insight[];
+  onRequestChallengeLink?: (insightId: string) => void;
   askKey: string;
 }
 
@@ -135,6 +192,7 @@ export interface ManagedUser {
   role: string;
   clientId?: string | null;
   clientName?: string | null;
+  projectIds?: string[];
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
@@ -183,7 +241,36 @@ export interface AskSessionRecord {
   endDate: string;
   isAnonymous: boolean;
   maxParticipants?: number | null;
+  deliveryMode: AskDeliveryMode;
+  audienceScope: AskAudienceScope;
+  responseMode: AskGroupResponseMode;
   createdBy?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  participants?: AskParticipant[];
+}
+
+export interface AskContact {
+  id: string;
+  name: string;
+  email?: string | null;
+  role?: string | null;
+  avatarUrl?: string | null;
+  isSpokesperson?: boolean;
+}
+
+export interface AskRecord {
+  id: string;
+  askSessionId: string;
+  askKey: string;
+  name: string;
+  question: string;
+  status: string;
+  deliveryMode: AskDeliveryMode;
+  audienceScope: AskAudienceScope;
+  responseMode: AskGroupResponseMode;
+  startDate: string;
+  endDate: string;
   createdAt: string;
   updatedAt: string;
 }
