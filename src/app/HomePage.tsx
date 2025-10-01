@@ -77,7 +77,7 @@ export default function HomePage() {
         method: 'POST',
       });
 
-      const data: ApiResponse<{ message: Message }> = await response.json();
+      const data: ApiResponse<{ message: Message; insights?: Insight[] }> = await response.json();
 
       if (!data.success) {
         throw new Error(data.error || 'Unable to retrieve AI response');
@@ -87,6 +87,18 @@ export default function HomePage() {
         setSessionData(prev => ({
           ...prev,
           messages: [...prev.messages, data.data!.message],
+          insights: data.data?.insights ?? prev.insights,
+          isLoading: false,
+        }));
+      } else if (data.data?.insights) {
+        setSessionData(prev => ({
+          ...prev,
+          insights: data.data?.insights ?? prev.insights,
+          isLoading: false,
+        }));
+      } else {
+        setSessionData(prev => ({
+          ...prev,
           isLoading: false,
         }));
       }
@@ -481,9 +493,9 @@ export default function HomePage() {
       </motion.header>
 
       {/* Main Content with Beautiful Layout */}
-      <main className="flex h-[calc(100vh-88px)] gap-6 p-6">
+      <main className="flex h-[calc(100vh-88px)] overflow-hidden gap-6 p-6">
         {/* Chat Section - 1/3 of screen with glass effect */}
-        <motion.div 
+        <motion.div
           initial={{ opacity: 0, x: -40 }}
           animate={{ opacity: 1, x: 0 }}
           transition={{ duration: 0.6 }}
@@ -497,19 +509,20 @@ export default function HomePage() {
                 </div>
                 <h2 className="text-lg font-semibold text-foreground">Conversation</h2>
               </div>
-              
               {sessionData.ask && (
-                <motion.p 
+                <motion.div
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   transition={{ delay: 0.3 }}
-                  className="text-sm text-muted-foreground bg-white/30 rounded-lg p-3"
+                  className="flex items-center gap-2 text-xs text-muted-foreground"
                 >
-                  {sessionData.ask.question}
-                </motion.p>
+                  <span>{sessionData.ask.participants.length} participant(s)</span>
+                  <span>•</span>
+                  <span>{sessionData.ask.isActive ? 'Session active' : 'Session clôturée'}</span>
+                </motion.div>
               )}
             </div>
-            
+
             <ChatComponent
               askKey={sessionData.askKey}
               ask={sessionData.ask}
@@ -530,7 +543,7 @@ export default function HomePage() {
           transition={{ duration: 0.6, delay: 0.2 }}
           className="flex-1"
         >
-          <div className="h-full">
+          <div className="h-full flex flex-col overflow-hidden">
             <InsightPanel
               insights={sessionData.insights}
               askKey={sessionData.askKey}
