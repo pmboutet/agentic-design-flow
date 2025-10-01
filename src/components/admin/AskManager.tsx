@@ -1,19 +1,20 @@
 "use client";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { type AskSessionRecord, type ChallengeRecord } from "@/types";
+import { type AskSessionRecord, type ChallengeRecord, type ManagedUser } from "@/types";
 import { AskCreateForm, type AskCreateFormValues } from "./AskCreateForm";
 import { AskEditForm, type AskEditFormValues } from "./AskEditForm";
 
 interface AskManagerProps {
   challenges: ChallengeRecord[];
   asks: AskSessionRecord[];
+  users: ManagedUser[];
   onCreate: (values: AskCreateFormValues & { projectId: string }) => Promise<void>;
   onUpdate: (askId: string, values: Omit<AskEditFormValues, "askId">) => Promise<void>;
   isLoading?: boolean;
 }
 
-export function AskManager({ challenges, asks, onCreate, onUpdate, isLoading }: AskManagerProps) {
+export function AskManager({ challenges, asks, users, onCreate, onUpdate, isLoading }: AskManagerProps) {
   return (
     <Card className="glass-card">
       <CardHeader>
@@ -23,12 +24,22 @@ export function AskManager({ challenges, asks, onCreate, onUpdate, isLoading }: 
         <div className="grid gap-6 md:grid-cols-2">
           <div className="space-y-4">
             <h4 className="font-semibold text-sm text-muted-foreground">Create a new session</h4>
-            <AskCreateForm challenges={challenges} onSubmit={onCreate} isLoading={isLoading} />
+            <AskCreateForm
+              challenges={challenges}
+              availableUsers={users}
+              onSubmit={onCreate}
+              isLoading={isLoading}
+            />
           </div>
 
           <div className="space-y-4">
             <h4 className="font-semibold text-sm text-muted-foreground">Edit a session</h4>
-            <AskEditForm asks={asks} onSubmit={onUpdate} isLoading={isLoading} />
+            <AskEditForm
+              asks={asks}
+              availableUsers={users}
+              onSubmit={onUpdate}
+              isLoading={isLoading}
+            />
           </div>
         </div>
 

@@ -205,10 +205,10 @@ export function deepClone<T>(obj: T): T {
 /**
  * Enhanced ASK key validation with detailed error messages
  */
-export function validateAskKey(key: string): { 
-  isValid: boolean; 
-  error?: string; 
-  suggestion?: string; 
+export function validateAskKey(key: string): {
+  isValid: boolean;
+  error?: string;
+  suggestion?: string;
 } {
   const trimmedKey = key.trim();
   
@@ -253,6 +253,77 @@ export function validateAskKey(key: string): {
       suggestion: 'Please check your ASK key format' 
     };
   }
-  
+
   return { isValid: true };
+}
+
+export function formatRelativeDate(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  const now = new Date();
+  const diff = now.getTime() - date.getTime();
+
+  const seconds = Math.floor(diff / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+
+  if (days > 30) {
+    return date.toLocaleDateString();
+  }
+  if (days >= 1) {
+    return `${days} j`;
+  }
+  if (hours >= 1) {
+    return `${hours} h`;
+  }
+  if (minutes >= 1) {
+    return `${minutes} min`;
+  }
+  return "à l'instant";
+}
+
+export function getInsightTypeLabel(type: string): string {
+  switch (type) {
+    case "pain":
+      return "Pain";
+    case "gain":
+      return "Gain";
+    case "opportunity":
+      return "Opportunité";
+    case "risk":
+      return "Risque";
+    case "signal":
+      return "Signal";
+    case "idea":
+      return "Idée";
+    default:
+      return type;
+  }
+}
+
+export function getDeliveryModeLabel(mode: string | undefined): string {
+  if (mode === "physical") {
+    return "Session physique";
+  }
+  if (mode === "digital") {
+    return "Session digitale";
+  }
+  return "Mode hybride";
+}
+
+export function getAudienceDescription(audience: string | undefined, responseMode: string | undefined): string {
+  const scope = audience === "individual" ? "1 personne" : "Plusieurs participants";
+  if (audience === "group") {
+    if (responseMode === "collective") {
+      return `${scope} avec un porte-parole`;
+    }
+    if (responseMode === "simultaneous") {
+      return `${scope} en réponses simultanées`;
+    }
+  }
+  return scope;
 }

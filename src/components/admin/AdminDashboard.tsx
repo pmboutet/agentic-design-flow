@@ -73,6 +73,9 @@ const challengeFormSchema = z.object({
 });
 
 const askStatuses = ["active", "inactive", "draft", "closed"] as const;
+const deliveryModes = ["physical", "digital"] as const;
+const audienceScopes = ["individual", "group"] as const;
+const responseModes = ["collective", "simultaneous"] as const;
 
 const askFormSchema = z.object({
   askKey: z.string().trim().min(3, "Key is required").max(255).regex(/^[a-zA-Z0-9._-]+$/),
@@ -90,7 +93,12 @@ const askFormSchema = z.object({
       .positive()
       .max(10000)
       .optional()
-    )
+    ),
+  deliveryMode: z.enum(deliveryModes),
+  audienceScope: z.enum(audienceScopes),
+  responseMode: z.enum(responseModes),
+  participantIds: z.array(z.string().uuid()).default([]),
+  spokespersonId: z.string().uuid().optional().or(z.literal(""))
 });
 
 const userRoles = ["full_admin", "project_admin", "facilitator", "manager", "participant", "user"] as const;
@@ -145,7 +153,12 @@ const defaultAskFormValues: AskFormInput = {
   endDate: "",
   status: "active",
   isAnonymous: false,
-  maxParticipants: undefined
+  maxParticipants: undefined,
+  deliveryMode: "digital",
+  audienceScope: "individual",
+  responseMode: "collective",
+  participantIds: [],
+  spokespersonId: ""
 };
 
 const defaultUserFormValues: UserFormInput = {
@@ -359,6 +372,28 @@ function AskDetailDialog({ ask, projectName, challengeName, onClose }: AskDetail
                   <p className="mt-1 text-sm font-medium text-white">{formatDisplayValue(challengeName)}</p>
                 </div>
                 <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                  <p className="text-xs uppercase tracking-wide text-slate-400">Delivery mode</p>
+                  <p className="mt-1 text-sm font-medium text-white">
+                    {ask.deliveryMode === "physical" ? "In-person" : "Digital"}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                  <p className="text-xs uppercase tracking-wide text-slate-400">Audience</p>
+                  <p className="mt-1 text-sm font-medium text-white">
+                    {ask.audienceScope === "individual" ? "Individual" : "Group"}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                  <p className="text-xs uppercase tracking-wide text-slate-400">Response mode</p>
+                  <p className="mt-1 text-sm font-medium text-white">
+                    {ask.audienceScope === "group"
+                      ? ask.responseMode === "collective"
+                        ? "Spokesperson"
+                        : "Simultaneous"
+                      : "—"}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
                   <p className="text-xs uppercase tracking-wide text-slate-400">Début</p>
                   <p className="mt-1 text-sm font-medium text-white">{formatDisplayValue(formatDateTime(ask.startDate))}</p>
                 </div>
@@ -385,6 +420,24 @@ function AskDetailDialog({ ask, projectName, challengeName, onClose }: AskDetail
                   <p className="text-xs uppercase tracking-wide text-slate-400">Mise à jour</p>
                   <p className="mt-1 font-medium text-white">{formatDisplayValue(formatDateTime(ask.updatedAt))}</p>
                 </div>
+              </div>
+
+              <div className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-200">
+                <p className="text-xs uppercase tracking-wide text-slate-400">Participants</p>
+                {ask.participants && ask.participants.length > 0 ? (
+                  <ul className="mt-2 space-y-2">
+                    {ask.participants.map(participant => (
+                      <li key={participant.id} className="flex items-center justify-between gap-3">
+                        <span>{participant.name}</span>
+                        <span className="text-xs text-slate-400">
+                          {participant.isSpokesperson ? "Spokesperson" : participant.role || "Participant"}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="mt-2 text-xs text-slate-400">No participants assigned yet.</p>
+                )}
               </div>
             </div>
           )}
@@ -530,6 +583,9 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
   });
 
   const askNameValue = askForm.watch("name");
+  const selectedAudience = askForm.watch("audienceScope");
+  const selectedParticipants = askForm.watch("participantIds");
+  const selectedSpokesperson = askForm.watch("spokespersonId");
 
   useEffect(() => {
     if (initialProjectId) {
@@ -566,6 +622,29 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
       askForm.setValue("askKey", generateAskKey(askNameValue));
     }
   }, [askNameValue, manualAskKey, askForm]);
+
+  useEffect(() => {
+    if (selectedSpokesperson && !selectedParticipants.includes(selectedSpokesperson)) {
+      askForm.setValue("spokespersonId", "", { shouldDirty: true });
+    }
+  }, [askForm, selectedParticipants, selectedSpokesperson]);
+
+  useEffect(() => {
+    if (selectedAudience !== "group") {
+      if (askForm.getValues("responseMode") !== "collective") {
+        askForm.setValue("responseMode", "collective", { shouldDirty: true });
+      }
+
+      const participants = askForm.getValues("participantIds") ?? [];
+      if (participants.length > 1) {
+        askForm.setValue("participantIds", [participants[0]], { shouldDirty: true });
+      }
+
+      if (askForm.getValues("spokespersonId")) {
+        askForm.setValue("spokespersonId", "", { shouldDirty: true });
+      }
+    }
+  }, [askForm, selectedAudience]);
 
   useEffect(() => {
     if (clients.length > 0 && !selectedClientId) {
@@ -659,10 +738,83 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
     [projects, selectedProjectId]
   );
 
+  const isJourneyMode = Boolean(showJourneyBoard && selectedProjectId);
+
   const selectedChallenge = useMemo(
     () => challenges.find(challenge => challenge.id === selectedChallengeId) ?? null,
     [challenges, selectedChallengeId]
   );
+
+  const activeAskProjectId = useMemo(() => {
+    if (editingAskId) {
+      const session = asks.find(item => item.id === editingAskId);
+      if (session?.projectId) {
+        return session.projectId;
+      }
+    }
+
+    if (selectedChallenge?.projectId) {
+      return selectedChallenge.projectId;
+    }
+
+    return selectedProjectId;
+  }, [editingAskId, asks, selectedChallenge, selectedProjectId]);
+
+  const eligibleAskUsers = useMemo(() => {
+    const sorted = [...users].sort((a, b) => {
+      const nameA = (a.fullName || `${a.firstName ?? ""} ${a.lastName ?? ""}` || a.email || "").trim().toLowerCase();
+      const nameB = (b.fullName || `${b.firstName ?? ""} ${b.lastName ?? ""}` || b.email || "").trim().toLowerCase();
+      return nameA.localeCompare(nameB);
+    });
+
+    return sorted.filter(user => {
+      if (!user.isActive) {
+        return false;
+      }
+
+      const normalizedRole = user.role?.toLowerCase?.() ?? "";
+      const isGlobal = normalizedRole.includes("admin") || normalizedRole.includes("owner");
+
+      if (isGlobal) {
+        return true;
+      }
+
+      if (!activeAskProjectId) {
+        return true;
+      }
+
+      const projectIds = user.projectIds ?? [];
+      return projectIds.includes(activeAskProjectId);
+    });
+  }, [activeAskProjectId, users]);
+
+  const lockedParticipantIds = useMemo(() => {
+    const eligibleIds = new Set(eligibleAskUsers.map(user => user.id));
+    return selectedParticipants.filter(participantId => !eligibleIds.has(participantId));
+  }, [eligibleAskUsers, selectedParticipants]);
+
+  const participantLookup = useMemo(() => {
+    const map = new Map<string, { name: string; role?: string | null }>();
+
+    users.forEach(user => {
+      const displayName = (user.fullName || `${user.firstName ?? ""} ${user.lastName ?? ""}` || user.email || "Participant").trim();
+      map.set(user.id, { name: displayName, role: user.role });
+    });
+
+    asks.forEach(session => {
+      session.participants?.forEach(participant => {
+        if (!participant.id) {
+          return;
+        }
+
+        if (!map.has(participant.id)) {
+          map.set(participant.id, { name: participant.name, role: participant.role ?? null });
+        }
+      });
+    });
+
+    return map;
+  }, [asks, users]);
 
   const challengeDetail = useMemo(
     () => challenges.find(challenge => challenge.id === challengeDetailId) ?? null,
@@ -960,17 +1112,53 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
     setManualAskKey(false);
   };
 
-  const handleSubmitAsk = async (values: AskFormInput) => {
-    if (!selectedChallenge || !selectedProject) {
+  const toggleAskParticipant = (userId: string) => {
+    const current = askForm.getValues("participantIds") ?? [];
+    if (current.includes(userId)) {
+      const next = current.filter(id => id !== userId);
+      askForm.setValue("participantIds", next, { shouldDirty: true });
+      if (askForm.getValues("spokespersonId") === userId) {
+        askForm.setValue("spokespersonId", "", { shouldDirty: true });
+      }
       return;
     }
 
+    if (askForm.getValues("audienceScope") === "individual") {
+      askForm.setValue("participantIds", [userId], { shouldDirty: true });
+      return;
+    }
+
+    askForm.setValue("participantIds", [...current, userId], { shouldDirty: true });
+  };
+
+  const handleSubmitAsk = async (values: AskFormInput) => {
+    const payload = {
+      askKey: values.askKey,
+      name: values.name,
+      question: values.question,
+      description: values.description ?? "",
+      startDate: values.startDate,
+      endDate: values.endDate,
+      status: values.status,
+      isAnonymous: values.isAnonymous,
+      maxParticipants: values.maxParticipants,
+      deliveryMode: values.deliveryMode,
+      audienceScope: values.audienceScope,
+      responseMode: values.responseMode,
+      participantIds: values.participantIds ?? [],
+      spokespersonId: values.spokespersonId ?? ""
+    };
+
     if (editingAskId) {
-      const { askKey: _askKey, ...payload } = values;
-      await updateAsk(editingAskId, payload);
+      const { askKey: _askKey, ...updatePayload } = payload;
+      await updateAsk(editingAskId, updatePayload);
     } else {
+      if (!selectedChallenge || !selectedProject) {
+        return;
+      }
+
       await createAsk({
-        ...values,
+        ...payload,
         projectId: selectedProject.id,
         challengeId: selectedChallenge.id
       });
@@ -997,7 +1185,14 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
       endDate: toInputDate(session.endDate),
       status: (session.status as AskFormInput["status"]) || "active",
       isAnonymous: session.isAnonymous,
-      maxParticipants: session.maxParticipants ?? undefined
+      maxParticipants: session.maxParticipants ?? undefined,
+      deliveryMode: session.deliveryMode ?? "digital",
+      audienceScope:
+        (session.audienceScope as AskFormInput["audienceScope"]) ||
+        (session.participants && session.participants.length > 1 ? "group" : "individual"),
+      responseMode: session.responseMode ?? "collective",
+      participantIds: session.participants?.map(participant => participant.id).filter((value): value is string => Boolean(value)) ?? [],
+      spokespersonId: session.participants?.find(participant => participant.isSpokesperson)?.id ?? ""
     });
   };
 
@@ -1126,11 +1321,26 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
   };
 
   const filteredUsers = useMemo(() => {
-    if (!selectedClientId) {
-      return users;
-    }
-    return users.filter(user => user.clientId === selectedClientId);
-  }, [users, selectedClientId]);
+    return users.filter(user => {
+      if (selectedClientId && user.clientId !== selectedClientId) {
+        return false;
+      }
+
+      if (!selectedProjectId) {
+        return true;
+      }
+
+      const normalizedRole = user.role?.toLowerCase?.() ?? "";
+      const isGlobal = normalizedRole.includes("admin") || normalizedRole.includes("owner");
+
+      if (isGlobal) {
+        return true;
+      }
+
+      const projectIds = user.projectIds ?? [];
+      return projectIds.includes(selectedProjectId);
+    });
+  }, [users, selectedClientId, selectedProjectId]);
 
   const activeUserCount = useMemo(
     () => filteredUsers.filter(user => user.isActive).length,
@@ -1465,6 +1675,136 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                           Allow anonymous participation
                         </label>
                       </div>
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <div className="flex flex-col gap-2">
+                          <Label htmlFor="ask-delivery">Delivery mode</Label>
+                          <select
+                            id="ask-delivery"
+                            className="h-10 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm text-white"
+                            {...askForm.register("deliveryMode")}
+                            disabled={isBusy}
+                          >
+                            {deliveryModes.map(mode => (
+                              <option key={mode} value={mode}>
+                                {mode === "physical" ? "In-person" : "Digital"}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="flex flex-col gap-2">
+                          <Label htmlFor="ask-audience">Audience</Label>
+                          <select
+                            id="ask-audience"
+                            className="h-10 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm text-white"
+                            {...askForm.register("audienceScope")}
+                            disabled={isBusy}
+                          >
+                            {audienceScopes.map(scope => (
+                              <option key={scope} value={scope}>
+                                {scope === "individual" ? "Single participant" : "Multiple participants"}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+
+                      {selectedAudience === "group" && (
+                        <div className="flex flex-col gap-2">
+                          <Label htmlFor="ask-response">Response mode</Label>
+                          <select
+                            id="ask-response"
+                            className="h-10 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm text-white"
+                            {...askForm.register("responseMode")}
+                            disabled={isBusy}
+                          >
+                            {responseModes.map(mode => (
+                              <option key={mode} value={mode}>
+                                {mode === "collective" ? "Single spokesperson" : "Simultaneous individual answers"}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+
+                      <div className="space-y-2">
+                        <Label>Participants</Label>
+                        <p className="text-xs text-slate-400">
+                          Toggle the contacts who can be invited to this ASK. Admin roles stay available across all projects.
+                        </p>
+
+                        {lockedParticipantIds.length > 0 && (
+                          <div className="rounded-md border border-amber-300/30 bg-amber-400/10 p-3 text-xs text-amber-100">
+                            <p className="font-semibold text-amber-200">Participants currently outside the project scope</p>
+                            <ul className="mt-2 space-y-1">
+                              {lockedParticipantIds.map(participantId => {
+                                const info = participantLookup.get(participantId);
+                                return (
+                                  <li key={participantId} className="flex items-center justify-between gap-3">
+                                    <span>{info?.name ?? participantId}</span>
+                                    {info?.role && (
+                                      <span className="text-[10px] uppercase tracking-wide text-amber-300">{info.role}</span>
+                                    )}
+                                  </li>
+                                );
+                              })}
+                            </ul>
+                          </div>
+                        )}
+
+                        <div className="max-h-48 space-y-2 overflow-y-auto rounded-xl border border-white/10 bg-slate-900/40 p-3">
+                          {eligibleAskUsers.length === 0 ? (
+                            <p className="text-sm text-slate-400">No eligible contacts for this project.</p>
+                          ) : (
+                            eligibleAskUsers.map(user => {
+                              const isChecked = selectedParticipants.includes(user.id);
+                              const displayName =
+                                user.fullName || `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim() || user.email || "Participant";
+
+                              return (
+                                <label
+                                  key={user.id}
+                                  className="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-slate-900/60 px-3 py-2 text-sm text-slate-200"
+                                >
+                                  <div>
+                                    <p className="font-medium text-white">{displayName}</p>
+                                    <p className="text-xs text-slate-400">{user.role}</p>
+                                  </div>
+                                  <input
+                                    type="checkbox"
+                                    className="h-4 w-4 rounded border-white/20 bg-slate-900"
+                                    checked={isChecked}
+                                    onChange={() => toggleAskParticipant(user.id)}
+                                    disabled={isBusy}
+                                  />
+                                </label>
+                              );
+                            })
+                          )}
+                        </div>
+                      </div>
+
+                      {selectedAudience === "group" && selectedParticipants.length > 0 && (
+                        <div className="flex flex-col gap-2">
+                          <Label htmlFor="ask-spokesperson">Spokesperson (optional)</Label>
+                          <select
+                            id="ask-spokesperson"
+                            className="h-10 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm text-white"
+                            {...askForm.register("spokespersonId")}
+                            disabled={isBusy}
+                          >
+                            <option value="">No dedicated spokesperson</option>
+                            {selectedParticipants.map(participantId => {
+                              const info = participantLookup.get(participantId);
+                              return (
+                                <option key={participantId} value={participantId}>
+                                  {info?.name ?? participantId}
+                                </option>
+                              );
+                            })}
+                          </select>
+                        </div>
+                      )}
+
                       <div className="flex flex-col gap-2">
                         <Label htmlFor="ask-max">Max participants</Label>
                         <Input
@@ -1472,7 +1812,7 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                           type="number"
                           min={1}
                           placeholder="e.g. 50"
-                          {...askForm.register("maxParticipants")}
+                          {...askForm.register("maxParticipants", { valueAsNumber: true })}
                           disabled={isBusy}
                         />
                       </div>
@@ -1516,8 +1856,41 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                           <p className="mt-2 text-xs text-slate-400">
                             {formatDateTime(session.startDate)} → {formatDateTime(session.endDate)}
                           </p>
+                          <div className="mt-2 flex flex-wrap gap-2 text-[10px] uppercase tracking-wide text-slate-300">
+                            <span className="rounded-full bg-white/10 px-2 py-1">
+                              {session.deliveryMode === "physical" ? "In-person" : "Digital"}
+                            </span>
+                            <span className="rounded-full bg-white/10 px-2 py-1">
+                              {session.audienceScope === "individual" ? "Individual" : "Group"}
+                            </span>
+                            {session.audienceScope === "group" && (
+                              <span className="rounded-full bg-white/10 px-2 py-1">
+                                {session.responseMode === "collective" ? "Spokesperson" : "Simultaneous"}
+                              </span>
+                            )}
+                          </div>
+                          <div className="mt-3 space-y-1 text-xs text-slate-300">
+                            <p className="text-slate-200">
+                              {(session.participants?.length ?? 0)} participant{session.participants && session.participants.length === 1 ? "" : "s"}
+                              {session.audienceScope === "group" && session.participants?.some(part => part.isSpokesperson)
+                                ? " • spokesperson assigned"
+                                : ""}
+                            </p>
+                            <p className="text-[11px] text-slate-400">
+                              {session.isAnonymous ? "Anonymous answers enabled" : "Identified participants"}
+                            </p>
+                            {session.participants && session.participants.length > 0 && (
+                              <p className="text-[11px] text-slate-400">
+                                {session.participants
+                                  .map(participant => `${participant.name}${participant.isSpokesperson ? " (spokesperson)" : ""}`)
+                                  .join(", ")}
+                              </p>
+                            )}
+                          </div>
                           <div className="mt-3 flex items-center justify-between text-xs text-slate-400">
-                            <span>{session.isAnonymous ? "Anonymous" : "Identified"} participants</span>
+                            <span>
+                              {session.maxParticipants ? `Max ${session.maxParticipants}` : "No participant cap"}
+                            </span>
                             <div className="flex items-center gap-2">
                               <button
                                 type="button"
@@ -1578,40 +1951,6 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
         challengeName={askDetailChallengeName}
         onClose={() => setAskDetailId(null)}
       />
-      {showJourneyBoard && selectedProjectId && (
-        <div className="fixed inset-0 z-50 flex flex-col bg-slate-950/95 backdrop-blur">
-          <div className="flex items-center justify-between border-b border-white/10 px-6 py-4">
-            <div>
-              <p className="text-xs uppercase tracking-wide text-indigo-200">Back office</p>
-              <h2 className="text-xl font-semibold text-white">
-                {selectedProject?.name || "Parcours projet"}
-              </h2>
-              <p className="text-sm text-slate-300">
-                Visualisez les ASKs, insights et challenges connectés à ce projet.
-              </p>
-            </div>
-            <div className="flex items-center gap-3">
-              <span className="rounded-full border border-white/20 px-3 py-1 text-xs uppercase tracking-wide text-slate-200">
-                {selectedClient?.name || "Client"}
-              </span>
-              <Button
-                type="button"
-                variant="secondary"
-                className="border-white/20 bg-white/10 text-white hover:bg-white/20"
-                onClick={() => setShowJourneyBoard(false)}
-              >
-                Fermer
-              </Button>
-            </div>
-          </div>
-          <div className="flex-1 overflow-hidden px-4 py-6">
-            <div className="mx-auto h-full max-w-6xl overflow-hidden rounded-3xl border border-white/10 bg-slate-900/60 p-4 shadow-2xl">
-              <ProjectJourneyBoard projectId={selectedProjectId} />
-            </div>
-          </div>
-        </div>
-      )}
-
       <div className="min-h-screen bg-slate-950 text-slate-100">
       <div className="flex h-full min-h-screen">
         <aside
@@ -1713,7 +2052,11 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
 
           <main
             className={`flex-1 overflow-y-auto ${
-              showOnlyChallengeWorkspace ? "space-y-6 px-6 py-6 lg:px-10" : "space-y-8 px-6 py-8"
+              isJourneyMode
+                ? "space-y-6 px-4 py-6 sm:px-6 lg:px-10"
+                : showOnlyChallengeWorkspace
+                  ? "space-y-6 px-6 py-6 lg:px-10"
+                  : "space-y-8 px-6 py-8"
             }`}
           >
             {feedback && (
@@ -1730,50 +2073,87 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
               </Alert>
               )}
 
-              {!showOnlyChallengeWorkspace && (
-              <section ref={dashboardRef} id="section-dashboard">
-                <div className="flex items-center justify-between">
-                  <h1 className="text-3xl font-semibold">Operational dashboard</h1>
-                  <div className="hidden gap-3 md:flex">
-                    <Button
-                      type="button"
-                    className={gradientButtonClasses}
-                    onClick={() => setShowClientForm(true)}
-                  >
-                    Create client
-                  </Button>
-                  <Button variant="outline" className="border-white/20 bg-white/10 text-white hover:bg-white/20">
-                    Export data
-                  </Button>
+            {isJourneyMode ? (
+              <section className="flex flex-1 flex-col gap-6">
+                <div className="rounded-3xl border border-white/10 bg-white/5 p-6 backdrop-blur">
+                  <div className="flex flex-wrap items-center justify-between gap-4">
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-indigo-200">Exploration projet</p>
+                      <h2 className="text-2xl font-semibold text-white">
+                        {selectedProject?.name || "Parcours projet"}
+                      </h2>
+                      <p className="text-sm text-slate-300">
+                        Visualisez les ASKs, insights et challenges connectés à ce projet.
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-3 text-sm">
+                      {selectedClient?.name && (
+                        <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs uppercase tracking-wide text-slate-200">
+                          {selectedClient.name}
+                        </span>
+                      )}
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        className="border-white/20 bg-white/10 text-white hover:bg-white/20"
+                        onClick={() => setShowJourneyBoard(false)}
+                      >
+                        Fermer
+                      </Button>
+                    </div>
+                  </div>
                 </div>
-              </div>
-              <p className="mt-2 text-sm text-slate-400">
-                Manage the full journey from organization onboarding to live ASK sessions.
-              </p>
 
-              <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                {stats.map(stat => {
-                  const Icon = stat.icon;
-                  return (
-                    <div
-                      key={stat.label}
-                      className="rounded-3xl border border-white/10 bg-gradient-to-br from-white/5 to-white/0 p-5 shadow-lg"
-                    >
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="text-sm text-slate-400">{stat.label}</p>
-                          <p className="mt-2 text-2xl font-semibold text-white">{stat.value}</p>
-                        </div>
-                        <div className="rounded-full bg-white/10 p-2">
-                          <Icon className="h-5 w-5 text-indigo-300" />
-                        </div>
+                <div className="flex-1 overflow-hidden rounded-3xl border border-white/10 bg-slate-900/60 p-4">
+                  {selectedProjectId && <ProjectJourneyBoard projectId={selectedProjectId} />}
+                </div>
+              </section>
+            ) : (
+              <>
+                {!showOnlyChallengeWorkspace && (
+                  <section ref={dashboardRef} id="section-dashboard">
+                    <div className="flex items-center justify-between">
+                      <h1 className="text-3xl font-semibold">Operational dashboard</h1>
+                      <div className="hidden gap-3 md:flex">
+                        <Button
+                          type="button"
+                          className={gradientButtonClasses}
+                          onClick={() => setShowClientForm(true)}
+                        >
+                          Create client
+                        </Button>
+                        <Button variant="outline" className="border-white/20 bg-white/10 text-white hover:bg-white/20">
+                          Export data
+                        </Button>
                       </div>
                     </div>
-                  );
-                })}
-              </div>
-              </section>
-            )}
+                    <p className="mt-2 text-sm text-slate-400">
+                      Manage the full journey from organization onboarding to live ASK sessions.
+                    </p>
+
+                    <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                      {stats.map(stat => {
+                        const Icon = stat.icon;
+                        return (
+                          <div
+                            key={stat.label}
+                            className="rounded-3xl border border-white/10 bg-gradient-to-br from-white/5 to-white/0 p-5 shadow-lg"
+                          >
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <p className="text-sm text-slate-400">{stat.label}</p>
+                                <p className="mt-2 text-2xl font-semibold text-white">{stat.value}</p>
+                              </div>
+                              <div className="rounded-full bg-white/10 p-2">
+                                <Icon className="h-5 w-5 text-indigo-300" />
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </section>
+                )}
 
             {!showOnlyChallengeWorkspace && (
               <section className="space-y-6">
@@ -2479,6 +2859,9 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                 </div>
               </div>
               </section>
+            )}
+
+              </>
             )}
 
           </main>

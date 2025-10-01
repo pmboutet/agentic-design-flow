@@ -8,19 +8,27 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ChatComponentProps, Message, FileUpload } from "@/types";
-import { cn, formatTimeRemaining, validateFileType, formatFileSize } from "@/lib/utils";
+import {
+  cn,
+  formatTimeRemaining,
+  validateFileType,
+  formatFileSize,
+  getAudienceDescription,
+  getDeliveryModeLabel
+} from "@/lib/utils";
 
 /**
  * Chat component that handles all conversation interactions
  * Supports text, audio, image, and document uploads
  * Displays time remaining and handles ASK status
  */
-export function ChatComponent({ 
-  askKey, 
-  ask, 
-  messages, 
-  onSendMessage, 
-  isLoading 
+export function ChatComponent({
+  askKey,
+  ask,
+  messages,
+  onSendMessage,
+  isLoading,
+  onHumanTyping
 }: ChatComponentProps) {
   const [inputValue, setInputValue] = useState("");
   const [selectedFiles, setSelectedFiles] = useState<FileUpload[]>([]);
@@ -31,16 +39,44 @@ export function ChatComponent({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  useEffect(() => {
+    return () => {
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  const notifyTyping = (isTyping: boolean) => {
+    if (!onHumanTyping) return;
+    onHumanTyping(isTyping);
+  };
+
+  const scheduleTypingStop = () => {
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+    }
+    typingTimeoutRef.current = setTimeout(() => {
+      notifyTyping(false);
+    }, 1500);
+  };
+
   // Handle sending messages
   const handleSendMessage = async () => {
     if (!inputValue.trim() && selectedFiles.length === 0) return;
-    
+
+    notifyTyping(false);
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+    }
+
     if (selectedFiles.length > 0) {
       // Handle file uploads
       for (const fileUpload of selectedFiles) {
@@ -65,9 +101,19 @@ export function ChatComponent({
     if (inputValue.trim()) {
       onSendMessage(inputValue.trim(), 'text');
     }
-    
+
     setInputValue("");
     setSelectedFiles([]);
+  };
+
+  const handleInputChange = (value: string) => {
+    setInputValue(value);
+    if (value.trim()) {
+      notifyTyping(true);
+      scheduleTypingStop();
+    } else {
+      notifyTyping(false);
+    }
   };
 
   // Handle file selection
@@ -162,6 +208,7 @@ export function ChatComponent({
   // Check if ASK is closed
   const isAskClosed = ask && !ask.isActive;
   const timeRemaining = ask ? formatTimeRemaining(ask.endDate) : null;
+  const participants = ask?.participants ?? [];
 
   if (!ask) {
     return (
@@ -195,6 +242,31 @@ export function ChatComponent({
             <span>{timeRemaining}</span>
           </div>
         )}
+        <div className="mt-3 space-y-2 text-sm text-muted-foreground">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-medium text-foreground">
+              {getDeliveryModeLabel(ask.deliveryMode)}
+            </span>
+            <span className="text-muted-foreground">
+              • {getAudienceDescription(ask.audienceScope, ask.responseMode)}
+            </span>
+          </div>
+          {participants.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {participants.map((participant) => (
+                <span
+                  key={participant.id}
+                  className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-3 py-1 text-xs text-primary"
+                >
+                  <span className="font-medium text-primary/90">{participant.name}</span>
+                  {participant.isSpokesperson && (
+                    <span className="text-[10px] uppercase tracking-wide text-primary/70">porte-parole</span>
+                  )}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
       </CardHeader>
 
       {/* Messages area */}
@@ -237,7 +309,7 @@ export function ChatComponent({
             <div className="flex-1">
               <Textarea
                 value={inputValue}
-                onChange={(e) => setInputValue(e.target.value)}
+                onChange={(e) => handleInputChange(e.target.value)}
                 placeholder="Type your response..."
                 className="border-0 shadow-none resize-none min-h-[60px] focus-visible:ring-0"
                 onKeyDown={(e) => {
@@ -246,6 +318,8 @@ export function ChatComponent({
                     handleSendMessage();
                   }
                 }}
+                onFocus={() => notifyTyping(true)}
+                onBlur={() => notifyTyping(false)}
               />
             </div>
             

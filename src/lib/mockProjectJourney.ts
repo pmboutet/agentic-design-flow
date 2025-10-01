@@ -13,12 +13,48 @@ export function getMockProjectJourneyData(projectId: string): ProjectJourneyBoar
       "Aligner les équipes magasins et e-commerce pour offrir une expérience client sans couture sur les canaux physiques et digitaux.",
     timeframe: "T2 2024",
     availableUsers: [
-      { id: "user-alice", name: "Alice Martin", role: "Store Manager", avatarInitials: "AM", avatarColor: "bg-emerald-500" },
-      { id: "user-leo", name: "Léo Dupont", role: "Digital Product Owner", avatarInitials: "LD", avatarColor: "bg-indigo-500" },
-      { id: "user-fatou", name: "Fatou Ndiaye", role: "Experience Designer", avatarInitials: "FN", avatarColor: "bg-amber-500" },
-      { id: "user-marc", name: "Marc Petit", role: "Logistics Lead", avatarInitials: "MP", avatarColor: "bg-sky-500" },
-      { id: "user-julia", name: "Julia Costa", role: "Customer Care", avatarInitials: "JC", avatarColor: "bg-rose-500" },
-      { id: "user-samir", name: "Samir Cohen", role: "Operations Analyst", avatarInitials: "SC", avatarColor: "bg-purple-500" },
+      {
+        id: "user-alice",
+        name: "Alice Martin",
+        role: "Store Manager",
+        avatarInitials: "AM",
+        avatarColor: "bg-emerald-500",
+      },
+      {
+        id: "user-leo",
+        name: "Léo Dupont",
+        role: "Digital Product Owner",
+        avatarInitials: "LD",
+        avatarColor: "bg-indigo-500",
+      },
+      {
+        id: "user-fatou",
+        name: "Fatou Ndiaye",
+        role: "Experience Designer",
+        avatarInitials: "FN",
+        avatarColor: "bg-amber-500",
+      },
+      {
+        id: "user-marc",
+        name: "Marc Petit",
+        role: "Logistics Lead",
+        avatarInitials: "MP",
+        avatarColor: "bg-sky-500",
+      },
+      {
+        id: "user-julia",
+        name: "Julia Costa",
+        role: "Customer Care",
+        avatarInitials: "JC",
+        avatarColor: "bg-rose-500",
+      },
+      {
+        id: "user-samir",
+        name: "Samir Cohen",
+        role: "Operations Analyst",
+        avatarInitials: "SC",
+        avatarColor: "bg-purple-500",
+      },
     ],
     asks: [
       {
@@ -29,6 +65,15 @@ export function getMockProjectJourneyData(projectId: string): ProjectJourneyBoar
         status: "active",
         theme: "Expérience magasin",
         dueDate: "2024-05-30",
+        originatingChallengeIds: [
+          "challenge-visibility",
+          "challenge-data-stream",
+          "challenge-order-promise",
+        ],
+        relatedProjects: [
+          { id: projectId, name: "Programme Phygital Nova" },
+          { id: "project-ops-2024", name: "Ops Click & Collect 2024" },
+        ],
         participants: [
           {
             id: "user-alice",
@@ -46,6 +91,10 @@ export function getMockProjectJourneyData(projectId: string): ProjectJourneyBoar
                 updatedAt: "2024-04-12T09:00:00Z",
                 isCompleted: true,
                 relatedChallengeIds: ["challenge-visibility", "challenge-data-stream"],
+                contributors: [
+                  { id: "user-alice", name: "Alice Martin", role: "Store Manager" },
+                  { id: "user-marc", name: "Marc Petit", role: "Logistics Lead" },
+                ],
                 kpis: [
                   {
                     id: "kpi-stockout",
@@ -65,6 +114,10 @@ export function getMockProjectJourneyData(projectId: string): ProjectJourneyBoar
                 updatedAt: "2024-04-14T10:30:00Z",
                 isCompleted: true,
                 relatedChallengeIds: ["challenge-omnichannel"],
+                contributors: [
+                  { id: "user-alice", name: "Alice Martin", role: "Store Manager" },
+                  { id: "user-julia", name: "Julia Costa", role: "Customer Care" },
+                ],
                 kpis: [
                   {
                     id: "kpi-waiting",
@@ -93,6 +146,10 @@ export function getMockProjectJourneyData(projectId: string): ProjectJourneyBoar
                 updatedAt: "2024-04-15T08:45:00Z",
                 isCompleted: false,
                 relatedChallengeIds: ["challenge-data-stream"],
+                contributors: [
+                  { id: "user-marc", name: "Marc Petit", role: "Logistics Lead" },
+                  { id: "user-samir", name: "Samir Cohen", role: "Operations Analyst" },
+                ],
                 kpis: [
                   {
                     id: "kpi-sync",
@@ -121,6 +178,15 @@ export function getMockProjectJourneyData(projectId: string): ProjectJourneyBoar
         status: "active",
         theme: "Parcours client",
         dueDate: "2024-06-10",
+        originatingChallengeIds: [
+          "challenge-omnichannel",
+          "challenge-employee-adoption",
+          "challenge-training",
+        ],
+        relatedProjects: [
+          { id: projectId, name: "Programme Phygital Nova" },
+          { id: "project-cx-2024", name: "CX Omnicanal 2024" },
+        ],
         participants: [
           {
             id: "user-julia",
@@ -138,6 +204,10 @@ export function getMockProjectJourneyData(projectId: string): ProjectJourneyBoar
                 updatedAt: "2024-04-16T16:20:00Z",
                 isCompleted: false,
                 relatedChallengeIds: ["challenge-data-stream", "challenge-employee-adoption"],
+                contributors: [
+                  { id: "user-julia", name: "Julia Costa", role: "Customer Care" },
+                  { id: "user-alice", name: "Alice Martin", role: "Store Manager" },
+                ],
                 kpis: [
                   {
                     id: "kpi-latency",
@@ -157,6 +227,10 @@ export function getMockProjectJourneyData(projectId: string): ProjectJourneyBoar
                 updatedAt: "2024-04-17T09:10:00Z",
                 isCompleted: false,
                 relatedChallengeIds: ["challenge-omnichannel"],
+                contributors: [
+                  { id: "user-julia", name: "Julia Costa", role: "Customer Care" },
+                  { id: "user-leo", name: "Léo Dupont", role: "Digital Product Owner" },
+                ],
                 kpis: [
                   {
                     id: "kpi-nps",
@@ -184,6 +258,10 @@ export function getMockProjectJourneyData(projectId: string): ProjectJourneyBoar
                 updatedAt: "2024-04-18T11:30:00Z",
                 isCompleted: false,
                 relatedChallengeIds: ["challenge-employee-adoption", "challenge-training"],
+                contributors: [
+                  { id: "user-fatou", name: "Fatou Ndiaye", role: "Experience Designer" },
+                  { id: "user-alice", name: "Alice Martin", role: "Store Manager" },
+                ],
                 kpis: [
                   {
                     id: "kpi-adoption",
@@ -206,6 +284,13 @@ export function getMockProjectJourneyData(projectId: string): ProjectJourneyBoar
         status: "draft",
         theme: "Innovation",
         dueDate: "2024-06-28",
+        originatingChallengeIds: [
+          "challenge-omnichannel",
+          "challenge-data-stream",
+        ],
+        relatedProjects: [
+          { id: projectId, name: "Programme Phygital Nova" },
+        ],
         participants: [
           {
             id: "user-leo",
@@ -223,6 +308,10 @@ export function getMockProjectJourneyData(projectId: string): ProjectJourneyBoar
                 updatedAt: "2024-04-20T14:00:00Z",
                 isCompleted: false,
                 relatedChallengeIds: ["challenge-omnichannel"],
+                contributors: [
+                  { id: "user-leo", name: "Léo Dupont", role: "Digital Product Owner" },
+                  { id: "user-samir", name: "Samir Cohen", role: "Operations Analyst" },
+                ],
                 kpis: [
                   {
                     id: "kpi-prep-time",
@@ -250,6 +339,10 @@ export function getMockProjectJourneyData(projectId: string): ProjectJourneyBoar
                 updatedAt: "2024-04-19T17:40:00Z",
                 isCompleted: false,
                 relatedChallengeIds: ["challenge-visibility", "challenge-data-stream"],
+                contributors: [
+                  { id: "user-samir", name: "Samir Cohen", role: "Operations Analyst" },
+                  { id: "user-leo", name: "Léo Dupont", role: "Digital Product Owner" },
+                ],
                 kpis: [
                   {
                     id: "kpi-governance",
@@ -272,7 +365,10 @@ export function getMockProjectJourneyData(projectId: string): ProjectJourneyBoar
           "Les équipes magasin et e-commerce disposent de vues différentes et parfois contradictoires sur les niveaux de stocks.",
         status: "in_progress",
         impact: "high",
-        owner: "Léo Dupont",
+        owners: [
+          { id: "user-leo", name: "Léo Dupont", role: "Digital Product Owner" },
+          { id: "user-marc", name: "Marc Petit", role: "Logistics Lead" },
+        ],
         relatedInsightIds: ["insight-stock-visibility", "insight-data-governance"],
         children: [
           {
@@ -282,7 +378,10 @@ export function getMockProjectJourneyData(projectId: string): ProjectJourneyBoar
               "Mettre en place une synchronisation continue entre WMS, ERP et plateforme e-commerce pour réduire l'écart de visibilité.",
             status: "exploring",
             impact: "critical",
-            owner: "Samir Cohen",
+            owners: [
+              { id: "user-samir", name: "Samir Cohen", role: "Operations Analyst" },
+              { id: "user-alice", name: "Alice Martin", role: "Store Manager" },
+            ],
             relatedInsightIds: [
               "insight-stock-visibility",
               "insight-inventory-sync",
@@ -297,7 +396,10 @@ export function getMockProjectJourneyData(projectId: string): ProjectJourneyBoar
                   "Accompagner les managers magasin dans la lecture des nouveaux indicateurs temps réel.",
                 status: "planned",
                 impact: "medium",
-                owner: "Fatou Ndiaye",
+                owners: [
+                  { id: "user-fatou", name: "Fatou Ndiaye", role: "Experience Designer" },
+                  { id: "user-julia", name: "Julia Costa", role: "Customer Care" },
+                ],
                 relatedInsightIds: ["insight-dashboard-adoption"],
               },
             ],
@@ -309,7 +411,10 @@ export function getMockProjectJourneyData(projectId: string): ProjectJourneyBoar
               "Garantir qu'une commande promise en retrait magasin soit réellement disponible au moment choisi par le client.",
             status: "in_progress",
             impact: "high",
-            owner: "Marc Petit",
+            owners: [
+              { id: "user-marc", name: "Marc Petit", role: "Logistics Lead" },
+              { id: "user-julia", name: "Julia Costa", role: "Customer Care" },
+            ],
             relatedInsightIds: ["insight-pickup-waiting", "insight-promised-date"],
           },
         ],
@@ -321,7 +426,10 @@ export function getMockProjectJourneyData(projectId: string): ProjectJourneyBoar
           "Créer une expérience sans rupture entre commande en ligne, retrait magasin et support client.",
         status: "in_progress",
         impact: "high",
-        owner: "Julia Costa",
+        owners: [
+          { id: "user-julia", name: "Julia Costa", role: "Customer Care" },
+          { id: "user-leo", name: "Léo Dupont", role: "Digital Product Owner" },
+        ],
         relatedInsightIds: [
           "insight-pickup-waiting",
           "insight-promised-date",
@@ -335,7 +443,10 @@ export function getMockProjectJourneyData(projectId: string): ProjectJourneyBoar
               "Donner envie aux équipes de s'approprier les outils phygitaux en magasin pour mieux servir les clients.",
             status: "exploring",
             impact: "medium",
-            owner: "Alice Martin",
+            owners: [
+              { id: "user-alice", name: "Alice Martin", role: "Store Manager" },
+              { id: "user-fatou", name: "Fatou Ndiaye", role: "Experience Designer" },
+            ],
             relatedInsightIds: ["insight-app-latency", "insight-dashboard-adoption"],
           },
         ],
