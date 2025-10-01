@@ -394,44 +394,193 @@ export function AskRelationshipCanvas({
     setViewport({ x: nextX, y: nextY, scale: nextScale });
   }, [focusNode, layoutBounds, nodes.length, canvasWidth, canvasHeight, forceCenterKey]);
 
-  const pointerState = useRef({
+  interface PointerState {
+    isPanning: boolean;
+    startX: number;
+    startY: number;
+    originX: number;
+    originY: number;
+    activePointers: Map<number, { x: number; y: number }>;
+    isPinching: boolean;
+    initialPinchDistance: number;
+    initialPinchScale: number;
+    pinchCenterScreen: { x: number; y: number } | null;
+    pinchCenterWorld: { x: number; y: number } | null;
+  }
+
+  const pointerState = useRef<PointerState>({
     isPanning: false,
     startX: 0,
     startY: 0,
     originX: 0,
-    originY: 0
+    originY: 0,
+    activePointers: new Map(),
+    isPinching: false,
+    initialPinchDistance: 0,
+    initialPinchScale: 1,
+    pinchCenterScreen: null,
+    pinchCenterWorld: null
   });
 
   const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const state = pointerState.current;
+
+    if (event.pointerType === "touch") {
+      setHasInteracted(true);
+      state.activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+
+      if (state.activePointers.size === 1) {
+        state.isPanning = true;
+        state.startX = event.clientX;
+        state.startY = event.clientY;
+        state.originX = viewport.x;
+        state.originY = viewport.y;
+      } else if (state.activePointers.size === 2) {
+        const pointers = Array.from(state.activePointers.values());
+        const distance = Math.hypot(pointers[0].x - pointers[1].x, pointers[0].y - pointers[1].y);
+        state.isPinching = distance > 0;
+        state.isPanning = false;
+        state.initialPinchDistance = distance;
+        state.initialPinchScale = viewport.scale;
+
+        const rect = containerRef.current?.getBoundingClientRect();
+        if (rect) {
+          const centerClientX = (pointers[0].x + pointers[1].x) / 2;
+          const centerClientY = (pointers[0].y + pointers[1].y) / 2;
+          const centerX = centerClientX - rect.left;
+          const centerY = centerClientY - rect.top;
+          state.pinchCenterScreen = { x: centerX, y: centerY };
+          state.pinchCenterWorld = {
+            x: (centerX - viewport.x) / viewport.scale,
+            y: (centerY - viewport.y) / viewport.scale
+          };
+        } else {
+          state.pinchCenterScreen = null;
+          state.pinchCenterWorld = null;
+        }
+      }
+
+      event.currentTarget.setPointerCapture(event.pointerId);
+      return;
+    }
+
     if (event.button !== 0) {
       return;
     }
 
     setHasInteracted(true);
-    pointerState.current = {
-      isPanning: true,
-      startX: event.clientX,
-      startY: event.clientY,
-      originX: viewport.x,
-      originY: viewport.y
-    };
+    state.activePointers.clear();
+    state.isPinching = false;
+    state.pinchCenterScreen = null;
+    state.pinchCenterWorld = null;
+    state.isPanning = true;
+    state.startX = event.clientX;
+    state.startY = event.clientY;
+    state.originX = viewport.x;
+    state.originY = viewport.y;
     event.currentTarget.setPointerCapture(event.pointerId);
   };
 
   const handlePointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (!pointerState.current.isPanning) {
+    const state = pointerState.current;
+
+    if (event.pointerType === "touch") {
+      if (!state.activePointers.has(event.pointerId)) {
+        return;
+      }
+
+      state.activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+
+      if (state.isPinching && state.activePointers.size >= 2 && state.initialPinchDistance > 0) {
+        const pointers = Array.from(state.activePointers.values()).slice(0, 2);
+        const distance = Math.hypot(pointers[0].x - pointers[1].x, pointers[0].y - pointers[1].y);
+        if (distance === 0) {
+          return;
+        }
+
+        const rect = containerRef.current?.getBoundingClientRect();
+        const centerClientX = (pointers[0].x + pointers[1].x) / 2;
+        const centerClientY = (pointers[0].y + pointers[1].y) / 2;
+        const centerX = rect ? centerClientX - rect.left : state.pinchCenterScreen?.x ?? 0;
+        const centerY = rect ? centerClientY - rect.top : state.pinchCenterScreen?.y ?? 0;
+
+        const scaleFactor = distance / state.initialPinchDistance;
+        let nextScale = state.initialPinchScale * scaleFactor;
+        nextScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, nextScale));
+
+        const anchorWorld = state.pinchCenterWorld;
+
+        setViewport(prev => {
+          const world = anchorWorld ?? {
+            x: (centerX - prev.x) / prev.scale,
+            y: (centerY - prev.y) / prev.scale
+          };
+
+          return {
+            scale: nextScale,
+            x: centerX - world.x * nextScale,
+            y: centerY - world.y * nextScale
+          };
+        });
+
+        state.pinchCenterScreen = { x: centerX, y: centerY };
+        return;
+      }
+
+      if (state.isPanning) {
+        const deltaX = event.clientX - state.startX;
+        const deltaY = event.clientY - state.startY;
+        setViewport(prev => ({ ...prev, x: state.originX + deltaX, y: state.originY + deltaY }));
+      }
+
       return;
     }
-    const deltaX = event.clientX - pointerState.current.startX;
-    const deltaY = event.clientY - pointerState.current.startY;
-    setViewport(prev => ({ ...prev, x: pointerState.current.originX + deltaX, y: pointerState.current.originY + deltaY }));
+
+    if (!state.isPanning) {
+      return;
+    }
+    const deltaX = event.clientX - state.startX;
+    const deltaY = event.clientY - state.startY;
+    setViewport(prev => ({ ...prev, x: state.originX + deltaX, y: state.originY + deltaY }));
   };
 
   const stopPanning = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (!pointerState.current.isPanning) {
+    const state = pointerState.current;
+
+    if (event.pointerType === "touch") {
+      state.activePointers.delete(event.pointerId);
+
+      if (state.activePointers.size < 2) {
+        state.isPinching = false;
+        state.initialPinchDistance = 0;
+        state.pinchCenterScreen = null;
+        state.pinchCenterWorld = null;
+      }
+
+      if (state.activePointers.size === 1) {
+        const remaining = state.activePointers.values().next().value;
+        state.isPanning = true;
+        state.startX = remaining.x;
+        state.startY = remaining.y;
+        state.originX = viewport.x;
+        state.originY = viewport.y;
+      } else {
+        state.isPanning = false;
+      }
+
+      try {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      } catch {
+        // ignore release errors if pointer capture was not set
+      }
+
       return;
     }
-    pointerState.current.isPanning = false;
+
+    if (!state.isPanning) {
+      return;
+    }
+    state.isPanning = false;
     try {
       event.currentTarget.releasePointerCapture(event.pointerId);
     } catch {
