@@ -288,6 +288,12 @@ export interface ProjectInsightKpi {
   comment?: string;
 }
 
+export interface ProjectParticipantSummary {
+  id: string;
+  name: string;
+  role?: string;
+}
+
 export interface ProjectParticipantInsight {
   id: string;
   title: string;
@@ -297,6 +303,7 @@ export interface ProjectParticipantInsight {
   isCompleted: boolean;
   relatedChallengeIds: string[];
   kpis: ProjectInsightKpi[];
+  contributors?: ProjectParticipantSummary[];
 }
 
 export interface ProjectAskParticipant {
@@ -334,7 +341,7 @@ export interface ProjectChallengeNode {
   description: string;
   status: string;
   impact: "low" | "medium" | "high" | "critical";
-  owner?: string;
+  owners?: ProjectParticipantSummary[];
   relatedInsightIds: string[];
   children?: ProjectChallengeNode[];
 }
