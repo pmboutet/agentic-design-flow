@@ -51,8 +51,7 @@ interface AskRelationshipCanvasProps {
   onProjectSelect?: (projectId: string) => void;
   onChallengeSelect?: (challengeId: string) => void;
   onAskSelect?: (askId: string) => void;
-
-
+}
 const PROJECT_NODE = { width: 260, height: 104 } as const;
 const CHALLENGE_NODE = { width: 240, height: 92 } as const;
 const ASK_NODE = { width: 220, height: 84 } as const;

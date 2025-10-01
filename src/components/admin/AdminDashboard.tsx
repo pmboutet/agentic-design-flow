@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent as ReactMouseEvent, RefObject } from "react";
+import * as Dialog from "@radix-ui/react-dialog";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -21,7 +22,8 @@ import {
   Search,
   Settings,
   Target,
-  Users
+  Users,
+  X
 } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -31,6 +33,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { ProjectJourneyBoard } from "@/components/project/ProjectJourneyBoard";
 import { AskRelationshipCanvas } from "./AskRelationshipCanvas";
 import { useAdminResources } from "./useAdminResources";
+import type { AskSessionRecord, ChallengeRecord } from "@/types";
 
 interface AdminDashboardProps {
   initialProjectId?: string | null;
@@ -205,6 +208,192 @@ function toInputDate(value: string | null | undefined) {
   return date.toISOString().slice(0, 16);
 }
 
+function formatDisplayValue(value: string | number | null | undefined) {
+  if (value === null || value === undefined) {
+    return "—";
+  }
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value.toString() : "—";
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : "—";
+}
+
+interface ChallengeDetailDialogProps {
+  challenge: ChallengeRecord | null;
+  projectName?: string | null;
+  askCount: number;
+  onClose: () => void;
+}
+
+function ChallengeDetailDialog({ challenge, projectName, askCount, onClose }: ChallengeDetailDialogProps) {
+  return (
+    <Dialog.Root open={Boolean(challenge)} onOpenChange={open => { if (!open) onClose(); }}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm transition-opacity data-[state=closed]:opacity-0 data-[state=open]:opacity-100" />
+        <Dialog.Content className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          {challenge && (
+            <div className="w-full max-w-xl rounded-3xl border border-white/10 bg-slate-950/90 p-6 shadow-2xl">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <Dialog.Title className="text-lg font-semibold text-white">{challenge.name}</Dialog.Title>
+                  <Dialog.Description className="text-sm text-slate-300">
+                    Challenge lié au projet {formatDisplayValue(projectName)}
+                  </Dialog.Description>
+                </div>
+                <Dialog.Close asChild>
+                  <button
+                    type="button"
+                    className="rounded-full border border-white/10 bg-white/10 p-1.5 text-slate-200 transition hover:bg-white/20"
+                    aria-label="Fermer"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </Dialog.Close>
+              </div>
+
+              {challenge.description && (
+                <p className="mt-4 text-sm leading-relaxed text-slate-200">{challenge.description}</p>
+              )}
+
+              <div className="mt-6 grid gap-3 sm:grid-cols-2">
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                  <p className="text-xs uppercase tracking-wide text-slate-400">Statut</p>
+                  <p className="mt-1 text-sm font-medium text-white">{formatDisplayValue(challenge.status)}</p>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                  <p className="text-xs uppercase tracking-wide text-slate-400">Priorité</p>
+                  <p className="mt-1 text-sm font-medium text-white">{formatDisplayValue(challenge.priority)}</p>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                  <p className="text-xs uppercase tracking-wide text-slate-400">Catégorie</p>
+                  <p className="mt-1 text-sm font-medium text-white">{formatDisplayValue(challenge.category)}</p>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                  <p className="text-xs uppercase tracking-wide text-slate-400">Responsable</p>
+                  <p className="mt-1 text-sm font-medium text-white">{formatDisplayValue(challenge.assignedTo)}</p>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                  <p className="text-xs uppercase tracking-wide text-slate-400">Échéance</p>
+                  <p className="mt-1 text-sm font-medium text-white">{formatDisplayValue(formatDateTime(challenge.dueDate))}</p>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                  <p className="text-xs uppercase tracking-wide text-slate-400">Sessions ASK reliées</p>
+                  <p className="mt-1 text-sm font-medium text-white">{askCount}</p>
+                </div>
+              </div>
+
+              <div className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-300">
+                <p className="text-xs uppercase tracking-wide text-slate-400">Dernière mise à jour</p>
+                <p className="mt-1 font-medium text-white">{formatDisplayValue(formatDateTime(challenge.updatedAt))}</p>
+              </div>
+            </div>
+          )}
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
+  );
+}
+
+interface AskDetailDialogProps {
+  ask: AskSessionRecord | null;
+  projectName?: string | null;
+  challengeName?: string | null;
+  onClose: () => void;
+}
+
+function AskDetailDialog({ ask, projectName, challengeName, onClose }: AskDetailDialogProps) {
+  return (
+    <Dialog.Root open={Boolean(ask)} onOpenChange={open => { if (!open) onClose(); }}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm transition-opacity data-[state=closed]:opacity-0 data-[state=open]:opacity-100" />
+        <Dialog.Content className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          {ask && (
+            <div className="w-full max-w-2xl rounded-3xl border border-white/10 bg-slate-950/90 p-6 shadow-2xl">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <Dialog.Title className="text-lg font-semibold text-white">{ask.name}</Dialog.Title>
+                  <Dialog.Description className="text-sm text-slate-300">
+                    ASK rattaché au challenge {formatDisplayValue(challengeName)} ({formatDisplayValue(projectName)})
+                  </Dialog.Description>
+                </div>
+                <Dialog.Close asChild>
+                  <button
+                    type="button"
+                    className="rounded-full border border-white/10 bg-white/10 p-1.5 text-slate-200 transition hover:bg-white/20"
+                    aria-label="Fermer"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </Dialog.Close>
+              </div>
+
+              <div className="mt-4 space-y-4">
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                  <p className="text-xs uppercase tracking-wide text-slate-400">Question</p>
+                  <p className="mt-2 text-sm font-medium text-white">{ask.question}</p>
+                </div>
+                {ask.description && (
+                  <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-200">
+                    <p className="text-xs uppercase tracking-wide text-slate-400">Description</p>
+                    <p className="mt-2 leading-relaxed text-slate-200">{ask.description}</p>
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-6 grid gap-3 sm:grid-cols-2">
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                  <p className="text-xs uppercase tracking-wide text-slate-400">Statut</p>
+                  <p className="mt-1 text-sm font-medium text-white">{formatDisplayValue(ask.status)}</p>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                  <p className="text-xs uppercase tracking-wide text-slate-400">Clé ASK</p>
+                  <p className="mt-1 text-sm font-medium text-white">{ask.askKey}</p>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                  <p className="text-xs uppercase tracking-wide text-slate-400">Projet</p>
+                  <p className="mt-1 text-sm font-medium text-white">{formatDisplayValue(projectName)}</p>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                  <p className="text-xs uppercase tracking-wide text-slate-400">Challenge</p>
+                  <p className="mt-1 text-sm font-medium text-white">{formatDisplayValue(challengeName)}</p>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                  <p className="text-xs uppercase tracking-wide text-slate-400">Début</p>
+                  <p className="mt-1 text-sm font-medium text-white">{formatDisplayValue(formatDateTime(ask.startDate))}</p>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                  <p className="text-xs uppercase tracking-wide text-slate-400">Fin</p>
+                  <p className="mt-1 text-sm font-medium text-white">{formatDisplayValue(formatDateTime(ask.endDate))}</p>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                  <p className="text-xs uppercase tracking-wide text-slate-400">Anonyme</p>
+                  <p className="mt-1 text-sm font-medium text-white">{ask.isAnonymous ? "Oui" : "Non"}</p>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                  <p className="text-xs uppercase tracking-wide text-slate-400">Participants max.</p>
+                  <p className="mt-1 text-sm font-medium text-white">{formatDisplayValue(ask.maxParticipants)}</p>
+                </div>
+              </div>
+
+              <div className="mt-6 grid gap-3 sm:grid-cols-2">
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-300">
+                  <p className="text-xs uppercase tracking-wide text-slate-400">Créée le</p>
+                  <p className="mt-1 font-medium text-white">{formatDisplayValue(formatDateTime(ask.createdAt))}</p>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-300">
+                  <p className="text-xs uppercase tracking-wide text-slate-400">Mise à jour</p>
+                  <p className="mt-1 font-medium text-white">{formatDisplayValue(formatDateTime(ask.updatedAt))}</p>
+                </div>
+              </div>
+            </div>
+          )}
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
+  );
+}
+
 export function AdminDashboard({ initialProjectId = null, mode = "default" }: AdminDashboardProps = {}) {
   const router = useRouter();
   const {
@@ -252,6 +441,8 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
   const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
   const [editingAskId, setEditingAskId] = useState<string | null>(null);
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
+  const [challengeDetailId, setChallengeDetailId] = useState<string | null>(null);
+  const [askDetailId, setAskDetailId] = useState<string | null>(null);
 
   const showOnlyChallengeWorkspace = mode === "project-relationships";
 
@@ -472,6 +663,44 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
     () => challenges.find(challenge => challenge.id === selectedChallengeId) ?? null,
     [challenges, selectedChallengeId]
   );
+
+  const challengeDetail = useMemo(
+    () => challenges.find(challenge => challenge.id === challengeDetailId) ?? null,
+    [challenges, challengeDetailId]
+  );
+
+  const challengeDetailProjectName = useMemo(() => {
+    if (!challengeDetail?.projectId) {
+      return null;
+    }
+    return projects.find(project => project.id === challengeDetail.projectId)?.name ?? null;
+  }, [projects, challengeDetail]);
+
+  const challengeDetailAskCount = useMemo(() => {
+    if (!challengeDetail) {
+      return 0;
+    }
+    return asks.filter(ask => ask.challengeId === challengeDetail.id).length;
+  }, [asks, challengeDetail]);
+
+  const askDetail = useMemo(
+    () => asks.find(session => session.id === askDetailId) ?? null,
+    [asks, askDetailId]
+  );
+
+  const askDetailProjectName = useMemo(() => {
+    if (!askDetail?.projectId) {
+      return null;
+    }
+    return projects.find(project => project.id === askDetail.projectId)?.name ?? null;
+  }, [projects, askDetail]);
+
+  const askDetailChallengeName = useMemo(() => {
+    if (!askDetail?.challengeId) {
+      return null;
+    }
+    return challenges.find(challenge => challenge.id === askDetail.challengeId)?.name ?? null;
+  }, [challenges, askDetail]);
 
   const projectContextMissing = useMemo(
     () =>
@@ -796,6 +1025,8 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
       handleCanvasProjectSelect(challenge.projectId);
     }
     setSelectedChallengeId(challenge.id);
+    setAskDetailId(null);
+    setChallengeDetailId(challenge.id);
     setActiveSection("Challenges");
   };
 
@@ -811,6 +1042,8 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
       setSelectedChallengeId(session.challengeId);
     }
     startAskEdit(session.id);
+    setChallengeDetailId(null);
+    setAskDetailId(session.id);
     setActiveSection("ASK Sessions");
   };
 
@@ -1333,6 +1566,18 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
 
   return (
     <>
+      <ChallengeDetailDialog
+        challenge={challengeDetail}
+        projectName={challengeDetailProjectName}
+        askCount={challengeDetailAskCount}
+        onClose={() => setChallengeDetailId(null)}
+      />
+      <AskDetailDialog
+        ask={askDetail}
+        projectName={askDetailProjectName}
+        challengeName={askDetailChallengeName}
+        onClose={() => setAskDetailId(null)}
+      />
       {showJourneyBoard && selectedProjectId && (
         <div className="fixed inset-0 z-50 flex flex-col bg-slate-950/95 backdrop-blur">
           <div className="flex items-center justify-between border-b border-white/10 px-6 py-4">
