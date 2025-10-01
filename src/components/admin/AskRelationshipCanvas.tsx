@@ -10,14 +10,7 @@ import {
   type ProjectRecord
 } from "@/types";
 
-type LayoutNodeType = "project" | "challenge";
-
-interface ChallengeAskSummary {
-  id: string;
-  title: string;
-  question: string;
-  status?: string | null;
-}
+type LayoutNodeType = "project" | "challenge" | "ask";
 
 interface LayoutNode {
   id: string;
@@ -33,8 +26,8 @@ interface LayoutNode {
   meta?: string;
   projectId?: string;
   challengeId?: string;
+  askId?: string;
   depth: number;
-  asks?: ChallengeAskSummary[];
 }
 
 interface LayoutEdge {
@@ -58,19 +51,16 @@ interface AskRelationshipCanvasProps {
   onProjectSelect?: (projectId: string) => void;
   onChallengeSelect?: (challengeId: string) => void;
   onAskSelect?: (askId: string) => void;
-  className?: string;
-  height?: number | string;
-  minHeight?: number | string;
-}
+
 
 const PROJECT_NODE = { width: 260, height: 104 } as const;
 const CHALLENGE_NODE = { width: 240, height: 92 } as const;
+const ASK_NODE = { width: 220, height: 84 } as const;
+
 const PROJECT_COLUMN_GAP = 420;
 const LEVEL_GAP_X = 220;
 const ROW_GAP_Y = 150;
-const ASK_SECTION_PADDING = 28;
-const ASK_SUMMARY_HEIGHT = 72;
-const ASK_SUMMARY_GAP = 12;
+const ASK_GAP_Y = 120;
 
 const INITIAL_MARGIN_X = 160;
 const INITIAL_MARGIN_Y = 120;
@@ -201,19 +191,6 @@ function buildLayout(
 
     const placeChallenge = (challenge: ChallengeRecord, depth: number, parentNodeId: string) => {
       const dueLabel = formatDate(challenge.dueDate);
-
-      const askSessions = (askByChallenge.get(challenge.id) ?? []).sort((a, b) => {
-        const startA = new Date(a.startDate).getTime();
-        const startB = new Date(b.startDate).getTime();
-        return startA - startB;
-      });
-
-      const askSectionHeight = askSessions.length > 0
-        ? ASK_SECTION_PADDING +
-          askSessions.length * ASK_SUMMARY_HEIGHT +
-          Math.max(askSessions.length - 1, 0) * ASK_SUMMARY_GAP
-        : 0;
-
       const challengeNode: LayoutNode = {
         id: `challenge-${challenge.id}`,
         entityId: challenge.id,
@@ -221,27 +198,52 @@ function buildLayout(
         x: baseX + depth * LEVEL_GAP_X,
         y: cursorY,
         width: CHALLENGE_NODE.width,
-        height: CHALLENGE_NODE.height + askSectionHeight,
+
+        height: CHALLENGE_NODE.height,
         label: challenge.name,
         subtitle: challenge.description ?? undefined,
         status: challenge.status,
         meta: dueLabel ? `Échéance ${dueLabel}` : undefined,
         projectId: project.id,
         challengeId: challenge.id,
-        depth,
-        asks: askSessions.map(ask => ({
-          id: ask.id,
-          title: ask.name,
-          question: ask.question,
-          status: ask.status
-        }))
+        depth
       };
 
       nodes.push(challengeNode);
       edges.push({ id: `${parentNodeId}->${challengeNode.id}`, from: parentNodeId, to: challengeNode.id });
-
+      cursorY += ROW_GAP_Y;
       let localBottom = challengeNode.y + challengeNode.height;
 
+      const askSessions = (askByChallenge.get(challenge.id) ?? []).sort((a, b) => {
+        const startA = new Date(a.startDate).getTime();
+        const startB = new Date(b.startDate).getTime();
+        return startA - startB;
+      });
+
+      askSessions.forEach((ask, index) => {
+        const askNodeY = localBottom + 32 + index * ASK_GAP_Y;
+        const askNode: LayoutNode = {
+          id: `ask-${ask.id}`,
+          entityId: ask.id,
+          type: "ask",
+          x: challengeNode.x + LEVEL_GAP_X,
+          y: askNodeY,
+          width: ASK_NODE.width,
+          height: ASK_NODE.height,
+          label: ask.name,
+          subtitle: ask.question,
+          status: ask.status,
+          meta: `${formatDate(ask.startDate) ?? ""} → ${formatDate(ask.endDate) ?? ""}`.trim(),
+          projectId: ask.projectId,
+          challengeId: ask.challengeId ?? undefined,
+          askId: ask.id,
+          depth: depth + 1
+        };
+
+        nodes.push(askNode);
+        edges.push({ id: `${challengeNode.id}->${askNode.id}`, from: challengeNode.id, to: askNode.id });
+        localBottom = Math.max(localBottom, askNode.y + askNode.height);
+      });
       const childChallenges = challengeChildren.get(challenge.id) ?? [];
 
       childChallenges.forEach(child => {
@@ -264,13 +266,6 @@ function buildLayout(
   return { nodes, edges };
 }
 
-function toCssSize(value?: number | string | null) {
-  if (value === null || value === undefined) {
-    return undefined;
-  }
-  return typeof value === "number" ? `${value}px` : value;
-}
-
 export function AskRelationshipCanvas({
   projects,
   challenges,
@@ -280,20 +275,14 @@ export function AskRelationshipCanvas({
   focusAskId,
   onProjectSelect,
   onChallengeSelect,
-  onAskSelect,
-  className,
-  height,
-  minHeight
+  onAskSelect
+
 }: AskRelationshipCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [viewport, setViewport] = useState({ x: 0, y: 0, scale: 0.9 });
   const [hasInteracted, setHasInteracted] = useState(false);
   const [forceCenterKey, setForceCenterKey] = useState(0);
   const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
-
-  const resolvedMinHeight = toCssSize(minHeight) ?? "520px";
-  const resolvedHeight = toCssSize(height) ?? resolvedMinHeight;
-
   const { nodes, edges } = useMemo(() => buildLayout(projects, challenges, asks), [projects, challenges, asks]);
 
   const nodeMap = useMemo(() => {
@@ -306,9 +295,8 @@ export function AskRelationshipCanvas({
 
   const focusNode = useMemo(() => {
     if (focusAskId) {
-      const node = nodes.find(
-        item => item.type === "challenge" && item.asks?.some(ask => ask.id === focusAskId)
-      );
+      const node = nodes.find(item => item.askId === focusAskId);
+
       if (node) {
         return node;
       }
@@ -418,10 +406,7 @@ export function AskRelationshipCanvas({
     if (event.button !== 0) {
       return;
     }
-    const target = event.target as HTMLElement | null;
-    if (target?.closest("[data-canvas-interactive]")) {
-      return;
-    }
+
     setHasInteracted(true);
     pointerState.current = {
       isPanning: true,
@@ -547,21 +532,17 @@ export function AskRelationshipCanvas({
     if (node.type === "challenge" && node.challengeId) {
       onChallengeSelect?.(node.challengeId);
     }
+    if (node.type === "ask" && node.askId) {
+      onAskSelect?.(node.askId);
+    }
+
   };
 
   if (nodes.length === 0) {
     return (
-      <div
-        className={cn(
-          "relative flex w-full flex-col items-center justify-center rounded-3xl border border-white/10 bg-slate-950/70 text-center text-sm text-slate-400",
-          className
-        )}
-        style={{ minHeight: resolvedMinHeight, height: resolvedHeight }}
-      >
+      <div className="relative flex h-[420px] w-full flex-col items-center justify-center rounded-3xl border border-white/10 bg-slate-950/70 text-center text-sm text-slate-400">
         <p>Pas encore de challenges ou d'ASK à cartographier.</p>
-        <p className="mt-2 text-xs text-slate-500">
-          Créez des challenges et des sessions ASK pour voir leur relation ici.
-        </p>
+        <p className="mt-2 text-xs text-slate-500">Créez des challenges et des sessions ASK pour voir leur relation ici.</p>
       </div>
     );
   }
@@ -569,11 +550,8 @@ export function AskRelationshipCanvas({
   return (
     <div
       ref={containerRef}
-      className={cn(
-        "relative w-full overflow-hidden rounded-3xl border border-white/10 bg-slate-950/80 shadow-inner",
-        className
-      )}
-      style={{ touchAction: "none", minHeight: resolvedMinHeight, height: resolvedHeight }}
+      className="relative h-[520px] w-full overflow-hidden rounded-3xl border border-white/10 bg-slate-950/80 shadow-inner"
+      style={{ touchAction: "none" }}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={stopPanning}
@@ -655,12 +633,16 @@ export function AskRelationshipCanvas({
             const isFocused =
               (focusProjectId && node.projectId === focusProjectId && node.type === "project") ||
               (focusChallengeId && node.challengeId === focusChallengeId && node.type === "challenge") ||
-              (focusAskId &&
-                node.type === "challenge" &&
-                node.asks?.some(ask => ask.id === focusAskId));
+              (focusAskId && node.askId === focusAskId && node.type === "ask");
 
             const statusColor =
-              node.type === "challenge"
+              node.type === "ask"
+                ? node.status === "active"
+                  ? "bg-emerald-500/20 text-emerald-200"
+                  : node.status === "closed"
+                  ? "bg-rose-500/20 text-rose-200"
+                  : "bg-indigo-500/20 text-indigo-100"
+                : node.type === "challenge"
                 ? node.status === "active" || node.status === "in_progress"
                   ? "bg-sky-500/20 text-sky-100"
                   : node.status === "closed"
@@ -670,8 +652,6 @@ export function AskRelationshipCanvas({
 
             return (
               <div
-                data-canvas-node
-                data-canvas-interactive
                 key={node.id}
                 role="button"
                 tabIndex={0}
@@ -683,13 +663,19 @@ export function AskRelationshipCanvas({
                   }
                 }}
                 className={cn(
-                  "absolute cursor-pointer rounded-3xl border border-white/10 bg-slate-900/80 p-4 shadow-lg transition-all",
+                  "absolute cursor-pointer rounded-3xl border border-white/10 bg-slate-900/80 p-4 shadow-lg transition-all", 
                   "backdrop-blur",
                   node.type === "project" && "hover:border-indigo-400/80",
                   node.type === "challenge" && "hover:border-fuchsia-400/80",
+                  node.type === "ask" && "hover:border-emerald-400/80",
                   isFocused ? "ring-2 ring-offset-2 ring-offset-slate-950" : "ring-0",
-                  isFocused && (node.type === "project" ? "ring-indigo-400" : "ring-fuchsia-400"),
-                  node.type === "project" ? "w-[260px]" : "w-[240px]"
+                  isFocused &&
+                    (node.type === "project"
+                      ? "ring-indigo-400"
+                      : node.type === "challenge"
+                      ? "ring-fuchsia-400"
+                      : "ring-emerald-400"),
+                  node.type === "project" ? "w-[260px]" : node.type === "challenge" ? "w-[240px]" : "w-[220px]"
                 )}
                 style={{ left: node.x, top: node.y }}
               >
@@ -709,34 +695,6 @@ export function AskRelationshipCanvas({
                 {node.meta && (
                   <p className="mt-3 text-[11px] uppercase tracking-wide text-slate-400">{node.meta}</p>
                 )}
-                {node.type === "challenge" && node.asks && node.asks.length > 0 && (
-                  <div className="mt-4 space-y-2">
-                    <p className="text-[11px] uppercase tracking-wide text-slate-400">ASK associés</p>
-                    <div className="space-y-2">
-                      {node.asks.map(ask => {
-                        const isAskFocused = focusAskId === ask.id;
-                        return (
-                          <button
-                            key={ask.id}
-                            type="button"
-                            className={cn(
-                              "w-full rounded-2xl border border-white/10 bg-white/5 p-3 text-left transition",
-                              "hover:border-emerald-300/60 hover:bg-emerald-500/10",
-                              isAskFocused && "border-emerald-400 bg-emerald-500/20"
-                            )}
-                            onClick={event => {
-                              event.stopPropagation();
-                              onAskSelect?.(ask.id);
-                            }}
-                          >
-                            <p className="text-xs font-semibold text-white">{ask.title}</p>
-                            <p className="mt-1 line-clamp-2 text-[11px] text-slate-200/80">{ask.question}</p>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
               </div>
             );
           })}
@@ -753,7 +711,6 @@ export function AskRelationshipCanvas({
       <div className="pointer-events-auto absolute right-6 top-6 flex items-center gap-2">
         <button
           type="button"
-          data-canvas-interactive
           onClick={handleResetView}
           className="rounded-full border border-white/10 bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-white shadow hover:bg-white/20"
         >
@@ -768,7 +725,6 @@ export function AskRelationshipCanvas({
 
       {minimap && layoutBounds && (
         <div
-          data-canvas-interactive
           className="pointer-events-auto absolute bottom-6 right-6 rounded-2xl border border-white/15 bg-slate-900/80 p-3 shadow-lg"
           onPointerDown={handleMiniMapPointerDown}
         >
@@ -789,7 +745,11 @@ export function AskRelationshipCanvas({
                 key={`mini-${node.id}`}
                 className={cn(
                   "absolute rounded-lg",
-                  node.type === "project" ? "bg-indigo-400/50" : "bg-fuchsia-400/60"
+                  node.type === "project"
+                    ? "bg-indigo-400/50"
+                    : node.type === "challenge"
+                    ? "bg-fuchsia-400/60"
+                    : "bg-emerald-400/60"
                 )}
                 style={{
                   left: (node.x - minimap.offsetX) * minimap.scale,
