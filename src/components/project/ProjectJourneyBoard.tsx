@@ -36,17 +36,17 @@ const impactLabels: Record<ProjectChallengeNode["impact"], string> = {
 };
 
 const impactClasses: Record<ProjectChallengeNode["impact"], string> = {
-  low: "bg-emerald-50 text-emerald-700 border-emerald-100",
-  medium: "bg-amber-50 text-amber-700 border-amber-100",
-  high: "bg-indigo-50 text-indigo-700 border-indigo-100",
-  critical: "bg-rose-50 text-rose-700 border-rose-100",
+  low: "border-emerald-400/40 bg-emerald-500/10 text-emerald-200",
+  medium: "border-amber-400/40 bg-amber-500/10 text-amber-200",
+  high: "border-indigo-400/40 bg-indigo-500/10 text-indigo-200",
+  critical: "border-rose-400/40 bg-rose-500/10 text-rose-200",
 };
 
 const insightTypeClasses: Record<ProjectParticipantInsight["type"], string> = {
-  pain: "bg-rose-50 text-rose-700 border-rose-200",
-  gain: "bg-emerald-50 text-emerald-700 border-emerald-200",
-  signal: "bg-sky-50 text-sky-700 border-sky-200",
-  idea: "bg-amber-50 text-amber-700 border-amber-200",
+  pain: "border-rose-400/40 bg-rose-500/10 text-rose-200",
+  gain: "border-emerald-400/40 bg-emerald-500/10 text-emerald-200",
+  signal: "border-sky-400/40 bg-sky-500/10 text-sky-200",
+  idea: "border-amber-400/40 bg-amber-500/10 text-amber-200",
 };
 
 function flattenChallenges(nodes: ProjectChallengeNode[]): ProjectChallengeNode[] {
@@ -162,7 +162,7 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
 
   const renderChallengeList = (nodes: ProjectChallengeNode[], depth = 0) => {
     return (
-      <div className={cn("space-y-3", depth > 0 && "border-l border-slate-200/60 pl-4")}>
+      <div className={cn("space-y-3", depth > 0 && "border-l border-white/10 pl-4")}>
         {nodes.map(node => {
           const isActive = activeChallengeId === node.id;
           const insightCount = challengeInsightMap.get(node.id)?.length ?? 0;
@@ -174,8 +174,8 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
             <Card
               key={node.id}
               className={cn(
-                "border border-slate-200/80 bg-white/80 transition hover:border-indigo-300",
-                isActive && "border-indigo-500 shadow-md",
+                "border border-white/10 bg-slate-900/60 transition hover:border-indigo-400/70",
+                isActive && "border-indigo-400 bg-indigo-500/15 shadow-lg",
               )}
             >
               <button type="button" className="w-full text-left" onClick={() => setActiveChallengeId(node.id)}>
@@ -184,38 +184,38 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
                     <>
                       <div className="flex items-start justify-between gap-3">
                         <div className="flex flex-col gap-2">
-                          <CardTitle className="text-lg font-semibold text-slate-900">{node.title}</CardTitle>
-                          <p className="text-sm text-slate-600">{node.description}</p>
+                          <CardTitle className="text-lg font-semibold text-white">{node.title}</CardTitle>
+                          <p className="text-sm text-slate-300">{node.description}</p>
                         </div>
                         <ChevronRight
                           className={cn(
-                            "h-5 w-5 text-slate-400 transition-transform",
-                            isActive && "rotate-90 text-indigo-500",
+                            "h-5 w-5 text-slate-500 transition-transform",
+                            isActive && "rotate-90 text-indigo-300",
                           )}
                         />
                       </div>
-                      <div className="flex flex-wrap items-center gap-2 text-xs font-medium">
+                      <div className="flex flex-wrap items-center gap-2 text-xs font-medium text-slate-200">
                         <span className={cn("rounded-full border px-2.5 py-1", impactClasses[node.impact])}>
                           {impactLabels[node.impact]}
                         </span>
-                        <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 text-slate-600">
+                        <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2.5 py-1 text-slate-200">
                           <Lightbulb className="h-3.5 w-3.5" />
                           {insightCount} insight{insightCount > 1 ? "s" : ""}
                         </span>
                         {subChallengeCount > 0 ? (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 text-slate-600">
+                          <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2.5 py-1 text-slate-200">
                             <ChevronRight className="h-3.5 w-3.5" />
                             {subChallengeCount} sous-challenge{subChallengeCount > 1 ? "s" : ""}
                           </span>
                         ) : null}
                       </div>
                       {ownerCount > 0 ? (
-                        <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-600">
+                        <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-300">
                           <Users className="h-3.5 w-3.5 text-slate-400" />
                           {owners.map(owner => (
                             <span
                               key={owner.id || owner.name}
-                              className="rounded-full bg-slate-100 px-2.5 py-1 font-medium text-slate-700"
+                              className="rounded-full bg-white/10 px-2.5 py-1 font-medium text-white"
                             >
                               {owner.name}
                             </span>
@@ -226,36 +226,36 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
                   ) : (
                     <div className="flex w-full items-center gap-3">
                       <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-semibold text-slate-900">{node.title}</p>
+                        <p className="truncate text-sm font-semibold text-slate-100">{node.title}</p>
                       </div>
-                      <div className="flex flex-wrap items-center justify-end gap-2 text-[11px] font-medium text-slate-600">
+                      <div className="flex flex-wrap items-center justify-end gap-2 text-[11px] font-medium text-slate-400">
                         <span className={cn("rounded-full border px-2 py-0.5", impactClasses[node.impact])}>
                           {impactLabels[node.impact]}
                         </span>
-                        <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5">
+                        <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2 py-0.5 text-slate-200">
                           <Lightbulb className="h-3 w-3" />
                           {insightCount}
                         </span>
                         {ownerCount > 0 ? (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5">
+                          <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2 py-0.5 text-slate-200">
                             <Users className="h-3 w-3" />
                             {ownerCount > 1 ? `${ownerCount} personnes` : owners[0]?.name}
                           </span>
                         ) : null}
                         {subChallengeCount > 0 ? (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5">
+                          <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2 py-0.5 text-slate-200">
                             <ChevronRight className="h-3 w-3" />
                             {subChallengeCount}
                           </span>
                         ) : null}
                       </div>
-                      <ChevronRight className="h-4 w-4 text-slate-300" />
+                      <ChevronRight className="h-4 w-4 text-slate-500" />
                     </div>
                   )}
                 </div>
               </button>
               {node.children?.length ? (
-                <CardContent className="border-t border-slate-100 bg-slate-50/40">
+                <CardContent className="border-t border-white/5 bg-slate-900/70">
                   {renderChallengeList(node.children, depth + 1)}
                 </CardContent>
               ) : null}
@@ -293,42 +293,42 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
 
     if (rows.length === 0) {
       return (
-        <div className="rounded-md border border-dashed border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
+        <div className="rounded-md border border-dashed border-white/10 bg-slate-900/60 px-4 py-3 text-sm text-slate-300">
           Aucun insight n'a encore été publié pour cet ASK.
         </div>
       );
     }
 
     return (
-        <div className="space-y-3">
-          {rows.map(row => (
-            <div key={row.id} className="rounded-lg border border-slate-200 bg-white/80 p-4 shadow-sm">
-              <div className="flex flex-wrap items-center gap-2 text-xs font-semibold text-slate-600">
-                <span className={cn("rounded-full border px-2 py-0.5", insightTypeClasses[row.type])}>
-                  {row.type.toUpperCase()}
+      <div className="space-y-3">
+        {rows.map(row => (
+          <div key={row.id} className="rounded-lg border border-white/10 bg-slate-900/70 p-4 shadow-sm">
+            <div className="flex flex-wrap items-center gap-2 text-xs font-semibold text-slate-200">
+              <span className={cn("rounded-full border px-2 py-0.5", insightTypeClasses[row.type])}>
+                {row.type.toUpperCase()}
+              </span>
+              <span className="inline-flex items-center gap-1 text-slate-300">
+                <Users className="h-3.5 w-3.5 text-slate-400" />
+                <span className="flex flex-wrap items-center gap-1">
+                  {row.contributors.map(contributor => (
+                    <span
+                      key={contributor.id || contributor.name}
+                      className="rounded-full bg-white/10 px-2 py-0.5 font-medium text-white"
+                    >
+                      {contributor.name}
+                    </span>
+                  ))}
                 </span>
-                <span className="inline-flex items-center gap-1 text-slate-600">
-                  <Users className="h-3.5 w-3.5 text-slate-400" />
-                  <span className="flex flex-wrap items-center gap-1">
-                    {row.contributors.map(contributor => (
-                      <span
-                        key={contributor.id || contributor.name}
-                        className="rounded-full bg-slate-100 px-2 py-0.5 font-medium text-slate-700"
-                      >
-                        {contributor.name}
-                      </span>
-                    ))}
-                  </span>
-                </span>
-                <span className="inline-flex items-center gap-1 text-slate-400">
-                  <Calendar className="h-3.5 w-3.5" />
-                  {formatDate(row.updatedAt)}
-                </span>
-              </div>
-            <p className="mt-2 text-sm font-medium text-slate-900">{row.title}</p>
-            <p className="mt-1 text-sm text-slate-600">{row.description}</p>
+              </span>
+              <span className="inline-flex items-center gap-1 text-slate-400">
+                <Calendar className="h-3.5 w-3.5" />
+                {formatDate(row.updatedAt)}
+              </span>
+            </div>
+            <p className="mt-2 text-sm font-semibold text-white">{row.title}</p>
+            <p className="mt-1 text-sm text-slate-300">{row.description}</p>
             {row.relatedChallengeIds.length ? (
-              <div className="mt-2 text-xs text-slate-500">
+              <div className="mt-2 text-xs text-slate-400">
                 Lié à {row.relatedChallengeIds.length} challenge{row.relatedChallengeIds.length > 1 ? "s" : ""}
               </div>
             ) : null}
@@ -339,21 +339,21 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
   };
 
   return (
-    <div className="space-y-8">
-      <header className="rounded-xl border border-slate-200 bg-white/80 p-6 shadow-sm">
+    <div className="space-y-8 text-slate-100">
+      <header className="rounded-xl border border-white/10 bg-slate-900/70 p-6 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <p className="text-sm uppercase tracking-wide text-slate-500">Projet</p>
-            <h1 className="text-2xl font-semibold text-slate-900">{boardData.projectName}</h1>
-            <p className="mt-1 text-sm text-slate-600">Client : {boardData.clientName}</p>
+            <p className="text-sm uppercase tracking-wide text-indigo-200">Projet</p>
+            <h1 className="text-2xl font-semibold text-white">{boardData.projectName}</h1>
+            <p className="mt-1 text-sm text-slate-300">Client : {boardData.clientName}</p>
           </div>
-          <div className="flex flex-col items-end gap-2 text-sm text-slate-500">
-            <span className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 font-medium text-slate-700">
-              <Target className="h-4 w-4" />
+          <div className="flex flex-col items-end gap-2 text-sm text-slate-300">
+            <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/10 px-3 py-1 font-medium text-slate-100">
+              <Target className="h-4 w-4 text-indigo-300" />
               {boardData.projectGoal}
             </span>
-            <span className="inline-flex items-center gap-2 text-slate-600">
-              <Calendar className="h-4 w-4" /> {boardData.timeframe}
+            <span className="inline-flex items-center gap-2 text-slate-400">
+              <Calendar className="h-4 w-4 text-slate-300" /> {boardData.timeframe}
             </span>
           </div>
         </div>
@@ -363,16 +363,16 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
         <div className="lg:max-h-[70vh] lg:overflow-y-auto lg:pr-2">
           <section className="space-y-4">
             <div>
-              <h2 className="text-lg font-semibold text-slate-900">Challenges du projet</h2>
-              <p className="text-sm text-slate-600">
+              <h2 className="text-lg font-semibold text-white">Challenges du projet</h2>
+              <p className="text-sm text-slate-300">
                 Sélectionnez un challenge pour explorer les insights qui l'ont fait émerger et les ASKs associés.
               </p>
             </div>
             {boardData.challenges.length ? (
               renderChallengeList(boardData.challenges)
             ) : (
-              <Card className="border-dashed border-slate-200 bg-white/60">
-                <CardContent className="py-10 text-center text-sm text-slate-500">
+              <Card className="border-dashed border-white/10 bg-slate-900/60">
+                <CardContent className="py-10 text-center text-sm text-slate-300">
                   Aucun challenge n'est encore défini pour ce projet.
                 </CardContent>
               </Card>
@@ -385,26 +385,26 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
             {!activeChallenge ? (
               <>
                 <div>
-                  <h2 className="text-lg font-semibold text-slate-900">Sélectionnez un challenge</h2>
-                  <p className="text-sm text-slate-600">
+                  <h2 className="text-lg font-semibold text-white">Sélectionnez un challenge</h2>
+                  <p className="text-sm text-slate-300">
                     Visualisez les sessions ASK planifiées pour instruire un challenge, les insights générés et leurs rattachements
                     projets.
                   </p>
                 </div>
-                <Card className="border-dashed border-slate-200 bg-white/60">
-                  <CardContent className="py-10 text-center text-sm text-slate-500">
+                <Card className="border-dashed border-white/10 bg-slate-900/60">
+                  <CardContent className="py-10 text-center text-sm text-slate-300">
                     Sélectionnez un challenge dans la colonne de gauche pour découvrir les ASKs correspondants.
                   </CardContent>
                 </Card>
               </>
             ) : (
               <>
-                <Card className="border border-slate-200 bg-white/70">
+                <Card className="border border-white/10 bg-slate-900/70">
                   <CardHeader className="pb-2">
-                    <CardTitle className="text-lg font-semibold text-slate-900">
+                    <CardTitle className="text-lg font-semibold text-white">
                       Insights fondateurs du challenge
                     </CardTitle>
-                    <p className="text-sm text-slate-600">
+                    <p className="text-sm text-slate-300">
                       Ces insights ont permis de formuler le challenge « {activeChallenge.title} ».
                     </p>
                   </CardHeader>
@@ -414,62 +414,62 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
                         {activeChallengeInsights.map(insight => (
                           <div
                             key={`${insight.id}-${insight.askId}`}
-                            className="rounded-lg border border-slate-200 bg-white p-4"
+                            className="rounded-lg border border-white/10 bg-slate-900/70 p-4"
                           >
-                            <div className="flex flex-wrap items-center gap-2 text-xs font-medium text-slate-600">
+                            <div className="flex flex-wrap items-center gap-2 text-xs font-medium text-slate-200">
                               <span className={cn("rounded-full border px-2 py-0.5", insightTypeClasses[insight.type])}>
                                 {insight.type.toUpperCase()}
                               </span>
-                              <span className="inline-flex items-center gap-1 text-slate-600">
+                              <span className="inline-flex items-center gap-1 text-slate-300">
                                 <Users className="h-3.5 w-3.5 text-slate-400" />
                                 <span className="flex flex-wrap items-center gap-1">
                                   {insight.contributors.map(contributor => (
                                     <span
                                       key={contributor.id || contributor.name}
-                                      className="rounded-full bg-slate-100 px-2 py-0.5 font-medium text-slate-700"
+                                      className="rounded-full bg-white/10 px-2 py-0.5 font-medium text-white"
                                     >
                                       {contributor.name}
                                     </span>
                                   ))}
                                 </span>
                               </span>
-                              <span className="inline-flex items-center gap-1">
+                              <span className="inline-flex items-center gap-1 text-slate-400">
                                 <Calendar className="h-3.5 w-3.5 text-slate-400" />
                                 {formatDate(insight.updatedAt)}
                               </span>
-                              <span className="inline-flex items-center gap-1">
-                                <Lightbulb className="h-3.5 w-3.5 text-slate-400" />
+                              <span className="inline-flex items-center gap-1 text-slate-300">
+                                <Lightbulb className="h-3.5 w-3.5 text-indigo-300" />
                                 ASK : {insight.askTitle}
                               </span>
                             </div>
-                            <p className="mt-2 text-sm font-semibold text-slate-900">{insight.title}</p>
-                            <p className="mt-1 text-sm text-slate-600">{insight.description}</p>
+                            <p className="mt-2 text-sm font-semibold text-white">{insight.title}</p>
+                            <p className="mt-1 text-sm text-slate-300">{insight.description}</p>
                           </div>
                         ))}
                       </div>
                     ) : (
-                      <div className="rounded-md border border-dashed border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
+                      <div className="rounded-md border border-dashed border-white/10 bg-slate-900/60 px-4 py-3 text-sm text-slate-300">
                         Aucun insight ne référence encore ce challenge.
                       </div>
                     )}
                   </CardContent>
                 </Card>
 
-                <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white/70 px-4 py-3 shadow-sm">
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-slate-900/70 px-4 py-3 shadow-sm">
                   <div>
-                    <h2 className="text-lg font-semibold text-slate-900">
+                    <h2 className="text-lg font-semibold text-white">
                       Asks liés à « {activeChallenge.title} »
                     </h2>
-                    <p className="text-sm text-slate-600">
+                    <p className="text-sm text-slate-300">
                       Visualisez les sessions ASK planifiées pour instruire ce challenge, les insights générés et leurs rattachements projets.
                     </p>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
-                    <Button size="sm" className="gap-2">
+                    <Button size="sm" className="gap-2 bg-indigo-500 text-white hover:bg-indigo-400">
                       <Plus className="h-4 w-4" />
                       Créer un ASK
                     </Button>
-                    <Button size="sm" variant="outline" className="gap-2">
+                    <Button size="sm" variant="outline" className="gap-2 border-white/20 bg-white/10 text-white hover:bg-white/20">
                       <Sparkles className="h-4 w-4" />
                       Générer des ASK via IA
                     </Button>
@@ -479,53 +479,53 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
                 <div className="space-y-4">
                   {activeChallengeAsks.length ? (
                     activeChallengeAsks.map(ask => (
-                      <Card key={ask.id} className="border border-slate-200 bg-white/80 shadow-sm">
+                      <Card key={ask.id} className="border border-white/10 bg-slate-900/70 shadow-sm">
                         <CardHeader className="space-y-3 pb-3">
                           <div className="flex flex-wrap items-center justify-between gap-3">
                             <div>
-                              <CardTitle className="text-base font-semibold text-slate-900">{ask.title}</CardTitle>
-                              <p className="mt-1 text-sm text-slate-600">{ask.summary}</p>
+                              <CardTitle className="text-base font-semibold text-white">{ask.title}</CardTitle>
+                              <p className="mt-1 text-sm text-slate-300">{ask.summary}</p>
                             </div>
-                            <div className="flex flex-col items-end gap-1 text-xs text-slate-500">
-                              <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 font-medium text-slate-700">
-                                <Calendar className="h-3.5 w-3.5" /> Échéance {formatDate(ask.dueDate)}
+                            <div className="flex flex-col items-end gap-1 text-xs text-slate-400">
+                              <span className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/10 px-2.5 py-1 font-medium text-slate-100">
+                                <Calendar className="h-3.5 w-3.5 text-slate-200" /> Échéance {formatDate(ask.dueDate)}
                               </span>
-                              <span className="text-slate-600">Statut : {ask.status}</span>
+                              <span className="text-slate-300">Statut : {ask.status}</span>
                             </div>
                           </div>
-                          <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
-                            <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1">
-                              <Target className="h-3.5 w-3.5" /> {ask.theme}
+                          <div className="flex flex-wrap items-center gap-2 text-xs text-slate-300">
+                            <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2.5 py-1 text-slate-200">
+                              <Target className="h-3.5 w-3.5 text-indigo-300" /> {ask.theme}
                             </span>
-                            <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1">
-                              <Users className="h-3.5 w-3.5" /> {ask.participants.length} participant{ask.participants.length > 1 ? "s" : ""}
+                            <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2.5 py-1 text-slate-200">
+                              <Users className="h-3.5 w-3.5 text-slate-200" /> {ask.participants.length} participant{ask.participants.length > 1 ? "s" : ""}
                             </span>
                           </div>
-                          <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                            <span className="font-semibold text-slate-600">Projets liés :</span>
+                          <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
+                            <span className="font-semibold text-slate-300">Projets liés :</span>
                             {ask.relatedProjects.length ? (
                               ask.relatedProjects.map(project => (
                                 <span
                                   key={project.id}
-                                  className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2.5 py-1"
+                                  className="inline-flex items-center rounded-full border border-white/10 bg-white/10 px-2.5 py-1 text-slate-100"
                                 >
                                   {project.name}
                                 </span>
                               ))
                             ) : (
-                              <span className="text-slate-500">Projet courant uniquement</span>
+                              <span className="text-slate-400">Projet courant uniquement</span>
                             )}
                           </div>
                         </CardHeader>
                         <CardContent className="space-y-3">
-                          <h3 className="text-sm font-semibold text-slate-800">Insights produits</h3>
+                          <h3 className="text-sm font-semibold text-slate-200">Insights produits</h3>
                           {renderAskInsights(ask)}
                         </CardContent>
                       </Card>
                     ))
                   ) : (
-                    <Card className="border-dashed border-slate-200 bg-white/60">
-                      <CardContent className="py-10 text-center text-sm text-slate-500">
+                    <Card className="border-dashed border-white/10 bg-slate-900/60">
+                      <CardContent className="py-10 text-center text-sm text-slate-300">
                         Aucun ASK n'est encore planifié pour ce challenge.
                       </CardContent>
                     </Card>

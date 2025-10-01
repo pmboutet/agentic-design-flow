@@ -738,6 +738,8 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
     [projects, selectedProjectId]
   );
 
+  const isJourneyMode = Boolean(showJourneyBoard && selectedProjectId);
+
   const selectedChallenge = useMemo(
     () => challenges.find(challenge => challenge.id === selectedChallengeId) ?? null,
     [challenges, selectedChallengeId]
@@ -1949,40 +1951,6 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
         challengeName={askDetailChallengeName}
         onClose={() => setAskDetailId(null)}
       />
-      {showJourneyBoard && selectedProjectId && (
-        <div className="fixed inset-0 z-50 flex flex-col bg-slate-950/95 backdrop-blur">
-          <div className="flex items-center justify-between border-b border-white/10 px-6 py-4">
-            <div>
-              <p className="text-xs uppercase tracking-wide text-indigo-200">Back office</p>
-              <h2 className="text-xl font-semibold text-white">
-                {selectedProject?.name || "Parcours projet"}
-              </h2>
-              <p className="text-sm text-slate-300">
-                Visualisez les ASKs, insights et challenges connectés à ce projet.
-              </p>
-            </div>
-            <div className="flex items-center gap-3">
-              <span className="rounded-full border border-white/20 px-3 py-1 text-xs uppercase tracking-wide text-slate-200">
-                {selectedClient?.name || "Client"}
-              </span>
-              <Button
-                type="button"
-                variant="secondary"
-                className="border-white/20 bg-white/10 text-white hover:bg-white/20"
-                onClick={() => setShowJourneyBoard(false)}
-              >
-                Fermer
-              </Button>
-            </div>
-          </div>
-          <div className="flex-1 overflow-hidden px-4 py-6">
-            <div className="mx-auto h-full max-w-6xl overflow-hidden rounded-3xl border border-white/10 bg-slate-900/60 p-4 shadow-2xl">
-              <ProjectJourneyBoard projectId={selectedProjectId} />
-            </div>
-          </div>
-        </div>
-      )}
-
       <div className="min-h-screen bg-slate-950 text-slate-100">
       <div className="flex h-full min-h-screen">
         <aside
@@ -2084,7 +2052,11 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
 
           <main
             className={`flex-1 overflow-y-auto ${
-              showOnlyChallengeWorkspace ? "space-y-6 px-6 py-6 lg:px-10" : "space-y-8 px-6 py-8"
+              isJourneyMode
+                ? "space-y-6 px-4 py-6 sm:px-6 lg:px-10"
+                : showOnlyChallengeWorkspace
+                  ? "space-y-6 px-6 py-6 lg:px-10"
+                  : "space-y-8 px-6 py-8"
             }`}
           >
             {feedback && (
@@ -2101,50 +2073,87 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
               </Alert>
               )}
 
-              {!showOnlyChallengeWorkspace && (
-              <section ref={dashboardRef} id="section-dashboard">
-                <div className="flex items-center justify-between">
-                  <h1 className="text-3xl font-semibold">Operational dashboard</h1>
-                  <div className="hidden gap-3 md:flex">
-                    <Button
-                      type="button"
-                    className={gradientButtonClasses}
-                    onClick={() => setShowClientForm(true)}
-                  >
-                    Create client
-                  </Button>
-                  <Button variant="outline" className="border-white/20 bg-white/10 text-white hover:bg-white/20">
-                    Export data
-                  </Button>
+            {isJourneyMode ? (
+              <section className="flex flex-1 flex-col gap-6">
+                <div className="rounded-3xl border border-white/10 bg-white/5 p-6 backdrop-blur">
+                  <div className="flex flex-wrap items-center justify-between gap-4">
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-indigo-200">Exploration projet</p>
+                      <h2 className="text-2xl font-semibold text-white">
+                        {selectedProject?.name || "Parcours projet"}
+                      </h2>
+                      <p className="text-sm text-slate-300">
+                        Visualisez les ASKs, insights et challenges connectés à ce projet.
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-3 text-sm">
+                      {selectedClient?.name && (
+                        <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs uppercase tracking-wide text-slate-200">
+                          {selectedClient.name}
+                        </span>
+                      )}
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        className="border-white/20 bg-white/10 text-white hover:bg-white/20"
+                        onClick={() => setShowJourneyBoard(false)}
+                      >
+                        Fermer
+                      </Button>
+                    </div>
+                  </div>
                 </div>
-              </div>
-              <p className="mt-2 text-sm text-slate-400">
-                Manage the full journey from organization onboarding to live ASK sessions.
-              </p>
 
-              <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                {stats.map(stat => {
-                  const Icon = stat.icon;
-                  return (
-                    <div
-                      key={stat.label}
-                      className="rounded-3xl border border-white/10 bg-gradient-to-br from-white/5 to-white/0 p-5 shadow-lg"
-                    >
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="text-sm text-slate-400">{stat.label}</p>
-                          <p className="mt-2 text-2xl font-semibold text-white">{stat.value}</p>
-                        </div>
-                        <div className="rounded-full bg-white/10 p-2">
-                          <Icon className="h-5 w-5 text-indigo-300" />
-                        </div>
+                <div className="flex-1 overflow-hidden rounded-3xl border border-white/10 bg-slate-900/60 p-4">
+                  {selectedProjectId && <ProjectJourneyBoard projectId={selectedProjectId} />}
+                </div>
+              </section>
+            ) : (
+              <>
+                {!showOnlyChallengeWorkspace && (
+                  <section ref={dashboardRef} id="section-dashboard">
+                    <div className="flex items-center justify-between">
+                      <h1 className="text-3xl font-semibold">Operational dashboard</h1>
+                      <div className="hidden gap-3 md:flex">
+                        <Button
+                          type="button"
+                          className={gradientButtonClasses}
+                          onClick={() => setShowClientForm(true)}
+                        >
+                          Create client
+                        </Button>
+                        <Button variant="outline" className="border-white/20 bg-white/10 text-white hover:bg-white/20">
+                          Export data
+                        </Button>
                       </div>
                     </div>
-                  );
-                })}
-              </div>
-              </section>
-            )}
+                    <p className="mt-2 text-sm text-slate-400">
+                      Manage the full journey from organization onboarding to live ASK sessions.
+                    </p>
+
+                    <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                      {stats.map(stat => {
+                        const Icon = stat.icon;
+                        return (
+                          <div
+                            key={stat.label}
+                            className="rounded-3xl border border-white/10 bg-gradient-to-br from-white/5 to-white/0 p-5 shadow-lg"
+                          >
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <p className="text-sm text-slate-400">{stat.label}</p>
+                                <p className="mt-2 text-2xl font-semibold text-white">{stat.value}</p>
+                              </div>
+                              <div className="rounded-full bg-white/10 p-2">
+                                <Icon className="h-5 w-5 text-indigo-300" />
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </section>
+                )}
 
             {!showOnlyChallengeWorkspace && (
               <section className="space-y-6">
@@ -2850,6 +2859,9 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                 </div>
               </div>
               </section>
+            )}
+
+              </>
             )}
 
           </main>
