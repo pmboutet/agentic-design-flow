@@ -1,13 +1,115 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { ApiResponse, Ask, AskParticipant, Insight } from '@/types';
+import { ApiResponse, Ask, AskParticipant, Insight, Message } from '@/types';
 import { isValidAskKey, parseErrorMessage } from '@/lib/utils';
+import { getAdminSupabaseClient } from '@/lib/supabaseAdmin';
 
-/**
- * GET /api/ask/[key] - Retrieve ASK data from external backend
- * This endpoint calls the external webhook to get ASK data and conversation state
- */
+interface AskSessionRow {
+  id: string;
+  ask_key: string;
+  name?: string | null;
+  question: string;
+  description?: string | null;
+  status?: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
+  delivery_mode?: string | null;
+  audience_scope?: string | null;
+  response_mode?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+interface ParticipantRow {
+  id: string;
+  participant_name?: string | null;
+  participant_email?: string | null;
+  role?: string | null;
+  is_spokesperson?: boolean | null;
+  user_id?: string | null;
+  last_active?: string | null;
+}
+
+interface UserRow {
+  id: string;
+  email?: string | null;
+  full_name?: string | null;
+  first_name?: string | null;
+  last_name?: string | null;
+}
+
+interface MessageRow {
+  id: string;
+  ask_session_id: string;
+  user_id?: string | null;
+  sender_type?: string | null;
+  content: string;
+  message_type?: string | null;
+  metadata?: Record<string, unknown> | null;
+  created_at?: string | null;
+}
+
+interface InsightRow {
+  id: string;
+  ask_session_id: string;
+  ask_id?: string | null;
+  challenge_id?: string | null;
+  author_id?: string | null;
+  author_name?: string | null;
+  content?: string | null;
+  summary?: string | null;
+  type?: string | null;
+  category?: string | null;
+  status?: string | null;
+  priority?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  related_challenge_ids?: string[] | null;
+  kpis?: Array<Record<string, unknown>> | null;
+  source_message_id?: string | null;
+}
+
+function buildParticipantDisplayName(participant: ParticipantRow, user: UserRow | null, index: number): string {
+  if (participant.participant_name) {
+    return participant.participant_name;
+  }
+
+  if (user) {
+    if (user.full_name && user.full_name.trim().length > 0) {
+      return user.full_name;
+    }
+
+    const nameParts = [user.first_name, user.last_name].filter(Boolean);
+    if (nameParts.length) {
+      return nameParts.join(' ');
+    }
+
+    if (user.email) {
+      return user.email;
+    }
+  }
+
+  return `Participant ${index + 1}`;
+}
+
+function normaliseMessageMetadata(value: unknown): Record<string, unknown> | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  if (typeof value === 'object') {
+    return value as Record<string, unknown>;
+  }
+
+  try {
+    return JSON.parse(String(value));
+  } catch (error) {
+    console.warn('Unable to parse message metadata', error);
+    return undefined;
+  }
+}
+
 export async function GET(
-  request: NextRequest,
+  _request: NextRequest,
   { params }: { params: { key: string } }
 ) {
   try {
@@ -20,125 +122,240 @@ export async function GET(
       }, { status: 400 });
     }
 
-    const externalWebhook = process.env.EXTERNAL_RESPONSE_WEBHOOK;
-    
-    if (!externalWebhook) {
+    const supabase = getAdminSupabaseClient();
+
+    const { data: askRow, error: askError } = await supabase
+      .from<AskSessionRow>('ask_sessions')
+      .select('*')
+      .eq('ask_key', key)
+      .maybeSingle();
+
+    if (askError) {
+      throw askError;
+    }
+
+    if (!askRow) {
       return NextResponse.json<ApiResponse>({
         success: false,
-        error: 'External webhook not configured'
-      }, { status: 500 });
+        error: 'ASK introuvable pour la clé fournie'
+      }, { status: 404 });
     }
 
-    // Call external backend to get ASK data and conversation state
-    const response = await fetch(externalWebhook, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Webhook-Source': 'agentic-design-flow',
-        'X-Request-Type': 'get-session'
-      },
-      body: JSON.stringify({
-        askKey: key,
-        action: 'get_session_data'
-      })
+    const askSessionId = askRow.id;
+
+    const { data: participantRows, error: participantError } = await supabase
+      .from<ParticipantRow>('ask_participants')
+      .select('*')
+      .eq('ask_session_id', askSessionId)
+      .order('joined_at', { ascending: true });
+
+    if (participantError) {
+      throw participantError;
+    }
+
+    const participantUserIds = (participantRows ?? [])
+      .map(row => row.user_id)
+      .filter((value): value is string => Boolean(value));
+
+    let usersById: Record<string, UserRow> = {};
+
+    if (participantUserIds.length > 0) {
+      const { data: userRows, error: userError } = await supabase
+        .from<UserRow>('users')
+        .select('id, email, full_name, first_name, last_name')
+        .in('id', participantUserIds);
+
+      if (userError) {
+        throw userError;
+      }
+
+      usersById = (userRows ?? []).reduce<Record<string, UserRow>>((acc, user) => {
+        acc[user.id] = user;
+        return acc;
+      }, {});
+    }
+
+    const participants: AskParticipant[] = (participantRows ?? []).map((row, index) => {
+      const user = row.user_id ? usersById[row.user_id] ?? null : null;
+      return {
+        id: row.id,
+        name: buildParticipantDisplayName(row, user, index),
+        email: row.participant_email ?? user?.email ?? null,
+        role: row.role ?? null,
+        isSpokesperson: Boolean(row.is_spokesperson),
+        isActive: true,
+      };
     });
 
-    if (!response.ok) {
-      throw new Error(`External webhook responded with status ${response.status}`);
+    const { data: messageRows, error: messageError } = await supabase
+      .from<MessageRow>('messages')
+      .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at')
+      .eq('ask_session_id', askSessionId)
+      .order('created_at', { ascending: true });
+
+    if (messageError) {
+      throw messageError;
     }
 
-    const backendData = await response.json();
+    const messageUserIds = (messageRows ?? [])
+      .map(row => row.user_id)
+      .filter((value): value is string => Boolean(value));
 
-    // Handle both n8n format (with data wrapper) and direct format
-    const askData = backendData.data?.ask || backendData.ask;
-    const messagesData = backendData.data?.messages || backendData.messages || [];
-    const challengesData = backendData.data?.challenges || backendData.challenges || [];
-    const insightsData = backendData.data?.insights || backendData.insights || [];
-    const participantData = askData?.participants || backendData.data?.participants || backendData.participants || [];
+    const additionalUserIds = messageUserIds.filter(id => !usersById[id]);
 
-    // Validate backend response structure
-    if (!askData || !askData.question) {
-      throw new Error('Invalid response from backend: missing ASK data');
+    if (additionalUserIds.length > 0) {
+      const { data: extraUsers, error: extraUsersError } = await supabase
+        .from<UserRow>('users')
+        .select('id, email, full_name, first_name, last_name')
+        .in('id', additionalUserIds);
+
+      if (extraUsersError) {
+        throw extraUsersError;
+      }
+
+      (extraUsers ?? []).forEach(user => {
+        usersById[user.id] = user;
+      });
     }
 
-    // Transform backend data to our ASK format
-    const participants: AskParticipant[] = Array.isArray(participantData)
-      ? participantData.map((participant: any, index: number) => ({
-          id: String(participant.id ?? `participant-${index}`),
-          name: participant.name || participant.fullName || participant.email || `Participant ${index + 1}`,
-          email: participant.email ?? null,
-          role: participant.role ?? participant.title ?? null,
-          isSpokesperson: participant.isSpokesperson ?? participant.spokesperson ?? false,
-          isActive: participant.isActive ?? true,
-        }))
-      : [];
+    const messages: Message[] = (messageRows ?? []).map((row, index) => {
+      const metadata = normaliseMessageMetadata(row.metadata);
+      const user = row.user_id ? usersById[row.user_id] ?? null : null;
+
+      const senderName = (() => {
+        if (metadata && typeof metadata.senderName === 'string' && metadata.senderName.trim().length > 0) {
+          return metadata.senderName;
+        }
+
+        if (row.sender_type === 'ai') {
+          return 'Agent';
+        }
+
+        if (user) {
+          if (user.full_name) {
+            return user.full_name;
+          }
+
+          const nameParts = [user.first_name, user.last_name].filter(Boolean);
+          if (nameParts.length > 0) {
+            return nameParts.join(' ');
+          }
+
+          if (user.email) {
+            return user.email;
+          }
+        }
+
+        return `Participant ${index + 1}`;
+      })();
+
+      return {
+        id: row.id,
+        askKey: askRow.ask_key,
+        askSessionId: row.ask_session_id,
+        content: row.content,
+        type: (row.message_type as Message['type']) ?? 'text',
+        senderType: (row.sender_type as Message['senderType']) ?? 'user',
+        senderId: row.user_id ?? null,
+        senderName,
+        timestamp: row.created_at ?? new Date().toISOString(),
+        metadata: metadata,
+      };
+    });
+
+    const { data: insightRows, error: insightError } = await supabase
+      .from<InsightRow>('insights')
+      .select('*')
+      .eq('ask_session_id', askSessionId)
+      .order('created_at', { ascending: true });
+
+    if (insightError) {
+      throw insightError;
+    }
+
+    const insights: Insight[] = (insightRows ?? []).map((row, index) => {
+      const rawKpis = Array.isArray(row.kpis) ? row.kpis : [];
+      return {
+        id: row.id,
+        askId: row.ask_id ?? askSessionId,
+        askSessionId: row.ask_session_id,
+        challengeId: row.challenge_id ?? null,
+        authorId: row.author_id ?? null,
+        authorName: row.author_name ?? null,
+        content: row.content ?? '',
+        summary: row.summary ?? null,
+        type: (row.type as Insight['type']) ?? 'idea',
+        category: row.category ?? null,
+        status: (row.status as Insight['status']) ?? 'new',
+        priority: row.priority ?? null,
+        createdAt: row.created_at ?? new Date().toISOString(),
+        updatedAt: row.updated_at ?? row.created_at ?? new Date().toISOString(),
+        relatedChallengeIds: Array.isArray(row.related_challenge_ids) ? row.related_challenge_ids : [],
+        kpis: rawKpis.map((kpi, kpiIndex) => ({
+          id: String((kpi as any)?.id ?? `kpi-${kpiIndex}`),
+          label: String((kpi as any)?.label ?? 'KPI'),
+          value: (kpi as any)?.value ?? undefined,
+          description: (kpi as any)?.description ?? null,
+        })),
+        sourceMessageId: row.source_message_id ?? null,
+      };
+    });
+
+    const endDate = askRow.end_date ?? new Date().toISOString();
+    const createdAt = askRow.created_at ?? new Date().toISOString();
+    const updatedAt = askRow.updated_at ?? createdAt;
 
     const ask: Ask = {
-      id: key,
-      key: key,
-      question: askData.question,
-      isActive: askData.isActive ?? true,
-      endDate: askData.endDate,
-      createdAt: askData.createdAt || new Date().toISOString(),
-      updatedAt: askData.updatedAt || new Date().toISOString(),
-      deliveryMode: askData.deliveryMode || askData.mode || 'digital',
-      audienceScope: askData.audienceScope || (participants.length > 1 ? 'group' : 'individual'),
-      responseMode: askData.responseMode || (participants.length > 1 ? 'simultaneous' : 'collective'),
+      id: askRow.id,
+      key: askRow.ask_key,
+      name: askRow.name ?? null,
+      question: askRow.question,
+      description: askRow.description ?? null,
+      status: askRow.status ?? null,
+      isActive: (askRow.status ?? '').toLowerCase() === 'active',
+      startDate: askRow.start_date ?? null,
+      endDate,
+      createdAt,
+      updatedAt,
+      deliveryMode: (askRow.delivery_mode as Ask['deliveryMode']) ?? 'digital',
+      audienceScope: (askRow.audience_scope as Ask['audienceScope']) ?? (participants.length > 1 ? 'group' : 'individual'),
+      responseMode: (askRow.response_mode as Ask['responseMode']) ?? (participants.length > 1 ? 'simultaneous' : 'collective'),
       participants,
-      askSessionId: askData.askSessionId || askData.sessionId || undefined,
+      askSessionId: askSessionId,
     };
 
-    // Check if ASK is still active based on end date
     if (ask.endDate) {
-      ask.isActive = new Date(ask.endDate).getTime() > Date.now();
+      const now = Date.now();
+      const end = new Date(ask.endDate).getTime();
+      if (!Number.isNaN(end) && end < now) {
+        ask.isActive = false;
+      }
     }
 
-    const insights: Insight[] = Array.isArray(insightsData)
-      ? insightsData.map((insight: any, index: number) => ({
-          id: insight.id ?? `insight-${index}`,
-          askId: insight.askId ?? askData.id ?? key,
-          askSessionId: insight.askSessionId ?? askData.askSessionId ?? askData.id ?? key,
-          challengeId: insight.challengeId ?? insight.linkedChallengeId ?? null,
-          authorId: insight.authorId ?? insight.userId ?? null,
-          authorName: insight.authorName ?? insight.author ?? insight.userName ?? null,
-          content: insight.content ?? insight.message ?? '',
-          summary: insight.summary ?? insight.synopsis ?? null,
-          type: insight.type ?? insight.insightType ?? 'idea',
-          category: insight.category ?? null,
-          status: insight.status ?? 'new',
-          priority: insight.priority ?? null,
-          createdAt: insight.createdAt ?? new Date().toISOString(),
-          updatedAt: insight.updatedAt ?? insight.createdAt ?? new Date().toISOString(),
-          relatedChallengeIds: insight.relatedChallengeIds ?? insight.challengeIds ?? [],
-          kpis: Array.isArray(insight.kpis)
-            ? insight.kpis.map((kpi: any, kIndex: number) => ({
-                id: kpi.id ?? `kpi-${kIndex}`,
-                label: kpi.label ?? kpi.name ?? 'KPI',
-                value: kpi.value ?? kpi.metric ?? undefined,
-                description: kpi.description ?? null,
-              }))
-            : [],
-          sourceMessageId: insight.sourceMessageId ?? insight.messageId ?? null,
-        }))
-      : [];
+    if (ask.startDate) {
+      const now = Date.now();
+      const start = new Date(ask.startDate).getTime();
+      if (!Number.isNaN(start) && start > now) {
+        ask.isActive = false;
+      }
+    }
 
     return NextResponse.json<ApiResponse<{
       ask: Ask;
-      messages: any[];
-      challenges: any[];
+      messages: Message[];
       insights: Insight[];
+      challenges: any[];
     }>>({
       success: true,
       data: {
         ask,
-        messages: messagesData,
-        challenges: challengesData,
+        messages,
         insights,
+        challenges: [],
       }
     });
-
   } catch (error) {
-    console.error('Error retrieving ASK from backend:', error);
+    console.error('Error retrieving ASK from database:', error);
     return NextResponse.json<ApiResponse>({
       success: false,
       error: parseErrorMessage(error)
@@ -146,10 +363,6 @@ export async function GET(
   }
 }
 
-/**
- * POST /api/ask/[key] - Send message to external backend
- * This endpoint forwards user messages to the external backend
- */
 export async function POST(
   request: NextRequest,
   { params }: { params: { key: string } }
@@ -164,46 +377,87 @@ export async function POST(
       }, { status: 400 });
     }
 
-    const messageData = await request.json();
+    const body = await request.json();
 
-    const externalWebhook = process.env.EXTERNAL_RESPONSE_WEBHOOK;
-    
-    if (!externalWebhook) {
+    if (!body?.content) {
       return NextResponse.json<ApiResponse>({
         success: false,
-        error: 'External webhook not configured'
-      }, { status: 500 });
+        error: 'Message content is required'
+      }, { status: 400 });
     }
 
-    // Forward message to external backend
-    const response = await fetch(externalWebhook, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Webhook-Source': 'agentic-design-flow',
-        'X-Request-Type': 'user-message'
-      },
-      body: JSON.stringify({
-        askKey: key,
-        action: 'user_message',
-        message: messageData
-      })
-    });
+    const supabase = getAdminSupabaseClient();
 
-    if (!response.ok) {
-      throw new Error(`External webhook responded with status ${response.status}`);
+    const { data: askRow, error: askError } = await supabase
+      .from<AskSessionRow>('ask_sessions')
+      .select('id, ask_key')
+      .eq('ask_key', key)
+      .maybeSingle();
+
+    if (askError) {
+      throw askError;
     }
 
-    const result = await response.json();
+    if (!askRow) {
+      return NextResponse.json<ApiResponse>({
+        success: false,
+        error: 'ASK introuvable pour la clé fournie'
+      }, { status: 404 });
+    }
 
-    return NextResponse.json<ApiResponse>({
+    const timestamp = body.timestamp ?? new Date().toISOString();
+    const metadata = body.metadata && typeof body.metadata === 'object' ? body.metadata : {};
+
+    if (body.senderName && typeof body.senderName === 'string' && body.senderName.trim().length > 0) {
+      metadata.senderName = body.senderName;
+    }
+
+    const insertPayload = {
+      ask_session_id: askRow.id,
+      content: body.content,
+      message_type: body.type ?? 'text',
+      sender_type: body.senderType ?? 'user',
+      metadata,
+      created_at: timestamp,
+      user_id: body.userId ?? null,
+    };
+
+    const { data: insertedRows, error: insertError } = await supabase
+      .from('messages')
+      .insert(insertPayload)
+      .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at')
+      .limit(1);
+
+    if (insertError) {
+      throw insertError;
+    }
+
+    const inserted = insertedRows?.[0] as MessageRow | undefined;
+
+    if (!inserted) {
+      throw new Error('Unable to insert message');
+    }
+
+    const message: Message = {
+      id: inserted.id,
+      askKey: askRow.ask_key,
+      askSessionId: inserted.ask_session_id,
+      content: inserted.content,
+      type: (inserted.message_type as Message['type']) ?? 'text',
+      senderType: (inserted.sender_type as Message['senderType']) ?? 'user',
+      senderId: inserted.user_id ?? null,
+      senderName: typeof metadata.senderName === 'string' ? metadata.senderName : body.senderName ?? null,
+      timestamp: inserted.created_at ?? timestamp,
+      metadata: normaliseMessageMetadata(inserted.metadata),
+    };
+
+    return NextResponse.json<ApiResponse<{ message: Message }>>({
       success: true,
-      data: result,
-      message: 'Message sent successfully'
+      data: { message },
+      message: 'Message saved successfully'
     });
-
   } catch (error) {
-    console.error('Error sending message to backend:', error);
+    console.error('Error saving message to database:', error);
     return NextResponse.json<ApiResponse>({
       success: false,
       error: parseErrorMessage(error)

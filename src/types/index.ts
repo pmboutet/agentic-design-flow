@@ -15,8 +15,12 @@ export interface AskParticipant {
 export interface Ask {
   id: string;
   key: string;
+  name?: string | null;
   question: string;
+  description?: string | null;
+  status?: string | null;
   isActive: boolean;
+  startDate?: string | null; // ISO string
   endDate: string; // ISO string
   createdAt: string;
   updatedAt: string;
@@ -28,18 +32,25 @@ export interface Ask {
 }
 
 // Types for conversation messages
+export type MessageSenderType = 'user' | 'ai' | 'system';
+
 export interface Message {
   id: string;
   askKey: string;
+  askSessionId?: string;
   content: string;
   type: 'text' | 'audio' | 'image' | 'document';
-  sender: 'user' | 'ai';
+  senderType: MessageSenderType;
+  senderId?: string | null;
+  senderName?: string | null;
   timestamp: string;
   metadata?: {
     fileName?: string;
     fileSize?: number;
     mimeType?: string;
     duration?: number; // for audio files
+    senderName?: string;
+    [key: string]: unknown;
   };
 }
 
@@ -157,6 +168,8 @@ export interface ChatComponentProps {
   onSendMessage: (content: string, type?: Message['type'], metadata?: Message['metadata']) => void;
   isLoading: boolean;
   onHumanTyping?: (isTyping: boolean) => void;
+  currentParticipantName?: string | null;
+  isMultiUser?: boolean;
 }
 
 export interface ChallengeComponentProps {

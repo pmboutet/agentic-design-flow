@@ -29,6 +29,8 @@ export default function HomePage() {
   });
   const responseTimerRef = useRef<NodeJS.Timeout | null>(null);
   const [awaitingAiResponse, setAwaitingAiResponse] = useState(false);
+  const participantFromUrl = searchParams.get('participant') || searchParams.get('participantName');
+  const currentParticipantName = participantFromUrl?.trim() ? participantFromUrl.trim() : null;
 
   const cancelResponseTimer = useCallback(() => {
     if (responseTimerRef.current) {
@@ -43,16 +45,62 @@ export default function HomePage() {
     }
 
     try {
-      await fetch(`/api/ask/${sessionData.askKey}/respond`, {
+      setSessionData(prev => ({
+        ...prev,
+        isLoading: true,
+      }));
+
+      if (isTestMode) {
+        const simulatedAiMessage: Message = {
+          id: `ai-${Date.now()}`,
+          askKey: sessionData.askKey,
+          askSessionId: sessionData.ask?.askSessionId,
+          content: "Message de test : voici une réponse simulée de l'agent.",
+          type: 'text',
+          senderType: 'ai',
+          senderId: null,
+          senderName: 'Agent',
+          timestamp: new Date().toISOString(),
+          metadata: { senderName: 'Agent' },
+        };
+
+        setSessionData(prev => ({
+          ...prev,
+          messages: [...prev.messages, simulatedAiMessage],
+          isLoading: false,
+        }));
+        return;
+      }
+
+      const response = await fetch(`/api/ask/${sessionData.askKey}/respond`, {
         method: 'POST',
       });
+
+      const data: ApiResponse<{ message: Message }> = await response.json();
+
+      if (!data.success) {
+        throw new Error(data.error || 'Unable to retrieve AI response');
+      }
+
+      if (data.data?.message) {
+        setSessionData(prev => ({
+          ...prev,
+          messages: [...prev.messages, data.data!.message],
+          isLoading: false,
+        }));
+      }
     } catch (error) {
       console.error('Unable to trigger AI response webhook', error);
+      setSessionData(prev => ({
+        ...prev,
+        isLoading: false,
+        error: parseErrorMessage(error)
+      }));
     } finally {
       setAwaitingAiResponse(false);
       cancelResponseTimer();
     }
-  }, [cancelResponseTimer, sessionData.askKey]);
+  }, [cancelResponseTimer, sessionData.ask?.askSessionId, sessionData.askKey, isTestMode]);
 
   const scheduleResponseTimer = useCallback(() => {
     cancelResponseTimer();
@@ -153,20 +201,44 @@ export default function HomePage() {
     }
   };
 
-  // Handle sending messages to external backend
+  // Handle sending messages to database and schedule AI response
   const handleSendMessage = async (
-    content: string, 
-    type: Message['type'] = 'text', 
+    content: string,
+    type: Message['type'] = 'text',
     metadata?: Message['metadata']
   ) => {
     if (!sessionData.askKey) return;
 
-    setSessionData(prev => ({ ...prev, isLoading: true }));
+    const timestamp = new Date().toISOString();
+    const optimisticId = `temp-${Date.now()}`;
+    const senderName = currentParticipantName || 'Vous';
+    const optimisticMetadata = {
+      ...(metadata ?? {}),
+      senderName,
+    } as Message['metadata'];
+
+    const optimisticMessage: Message = {
+      id: optimisticId,
+      askKey: sessionData.askKey,
+      askSessionId: sessionData.ask?.askSessionId,
+      content,
+      type,
+      senderType: 'user',
+      senderId: null,
+      senderName,
+      timestamp,
+      metadata: optimisticMetadata,
+    };
+
+    setSessionData(prev => ({
+      ...prev,
+      messages: [...prev.messages, optimisticMessage],
+      isLoading: true,
+    }));
 
     try {
-      // Use test endpoint if in test mode, otherwise use real API
       const endpoint = isTestMode ? `/api/test/${sessionData.askKey}` : `/api/ask/${sessionData.askKey}`;
-      
+
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
@@ -176,18 +248,32 @@ export default function HomePage() {
           content,
           type,
           metadata,
-          timestamp: new Date().toISOString()
+          senderName,
+          timestamp,
         })
       });
 
-      const data: ApiResponse = await response.json();
+      const data: ApiResponse<{ message: Message }> = await response.json();
 
       if (!data.success) {
         throw new Error(data.error || 'Failed to send message');
       }
 
-      // Reload session data to get updated messages and potential new challenges
-      await loadSessionData(sessionData.askKey);
+      if (data.data?.message) {
+        setSessionData(prev => ({
+          ...prev,
+          messages: prev.messages.map(message =>
+            message.id === optimisticId ? data.data!.message : message
+          ),
+          isLoading: false,
+        }));
+      } else {
+        setSessionData(prev => ({
+          ...prev,
+          isLoading: false,
+        }));
+      }
+
       setAwaitingAiResponse(true);
       scheduleResponseTimer();
 
@@ -198,6 +284,7 @@ export default function HomePage() {
       setSessionData(prev => ({
         ...prev,
         isLoading: false,
+        messages: prev.messages.filter(message => message.id !== optimisticId),
         error: parseErrorMessage(error)
       }));
     }
@@ -432,6 +519,8 @@ export default function HomePage() {
               onSendMessage={handleSendMessage}
               isLoading={sessionData.isLoading}
               onHumanTyping={handleHumanTyping}
+              currentParticipantName={currentParticipantName}
+              isMultiUser={Boolean(sessionData.ask && sessionData.ask.participants.length > 1)}
             />
           </div>
         </motion.div>
