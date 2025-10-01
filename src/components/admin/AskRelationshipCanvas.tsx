@@ -51,7 +51,7 @@ interface AskRelationshipCanvasProps {
   onProjectSelect?: (projectId: string) => void;
   onChallengeSelect?: (challengeId: string) => void;
   onAskSelect?: (askId: string) => void;
-}
+
 
 const PROJECT_NODE = { width: 260, height: 104 } as const;
 const CHALLENGE_NODE = { width: 240, height: 92 } as const;
@@ -191,7 +191,6 @@ function buildLayout(
 
     const placeChallenge = (challenge: ChallengeRecord, depth: number, parentNodeId: string) => {
       const dueLabel = formatDate(challenge.dueDate);
-
       const challengeNode: LayoutNode = {
         id: `challenge-${challenge.id}`,
         entityId: challenge.id,
@@ -199,6 +198,7 @@ function buildLayout(
         x: baseX + depth * LEVEL_GAP_X,
         y: cursorY,
         width: CHALLENGE_NODE.width,
+
         height: CHALLENGE_NODE.height,
         label: challenge.name,
         subtitle: challenge.description ?? undefined,
@@ -211,7 +211,6 @@ function buildLayout(
 
       nodes.push(challengeNode);
       edges.push({ id: `${parentNodeId}->${challengeNode.id}`, from: parentNodeId, to: challengeNode.id });
-
       cursorY += ROW_GAP_Y;
       let localBottom = challengeNode.y + challengeNode.height;
 
@@ -245,7 +244,6 @@ function buildLayout(
         edges.push({ id: `${challengeNode.id}->${askNode.id}`, from: challengeNode.id, to: askNode.id });
         localBottom = Math.max(localBottom, askNode.y + askNode.height);
       });
-
       const childChallenges = challengeChildren.get(challenge.id) ?? [];
 
       childChallenges.forEach(child => {
@@ -278,13 +276,13 @@ export function AskRelationshipCanvas({
   onProjectSelect,
   onChallengeSelect,
   onAskSelect
+
 }: AskRelationshipCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [viewport, setViewport] = useState({ x: 0, y: 0, scale: 0.9 });
   const [hasInteracted, setHasInteracted] = useState(false);
   const [forceCenterKey, setForceCenterKey] = useState(0);
   const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
-
   const { nodes, edges } = useMemo(() => buildLayout(projects, challenges, asks), [projects, challenges, asks]);
 
   const nodeMap = useMemo(() => {
@@ -298,6 +296,7 @@ export function AskRelationshipCanvas({
   const focusNode = useMemo(() => {
     if (focusAskId) {
       const node = nodes.find(item => item.askId === focusAskId);
+
       if (node) {
         return node;
       }
@@ -407,6 +406,7 @@ export function AskRelationshipCanvas({
     if (event.button !== 0) {
       return;
     }
+
     setHasInteracted(true);
     pointerState.current = {
       isPanning: true,
@@ -535,6 +535,7 @@ export function AskRelationshipCanvas({
     if (node.type === "ask" && node.askId) {
       onAskSelect?.(node.askId);
     }
+
   };
 
   if (nodes.length === 0) {

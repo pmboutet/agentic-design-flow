@@ -247,6 +247,7 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
   const [isLargeScreen, setIsLargeScreen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(true);
 
+
   const [editingClientId, setEditingClientId] = useState<string | null>(null);
   const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
   const [editingAskId, setEditingAskId] = useState<string | null>(null);
@@ -286,6 +287,7 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
     return navigationItems;
   }, [showOnlyChallengeWorkspace]);
 
+
   useEffect(() => {
     if (!navigationMenu.some(item => item.label === activeSection)) {
       setActiveSection(navigationMenu[0]?.label ?? navigationItems[0].label);
@@ -297,6 +299,7 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
       setActiveSection("Challenges");
     }
   }, [showOnlyChallengeWorkspace]);
+
 
   const resizeStartXRef = useRef(0);
   const startColumnWidthsRef = useRef<ColumnWidths>(defaultColumnWidths);
@@ -915,6 +918,7 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
           Select a challenge to update it and orchestrate new ASK conversations.
         </p>
       </header>
+
 
       <div className="space-y-6">
         {projectContextMissing && (
