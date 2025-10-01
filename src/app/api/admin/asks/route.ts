@@ -6,6 +6,10 @@ import { parseErrorMessage } from "@/lib/utils";
 import { type ApiResponse, type AskSessionRecord } from "@/types";
 
 const statusValues = ["active", "inactive", "draft", "closed"] as const;
+const deliveryModes = ["physical", "digital"] as const;
+const audienceScopes = ["individual", "group"] as const;
+const responseModes = ["collective", "simultaneous"] as const;
+const askSelect = "*, projects(name), ask_participants(id, user_id, role, participant_name, participant_email, is_spokesperson, users(id, full_name, first_name, last_name, email, role))";
 const dateSchema = z.string().trim().min(1).refine(value => !Number.isNaN(new Date(value).getTime()), {
   message: "Invalid date"
 });
@@ -21,10 +25,30 @@ const askSchema = z.object({
   startDate: dateSchema,
   endDate: dateSchema,
   isAnonymous: z.boolean().default(false),
-  maxParticipants: z.number().int().positive().max(10000).optional()
+  maxParticipants: z.number().int().positive().max(10000).optional(),
+  deliveryMode: z.enum(deliveryModes),
+  audienceScope: z.enum(audienceScopes),
+  responseMode: z.enum(responseModes),
+  participantIds: z.array(z.string().uuid()).default([]),
+  spokespersonId: z.string().uuid().optional().or(z.literal(""))
 });
 
 function mapAsk(row: any): AskSessionRecord {
+  const participants = (row.ask_participants ?? []).map((participant: any) => {
+    const user = participant.users ?? {};
+    const nameFromUser = [user.first_name, user.last_name].filter(Boolean).join(" ");
+    const displayName = participant.participant_name || user.full_name || nameFromUser || participant.participant_email || "Participant";
+
+    return {
+      id: String(participant.user_id ?? participant.id),
+      name: displayName,
+      email: participant.participant_email || user.email || null,
+      role: user.role || participant.role || null,
+      isSpokesperson: participant.role === "spokesperson" || participant.is_spokesperson === true,
+      isActive: true,
+    };
+  });
+
   return {
     id: row.id,
     askKey: row.ask_key,
@@ -39,9 +63,13 @@ function mapAsk(row: any): AskSessionRecord {
     endDate: row.end_date,
     isAnonymous: row.is_anonymous,
     maxParticipants: row.max_participants,
+    deliveryMode: row.delivery_mode ?? "digital",
+    audienceScope: row.audience_scope ?? "individual",
+    responseMode: row.response_mode ?? "collective",
     createdBy: row.created_by,
     createdAt: row.created_at,
-    updatedAt: row.updated_at
+    updatedAt: row.updated_at,
+    participants,
   };
 }
 
@@ -53,7 +81,7 @@ export async function GET(request: NextRequest) {
 
     let query = supabase
       .from("ask_sessions")
-      .select("*, projects(name)")
+      .select(askSelect)
       .order("created_at", { ascending: false });
 
     if (challengeId) {
@@ -106,18 +134,46 @@ export async function POST(request: NextRequest) {
         start_date: startDate,
         end_date: endDate,
         is_anonymous: payload.isAnonymous,
-        max_participants: payload.maxParticipants ?? null
+        max_participants: payload.maxParticipants ?? null,
+        delivery_mode: payload.deliveryMode,
+        audience_scope: payload.audienceScope,
+        response_mode: payload.responseMode
       })
-      .select("*, projects(name)")
+      .select(askSelect)
       .single();
 
     if (error) {
       throw error;
     }
 
+    if (payload.participantIds.length > 0) {
+      const spokespersonId = payload.spokespersonId && payload.spokespersonId !== "" ? payload.spokespersonId : null;
+      const participantsPayload = payload.participantIds.map(userId => ({
+        ask_session_id: data.id,
+        user_id: userId,
+        role: spokespersonId && userId === spokespersonId ? "spokesperson" : "participant",
+      }));
+
+      const { error: participantError } = await supabase
+        .from("ask_participants")
+        .insert(participantsPayload);
+
+      if (participantError) {
+        throw participantError;
+      }
+    }
+
+    const { data: hydrated, error: fetchError } = await supabase
+      .from("ask_sessions")
+      .select(askSelect)
+      .eq("id", data.id)
+      .single();
+
+    const record = fetchError ? data : hydrated;
+
     return NextResponse.json<ApiResponse<AskSessionRecord>>({
       success: true,
-      data: mapAsk(data)
+      data: mapAsk(record)
     }, { status: 201 });
   } catch (error) {
     const status = error instanceof z.ZodError ? 400 : 500;

@@ -29,6 +29,15 @@ export function getMockProjectJourneyData(projectId: string): ProjectJourneyBoar
         status: "active",
         theme: "Expérience magasin",
         dueDate: "2024-05-30",
+        originatingChallengeIds: [
+          "challenge-visibility",
+          "challenge-data-stream",
+          "challenge-order-promise",
+        ],
+        relatedProjects: [
+          { id: projectId, name: "Programme Phygital Nova" },
+          { id: "project-ops-2024", name: "Ops Click & Collect 2024" },
+        ],
         participants: [
           {
             id: "user-alice",
@@ -121,6 +130,15 @@ export function getMockProjectJourneyData(projectId: string): ProjectJourneyBoar
         status: "active",
         theme: "Parcours client",
         dueDate: "2024-06-10",
+        originatingChallengeIds: [
+          "challenge-omnichannel",
+          "challenge-employee-adoption",
+          "challenge-training",
+        ],
+        relatedProjects: [
+          { id: projectId, name: "Programme Phygital Nova" },
+          { id: "project-cx-2024", name: "CX Omnicanal 2024" },
+        ],
         participants: [
           {
             id: "user-julia",
@@ -206,6 +224,13 @@ export function getMockProjectJourneyData(projectId: string): ProjectJourneyBoar
         status: "draft",
         theme: "Innovation",
         dueDate: "2024-06-28",
+        originatingChallengeIds: [
+          "challenge-omnichannel",
+          "challenge-data-stream",
+        ],
+        relatedProjects: [
+          { id: projectId, name: "Programme Phygital Nova" },
+        ],
         participants: [
           {
             id: "user-leo",

@@ -557,12 +557,16 @@ export function AskRelationshipCanvas({
       }
 
       if (state.activePointers.size === 1) {
-        const remaining = state.activePointers.values().next().value;
-        state.isPanning = true;
-        state.startX = remaining.x;
-        state.startY = remaining.y;
-        state.originX = viewport.x;
-        state.originY = viewport.y;
+        const nextValue = state.activePointers.values().next().value as { x: number; y: number } | undefined;
+        if (nextValue) {
+          state.isPanning = true;
+          state.startX = nextValue.x;
+          state.startY = nextValue.y;
+          state.originX = viewport.x;
+          state.originY = viewport.y;
+        } else {
+          state.isPanning = false;
+        }
       } else {
         state.isPanning = false;
       }

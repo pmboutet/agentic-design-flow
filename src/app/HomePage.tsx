@@ -1,14 +1,14 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import React, { useState, useEffect, useCallback, useRef } from "react";
+import { useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
-import { AlertCircle, MessageSquare, Target, Sparkles } from "lucide-react";
+import { AlertCircle, MessageSquare, Sparkles } from "lucide-react";
 import { ChatComponent } from "@/components/chat/ChatComponent";
-import { ChallengeComponent } from "@/components/challenge/ChallengeComponent";
+import { InsightPanel } from "@/components/insight/InsightPanel";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { SessionData, Ask, Message, Challenge, ApiResponse } from "@/types";
+import { SessionData, Ask, Message, Insight, ApiResponse } from "@/types";
 import { isValidAskKey, validateAskKey, parseErrorMessage } from "@/lib/utils";
 
 /**
@@ -18,16 +18,54 @@ import { isValidAskKey, validateAskKey, parseErrorMessage } from "@/lib/utils";
  */
 export default function HomePage() {
   const searchParams = useSearchParams();
-  const router = useRouter();
-  
   const [sessionData, setSessionData] = useState<SessionData>({
     askKey: '',
     ask: null,
     messages: [],
+    insights: [],
     challenges: [],
     isLoading: false,
     error: null
   });
+  const responseTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const [awaitingAiResponse, setAwaitingAiResponse] = useState(false);
+
+  const cancelResponseTimer = useCallback(() => {
+    if (responseTimerRef.current) {
+      clearTimeout(responseTimerRef.current);
+      responseTimerRef.current = null;
+    }
+  }, []);
+
+  const triggerAiResponse = useCallback(async () => {
+    if (!sessionData.askKey) {
+      return;
+    }
+
+    try {
+      await fetch(`/api/ask/${sessionData.askKey}/respond`, {
+        method: 'POST',
+      });
+    } catch (error) {
+      console.error('Unable to trigger AI response webhook', error);
+    } finally {
+      setAwaitingAiResponse(false);
+      cancelResponseTimer();
+    }
+  }, [cancelResponseTimer, sessionData.askKey]);
+
+  const scheduleResponseTimer = useCallback(() => {
+    cancelResponseTimer();
+    responseTimerRef.current = setTimeout(() => {
+      triggerAiResponse();
+    }, 3000);
+  }, [cancelResponseTimer, triggerAiResponse]);
+
+  useEffect(() => {
+    return () => {
+      cancelResponseTimer();
+    };
+  }, [cancelResponseTimer]);
 
   // Check if we're in test mode
   const isTestMode = searchParams.get('mode') === 'test';
@@ -65,6 +103,18 @@ export default function HomePage() {
     loadSessionData(key);
   }, [searchParams]);
 
+  const handleHumanTyping = useCallback((isTyping: boolean) => {
+    if (!awaitingAiResponse) {
+      return;
+    }
+
+    if (isTyping) {
+      cancelResponseTimer();
+    } else {
+      scheduleResponseTimer();
+    }
+  }, [awaitingAiResponse, cancelResponseTimer, scheduleResponseTimer]);
+
   // Load session data from external backend via API
   const loadSessionData = async (key: string) => {
     try {
@@ -75,7 +125,8 @@ export default function HomePage() {
       const data: ApiResponse<{
         ask: Ask;
         messages: Message[];
-        challenges: Challenge[];
+        insights?: Insight[];
+        challenges?: any[];
       }> = await response.json();
 
       if (!data.success) {
@@ -86,7 +137,8 @@ export default function HomePage() {
         ...prev,
         ask: data.data!.ask,
         messages: data.data!.messages,
-        challenges: data.data!.challenges,
+        insights: data.data?.insights ?? [],
+        challenges: data.data?.challenges ?? [],
         isLoading: false,
         error: null
       }));
@@ -136,54 +188,16 @@ export default function HomePage() {
 
       // Reload session data to get updated messages and potential new challenges
       await loadSessionData(sessionData.askKey);
+      setAwaitingAiResponse(true);
+      scheduleResponseTimer();
 
     } catch (error) {
       console.error('Error sending message:', error);
+      setAwaitingAiResponse(false);
+      cancelResponseTimer();
       setSessionData(prev => ({
         ...prev,
         isLoading: false,
-        error: parseErrorMessage(error)
-      }));
-    }
-  };
-
-  // Handle challenge updates (send to backend)
-  const handleUpdateChallenge = async (challenge: Challenge) => {
-    if (!sessionData.askKey) return;
-
-    try {
-      // Send challenge update to external backend
-      const response = await fetch(`/api/challenges/${sessionData.askKey}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          askKey: sessionData.askKey,
-          challenge,
-          action: 'update_challenge',
-          timestamp: new Date().toISOString()
-        })
-      });
-
-      const data: ApiResponse = await response.json();
-
-      if (!data.success) {
-        throw new Error(data.error || 'Failed to update challenge');
-      }
-
-      // Update challenge in local state optimistically
-      setSessionData(prev => ({
-        ...prev,
-        challenges: prev.challenges.map(c => 
-          c.id === challenge.id ? challenge : c
-        )
-      }));
-
-    } catch (error) {
-      console.error('Error updating challenge:', error);
-      setSessionData(prev => ({
-        ...prev,
         error: parseErrorMessage(error)
       }));
     }
@@ -417,51 +431,23 @@ export default function HomePage() {
               messages={sessionData.messages}
               onSendMessage={handleSendMessage}
               isLoading={sessionData.isLoading}
+              onHumanTyping={handleHumanTyping}
             />
           </div>
         </motion.div>
 
-        {/* Challenge Section - 2/3 of screen with enhanced styling */}
-        <motion.div 
+        {/* Insight Section - 2/3 of screen with enhanced styling */}
+        <motion.div
           initial={{ opacity: 0, x: 40 }}
           animate={{ opacity: 1, x: 0 }}
           transition={{ duration: 0.6, delay: 0.2 }}
           className="flex-1"
         >
-          <div className="glass-card h-full flex flex-col">
-            <div className="p-6 border-b border-white/20">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 bg-gradient-to-br from-purple-400 to-pink-500 rounded-lg flex items-center justify-center">
-                    <Target className="h-5 w-5 text-white" />
-                  </div>
-                  <div>
-                    <h2 className="text-lg font-semibold text-foreground">Challenges</h2>
-                    <p className="text-sm text-muted-foreground">
-                      AI-generated insights from your conversation
-                    </p>
-                  </div>
-                </div>
-                
-                <motion.div
-                  animate={{ scale: [1, 1.1, 1] }}
-                  transition={{ duration: 2, repeat: Infinity }}
-                  className="neumorphic-shadow px-3 py-1 rounded-full bg-gradient-to-r from-primary/10 to-accent/10"
-                >
-                  <span className="text-sm font-medium text-primary">
-                    {sessionData.challenges.length} insights
-                  </span>
-                </motion.div>
-              </div>
-            </div>
-            
-            <div className="flex-1 overflow-hidden">
-              <ChallengeComponent
-                challenges={sessionData.challenges}
-                onUpdateChallenge={handleUpdateChallenge}
-                askKey={sessionData.askKey}
-              />
-            </div>
+          <div className="h-full">
+            <InsightPanel
+              insights={sessionData.insights}
+              askKey={sessionData.askKey}
+            />
           </div>
         </motion.div>
       </main>
