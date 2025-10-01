@@ -62,10 +62,10 @@ export async function POST(
     const supabase = getAdminSupabaseClient();
 
     const { data: askRow, error: askError } = await supabase
-      .from<AskSessionRow>('ask_sessions')
+      .from('ask_sessions')
       .select('id, ask_key')
       .eq('ask_key', key)
-      .maybeSingle();
+      .maybeSingle<AskSessionRow>();
 
     if (askError) {
       throw askError;
@@ -79,7 +79,7 @@ export async function POST(
     }
 
     const { data: messageRows, error: messageError } = await supabase
-      .from<MessageRow>('messages')
+      .from('messages')
       .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at')
       .eq('ask_session_id', askRow.id)
       .order('created_at', { ascending: true });

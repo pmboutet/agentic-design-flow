@@ -125,10 +125,10 @@ export async function GET(
     const supabase = getAdminSupabaseClient();
 
     const { data: askRow, error: askError } = await supabase
-      .from<AskSessionRow>('ask_sessions')
+      .from('ask_sessions')
       .select('*')
       .eq('ask_key', key)
-      .maybeSingle();
+      .maybeSingle<AskSessionRow>();
 
     if (askError) {
       throw askError;
@@ -144,7 +144,7 @@ export async function GET(
     const askSessionId = askRow.id;
 
     const { data: participantRows, error: participantError } = await supabase
-      .from<ParticipantRow>('ask_participants')
+      .from('ask_participants')
       .select('*')
       .eq('ask_session_id', askSessionId)
       .order('joined_at', { ascending: true });
@@ -161,7 +161,7 @@ export async function GET(
 
     if (participantUserIds.length > 0) {
       const { data: userRows, error: userError } = await supabase
-        .from<UserRow>('users')
+        .from('users')
         .select('id, email, full_name, first_name, last_name')
         .in('id', participantUserIds);
 
@@ -188,7 +188,7 @@ export async function GET(
     });
 
     const { data: messageRows, error: messageError } = await supabase
-      .from<MessageRow>('messages')
+      .from('messages')
       .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at')
       .eq('ask_session_id', askSessionId)
       .order('created_at', { ascending: true });
@@ -205,7 +205,7 @@ export async function GET(
 
     if (additionalUserIds.length > 0) {
       const { data: extraUsers, error: extraUsersError } = await supabase
-        .from<UserRow>('users')
+        .from('users')
         .select('id, email, full_name, first_name, last_name')
         .in('id', additionalUserIds);
 
@@ -264,7 +264,7 @@ export async function GET(
     });
 
     const { data: insightRows, error: insightError } = await supabase
-      .from<InsightRow>('insights')
+      .from('insights')
       .select('*')
       .eq('ask_session_id', askSessionId)
       .order('created_at', { ascending: true });
@@ -291,7 +291,7 @@ export async function GET(
         createdAt: row.created_at ?? new Date().toISOString(),
         updatedAt: row.updated_at ?? row.created_at ?? new Date().toISOString(),
         relatedChallengeIds: Array.isArray(row.related_challenge_ids) ? row.related_challenge_ids : [],
-        kpis: rawKpis.map((kpi, kpiIndex) => ({
+        kpis: rawKpis.map((kpi: unknown, kpiIndex: number) => ({
           id: String((kpi as any)?.id ?? `kpi-${kpiIndex}`),
           label: String((kpi as any)?.label ?? 'KPI'),
           value: (kpi as any)?.value ?? undefined,
@@ -389,10 +389,10 @@ export async function POST(
     const supabase = getAdminSupabaseClient();
 
     const { data: askRow, error: askError } = await supabase
-      .from<AskSessionRow>('ask_sessions')
+      .from('ask_sessions')
       .select('id, ask_key')
       .eq('ask_key', key)
-      .maybeSingle();
+      .maybeSingle<Pick<AskSessionRow, 'id' | 'ask_key'>>();
 
     if (askError) {
       throw askError;

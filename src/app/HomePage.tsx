@@ -31,6 +31,7 @@ export default function HomePage() {
   const [awaitingAiResponse, setAwaitingAiResponse] = useState(false);
   const participantFromUrl = searchParams.get('participant') || searchParams.get('participantName');
   const currentParticipantName = participantFromUrl?.trim() ? participantFromUrl.trim() : null;
+  const isTestMode = searchParams.get('mode') === 'test';
 
   const cancelResponseTimer = useCallback(() => {
     if (responseTimerRef.current) {
@@ -114,9 +115,6 @@ export default function HomePage() {
       cancelResponseTimer();
     };
   }, [cancelResponseTimer]);
-
-  // Check if we're in test mode
-  const isTestMode = searchParams.get('mode') === 'test';
 
   // Initialize session from URL parameters
   useEffect(() => {
