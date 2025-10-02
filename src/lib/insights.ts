@@ -27,6 +27,16 @@ export interface InsightRow {
   insight_authors?: InsightAuthorRow[] | null;
 }
 
+// Helper function to safely get ask_id from a row, handling cases where the column might not exist
+function getAskId(row: any): string | null {
+  try {
+    return row.ask_id ?? null;
+  } catch (error) {
+    // Column doesn't exist, return null
+    return null;
+  }
+}
+
 export function mapInsightRowToInsight(row: InsightRow): Insight {
   const rawKpis = Array.isArray(row.kpis) ? row.kpis : [];
   const createdAt = row.created_at ?? new Date().toISOString();
@@ -41,8 +51,8 @@ export function mapInsightRowToInsight(row: InsightRow): Insight {
 
   return {
     id: row.id,
-    askId: row.ask_session_id ?? row.ask_id ?? '',
-    askSessionId: row.ask_session_id ?? row.ask_id ?? '',
+    askId: row.ask_session_id ?? getAskId(row) ?? '',
+    askSessionId: row.ask_session_id ?? getAskId(row) ?? '',
     challengeId: row.challenge_id ?? null,
     authorId: primaryAuthor?.userId ?? null,
     authorName: primaryAuthor?.name ?? null,

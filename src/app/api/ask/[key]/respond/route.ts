@@ -109,11 +109,24 @@ async function fetchInsightById(
   supabase: AdminSupabaseClient,
   insightId: string,
 ): Promise<InsightRow | null> {
-  const { data, error } = await supabase
+  // Try to select with ask_id first, fallback to without it if column doesn't exist
+  let { data, error } = await supabase
     .from('insights')
-    .select('id, ask_session_id, challenge_id, content, summary, type, category, status, priority, created_at, updated_at, related_challenge_ids, kpis, source_message_id, insight_authors (id, user_id, display_name)')
+    .select('id, ask_session_id, ask_id, challenge_id, content, summary, type, category, status, priority, created_at, updated_at, related_challenge_ids, kpis, source_message_id, insight_authors (id, user_id, display_name)')
     .eq('id', insightId)
     .maybeSingle<InsightRow>();
+
+  // If ask_id column doesn't exist, retry without it
+  if (error && error.message.includes('column insights.ask_id does not exist')) {
+    const fallbackResult = await supabase
+      .from('insights')
+      .select('id, ask_session_id, challenge_id, content, summary, type, category, status, priority, created_at, updated_at, related_challenge_ids, kpis, source_message_id, insight_authors (id, user_id, display_name)')
+      .eq('id', insightId)
+      .maybeSingle<InsightRow>();
+    
+    data = fallbackResult.data;
+    error = fallbackResult.error;
+  }
 
   if (error) {
     throw error;
@@ -308,11 +321,24 @@ export async function POST(
       throw messageError;
     }
 
-    const { data: insightRows, error: insightError } = await supabase
+    // Try to select with ask_id first, fallback to without it if column doesn't exist
+    let { data: insightRows, error: insightError } = await supabase
       .from('insights')
-      .select('id, ask_session_id, challenge_id, content, summary, type, category, status, priority, created_at, updated_at, related_challenge_ids, kpis, source_message_id, insight_authors (id, user_id, display_name)')
+      .select('id, ask_session_id, ask_id, challenge_id, content, summary, type, category, status, priority, created_at, updated_at, related_challenge_ids, kpis, source_message_id, insight_authors (id, user_id, display_name)')
       .eq('ask_session_id', askRow.id)
       .order('created_at', { ascending: true });
+
+    // If ask_id column doesn't exist, retry without it
+    if (insightError && insightError.message.includes('column insights.ask_id does not exist')) {
+      const fallbackResult = await supabase
+        .from('insights')
+        .select('id, ask_session_id, challenge_id, content, summary, type, category, status, priority, created_at, updated_at, related_challenge_ids, kpis, source_message_id, insight_authors (id, user_id, display_name)')
+        .eq('ask_session_id', askRow.id)
+        .order('created_at', { ascending: true });
+      
+      insightRows = fallbackResult.data;
+      insightError = fallbackResult.error;
+    }
 
     if (insightError) {
       throw insightError;
@@ -512,11 +538,24 @@ export async function POST(
         }
       }
 
-      const { data: latestInsights, error: latestError } = await supabase
+      // Try to select with ask_id first, fallback to without it if column doesn't exist
+      let { data: latestInsights, error: latestError } = await supabase
         .from('insights')
-        .select('id, ask_session_id, challenge_id, content, summary, type, category, status, priority, created_at, updated_at, related_challenge_ids, kpis, source_message_id, insight_authors (id, user_id, display_name)')
+        .select('id, ask_session_id, ask_id, challenge_id, content, summary, type, category, status, priority, created_at, updated_at, related_challenge_ids, kpis, source_message_id, insight_authors (id, user_id, display_name)')
         .eq('ask_session_id', askRow.id)
         .order('created_at', { ascending: true });
+
+      // If ask_id column doesn't exist, retry without it
+      if (latestError && latestError.message.includes('column insights.ask_id does not exist')) {
+        const fallbackResult = await supabase
+          .from('insights')
+          .select('id, ask_session_id, challenge_id, content, summary, type, category, status, priority, created_at, updated_at, related_challenge_ids, kpis, source_message_id, insight_authors (id, user_id, display_name)')
+          .eq('ask_session_id', askRow.id)
+          .order('created_at', { ascending: true });
+        
+        latestInsights = fallbackResult.data;
+        latestError = fallbackResult.error;
+      }
 
       if (latestError) {
         throw latestError;

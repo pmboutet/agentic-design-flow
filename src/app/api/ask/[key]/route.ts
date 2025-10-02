@@ -229,11 +229,24 @@ export async function GET(
       };
     });
 
-    const { data: insightRows, error: insightError } = await supabase
+    // Try to select with ask_id first, fallback to without it if column doesn't exist
+    let { data: insightRows, error: insightError } = await supabase
       .from('insights')
-      .select('id, ask_session_id, challenge_id, content, summary, type, category, status, priority, created_at, updated_at, related_challenge_ids, kpis, source_message_id, insight_authors (id, user_id, display_name)')
+      .select('id, ask_session_id, ask_id, challenge_id, content, summary, type, category, status, priority, created_at, updated_at, related_challenge_ids, kpis, source_message_id, insight_authors (id, user_id, display_name)')
       .eq('ask_session_id', askSessionId)
       .order('created_at', { ascending: true });
+
+    // If ask_id column doesn't exist, retry without it
+    if (insightError && insightError.message.includes('column insights.ask_id does not exist')) {
+      const fallbackResult = await supabase
+        .from('insights')
+        .select('id, ask_session_id, challenge_id, content, summary, type, category, status, priority, created_at, updated_at, related_challenge_ids, kpis, source_message_id, insight_authors (id, user_id, display_name)')
+        .eq('ask_session_id', askSessionId)
+        .order('created_at', { ascending: true });
+      
+      insightRows = fallbackResult.data;
+      insightError = fallbackResult.error;
+    }
 
     if (insightError) {
       throw insightError;
