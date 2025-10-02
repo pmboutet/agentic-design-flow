@@ -93,6 +93,12 @@ export interface InsightKpi {
 export type InsightStatus = "new" | "reviewed" | "implemented" | "archived";
 export type InsightType = "pain" | "gain" | "opportunity" | "risk" | "signal" | "idea";
 
+export interface InsightAuthor {
+  id: string;
+  userId?: string | null;
+  name?: string | null;
+}
+
 export interface Insight {
   id: string;
   askId: string;
@@ -100,6 +106,7 @@ export interface Insight {
   challengeId?: string | null;
   authorId?: string | null;
   authorName?: string | null;
+  authors: InsightAuthor[];
   content: string;
   summary?: string | null;
   type: InsightType;
