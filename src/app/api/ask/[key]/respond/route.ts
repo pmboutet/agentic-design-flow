@@ -8,6 +8,8 @@ import { normaliseMessageMetadata } from '@/lib/messages';
 
 type AdminSupabaseClient = ReturnType<typeof getAdminSupabaseClient>;
 
+type AdminSupabaseClient = ReturnType<typeof getAdminSupabaseClient>;
+
 interface AskSessionRow {
   id: string;
   ask_key: string;
@@ -23,6 +25,7 @@ interface MessageRow {
   metadata?: Record<string, unknown> | null;
   created_at?: string | null;
 }
+
 
 type IncomingInsight = {
   id?: string;
@@ -46,6 +49,7 @@ type NormalisedIncomingAuthor = {
   userId: string | null;
   name: string | null;
 };
+
 
 type NormalisedIncomingInsight = IncomingInsight & {
   authors: NormalisedIncomingAuthor[];

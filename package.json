@@ -5,6 +5,7 @@
   "main": "index.js",
   "scripts": {
     "dev": "next dev",
+    "vercel-build": "node scripts/migrate.js && npm run build",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
