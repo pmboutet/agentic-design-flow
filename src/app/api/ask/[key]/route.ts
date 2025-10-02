@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { ApiResponse, Ask, AskParticipant, Insight, Message } from '@/types';
 import { isValidAskKey, parseErrorMessage } from '@/lib/utils';
 import { getAdminSupabaseClient } from '@/lib/supabaseAdmin';
+import { mapInsightRowToInsight, type InsightRow } from '@/lib/insights';
+import { normaliseMessageMetadata } from '@/lib/messages';
 
 interface AskSessionRow {
   id: string;
@@ -48,26 +50,6 @@ interface MessageRow {
   created_at?: string | null;
 }
 
-interface InsightRow {
-  id: string;
-  ask_session_id: string;
-  ask_id?: string | null;
-  challenge_id?: string | null;
-  author_id?: string | null;
-  author_name?: string | null;
-  content?: string | null;
-  summary?: string | null;
-  type?: string | null;
-  category?: string | null;
-  status?: string | null;
-  priority?: string | null;
-  created_at?: string | null;
-  updated_at?: string | null;
-  related_challenge_ids?: string[] | null;
-  kpis?: Array<Record<string, unknown>> | null;
-  source_message_id?: string | null;
-}
-
 function buildParticipantDisplayName(participant: ParticipantRow, user: UserRow | null, index: number): string {
   if (participant.participant_name) {
     return participant.participant_name;
@@ -89,23 +71,6 @@ function buildParticipantDisplayName(participant: ParticipantRow, user: UserRow 
   }
 
   return `Participant ${index + 1}`;
-}
-
-function normaliseMessageMetadata(value: unknown): Record<string, unknown> | undefined {
-  if (!value) {
-    return undefined;
-  }
-
-  if (typeof value === 'object') {
-    return value as Record<string, unknown>;
-  }
-
-  try {
-    return JSON.parse(String(value));
-  } catch (error) {
-    console.warn('Unable to parse message metadata', error);
-    return undefined;
-  }
 }
 
 export async function GET(
@@ -265,7 +230,7 @@ export async function GET(
 
     const { data: insightRows, error: insightError } = await supabase
       .from('insights')
-      .select('*')
+      .select('id, ask_session_id, challenge_id, content, summary, type, category, status, priority, created_at, updated_at, related_challenge_ids, kpis, source_message_id, insight_authors (id, user_id, display_name)')
       .eq('ask_session_id', askSessionId)
       .order('created_at', { ascending: true });
 
@@ -273,33 +238,7 @@ export async function GET(
       throw insightError;
     }
 
-    const insights: Insight[] = (insightRows ?? []).map((row, index) => {
-      const rawKpis = Array.isArray(row.kpis) ? row.kpis : [];
-      return {
-        id: row.id,
-        askId: row.ask_id ?? askSessionId,
-        askSessionId: row.ask_session_id,
-        challengeId: row.challenge_id ?? null,
-        authorId: row.author_id ?? null,
-        authorName: row.author_name ?? null,
-        content: row.content ?? '',
-        summary: row.summary ?? null,
-        type: (row.type as Insight['type']) ?? 'idea',
-        category: row.category ?? null,
-        status: (row.status as Insight['status']) ?? 'new',
-        priority: row.priority ?? null,
-        createdAt: row.created_at ?? new Date().toISOString(),
-        updatedAt: row.updated_at ?? row.created_at ?? new Date().toISOString(),
-        relatedChallengeIds: Array.isArray(row.related_challenge_ids) ? row.related_challenge_ids : [],
-        kpis: rawKpis.map((kpi: unknown, kpiIndex: number) => ({
-          id: String((kpi as any)?.id ?? `kpi-${kpiIndex}`),
-          label: String((kpi as any)?.label ?? 'KPI'),
-          value: (kpi as any)?.value ?? undefined,
-          description: (kpi as any)?.description ?? null,
-        })),
-        sourceMessageId: row.source_message_id ?? null,
-      };
-    });
+    const insights: Insight[] = ((insightRows ?? []) as InsightRow[]).map(mapInsightRowToInsight);
 
     const endDate = askRow.end_date ?? new Date().toISOString();
     const createdAt = askRow.created_at ?? new Date().toISOString();

@@ -84,6 +84,13 @@ export async function GET(
           kpis: [],
           authorId: null,
           authorName: 'Agent',
+          authors: [
+            {
+              id: 'insight-author-1',
+              userId: null,
+              name: 'Agent',
+            }
+          ],
           sourceMessageId: 'msg-1',
         },
       ],

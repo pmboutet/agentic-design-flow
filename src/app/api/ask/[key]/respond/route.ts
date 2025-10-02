@@ -3,6 +3,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { ApiResponse, Insight, Message } from '@/types';
 import { getAdminSupabaseClient } from '@/lib/supabaseAdmin';
 import { isValidAskKey, parseErrorMessage } from '@/lib/utils';
+import { INSIGHT_TYPES, mapInsightRowToInsight, type InsightRow } from '@/lib/insights';
+import { normaliseMessageMetadata } from '@/lib/messages';
+
+type AdminSupabaseClient = ReturnType<typeof getAdminSupabaseClient>;
 
 interface AskSessionRow {
   id: string;
@@ -20,26 +24,6 @@ interface MessageRow {
   created_at?: string | null;
 }
 
-interface InsightRow {
-  id: string;
-  ask_session_id: string;
-  ask_id?: string | null;
-  challenge_id?: string | null;
-  author_id?: string | null;
-  author_name?: string | null;
-  content?: string | null;
-  summary?: string | null;
-  type?: string | null;
-  category?: string | null;
-  status?: string | null;
-  priority?: string | null;
-  created_at?: string | null;
-  updated_at?: string | null;
-  related_challenge_ids?: string[] | null;
-  kpis?: Array<Record<string, unknown>> | null;
-  source_message_id?: string | null;
-}
-
 type IncomingInsight = {
   id?: string;
   askSessionId?: string;
@@ -55,56 +39,78 @@ type IncomingInsight = {
   relatedChallengeIds?: string[];
   kpis?: Array<Record<string, unknown>>;
   sourceMessageId?: string | null;
+  authors?: unknown;
 };
 
-const INSIGHT_TYPES: Insight['type'][] = ['pain', 'gain', 'opportunity', 'risk', 'signal', 'idea'];
+type NormalisedIncomingAuthor = {
+  userId: string | null;
+  name: string | null;
+};
 
-function normaliseMessageMetadata(value: unknown): Record<string, unknown> | undefined {
-  if (!value) {
-    return undefined;
+type NormalisedIncomingInsight = IncomingInsight & {
+  authors: NormalisedIncomingAuthor[];
+  authorsProvided: boolean;
+};
+
+async function replaceInsightAuthors(
+  supabase: AdminSupabaseClient,
+  insightId: string,
+  authors: NormalisedIncomingAuthor[],
+) {
+  const { error: deleteError } = await supabase
+    .from('insight_authors')
+    .delete()
+    .eq('insight_id', insightId);
+
+  if (deleteError) {
+    throw deleteError;
   }
 
-  if (typeof value === 'object') {
-    return value as Record<string, unknown>;
+  const rows = authors
+    .map((author) => {
+      const name = typeof author.name === 'string' && author.name ? author.name : null;
+      const userId = typeof author.userId === 'string' && author.userId ? author.userId : null;
+
+      if (!name && !userId) {
+        return null;
+      }
+
+      return {
+        insight_id: insightId,
+        user_id: userId,
+        display_name: name,
+      } satisfies Record<string, unknown>;
+    })
+    .filter((value): value is Record<string, unknown> => value !== null);
+
+  if (rows.length === 0) {
+    return;
   }
 
-  try {
-    return JSON.parse(String(value));
-  } catch (error) {
-    console.warn('Unable to parse message metadata', error);
-    return undefined;
+  const { error: insertError } = await supabase
+    .from('insight_authors')
+    .insert(rows);
+
+  if (insertError) {
+    throw insertError;
   }
 }
 
-function normaliseInsightRow(row: InsightRow): Insight {
-  const rawKpis = Array.isArray(row.kpis) ? row.kpis : [];
-  const createdAt = row.created_at ?? new Date().toISOString();
-  const updatedAt = row.updated_at ?? createdAt;
+async function fetchInsightById(
+  supabase: AdminSupabaseClient,
+  insightId: string,
+): Promise<InsightRow | null> {
+  const { data, error } = await supabase
+    .from('insights')
+    .select('id, ask_session_id, challenge_id, content, summary, type, category, status, priority, created_at, updated_at, related_challenge_ids, kpis, source_message_id, insight_authors (id, user_id, display_name)')
+    .eq('id', insightId)
+    .maybeSingle<InsightRow>();
 
-  return {
-    id: row.id,
-    askId: row.ask_id ?? row.ask_session_id,
-    askSessionId: row.ask_session_id,
-    challengeId: row.challenge_id ?? null,
-    authorId: row.author_id ?? null,
-    authorName: row.author_name ?? null,
-    content: row.content ?? '',
-    summary: row.summary ?? null,
-    type: (row.type as Insight['type']) ?? 'idea',
-    category: row.category ?? null,
-    status: (row.status as Insight['status']) ?? 'new',
-    priority: row.priority ?? null,
-    createdAt,
-    updatedAt,
-    relatedChallengeIds: Array.isArray(row.related_challenge_ids) ? row.related_challenge_ids : [],
-    kpis: rawKpis.map((kpi, index) => ({
-      id: String((kpi as any)?.id ?? `kpi-${index}`),
-      label: String((kpi as any)?.label ?? 'KPI'),
-      value: (kpi as any)?.value ?? undefined,
-      description: (kpi as any)?.description ?? null,
-    })),
-    sourceMessageId: row.source_message_id ?? null,
-  };
+  if (error) {
+    throw error;
+  }
+
+  return data ?? null;
 }
 
 function normaliseIncomingKpis(kpis: unknown, fallback: Array<Record<string, unknown>> = []): Array<Record<string, unknown>> {
@@ -125,7 +131,37 @@ function normaliseIncomingKpis(kpis: unknown, fallback: Array<Record<string, unk
   });
 }
 
-function normaliseIncomingInsights(value: unknown): { types: Insight['type'][]; items: IncomingInsight[] } {
+function parseIncomingAuthor(value: unknown): NormalisedIncomingAuthor | null {
+  if (typeof value !== 'object' || value === null) {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+
+  const getString = (...keys: string[]): string | undefined => {
+    for (const key of keys) {
+      const raw = record[key];
+      if (typeof raw === 'string' && raw.trim().length > 0) {
+        return raw;
+      }
+    }
+    return undefined;
+  };
+
+  const userId = getString('userId', 'user_id', 'authorId', 'author_id');
+  const name = getString('name', 'authorName', 'author_name', 'displayName', 'display_name');
+
+  if (!userId && !name) {
+    return null;
+  }
+
+  return {
+    userId: userId ?? null,
+    name: name ?? null,
+  };
+}
+
+function normaliseIncomingInsights(value: unknown): { types: Insight['type'][]; items: NormalisedIncomingInsight[] } {
   const envelope = (typeof value === 'object' && value !== null) ? (value as Record<string, unknown>) : {};
   const rawTypes = Array.isArray(envelope.types) ? envelope.types : [];
   const types = rawTypes
@@ -134,7 +170,7 @@ function normaliseIncomingInsights(value: unknown): { types: Insight['type'][]; 
 
   const rawItems = Array.isArray(envelope.items) ? envelope.items : [];
 
-  const items: IncomingInsight[] = rawItems.map((item) => {
+  const items: NormalisedIncomingInsight[] = rawItems.map((item) => {
     const record = typeof item === 'object' && item !== null ? (item as Record<string, unknown>) : {};
 
     const getString = (key: string): string | undefined => {
@@ -152,6 +188,39 @@ function normaliseIncomingInsights(value: unknown): { types: Insight['type'][]; 
 
     const kpis = record.kpis;
 
+    const fallbackAuthorId = getString('authorId') ?? getString('author_id');
+    const fallbackAuthorName = getString('authorName') ?? getString('author_name');
+
+    const rawAuthors = record.authors;
+    let authorsProvided = false;
+    const authors: NormalisedIncomingAuthor[] = [];
+
+    if (Array.isArray(rawAuthors)) {
+      authorsProvided = true;
+      for (const entry of rawAuthors) {
+        const parsed = parseIncomingAuthor(entry);
+        if (parsed) {
+          authors.push(parsed);
+        }
+      }
+    } else if (rawAuthors) {
+      const parsed = parseIncomingAuthor(rawAuthors);
+      if (parsed) {
+        authorsProvided = true;
+        authors.push(parsed);
+      }
+    }
+
+    if (!authorsProvided && (fallbackAuthorId || fallbackAuthorName)) {
+      authorsProvided = true;
+      authors.push({
+        userId: fallbackAuthorId ?? null,
+        name: fallbackAuthorName ?? null,
+      });
+    }
+
+    const primaryAuthor = authors[0] ?? null;
+
     return {
       id: getString('id'),
       askSessionId: getString('askSessionId') ?? getString('ask_session_id'),
@@ -162,12 +231,14 @@ function normaliseIncomingInsights(value: unknown): { types: Insight['type'][]; 
       status: getString('status'),
       priority: getString('priority'),
       challengeId: getString('challengeId') ?? getString('challenge_id') ?? null,
-      authorId: getString('authorId') ?? getString('author_id') ?? null,
-      authorName: getString('authorName') ?? getString('author_name') ?? null,
+      authorId: fallbackAuthorId ?? primaryAuthor?.userId ?? null,
+      authorName: fallbackAuthorName ?? primaryAuthor?.name ?? null,
       relatedChallengeIds,
       kpis: Array.isArray(kpis) ? (kpis as Array<Record<string, unknown>>) : undefined,
       sourceMessageId: getString('sourceMessageId') ?? getString('source_message_id') ?? null,
-    } satisfies IncomingInsight;
+      authors,
+      authorsProvided,
+    } satisfies NormalisedIncomingInsight;
   });
 
   return {
@@ -230,7 +301,7 @@ export async function POST(
 
     const { data: insightRows, error: insightError } = await supabase
       .from('insights')
-      .select('id, ask_session_id, ask_id, challenge_id, author_id, author_name, content, summary, type, category, status, priority, created_at, updated_at, related_challenge_ids, kpis, source_message_id')
+      .select('id, ask_session_id, challenge_id, content, summary, type, category, status, priority, created_at, updated_at, related_challenge_ids, kpis, source_message_id, insight_authors (id, user_id, display_name)')
       .eq('ask_session_id', askRow.id)
       .order('created_at', { ascending: true });
 
@@ -251,29 +322,37 @@ export async function POST(
 
     const insightsPayload = {
       types: INSIGHT_TYPES,
-      items: (insightRows ?? []).map((row) => ({
-        id: row.id,
-        askSessionId: row.ask_session_id,
-        content: row.content ?? null,
-        summary: row.summary ?? null,
-        type: row.type ?? null,
-        category: row.category ?? null,
-        status: row.status ?? null,
-        priority: row.priority ?? null,
-        challengeId: row.challenge_id ?? null,
-        authorId: row.author_id ?? null,
-        authorName: row.author_name ?? null,
-        relatedChallengeIds: Array.isArray(row.related_challenge_ids) ? row.related_challenge_ids : [],
-        sourceMessageId: row.source_message_id ?? null,
-        kpis: Array.isArray(row.kpis)
-          ? row.kpis.map((kpi) => ({
-            id: typeof kpi?.id === 'string' ? kpi.id : null,
-            label: typeof kpi?.label === 'string' ? kpi.label : null,
-            value: (kpi as any)?.value ?? null,
-            description: typeof kpi?.description === 'string' ? kpi.description : null,
-          }))
-          : [],
-      })),
+      items: (insightRows ?? []).map((row) => {
+        const insight = mapInsightRowToInsight(row);
+        return {
+          id: row.id,
+          askSessionId: row.ask_session_id,
+          content: row.content ?? null,
+          summary: row.summary ?? null,
+          type: row.type ?? null,
+          category: row.category ?? null,
+          status: row.status ?? null,
+          priority: row.priority ?? null,
+          challengeId: row.challenge_id ?? null,
+          authors: insight.authors.map((author) => ({
+            id: author.id,
+            userId: author.userId ?? null,
+            name: author.name ?? null,
+          })),
+          authorId: insight.authorId ?? null,
+          authorName: insight.authorName ?? null,
+          relatedChallengeIds: insight.relatedChallengeIds,
+          sourceMessageId: insight.sourceMessageId ?? null,
+          kpis: Array.isArray(row.kpis)
+            ? row.kpis.map((kpi) => ({
+              id: typeof kpi?.id === 'string' ? kpi.id : null,
+              label: typeof kpi?.label === 'string' ? kpi.label : null,
+              value: (kpi as any)?.value ?? null,
+              description: typeof kpi?.description === 'string' ? kpi.description : null,
+            }))
+            : [],
+        };
+      }),
     } satisfies Record<string, unknown>;
 
     const webhookResponse = await fetch(webhookUrl, {
@@ -357,7 +436,6 @@ export async function POST(
         if (existing) {
           const updatePayload = {
             ask_session_id: existing.ask_session_id,
-            ask_id: existing.ask_id ?? askRow.id,
             content: incoming.content ?? existing.content ?? '',
             summary: incoming.summary ?? existing.summary ?? null,
             type: (incoming.type as Insight['type']) ?? (existing.type as Insight['type']) ?? 'idea',
@@ -365,25 +443,26 @@ export async function POST(
             status: (incoming.status as Insight['status']) ?? (existing.status as Insight['status']) ?? 'new',
             priority: incoming.priority ?? existing.priority ?? null,
             challenge_id: incoming.challengeId ?? existing.challenge_id ?? null,
-            author_id: incoming.authorId ?? existing.author_id ?? null,
-            author_name: incoming.authorName ?? existing.author_name ?? null,
             related_challenge_ids: incoming.relatedChallengeIds ?? existing.related_challenge_ids ?? [],
             kpis: normalisedKpis,
             source_message_id: incoming.sourceMessageId ?? existing.source_message_id ?? null,
             updated_at: nowIso,
           };
 
-          const { data: updatedRow, error: updateError } = await supabase
+          const { error: updateError } = await supabase
             .from('insights')
             .update(updatePayload)
-            .eq('id', existing.id)
-            .select('id, ask_session_id, ask_id, challenge_id, author_id, author_name, content, summary, type, category, status, priority, created_at, updated_at, related_challenge_ids, kpis, source_message_id')
-            .maybeSingle<InsightRow>();
+            .eq('id', existing.id);
 
           if (updateError) {
             throw updateError;
           }
 
+          if (incoming.authorsProvided) {
+            await replaceInsightAuthors(supabase, existing.id, incoming.authors);
+          }
+
+          const updatedRow = await fetchInsightById(supabase, existing.id);
           if (updatedRow) {
             existingMap[existing.id] = updatedRow;
           }
@@ -391,7 +470,6 @@ export async function POST(
           const insertPayload = {
             id: desiredId,
             ask_session_id: askRow.id,
-            ask_id: askRow.id,
             content: incoming.content ?? '',
             summary: incoming.summary ?? null,
             type: (incoming.type as Insight['type']) ?? 'idea',
@@ -399,8 +477,6 @@ export async function POST(
             status: (incoming.status as Insight['status']) ?? 'new',
             priority: incoming.priority ?? null,
             challenge_id: incoming.challengeId ?? null,
-            author_id: incoming.authorId ?? null,
-            author_name: incoming.authorName ?? null,
             related_challenge_ids: incoming.relatedChallengeIds ?? [],
             kpis: normalisedKpis,
             source_message_id: incoming.sourceMessageId ?? null,
@@ -408,16 +484,19 @@ export async function POST(
             updated_at: nowIso,
           };
 
-          const { data: createdRow, error: createdError } = await supabase
+          const { error: createdError } = await supabase
             .from('insights')
-            .insert(insertPayload)
-            .select('id, ask_session_id, ask_id, challenge_id, author_id, author_name, content, summary, type, category, status, priority, created_at, updated_at, related_challenge_ids, kpis, source_message_id')
-            .maybeSingle<InsightRow>();
+            .insert(insertPayload);
 
           if (createdError) {
             throw createdError;
           }
 
+          if (incoming.authorsProvided) {
+            await replaceInsightAuthors(supabase, desiredId, incoming.authors);
+          }
+
+          const createdRow = await fetchInsightById(supabase, desiredId);
           if (createdRow) {
             existingMap[createdRow.id] = createdRow;
           }
@@ -426,7 +505,7 @@ export async function POST(
 
       const { data: latestInsights, error: latestError } = await supabase
         .from('insights')
-        .select('id, ask_session_id, ask_id, challenge_id, author_id, author_name, content, summary, type, category, status, priority, created_at, updated_at, related_challenge_ids, kpis, source_message_id')
+        .select('id, ask_session_id, challenge_id, content, summary, type, category, status, priority, created_at, updated_at, related_challenge_ids, kpis, source_message_id, insight_authors (id, user_id, display_name)')
         .eq('ask_session_id', askRow.id)
         .order('created_at', { ascending: true });
 
@@ -437,7 +516,7 @@ export async function POST(
       refreshedInsights = latestInsights ?? [];
     }
 
-    const serialisedInsights = (refreshedInsights ?? insightRows ?? []).map(normaliseInsightRow);
+    const serialisedInsights = (refreshedInsights ?? insightRows ?? []).map(mapInsightRowToInsight);
 
     return NextResponse.json<ApiResponse<{ message: Message; insights: Insight[] }>>({
       success: true,
