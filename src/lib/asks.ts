@@ -1,7 +1,29 @@
 import type { PostgrestError, SupabaseClient } from '@supabase/supabase-js';
 
-function escapeIlikePattern(value: string): string {
+function escapeIlikeSegment(value: string): string {
   return value.replace(/([%_\\])/g, '\\$1');
+}
+
+function buildExactIlikePattern(value: string): string {
+  return escapeIlikeSegment(value);
+}
+
+function buildFuzzyIlikePattern(value: string): string | null {
+  const parts = value
+    .split(/[-._\s]+/)
+    .map(part => part.trim())
+    .filter(part => part.length > 0)
+    .map(escapeIlikeSegment);
+
+  if (parts.length === 0) {
+    return null;
+  }
+
+  if (parts.length === 1) {
+    return `%${parts[0]}%`;
+  }
+
+  return `%${parts.join('%')}%`;
 }
 
 export async function getAskSessionByKey<Row>(
@@ -25,22 +47,41 @@ export async function getAskSessionByKey<Row>(
     return { row: data, error: null };
   }
 
-  const fallbackPattern = escapeIlikePattern(key);
+  const fallbackPattern = buildExactIlikePattern(key);
 
-  const { data: fallbackRows, error: fallbackError } = await supabase
+  const { data: fallbackRow, error: fallbackError } = await supabase
     .from('ask_sessions')
     .select(columns)
     .ilike('ask_key', fallbackPattern)
     .order('created_at', { ascending: false })
-    .limit(1);
+    .limit(1)
+    .maybeSingle<Row>();
 
   if (fallbackError) {
     return { row: null, error: fallbackError };
   }
 
-  const fallbackRow = Array.isArray(fallbackRows) && fallbackRows.length > 0
-    ? (fallbackRows[0] as Row)
-    : null;
+  if (fallbackRow) {
+    return { row: fallbackRow, error: null };
+  }
 
-  return { row: fallbackRow ?? null, error: null };
+  const fuzzyPattern = buildFuzzyIlikePattern(key);
+
+  if (!fuzzyPattern || fuzzyPattern === fallbackPattern) {
+    return { row: null, error: null };
+  }
+
+  const { data: fuzzyRow, error: fuzzyError } = await supabase
+    .from('ask_sessions')
+    .select(columns)
+    .ilike('ask_key', fuzzyPattern)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle<Row>();
+
+  if (fuzzyError) {
+    return { row: null, error: fuzzyError };
+  }
+
+  return { row: fuzzyRow ?? null, error: null };
 }
