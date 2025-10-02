@@ -39,7 +39,7 @@ function getSSLConfig() {
   const sslMode = (process.env.PGSSLMODE || '').toLowerCase();
   if (sslMode === 'disable') return false;
   // Supabase requires SSL in most environments. Allow self-signed certificates by default.
-  return { rejectUnauthorized: process.env.PGSSLREJECTUNAUTHORIZED === 'true' };
+  return { rejectUnauthorized: 'false' };
 }
 
 async function ensureMigrationsTable(client) {
