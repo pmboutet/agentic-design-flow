@@ -336,7 +336,8 @@ export async function POST(
         .eq('ask_session_id', askRow.id)
         .order('created_at', { ascending: true });
       
-      insightRows = fallbackResult.data;
+      // Add ask_id as null for rows that don't have it
+      insightRows = fallbackResult.data?.map(row => ({ ...row, ask_id: null })) || null;
       insightError = fallbackResult.error;
     }
 
