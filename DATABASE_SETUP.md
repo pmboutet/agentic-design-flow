@@ -124,6 +124,7 @@ CREATE TABLE messages (
 CREATE TABLE insights (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     ask_session_id UUID NOT NULL REFERENCES ask_sessions(id) ON DELETE CASCADE,
+    ask_id UUID GENERATED ALWAYS AS (ask_session_id) STORED,
     user_id UUID REFERENCES users(id) ON DELETE SET NULL,
     challenge_id UUID REFERENCES challenges(id) ON DELETE SET NULL,
     content TEXT NOT NULL,
@@ -179,6 +180,7 @@ CREATE INDEX idx_ask_sessions_status ON ask_sessions(status);
 CREATE INDEX idx_messages_ask_session_id ON messages(ask_session_id);
 CREATE INDEX idx_messages_created_at ON messages(created_at);
 CREATE INDEX idx_insights_ask_session_id ON insights(ask_session_id);
+CREATE INDEX idx_insights_ask_id ON insights(ask_id);
 CREATE INDEX idx_insights_challenge_id ON insights(challenge_id);
 CREATE INDEX idx_insights_type ON insights(insight_type);
 CREATE INDEX idx_kpi_estimations_insight_id ON kpi_estimations(insight_id);

@@ -11,6 +11,7 @@ export interface InsightAuthorRow {
 export interface InsightRow {
   id: string;
   ask_session_id: string;
+  ask_id?: string | null;
   challenge_id?: string | null;
   content?: string | null;
   summary?: string | null;
@@ -40,8 +41,8 @@ export function mapInsightRowToInsight(row: InsightRow): Insight {
 
   return {
     id: row.id,
-    askId: row.ask_session_id,
-    askSessionId: row.ask_session_id,
+    askId: row.ask_session_id ?? row.ask_id ?? '',
+    askSessionId: row.ask_session_id ?? row.ask_id ?? '',
     challengeId: row.challenge_id ?? null,
     authorId: primaryAuthor?.userId ?? null,
     authorName: primaryAuthor?.name ?? null,
