@@ -66,22 +66,28 @@ async function replaceInsightAuthors(
     throw deleteError;
   }
 
-  const rows = authors
-    .map((author) => {
-      const name = typeof author.name === 'string' && author.name ? author.name : null;
-      const userId = typeof author.userId === 'string' && author.userId ? author.userId : null;
+  type InsightAuthorInsert = {
+    insight_id: string;
+    user_id: string | null;
+    display_name: string | null;
+  };
 
-      if (!name && !userId) {
-        return null;
-      }
+  const rows = authors.reduce<InsightAuthorInsert[]>((acc, author) => {
+    const name = typeof author.name === 'string' && author.name ? author.name : null;
+    const userId = typeof author.userId === 'string' && author.userId ? author.userId : null;
 
-      return {
-        insight_id: insightId,
-        user_id: userId,
-        display_name: name,
-      } satisfies Record<string, unknown>;
-    })
-    .filter((value): value is Record<string, unknown> => value !== null);
+    if (!name && !userId) {
+      return acc;
+    }
+
+    acc.push({
+      insight_id: insightId,
+      user_id: userId,
+      display_name: name,
+    });
+
+    return acc;
+  }, []);
 
   if (rows.length === 0) {
     return;
