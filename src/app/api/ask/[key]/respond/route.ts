@@ -3,6 +3,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { ApiResponse, Insight, Message } from '@/types';
 import { getAdminSupabaseClient } from '@/lib/supabaseAdmin';
 import { isValidAskKey, parseErrorMessage } from '@/lib/utils';
+import { INSIGHT_TYPES, mapInsightRowToInsight, type InsightRow } from '@/lib/insights';
+import { normaliseMessageMetadata } from '@/lib/messages';
+
+type AdminSupabaseClient = ReturnType<typeof getAdminSupabaseClient>;
 
 type AdminSupabaseClient = ReturnType<typeof getAdminSupabaseClient>;
 
@@ -22,29 +26,6 @@ interface MessageRow {
   created_at?: string | null;
 }
 
-interface InsightAuthorRow {
-  id: string;
-  user_id?: string | null;
-  display_name?: string | null;
-}
-
-interface InsightRow {
-  id: string;
-  ask_session_id: string;
-  challenge_id?: string | null;
-  content?: string | null;
-  summary?: string | null;
-  type?: string | null;
-  category?: string | null;
-  status?: string | null;
-  priority?: string | null;
-  created_at?: string | null;
-  updated_at?: string | null;
-  related_challenge_ids?: string[] | null;
-  kpis?: Array<Record<string, unknown>> | null;
-  source_message_id?: string | null;
-  insight_authors?: InsightAuthorRow[] | null;
-}
 
 type IncomingInsight = {
   id?: string;
@@ -69,6 +50,7 @@ type NormalisedIncomingAuthor = {
   name: string | null;
 };
 
+
 type NormalisedIncomingInsight = IncomingInsight & {
   authors: NormalisedIncomingAuthor[];
   authorsProvided: boolean;
@@ -88,22 +70,28 @@ async function replaceInsightAuthors(
     throw deleteError;
   }
 
-  const rows = authors
-    .map((author) => {
-      const name = typeof author.name === 'string' && author.name ? author.name : null;
-      const userId = typeof author.userId === 'string' && author.userId ? author.userId : null;
+  type InsightAuthorInsert = {
+    insight_id: string;
+    user_id: string | null;
+    display_name: string | null;
+  };
 
-      if (!name && !userId) {
-        return null;
-      }
+  const rows = authors.reduce<InsightAuthorInsert[]>((acc, author) => {
+    const name = typeof author.name === 'string' && author.name ? author.name : null;
+    const userId = typeof author.userId === 'string' && author.userId ? author.userId : null;
 
-      return {
-        insight_id: insightId,
-        user_id: userId,
-        display_name: name,
-      } satisfies Record<string, unknown>;
-    })
-    .filter((value): value is Record<string, unknown> => value !== null);
+    if (!name && !userId) {
+      return acc;
+    }
+
+    acc.push({
+      insight_id: insightId,
+      user_id: userId,
+      display_name: name,
+    });
+
+    return acc;
+  }, []);
 
   if (rows.length === 0) {
     return;
@@ -133,64 +121,6 @@ async function fetchInsightById(
   }
 
   return data ?? null;
-}
-
-const INSIGHT_TYPES: Insight['type'][] = ['pain', 'gain', 'opportunity', 'risk', 'signal', 'idea'];
-
-function normaliseMessageMetadata(value: unknown): Record<string, unknown> | undefined {
-  if (!value) {
-    return undefined;
-  }
-
-  if (typeof value === 'object') {
-    return value as Record<string, unknown>;
-  }
-
-  try {
-    return JSON.parse(String(value));
-  } catch (error) {
-    console.warn('Unable to parse message metadata', error);
-    return undefined;
-  }
-}
-
-function normaliseInsightRow(row: InsightRow): Insight {
-  const rawKpis = Array.isArray(row.kpis) ? row.kpis : [];
-  const createdAt = row.created_at ?? new Date().toISOString();
-  const updatedAt = row.updated_at ?? createdAt;
-  const authorRows = Array.isArray(row.insight_authors) ? row.insight_authors : [];
-  const authors = authorRows.map((author) => ({
-    id: author.id,
-    userId: author.user_id ?? null,
-    name: author.display_name ?? null,
-  }));
-  const primaryAuthor = authors[0] ?? null;
-
-  return {
-    id: row.id,
-    askId: row.ask_session_id,
-    askSessionId: row.ask_session_id,
-    challengeId: row.challenge_id ?? null,
-    authorId: primaryAuthor?.userId ?? null,
-    authorName: primaryAuthor?.name ?? null,
-    authors,
-    content: row.content ?? '',
-    summary: row.summary ?? null,
-    type: (row.type as Insight['type']) ?? 'idea',
-    category: row.category ?? null,
-    status: (row.status as Insight['status']) ?? 'new',
-    priority: row.priority ?? null,
-    createdAt,
-    updatedAt,
-    relatedChallengeIds: Array.isArray(row.related_challenge_ids) ? row.related_challenge_ids : [],
-    kpis: rawKpis.map((kpi, index) => ({
-      id: String((kpi as any)?.id ?? `kpi-${index}`),
-      label: String((kpi as any)?.label ?? 'KPI'),
-      value: (kpi as any)?.value ?? undefined,
-      description: (kpi as any)?.description ?? null,
-    })),
-    sourceMessageId: row.source_message_id ?? null,
-  };
 }
 
 function normaliseIncomingKpis(kpis: unknown, fallback: Array<Record<string, unknown>> = []): Array<Record<string, unknown>> {
@@ -402,40 +332,37 @@ export async function POST(
 
     const insightsPayload = {
       types: INSIGHT_TYPES,
-      items: (insightRows ?? []).map((row) => ({
-        id: row.id,
-        askSessionId: row.ask_session_id,
-        content: row.content ?? null,
-        summary: row.summary ?? null,
-        type: row.type ?? null,
-        category: row.category ?? null,
-        status: row.status ?? null,
-        priority: row.priority ?? null,
-        challengeId: row.challenge_id ?? null,
-        authors: (Array.isArray(row.insight_authors) ? row.insight_authors : []).map((author) => ({
-          id: author.id,
-          userId: author.user_id ?? null,
-          name: author.display_name ?? null,
-        })),
-        authorId: (() => {
-          const first = Array.isArray(row.insight_authors) ? row.insight_authors[0] : undefined;
-          return first?.user_id ?? null;
-        })(),
-        authorName: (() => {
-          const first = Array.isArray(row.insight_authors) ? row.insight_authors[0] : undefined;
-          return first?.display_name ?? null;
-        })(),
-        relatedChallengeIds: Array.isArray(row.related_challenge_ids) ? row.related_challenge_ids : [],
-        sourceMessageId: row.source_message_id ?? null,
-        kpis: Array.isArray(row.kpis)
-          ? row.kpis.map((kpi) => ({
-            id: typeof kpi?.id === 'string' ? kpi.id : null,
-            label: typeof kpi?.label === 'string' ? kpi.label : null,
-            value: (kpi as any)?.value ?? null,
-            description: typeof kpi?.description === 'string' ? kpi.description : null,
-          }))
-          : [],
-      })),
+      items: (insightRows ?? []).map((row) => {
+        const insight = mapInsightRowToInsight(row);
+        return {
+          id: row.id,
+          askSessionId: row.ask_session_id,
+          content: row.content ?? null,
+          summary: row.summary ?? null,
+          type: row.type ?? null,
+          category: row.category ?? null,
+          status: row.status ?? null,
+          priority: row.priority ?? null,
+          challengeId: row.challenge_id ?? null,
+          authors: insight.authors.map((author) => ({
+            id: author.id,
+            userId: author.userId ?? null,
+            name: author.name ?? null,
+          })),
+          authorId: insight.authorId ?? null,
+          authorName: insight.authorName ?? null,
+          relatedChallengeIds: insight.relatedChallengeIds,
+          sourceMessageId: insight.sourceMessageId ?? null,
+          kpis: Array.isArray(row.kpis)
+            ? row.kpis.map((kpi) => ({
+              id: typeof kpi?.id === 'string' ? kpi.id : null,
+              label: typeof kpi?.label === 'string' ? kpi.label : null,
+              value: (kpi as any)?.value ?? null,
+              description: typeof kpi?.description === 'string' ? kpi.description : null,
+            }))
+            : [],
+        };
+      }),
     } satisfies Record<string, unknown>;
 
     const webhookResponse = await fetch(webhookUrl, {
@@ -599,7 +526,7 @@ export async function POST(
       refreshedInsights = latestInsights ?? [];
     }
 
-    const serialisedInsights = (refreshedInsights ?? insightRows ?? []).map(normaliseInsightRow);
+    const serialisedInsights = (refreshedInsights ?? insightRows ?? []).map(mapInsightRowToInsight);
 
     return NextResponse.json<ApiResponse<{ message: Message; insights: Insight[] }>>({
       success: true,
