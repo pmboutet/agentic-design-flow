@@ -48,13 +48,16 @@ interface MessageRow {
   created_at?: string | null;
 }
 
+interface InsightAuthorRow {
+  id: string;
+  user_id?: string | null;
+  display_name?: string | null;
+}
+
 interface InsightRow {
   id: string;
   ask_session_id: string;
-  ask_id?: string | null;
   challenge_id?: string | null;
-  author_id?: string | null;
-  author_name?: string | null;
   content?: string | null;
   summary?: string | null;
   type?: string | null;
@@ -66,6 +69,7 @@ interface InsightRow {
   related_challenge_ids?: string[] | null;
   kpis?: Array<Record<string, unknown>> | null;
   source_message_id?: string | null;
+  insight_authors?: InsightAuthorRow[] | null;
 }
 
 function buildParticipantDisplayName(participant: ParticipantRow, user: UserRow | null, index: number): string {
@@ -265,7 +269,7 @@ export async function GET(
 
     const { data: insightRows, error: insightError } = await supabase
       .from('insights')
-      .select('*')
+      .select('id, ask_session_id, challenge_id, content, summary, type, category, status, priority, created_at, updated_at, related_challenge_ids, kpis, source_message_id, insight_authors (id, user_id, display_name)')
       .eq('ask_session_id', askSessionId)
       .order('created_at', { ascending: true });
 
@@ -273,15 +277,24 @@ export async function GET(
       throw insightError;
     }
 
-    const insights: Insight[] = (insightRows ?? []).map((row, index) => {
+    const insights: Insight[] = (insightRows ?? []).map((row) => {
       const rawKpis = Array.isArray(row.kpis) ? row.kpis : [];
+      const authorRows = Array.isArray(row.insight_authors) ? row.insight_authors : [];
+      const authors = authorRows.map((author) => ({
+        id: author.id,
+        userId: author.user_id ?? null,
+        name: author.display_name ?? null,
+      }));
+      const primaryAuthor = authors[0] ?? null;
+
       return {
         id: row.id,
-        askId: row.ask_id ?? askSessionId,
+        askId: row.ask_session_id,
         askSessionId: row.ask_session_id,
         challengeId: row.challenge_id ?? null,
-        authorId: row.author_id ?? null,
-        authorName: row.author_name ?? null,
+        authorId: primaryAuthor?.userId ?? null,
+        authorName: primaryAuthor?.name ?? null,
+        authors,
         content: row.content ?? '',
         summary: row.summary ?? null,
         type: (row.type as Insight['type']) ?? 'idea',

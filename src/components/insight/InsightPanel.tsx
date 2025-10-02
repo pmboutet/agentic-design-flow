@@ -24,6 +24,11 @@ const INSIGHT_GROUPS: InsightGroup[] = [
 ];
 
 function InsightCard({ insight, onLink }: { insight: Insight; onLink?: (insightId: string) => void }) {
+  const authorNames = (insight.authors ?? [])
+    .map((author) => (author?.name ?? '').trim())
+    .filter((name): name is string => name.length > 0);
+  const authorLabel = authorNames.length > 0 ? authorNames.join(', ') : (insight.authorName ?? undefined);
+
   return (
     <motion.div
       layout
@@ -67,7 +72,7 @@ function InsightCard({ insight, onLink }: { insight: Insight; onLink?: (insightI
             </div>
           ) : null}
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
-            {insight.authorName && <span>Partagé par {insight.authorName}</span>}
+            {authorLabel && <span>Partagé par {authorLabel}</span>}
             <span>{formatRelativeDate(insight.createdAt)}</span>
             {insight.relatedChallengeIds?.length ? (
               <span className="inline-flex items-center gap-1 text-emerald-600">
