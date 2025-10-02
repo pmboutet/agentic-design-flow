@@ -175,7 +175,7 @@ a.neumorphic-raised:active {
 
 /* Chat interface styling */
 .chat-container {
-  @apply glass-card h-full flex flex-col;
+  @apply glass-card h-full flex flex-col overflow-hidden;
 }
 
 .chat-messages {

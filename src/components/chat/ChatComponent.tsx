@@ -2,19 +2,15 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Send, Paperclip, Mic, Image, FileText, X, Clock } from "lucide-react";
+import { Send, Paperclip, Mic, Image, FileText, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ChatComponentProps, Message, FileUpload } from "@/types";
 import {
   cn,
-  formatTimeRemaining,
   validateFileType,
   formatFileSize,
-  getAudienceDescription,
-  getDeliveryModeLabel
 } from "@/lib/utils";
 
 /**
@@ -28,13 +24,14 @@ export function ChatComponent({
   messages,
   onSendMessage,
   isLoading,
-  onHumanTyping
+  onHumanTyping,
+  currentParticipantName,
+  isMultiUser
 }: ChatComponentProps) {
   const [inputValue, setInputValue] = useState("");
   const [selectedFiles, setSelectedFiles] = useState<FileUpload[]>([]);
   const [isRecording, setIsRecording] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
-  
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -207,8 +204,8 @@ export function ChatComponent({
 
   // Check if ASK is closed
   const isAskClosed = ask && !ask.isActive;
-  const timeRemaining = ask ? formatTimeRemaining(ask.endDate) : null;
   const participants = ask?.participants ?? [];
+  const resolvedIsMultiUser = typeof isMultiUser === 'boolean' ? isMultiUser : participants.length > 1;
 
   if (!ask) {
     return (
@@ -232,50 +229,52 @@ export function ChatComponent({
   }
 
   return (
-    <Card className="h-full flex flex-col">
-      {/* Header with question and time remaining */}
-      <CardHeader className="pb-4">
-        <CardTitle className="text-lg">{ask.question}</CardTitle>
-        {timeRemaining && (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Clock className="h-4 w-4" />
-            <span>{timeRemaining}</span>
-          </div>
-        )}
-        <div className="mt-3 space-y-2 text-sm text-muted-foreground">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="font-medium text-foreground">
-              {getDeliveryModeLabel(ask.deliveryMode)}
-            </span>
-            <span className="text-muted-foreground">
-              • {getAudienceDescription(ask.audienceScope, ask.responseMode)}
-            </span>
-          </div>
+    <Card className="h-full flex flex-col overflow-hidden">
+      <CardHeader className="pb-3 border-b border-border/40">
+        <div className="flex items-center justify-between gap-3">
+          <CardTitle className="text-base font-semibold">Conversation</CardTitle>
           {participants.length > 0 && (
-            <div className="flex flex-wrap gap-2">
-              {participants.map((participant) => (
-                <span
-                  key={participant.id}
-                  className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-3 py-1 text-xs text-primary"
-                >
-                  <span className="font-medium text-primary/90">{participant.name}</span>
-                  {participant.isSpokesperson && (
-                    <span className="text-[10px] uppercase tracking-wide text-primary/70">porte-parole</span>
-                  )}
-                </span>
-              ))}
-            </div>
+            <span className="text-xs text-muted-foreground">
+              {participants.length} participant{participants.length > 1 ? 's' : ''}
+            </span>
           )}
         </div>
       </CardHeader>
 
       {/* Messages area */}
       <CardContent className="flex-1 flex flex-col overflow-hidden">
-        <div className="flex-1 overflow-y-auto space-y-4 mb-4">
+        <div className="flex-1 overflow-y-auto space-y-4 mb-4 pr-2">
           <AnimatePresence>
-            {messages.map((message) => (
-              <MessageBubble key={message.id} message={message} />
-            ))}
+            {messages.map((message, index) => {
+              const previous = index > 0 ? messages[index - 1] : null;
+              const metadataSenderName = typeof message.metadata?.senderName === 'string' ? message.metadata.senderName : undefined;
+              const effectiveSenderName = message.senderName ?? metadataSenderName ?? (
+                message.senderType === 'ai'
+                  ? 'Agent'
+                  : message.senderType === 'system'
+                    ? 'Système'
+                    : currentParticipantName ?? 'Participant'
+              );
+              const currentSenderKey = `${message.senderType}-${message.senderId ?? effectiveSenderName ?? ''}`;
+              const previousSenderKey = previous
+                ? `${previous.senderType}-${previous.senderId ?? previous.senderName ?? (typeof previous.metadata?.senderName === 'string' ? previous.metadata.senderName : '')}`
+                : null;
+              const sameSender = previousSenderKey === currentSenderKey;
+              const showSenderName = message.senderType === 'ai'
+                ? !sameSender
+                : message.senderType === 'system'
+                  ? !sameSender
+                  : resolvedIsMultiUser ? !sameSender : false;
+
+              return (
+                <MessageBubble
+                  key={message.id}
+                  message={{ ...message, senderName: effectiveSenderName }}
+                  showSender={showSenderName}
+                  senderLabel={effectiveSenderName}
+                />
+              );
+            })}
           </AnimatePresence>
           <div ref={messagesEndRef} />
         </div>
@@ -384,53 +383,75 @@ export function ChatComponent({
 /**
  * Individual message bubble component
  */
-function MessageBubble({ message }: { message: Message }) {
-  const isUser = message.sender === 'user';
-  
+function MessageBubble({
+  message,
+  showSender,
+  senderLabel,
+}: {
+  message: Message;
+  showSender: boolean;
+  senderLabel?: string | null;
+}) {
+  const isUser = message.senderType === 'user';
+  const isSystem = message.senderType === 'system';
+  const bubbleClass = isSystem
+    ? 'bg-muted text-muted-foreground'
+    : isUser
+      ? 'bg-primary text-primary-foreground'
+      : 'bg-muted text-foreground';
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -20 }}
       className={cn(
-        "flex",
-        isUser ? "justify-end" : "justify-start"
+        'flex',
+        isSystem ? 'justify-center' : isUser ? 'justify-end' : 'justify-start'
       )}
     >
       <div
         className={cn(
-          "max-w-[80%] rounded-lg px-4 py-2 break-words",
-          isUser 
-            ? "bg-primary text-primary-foreground" 
-            : "bg-muted"
+          'max-w-[80%] flex flex-col gap-1',
+          isSystem ? 'items-center text-center' : isUser ? 'items-end' : 'items-start'
         )}
       >
-        {message.type === 'text' && <p>{message.content}</p>}
-        {message.type === 'image' && (
-          <img 
-            src={message.content} 
-            alt="Uploaded image" 
-            className="max-w-full h-auto rounded"
-          />
+        {showSender && senderLabel && (
+          <span className={cn(
+            'text-xs font-medium',
+            isUser ? 'text-primary/90' : 'text-muted-foreground'
+          )}>
+            {senderLabel}
+          </span>
         )}
-        {message.type === 'audio' && (
-          <audio controls className="max-w-full">
-            <source src={message.content} type={message.metadata?.mimeType} />
-            Your browser does not support audio playback.
-          </audio>
-        )}
-        {message.type === 'document' && (
-          <div className="flex items-center gap-2">
-            <FileText className="h-4 w-4" />
-            <span className="text-sm">
-              {message.metadata?.fileName} 
-              {message.metadata?.fileSize && ` (${formatFileSize(message.metadata.fileSize)})`}
-            </span>
+        <div className={cn('w-full rounded-lg px-4 py-2 break-words shadow-sm', bubbleClass)}>
+          {message.type === 'text' && <p>{message.content}</p>}
+          {message.type === 'image' && (
+            <img
+              src={message.content}
+              alt="Uploaded image"
+              className="max-w-full h-auto rounded"
+            />
+          )}
+          {message.type === 'audio' && (
+            <audio controls className="max-w-full">
+              <source src={message.content} type={message.metadata?.mimeType} />
+              Your browser does not support audio playback.
+            </audio>
+          )}
+          {message.type === 'document' && (
+            <div className="flex items-center gap-2">
+              <FileText className="h-4 w-4" />
+              <span className="text-sm">
+                {message.metadata?.fileName}
+                {message.metadata?.fileSize && ` (${formatFileSize(message.metadata.fileSize)})`}
+              </span>
+            </div>
+          )}
+
+          <div className="text-xs opacity-70 mt-1">
+            {new Date(message.timestamp).toLocaleTimeString()}
           </div>
-        )}
-        
-        <div className="text-xs opacity-70 mt-1">
-          {new Date(message.timestamp).toLocaleTimeString()}
         </div>
       </div>
     </motion.div>
