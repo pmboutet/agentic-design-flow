@@ -4,6 +4,7 @@ import { isValidAskKey, parseErrorMessage } from '@/lib/utils';
 import { getAdminSupabaseClient } from '@/lib/supabaseAdmin';
 import { mapInsightRowToInsight, type InsightRow } from '@/lib/insights';
 import { normaliseMessageMetadata } from '@/lib/messages';
+import { getAskSessionByKey } from '@/lib/asks';
 
 interface AskSessionRow {
   id: string;
@@ -89,11 +90,11 @@ export async function GET(
 
     const supabase = getAdminSupabaseClient();
 
-    const { data: askRow, error: askError } = await supabase
-      .from('ask_sessions')
-      .select('*')
-      .eq('ask_key', key)
-      .maybeSingle<AskSessionRow>();
+    const { row: askRow, error: askError } = await getAskSessionByKey<AskSessionRow>(
+      supabase,
+      key,
+      '*'
+    );
 
     if (askError) {
       throw askError;
@@ -327,11 +328,11 @@ export async function POST(
 
     const supabase = getAdminSupabaseClient();
 
-    const { data: askRow, error: askError } = await supabase
-      .from('ask_sessions')
-      .select('id, ask_key')
-      .eq('ask_key', key)
-      .maybeSingle<Pick<AskSessionRow, 'id' | 'ask_key'>>();
+    const { row: askRow, error: askError } = await getAskSessionByKey<Pick<AskSessionRow, 'id' | 'ask_key'>>(
+      supabase,
+      key,
+      'id, ask_key'
+    );
 
     if (askError) {
       throw askError;
