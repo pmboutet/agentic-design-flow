@@ -51,7 +51,6 @@ interface MessageRow {
 interface InsightRow {
   id: string;
   ask_session_id: string;
-  ask_id?: string | null;
   challenge_id?: string | null;
   author_id?: string | null;
   author_name?: string | null;
@@ -277,7 +276,7 @@ export async function GET(
       const rawKpis = Array.isArray(row.kpis) ? row.kpis : [];
       return {
         id: row.id,
-        askId: row.ask_id ?? askSessionId,
+        askId: row.ask_session_id,
         askSessionId: row.ask_session_id,
         challengeId: row.challenge_id ?? null,
         authorId: row.author_id ?? null,

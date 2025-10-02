@@ -23,7 +23,6 @@ interface MessageRow {
 interface InsightRow {
   id: string;
   ask_session_id: string;
-  ask_id?: string | null;
   challenge_id?: string | null;
   author_id?: string | null;
   author_name?: string | null;
@@ -83,7 +82,7 @@ function normaliseInsightRow(row: InsightRow): Insight {
 
   return {
     id: row.id,
-    askId: row.ask_id ?? row.ask_session_id,
+    askId: row.ask_session_id,
     askSessionId: row.ask_session_id,
     challengeId: row.challenge_id ?? null,
     authorId: row.author_id ?? null,
@@ -230,7 +229,7 @@ export async function POST(
 
     const { data: insightRows, error: insightError } = await supabase
       .from('insights')
-      .select('id, ask_session_id, ask_id, challenge_id, author_id, author_name, content, summary, type, category, status, priority, created_at, updated_at, related_challenge_ids, kpis, source_message_id')
+      .select('id, ask_session_id, challenge_id, author_id, author_name, content, summary, type, category, status, priority, created_at, updated_at, related_challenge_ids, kpis, source_message_id')
       .eq('ask_session_id', askRow.id)
       .order('created_at', { ascending: true });
 
@@ -357,7 +356,6 @@ export async function POST(
         if (existing) {
           const updatePayload = {
             ask_session_id: existing.ask_session_id,
-            ask_id: existing.ask_id ?? askRow.id,
             content: incoming.content ?? existing.content ?? '',
             summary: incoming.summary ?? existing.summary ?? null,
             type: (incoming.type as Insight['type']) ?? (existing.type as Insight['type']) ?? 'idea',
@@ -377,7 +375,7 @@ export async function POST(
             .from('insights')
             .update(updatePayload)
             .eq('id', existing.id)
-            .select('id, ask_session_id, ask_id, challenge_id, author_id, author_name, content, summary, type, category, status, priority, created_at, updated_at, related_challenge_ids, kpis, source_message_id')
+            .select('id, ask_session_id, challenge_id, author_id, author_name, content, summary, type, category, status, priority, created_at, updated_at, related_challenge_ids, kpis, source_message_id')
             .maybeSingle<InsightRow>();
 
           if (updateError) {
@@ -391,7 +389,6 @@ export async function POST(
           const insertPayload = {
             id: desiredId,
             ask_session_id: askRow.id,
-            ask_id: askRow.id,
             content: incoming.content ?? '',
             summary: incoming.summary ?? null,
             type: (incoming.type as Insight['type']) ?? 'idea',
@@ -411,7 +408,7 @@ export async function POST(
           const { data: createdRow, error: createdError } = await supabase
             .from('insights')
             .insert(insertPayload)
-            .select('id, ask_session_id, ask_id, challenge_id, author_id, author_name, content, summary, type, category, status, priority, created_at, updated_at, related_challenge_ids, kpis, source_message_id')
+            .select('id, ask_session_id, challenge_id, author_id, author_name, content, summary, type, category, status, priority, created_at, updated_at, related_challenge_ids, kpis, source_message_id')
             .maybeSingle<InsightRow>();
 
           if (createdError) {
@@ -426,7 +423,7 @@ export async function POST(
 
       const { data: latestInsights, error: latestError } = await supabase
         .from('insights')
-        .select('id, ask_session_id, ask_id, challenge_id, author_id, author_name, content, summary, type, category, status, priority, created_at, updated_at, related_challenge_ids, kpis, source_message_id')
+        .select('id, ask_session_id, challenge_id, author_id, author_name, content, summary, type, category, status, priority, created_at, updated_at, related_challenge_ids, kpis, source_message_id')
         .eq('ask_session_id', askRow.id)
         .order('created_at', { ascending: true });
 
