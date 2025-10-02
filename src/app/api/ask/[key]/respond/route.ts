@@ -5,8 +5,7 @@ import { getAdminSupabaseClient } from '@/lib/supabaseAdmin';
 import { isValidAskKey, parseErrorMessage } from '@/lib/utils';
 import { INSIGHT_TYPES, mapInsightRowToInsight, type InsightRow } from '@/lib/insights';
 import { normaliseMessageMetadata } from '@/lib/messages';
-
-type AdminSupabaseClient = ReturnType<typeof getAdminSupabaseClient>;
+import { getAskSessionByKey } from '@/lib/asks';
 
 type AdminSupabaseClient = ReturnType<typeof getAdminSupabaseClient>;
 
@@ -282,11 +281,11 @@ export async function POST(
 
     const supabase = getAdminSupabaseClient();
 
-    const { data: askRow, error: askError } = await supabase
-      .from('ask_sessions')
-      .select('id, ask_key')
-      .eq('ask_key', key)
-      .maybeSingle<AskSessionRow>();
+    const { row: askRow, error: askError } = await getAskSessionByKey<AskSessionRow>(
+      supabase,
+      key,
+      'id, ask_key'
+    );
 
     if (askError) {
       throw askError;
