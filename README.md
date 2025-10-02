@@ -189,6 +189,45 @@ NEXT_PUBLIC_APP_URL=http://localhost:3000
 # Test your ASK keys at: http://localhost:3000/test-key
 ```
 
+## 🗃️ Database migrations
+
+The project ships with a lightweight, file-based migration system tailored for Supabase/PostgreSQL. Migrations live in [`migrations/`](./migrations) and are executed by the Node.js runner in [`scripts/migrate.js`](./scripts/migrate.js).
+
+### Directory conventions
+
+- Every migration is a UTF-8 SQL file named with an incrementing prefix, e.g. `001_initial_schema.sql`, `002_add_status_flag.sql`.
+- Each file runs inside a transaction and may optionally expose a rollback section separated by `-- //@UNDO`.
+- The runner maintains a `schema_migrations` table (created automatically) so applied hashes are tracked and never re-run.
+
+### Running migrations locally
+
+1. Ensure `DATABASE_URL` (or `POSTGRES_URL`/`SUPABASE_MIGRATIONS_URL`) is present in your environment. Supabase projects can copy the pooled connection string from the dashboard.
+2. (Supabase) Set `PGSSLMODE=require` so the script negotiates SSL.
+3. Run the migration commands:
+
+```bash
+# Apply all pending migrations
+npm run migrate
+
+# Inspect applied vs pending migrations
+npm run migrate:status
+
+# Rollback a specific version (requires a -- //@UNDO section)
+node scripts/migrate.js down 001
+```
+
+> ℹ️ The runner automatically loads `.env.local` followed by process environment variables. Keep secrets outside version control.
+
+### Git-driven automation
+
+A GitHub Actions workflow (`.github/workflows/database-migrations.yml`) executes the migrations whenever changes land on `main` or when triggered manually. To enable it:
+
+1. Add a `SUPABASE_DATABASE_URL` repository secret that contains a full connection string (service role or designated migration user).
+2. Optionally set `PGSSLMODE=require` and `PGSSLREJECTUNAUTHORIZED=false` in the workflow or repository variables.
+3. Merge a pull request that modifies files in `migrations/` to `main`. The workflow checks out the code, installs dependencies with `npm ci`, and runs `npm run migrate`.
+
+Because migrations run inside transactions with advisory locking, repeated runs are safe—committed migrations are skipped if their checksum matches. If you collaborate with automation, see [`docs/AGENT_MIGRATION_GUIDE.md`](./docs/AGENT_MIGRATION_GUIDE.md) for detailed conventions.
+
 ## 🌐 Deployment
 
 ### Vercel (Recommended)
