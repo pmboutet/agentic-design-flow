@@ -2,18 +2,15 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Send, Paperclip, Mic, Image, FileText, X, Clock, ChevronDown, ChevronUp } from "lucide-react";
+import { Send, Paperclip, Mic, Image, FileText, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ChatComponentProps, Message, FileUpload } from "@/types";
 import {
   cn,
-  formatTimeRemaining,
   validateFileType,
   formatFileSize,
-  getAudienceDescription,
-  getDeliveryModeLabel
 } from "@/lib/utils";
 
 /**
@@ -35,44 +32,15 @@ export function ChatComponent({
   const [selectedFiles, setSelectedFiles] = useState<FileUpload[]>([]);
   const [isRecording, setIsRecording] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
-  const [detailsCollapsed, setDetailsCollapsed] = useState(false);
-
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const autoCollapseTriggeredRef = useRef(false);
-  const previousMessageCountRef = useRef(messages.length);
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
-
-  useEffect(() => {
-    setDetailsCollapsed(false);
-    autoCollapseTriggeredRef.current = false;
-    previousMessageCountRef.current = messages.length;
-  }, [ask?.askSessionId]);
-
-  useEffect(() => {
-    if (autoCollapseTriggeredRef.current) {
-      previousMessageCountRef.current = messages.length;
-      return;
-    }
-
-    if (messages.length > previousMessageCountRef.current) {
-      const newMessages = messages.slice(previousMessageCountRef.current);
-      const hasUserMessage = newMessages.some((message) => message.senderType === "user");
-
-      if (hasUserMessage) {
-        setDetailsCollapsed(true);
-        autoCollapseTriggeredRef.current = true;
-      }
-    }
-
-    previousMessageCountRef.current = messages.length;
   }, [messages]);
 
   useEffect(() => {
@@ -236,24 +204,8 @@ export function ChatComponent({
 
   // Check if ASK is closed
   const isAskClosed = ask && !ask.isActive;
-  const timeRemaining = ask ? formatTimeRemaining(ask.endDate) : null;
   const participants = ask?.participants ?? [];
   const resolvedIsMultiUser = typeof isMultiUser === 'boolean' ? isMultiUser : participants.length > 1;
-  const startDate = ask?.startDate ? new Date(ask.startDate) : null;
-  const endDate = ask?.endDate ? new Date(ask.endDate) : null;
-  const now = new Date();
-  let statusLabel = ask?.status ? ask.status.charAt(0).toUpperCase() + ask.status.slice(1) : ask?.isActive ? 'Active' : 'Inactive';
-  let timelineLabel: string | null = null;
-
-  if (startDate && now < startDate) {
-    timelineLabel = `Commence le ${startDate.toLocaleString()}`;
-  } else if (endDate && now > endDate) {
-    timelineLabel = `Terminé le ${endDate.toLocaleString()}`;
-  } else if (startDate && endDate) {
-    timelineLabel = `En cours jusqu'au ${endDate.toLocaleString()}`;
-  } else if (endDate) {
-    timelineLabel = `Clôture le ${endDate.toLocaleString()}`;
-  }
 
   if (!ask) {
     return (
@@ -278,86 +230,15 @@ export function ChatComponent({
 
   return (
     <Card className="h-full flex flex-col overflow-hidden">
-      {/* Header with question and collapsible details */}
       <CardHeader className="pb-3 border-b border-border/40">
-        <div className="flex items-start justify-between gap-3">
-          <div className="space-y-2">
-            <CardTitle className="text-lg leading-tight">{ask.question}</CardTitle>
-            {ask.description && !detailsCollapsed && (
-              <p className="text-sm leading-relaxed text-muted-foreground">
-                {ask.description}
-              </p>
-            )}
-          </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setDetailsCollapsed(prev => !prev)}
-            className="h-8 gap-1"
-            aria-expanded={!detailsCollapsed}
-          >
-            {detailsCollapsed ? (
-              <>
-                <ChevronDown className="h-4 w-4" />
-                Infos
-              </>
-            ) : (
-              <>
-                <ChevronUp className="h-4 w-4" />
-                Masquer
-              </>
-            )}
-          </Button>
-        </div>
-        <AnimatePresence initial={false}>
-          {!detailsCollapsed && (
-            <motion.div
-              key="ask-details"
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: "auto", opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              className="mt-3 space-y-2 text-sm text-muted-foreground overflow-hidden"
-            >
-              <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-                {statusLabel && (
-                  <span className="inline-flex items-center rounded-full bg-primary/10 px-3 py-1 font-semibold text-primary">
-                    {statusLabel}
-                  </span>
-                )}
-                {timelineLabel && <span>{timelineLabel}</span>}
-                {timeRemaining && (
-                  <span className="inline-flex items-center gap-1">
-                    <Clock className="h-3 w-3" />
-                    <span>{timeRemaining}</span>
-                  </span>
-                )}
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="font-medium text-foreground">
-                  {getDeliveryModeLabel(ask.deliveryMode)}
-                </span>
-                <span className="text-muted-foreground">
-                  • {getAudienceDescription(ask.audienceScope, ask.responseMode)}
-                </span>
-              </div>
-              {participants.length > 0 && (
-                <div className="flex flex-wrap gap-2">
-                  {participants.map((participant) => (
-                    <span
-                      key={participant.id}
-                      className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-3 py-1 text-xs text-primary"
-                    >
-                      <span className="font-medium text-primary/90">{participant.name}</span>
-                      {participant.isSpokesperson && (
-                        <span className="text-[10px] uppercase tracking-wide text-primary/70">porte-parole</span>
-                      )}
-                    </span>
-                  ))}
-                </div>
-              )}
-            </motion.div>
+        <div className="flex items-center justify-between gap-3">
+          <CardTitle className="text-base font-semibold">Conversation</CardTitle>
+          {participants.length > 0 && (
+            <span className="text-xs text-muted-foreground">
+              {participants.length} participant{participants.length > 1 ? 's' : ''}
+            </span>
           )}
-        </AnimatePresence>
+        </div>
       </CardHeader>
 
       {/* Messages area */}
