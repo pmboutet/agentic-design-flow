@@ -38,8 +38,12 @@ async function getClient() {
 function getSSLConfig() {
   const sslMode = (process.env.PGSSLMODE || '').toLowerCase();
   if (sslMode === 'disable') return false;
-  // Supabase requires SSL in most environments. Allow self-signed certificates by default.
-  return { rejectUnauthorized: 'false' };
+  
+  // Supabase/managed PostgreSQL requires SSL
+  // Always accept self-signed certificates unless explicitly disabled
+  return { 
+    rejectUnauthorized: false
+  };
 }
 
 async function ensureMigrationsTable(client) {
