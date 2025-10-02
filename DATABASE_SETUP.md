@@ -1,5 +1,7 @@
 # Database Setup - Supabase Schema
 
+> ⚠️ This document now complements the automated migration runner located in [`scripts/migrate.js`](./scripts/migrate.js). The canonical schema is stored inside [`migrations/001_initial_schema.sql`](./migrations/001_initial_schema.sql); add incremental SQL files for subsequent changes instead of editing the initial script directly.
+
 ## Tables Creation
 
 ### 1. Core Schema
