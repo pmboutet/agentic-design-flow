@@ -306,9 +306,17 @@ POSTGRES_PASSWORD=super-secret-password
 POSTGRES_HOST=db.supabase.co
 POSTGRES_DATABASE=postgres
 
-# n8n Webhook
-EXTERNAL_RESPONSE_WEBHOOK=your-n8n-webhook-url
+# AI providers
+ANTHROPIC_API_KEY=sk-ant-...
+MISTRAL_API_KEY=sk-mistral-...
 ```
+
+### Nouvelles tables IA à vérifier
+
+- `ai_model_configs` : configuration des fournisseurs (code, modèle, URL, variable d'environnement).
+- `ai_agents` : prompts `system`/`user`, modèles associés et variables autorisées.
+- `ai_agent_logs` : journal des requêtes et réponses IA.
+- `ai_insight_jobs` : file d'attente pour la détection séquentielle des insights.
 
 
 ## Post-migration validation for ASK sessions

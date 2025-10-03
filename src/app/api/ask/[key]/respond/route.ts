@@ -3,16 +3,56 @@ import { NextRequest, NextResponse } from 'next/server';
 import { ApiResponse, Insight, Message } from '@/types';
 import { getAdminSupabaseClient } from '@/lib/supabaseAdmin';
 import { isValidAskKey, parseErrorMessage } from '@/lib/utils';
+import { getAskSessionByKey } from '@/lib/asks';
+import { normaliseMessageMetadata } from '@/lib/messages';
+import { executeAgent, fetchAgentBySlug } from '@/lib/ai';
 import { INSIGHT_TYPES, mapInsightRowToInsight, type InsightRow } from '@/lib/insights';
 import { fetchInsightRowById, fetchInsightsForSession, fetchInsightTypeMap } from '@/lib/insightQueries';
-import { normaliseMessageMetadata } from '@/lib/messages';
-import { getAskSessionByKey } from '@/lib/asks';
 
-type AdminSupabaseClient = ReturnType<typeof getAdminSupabaseClient>;
+const CHAT_AGENT_SLUG = 'ask-conversation-response';
+const INSIGHT_AGENT_SLUG = 'ask-insight-detection';
+const CHAT_INTERACTION_TYPE = 'ask.chat.response';
+const INSIGHT_INTERACTION_TYPE = 'ask.insight.detection';
 
 interface AskSessionRow {
   id: string;
   ask_key: string;
+  question: string;
+  description?: string | null;
+  status?: string | null;
+  system_prompt?: string | null;
+  project_id?: string | null;
+  challenge_id?: string | null;
+}
+
+interface ProjectRow {
+  id: string;
+  name?: string | null;
+  system_prompt?: string | null;
+}
+
+interface ChallengeRow {
+  id: string;
+  name?: string | null;
+  system_prompt?: string | null;
+}
+
+interface ParticipantRow {
+  id: string;
+  participant_name?: string | null;
+  participant_email?: string | null;
+  role?: string | null;
+  is_spokesperson?: boolean | null;
+  user_id?: string | null;
+  last_active?: string | null;
+}
+
+interface UserRow {
+  id: string;
+  email?: string | null;
+  full_name?: string | null;
+  first_name?: string | null;
+  last_name?: string | null;
 }
 
 interface MessageRow {
@@ -26,6 +66,13 @@ interface MessageRow {
   created_at?: string | null;
 }
 
+interface InsightJobRow {
+  id: string;
+  ask_session_id: string;
+  status: string;
+  attempts: number;
+  started_at?: string | null;
+}
 
 type IncomingInsight = {
   id?: string;
@@ -50,11 +97,60 @@ type NormalisedIncomingAuthor = {
   name: string | null;
 };
 
-
 type NormalisedIncomingInsight = IncomingInsight & {
   authors: NormalisedIncomingAuthor[];
   authorsProvided: boolean;
 };
+
+function buildParticipantDisplayName(participant: ParticipantRow, user: UserRow | null, index: number): string {
+  if (participant.participant_name) {
+    return participant.participant_name;
+  }
+
+  if (user) {
+    if (user.full_name && user.full_name.trim().length > 0) {
+      return user.full_name;
+    }
+
+    const nameParts = [user.first_name, user.last_name].filter(Boolean);
+    if (nameParts.length) {
+      return nameParts.join(' ');
+    }
+
+    if (user.email) {
+      return user.email;
+    }
+  }
+
+  return `Participant ${index + 1}`;
+}
+
+function formatMessageHistory(messages: Message[]): string {
+  return messages
+    .map(message => {
+      const timestamp = (() => {
+        const date = new Date(message.timestamp);
+        if (Number.isNaN(date.getTime())) {
+          return '';
+        }
+        return date.toISOString();
+      })();
+
+      const sender = message.senderName ?? (message.senderType === 'ai' ? 'Agent IA' : 'Participant');
+      return `${timestamp ? `[${timestamp}] ` : ''}${sender}: ${message.content}`;
+    })
+    .join('\n');
+}
+
+function summariseInsights(insights: Insight[]): string {
+  if (insights.length === 0) {
+    return '';
+  }
+
+  return insights
+    .map(insight => `- (${insight.type}) ${insight.summary ?? insight.content}`)
+    .join('\n');
+}
 
 function normaliseInsightTypeName(value: unknown): string | null {
   if (typeof value !== 'string') {
@@ -88,7 +184,7 @@ function resolveInsightTypeId(
 }
 
 async function replaceInsightAuthors(
-  supabase: AdminSupabaseClient,
+  supabase: ReturnType<typeof getAdminSupabaseClient>,
   insightId: string,
   authors: NormalisedIncomingAuthor[],
 ) {
@@ -271,8 +367,324 @@ function normaliseIncomingInsights(value: unknown): { types: Insight['type'][]; 
   };
 }
 
+async function persistInsights(
+  supabase: ReturnType<typeof getAdminSupabaseClient>,
+  askSessionId: string,
+  incomingInsights: NormalisedIncomingInsight[],
+  insightRows: InsightRow[],
+) {
+  if (incomingInsights.length === 0) {
+    return;
+  }
+
+  const insightTypeMap = await fetchInsightTypeMap(supabase);
+  if (Object.keys(insightTypeMap).length === 0) {
+    throw new Error('No insight types configured');
+  }
+
+  const existingMap = insightRows.reduce<Record<string, InsightRow>>((acc, row) => {
+    acc[row.id] = row;
+    return acc;
+  }, {});
+
+  for (const incoming of incomingInsights) {
+    const nowIso = new Date().toISOString();
+    const existing = incoming.id ? existingMap[incoming.id] : undefined;
+    const desiredId = incoming.id ?? randomUUID();
+    const normalisedKpis = normaliseIncomingKpis(incoming.kpis, []);
+    const providedType = normaliseInsightTypeName(incoming.type);
+
+    if (existing) {
+      const existingInsight = mapInsightRowToInsight(existing);
+      const desiredTypeName = providedType ?? existingInsight.type ?? 'idea';
+      const desiredTypeId = resolveInsightTypeId(desiredTypeName, insightTypeMap);
+
+      const updatePayload = {
+        ask_session_id: existing.ask_session_id,
+        content: incoming.content ?? existing.content ?? '',
+        summary: incoming.summary ?? existing.summary ?? null,
+        insight_type_id: desiredTypeId,
+        category: incoming.category ?? existing.category ?? null,
+        status: (incoming.status as Insight['status']) ?? (existing.status as Insight['status']) ?? 'new',
+        priority: incoming.priority ?? existing.priority ?? null,
+        challenge_id: incoming.challengeId ?? existing.challenge_id ?? null,
+        related_challenge_ids: incoming.relatedChallengeIds ?? existing.related_challenge_ids ?? [],
+        source_message_id: incoming.sourceMessageId ?? existing.source_message_id ?? null,
+        updated_at: nowIso,
+      };
+
+      const { error: updateError } = await supabase
+        .from('insights')
+        .update(updatePayload)
+        .eq('id', existing.id);
+
+      if (updateError) {
+        throw updateError;
+      }
+
+      await supabase.from('kpi_estimations').delete().eq('insight_id', existing.id);
+      const kpiRowsUpdate = normalisedKpis.map((k) => ({
+        insight_id: existing.id,
+        name: typeof (k as any)?.label === 'string' ? (k as any).label : 'KPI',
+        description: typeof (k as any)?.description === 'string' ? (k as any).description : null,
+        metric_data: (k as any)?.value ?? null,
+      }));
+      if (kpiRowsUpdate.length > 0) {
+        const { error: kpiUpdateErr } = await supabase.from('kpi_estimations').insert(kpiRowsUpdate);
+        if (kpiUpdateErr) throw kpiUpdateErr;
+      }
+
+      if (incoming.authorsProvided) {
+        await replaceInsightAuthors(supabase, existing.id, incoming.authors);
+      }
+
+      const updatedRow = await fetchInsightRowById(supabase, existing.id);
+      if (updatedRow) {
+        existingMap[existing.id] = updatedRow;
+      }
+    } else {
+      const desiredTypeName = providedType ?? 'idea';
+      const desiredTypeId = resolveInsightTypeId(desiredTypeName, insightTypeMap);
+
+      const insertPayload = {
+        id: desiredId,
+        ask_session_id: askSessionId,
+        content: incoming.content ?? '',
+        summary: incoming.summary ?? null,
+        insight_type_id: desiredTypeId,
+        category: incoming.category ?? null,
+        status: (incoming.status as Insight['status']) ?? 'new',
+        priority: incoming.priority ?? null,
+        challenge_id: incoming.challengeId ?? null,
+        related_challenge_ids: incoming.relatedChallengeIds ?? [],
+        source_message_id: incoming.sourceMessageId ?? null,
+        created_at: nowIso,
+        updated_at: nowIso,
+      };
+
+      const { error: createdError } = await supabase
+        .from('insights')
+        .insert(insertPayload);
+
+      if (createdError) {
+        throw createdError;
+      }
+
+      const kpiRowsInsert = normalisedKpis.map((k) => ({
+        insight_id: desiredId,
+        name: typeof (k as any)?.label === 'string' ? (k as any).label : 'KPI',
+        description: typeof (k as any)?.description === 'string' ? (k as any).description : null,
+        metric_data: (k as any)?.value ?? null,
+      }));
+      if (kpiRowsInsert.length > 0) {
+        const { error: kpiInsertErr } = await supabase.from('kpi_estimations').insert(kpiRowsInsert);
+        if (kpiInsertErr) throw kpiInsertErr;
+      }
+
+      if (incoming.authorsProvided) {
+        await replaceInsightAuthors(supabase, desiredId, incoming.authors);
+      }
+
+      const createdRow = await fetchInsightRowById(supabase, desiredId);
+      if (createdRow) {
+        existingMap[createdRow.id] = createdRow;
+      }
+    }
+  }
+}
+
+async function findActiveInsightJob(
+  supabase: ReturnType<typeof getAdminSupabaseClient>,
+  askSessionId: string,
+): Promise<InsightJobRow | null> {
+  const { data, error } = await supabase
+    .from('ai_insight_jobs')
+    .select('id, ask_session_id, status, attempts, started_at')
+    .eq('ask_session_id', askSessionId)
+    .in('status', ['pending', 'processing'])
+    .limit(1)
+    .maybeSingle<InsightJobRow>();
+
+  if (error) {
+    throw error;
+  }
+
+  return data ?? null;
+}
+
+async function createInsightJob(
+  supabase: ReturnType<typeof getAdminSupabaseClient>,
+  payload: { askSessionId: string; messageId?: string | null; agentId?: string | null }
+): Promise<InsightJobRow> {
+  const nowIso = new Date().toISOString();
+  const { data, error } = await supabase
+    .from('ai_insight_jobs')
+    .insert({
+      ask_session_id: payload.askSessionId,
+      message_id: payload.messageId ?? null,
+      agent_id: payload.agentId ?? null,
+      status: 'processing',
+      attempts: 1,
+      started_at: nowIso,
+      updated_at: nowIso,
+    })
+    .select('id, ask_session_id, status, attempts, started_at')
+    .single<InsightJobRow>();
+
+  if (error) {
+    throw error;
+  }
+
+  return data;
+}
+
+async function completeInsightJob(
+  supabase: ReturnType<typeof getAdminSupabaseClient>,
+  jobId: string,
+  payload: { modelConfigId?: string | null }
+) {
+  const nowIso = new Date().toISOString();
+  const { error } = await supabase
+    .from('ai_insight_jobs')
+    .update({
+      status: 'completed',
+      finished_at: nowIso,
+      updated_at: nowIso,
+      model_config_id: payload.modelConfigId ?? null,
+    })
+    .eq('id', jobId);
+
+  if (error) {
+    throw error;
+  }
+}
+
+async function failInsightJob(
+  supabase: ReturnType<typeof getAdminSupabaseClient>,
+  jobId: string,
+  payload: { error: string; attempts?: number; modelConfigId?: string | null }
+) {
+  const nowIso = new Date().toISOString();
+  const { error } = await supabase
+    .from('ai_insight_jobs')
+    .update({
+      status: 'failed',
+      last_error: payload.error,
+      finished_at: nowIso,
+      updated_at: nowIso,
+      attempts: payload.attempts ?? 1,
+      model_config_id: payload.modelConfigId ?? null,
+    })
+    .eq('id', jobId);
+
+  if (error) {
+    throw error;
+  }
+}
+
+async function triggerInsightDetection(
+  supabase: ReturnType<typeof getAdminSupabaseClient>,
+  options: {
+    askSessionId: string;
+    messageId?: string | null;
+    variables: Record<string, string | null | undefined>;
+  },
+  existingInsights: InsightRow[],
+): Promise<Insight[]> {
+  const activeJob = await findActiveInsightJob(supabase, options.askSessionId);
+  if (activeJob) {
+    return existingInsights.map(mapInsightRowToInsight);
+  }
+
+  const insightAgent = await fetchAgentBySlug(supabase, INSIGHT_AGENT_SLUG, { includeModels: true });
+  if (!insightAgent) {
+    throw new Error('Insight detection agent is not configured');
+  }
+
+  const job = await createInsightJob(supabase, {
+    askSessionId: options.askSessionId,
+    messageId: options.messageId ?? null,
+    agentId: insightAgent.id,
+  });
+
+  try {
+    const result = await executeAgent({
+      supabase,
+      agentSlug: INSIGHT_AGENT_SLUG,
+      askSessionId: options.askSessionId,
+      messageId: options.messageId ?? null,
+      interactionType: INSIGHT_INTERACTION_TYPE,
+      variables: options.variables,
+    });
+
+    await supabase
+      .from('ai_insight_jobs')
+      .update({ model_config_id: result.modelConfig.id })
+      .eq('id', job.id);
+
+    const parsedPayload = (() => {
+      try {
+        if (typeof result.content === 'string' && result.content.trim().length > 0) {
+          return JSON.parse(result.content);
+        }
+      } catch (error) {
+        console.warn('Unable to parse insight detection response as JSON', error);
+      }
+
+      return result.raw ?? {};
+    })();
+
+    const incoming = normaliseIncomingInsights(parsedPayload.insights ?? parsedPayload);
+    await persistInsights(supabase, options.askSessionId, incoming.items, existingInsights);
+
+    await completeInsightJob(supabase, job.id, { modelConfigId: result.modelConfig.id });
+
+    const refreshedInsights = await fetchInsightsForSession(supabase, options.askSessionId);
+    return refreshedInsights.map(mapInsightRowToInsight);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error during insight detection';
+    await failInsightJob(supabase, job.id, {
+      error: message,
+      attempts: job.attempts,
+    });
+    throw error;
+  }
+}
+
+function buildPromptVariables(options: {
+  ask: AskSessionRow;
+  project: ProjectRow | null;
+  challenge: ChallengeRow | null;
+  messages: Message[];
+  participants: { name: string; role?: string | null }[];
+  insights: Insight[];
+  latestAiResponse?: string | null;
+}): Record<string, string | null | undefined> {
+  const history = formatMessageHistory(options.messages);
+  const lastUserMessage = [...options.messages].reverse().find(message => message.senderType === 'user');
+
+  const participantsSummary = options.participants
+    .map(participant => participant.role ? `${participant.name} (${participant.role})` : participant.name)
+    .join(', ');
+
+  return {
+    ask_key: options.ask.ask_key,
+    ask_question: options.ask.question,
+    ask_description: options.ask.description ?? '',
+    system_prompt_project: options.project?.system_prompt ?? '',
+    system_prompt_challenge: options.challenge?.system_prompt ?? '',
+    system_prompt_ask: options.ask.system_prompt ?? '',
+    message_history: history,
+    latest_user_message: lastUserMessage?.content ?? '',
+    latest_ai_response: options.latestAiResponse ?? '',
+    participant_name: lastUserMessage?.senderName ?? lastUserMessage?.metadata?.senderName ?? '',
+    participants: participantsSummary,
+    insights_context: summariseInsights(options.insights),
+  } satisfies Record<string, string | null | undefined>;
+}
+
 export async function POST(
-  request: NextRequest,
+  _request: NextRequest,
   { params }: { params: { key: string } }
 ) {
   try {
@@ -285,33 +697,12 @@ export async function POST(
       }, { status: 400 });
     }
 
-    const bodyJson = await (async () => {
-      try {
-        return await request.json();
-      } catch {
-        return null;
-      }
-    })();
-
-    const hasInlineInsights = Boolean(bodyJson && typeof bodyJson === 'object' && bodyJson.insights);
-    const requestTypeHeader = (request.headers.get('x-request-type') || '').toLowerCase();
-    const isAgentMessage = (() => {
-      const senderFromRoot = typeof bodyJson?.senderType === 'string' ? bodyJson.senderType : bodyJson?.sender_type;
-      const senderFromMsg = typeof bodyJson?.message?.senderType === 'string' ? bodyJson.message.senderType : bodyJson?.message?.sender_type;
-      if (typeof senderFromRoot === 'string' && senderFromRoot.toLowerCase() === 'ai') return true;
-      if (typeof senderFromMsg === 'string' && senderFromMsg.toLowerCase() === 'ai') return true;
-      if (requestTypeHeader === 'agent-message') return true;
-      if (bodyJson && typeof bodyJson === 'object' && (bodyJson.from === 'agent' || bodyJson.source === 'agent')) return true;
-      return false;
-    })();
-    const webhookUrl = process.env.EXTERNAL_RESPONSE_WEBHOOK;
-
     const supabase = getAdminSupabaseClient();
 
     const { row: askRow, error: askError } = await getAskSessionByKey<AskSessionRow>(
       supabase,
       key,
-      'id, ask_key'
+      'id, ask_key, question, description, status, system_prompt, project_id, challenge_id'
     );
 
     if (askError) {
@@ -325,7 +716,6 @@ export async function POST(
       }, { status: 404 });
     }
 
-    // Load participants to expose authors in webhook payload
     const { data: participantRows, error: participantError } = await supabase
       .from('ask_participants')
       .select('*')
@@ -337,10 +727,10 @@ export async function POST(
     }
 
     const participantUserIds = (participantRows ?? [])
-      .map((row) => row.user_id)
+      .map(row => row.user_id)
       .filter((value): value is string => Boolean(value));
 
-    let usersById: Record<string, { id: string; email?: string | null; full_name?: string | null; first_name?: string | null; last_name?: string | null } > = {};
+    let usersById: Record<string, UserRow> = {};
 
     if (participantUserIds.length > 0) {
       const { data: userRows, error: userError } = await supabase
@@ -352,29 +742,22 @@ export async function POST(
         throw userError;
       }
 
-      usersById = (userRows ?? []).reduce<Record<string, { id: string; email?: string | null; full_name?: string | null; first_name?: string | null; last_name?: string | null }>>((acc, user) => {
+      usersById = (userRows ?? []).reduce<Record<string, UserRow>>((acc, user) => {
         acc[user.id] = user;
         return acc;
       }, {});
     }
 
-    const authorsForWebhook = (participantRows ?? []).map((row, index) => {
+    const participants = (participantRows ?? []).map((row, index) => {
       const user = row.user_id ? usersById[row.user_id] ?? null : null;
-      const name = (() => {
-        if (row.participant_name && row.participant_name.trim().length > 0) return row.participant_name;
-        if (user?.full_name && user.full_name.trim().length > 0) return user.full_name;
-        const parts = [user?.first_name, user?.last_name].filter(Boolean) as string[];
-        if (parts.length > 0) return parts.join(' ');
-        if (user?.email) return user.email;
-        return `Participant ${index + 1}`;
-      })();
       return {
-        userId: row.user_id ?? null,
-        name,
-        participantId: row.id,
+        id: row.id,
+        name: buildParticipantDisplayName(row, user, index),
+        email: row.participant_email ?? user?.email ?? null,
         role: row.role ?? null,
         isSpokesperson: Boolean(row.is_spokesperson),
-      } as Record<string, unknown>;
+        isActive: true,
+      };
     });
 
     const { data: messageRows, error: messageError } = await supabase
@@ -387,125 +770,136 @@ export async function POST(
       throw messageError;
     }
 
-    const insightRows = await fetchInsightsForSession(supabase, askRow.id);
+    const messageUserIds = (messageRows ?? [])
+      .map(row => row.user_id)
+      .filter((value): value is string => Boolean(value));
 
-    const historyPayload = (messageRows ?? []).map((row) => ({
-      id: row.id,
-      ask_session_id: row.ask_session_id,
-      user_id: row.user_id ?? null,
-      sender_type: row.sender_type ?? 'user',
-      content: row.content,
-      message_type: row.message_type ?? 'text',
-      metadata: normaliseMessageMetadata(row.metadata) ?? undefined,
-      created_at: row.created_at ?? new Date().toISOString(),
-    }));
+    const additionalUserIds = messageUserIds.filter(id => !usersById[id]);
 
-    const insightsPayload = {
-      types: INSIGHT_TYPES,
-      items: insightRows.map((row) => {
-        const insight = mapInsightRowToInsight(row);
-        return {
-          id: row.id,
-          askSessionId: row.ask_session_id,
-          content: row.content ?? null,
-          summary: row.summary ?? null,
-          type: insight.type,
-          category: row.category ?? null,
-          status: row.status ?? null,
-          priority: row.priority ?? null,
-          challengeId: row.challenge_id ?? null,
-          authors: insight.authors.map((author) => ({
-            id: author.id,
-            userId: author.userId ?? null,
-            name: author.name ?? null,
-          })),
-          authorId: insight.authorId ?? null,
-          authorName: insight.authorName ?? null,
-          relatedChallengeIds: insight.relatedChallengeIds,
-          sourceMessageId: insight.sourceMessageId ?? null,
-          kpis: Array.isArray(row.kpis)
-            ? row.kpis.map((kpi) => ({
-              id: typeof kpi?.id === 'string' ? kpi.id : null,
-              label: typeof kpi?.label === 'string' ? kpi.label : null,
-              value: (kpi as any)?.value ?? null,
-              description: typeof kpi?.description === 'string' ? kpi.description : null,
-            }))
-            : [],
-        };
-      }),
-    } satisfies Record<string, unknown>;
+    if (additionalUserIds.length > 0) {
+      const { data: extraUsers, error: extraUsersError } = await supabase
+        .from('users')
+        .select('id, email, full_name, first_name, last_name')
+        .in('id', additionalUserIds);
 
-    // Build callback URLs depending on environment (use const arrow to satisfy ES5 strict mode)
-    const resolveBaseUrl = (): string => {
-      const explicit = process.env.EXTERNAL_CALLBACK_BASE_URL || process.env.NEXT_PUBLIC_SITE_URL;
-      if (explicit) return explicit.replace(/\/$/, '');
-      const vercelUrl = process.env.VERCEL_URL;
-      if (vercelUrl) return `https://${vercelUrl}`;
-      const port = process.env.PORT || '3000';
-      return `http://localhost:${port}`;
-    };
-
-    const baseUrl = resolveBaseUrl();
-    const callback = {
-      baseUrl,
-      respondUrl: `${baseUrl}/api/ask/${key}/respond`,
-      askUrl: `${baseUrl}/api/ask/${key}`,
-    } as Record<string, unknown>;
-
-    let webhookData: any = null;
-
-    if (isAgentMessage || hasInlineInsights) {
-      // Bypass webhook: use provided payload directly
-      webhookData = {
-        output_agent:
-          (typeof bodyJson?.output_agent === 'string' && bodyJson.output_agent) ||
-          (typeof bodyJson?.message?.content === 'string' && bodyJson.message.content) ||
-          (typeof bodyJson?.content === 'string' && bodyJson.content) ||
-          '',
-        insights: bodyJson.insights,
-      };
-    } else {
-      if (!webhookUrl) {
-        return NextResponse.json<ApiResponse>({
-          success: false,
-          error: 'External webhook not configured'
-        }, { status: 500 });
+      if (extraUsersError) {
+        throw extraUsersError;
       }
 
-      const webhookResponse = await fetch(webhookUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Webhook-Source': 'agentic-design-flow',
-          'X-Request-Type': 'user-message',
-        },
-        body: JSON.stringify({
-          askKey: key,
-          action: 'user_message',
-          messages: historyPayload,
-          insights: insightsPayload,
-          authors: authorsForWebhook,
-          callback,
-        }),
+      (extraUsers ?? []).forEach(user => {
+        usersById[user.id] = user;
       });
-
-      if (!webhookResponse.ok) {
-        throw new Error(`External webhook responded with status ${webhookResponse.status}`);
-      }
-
-      webhookData = await webhookResponse.json();
     }
 
-    let message: Message | undefined;
+    const messages: Message[] = (messageRows ?? []).map((row, index) => {
+      const metadata = normaliseMessageMetadata(row.metadata);
+      const user = row.user_id ? usersById[row.user_id] ?? null : null;
 
-    if (typeof webhookData.output_agent === 'string' && webhookData.output_agent.trim().length > 0) {
+      const senderName = (() => {
+        if (metadata && typeof metadata.senderName === 'string' && metadata.senderName.trim().length > 0) {
+          return metadata.senderName;
+        }
+
+        if (row.sender_type === 'ai') {
+          return 'Agent';
+        }
+
+        if (user) {
+          if (user.full_name) {
+            return user.full_name;
+          }
+
+          const nameParts = [user.first_name, user.last_name].filter(Boolean);
+          if (nameParts.length > 0) {
+            return nameParts.join(' ');
+          }
+
+          if (user.email) {
+            return user.email;
+          }
+        }
+
+        return `Participant ${index + 1}`;
+      })();
+
+      return {
+        id: row.id,
+        askKey: askRow.ask_key,
+        askSessionId: row.ask_session_id,
+        content: row.content,
+        type: (row.message_type as Message['type']) ?? 'text',
+        senderType: (row.sender_type as Message['senderType']) ?? 'user',
+        senderId: row.user_id ?? null,
+        senderName,
+        timestamp: row.created_at ?? new Date().toISOString(),
+        metadata: metadata,
+      };
+    });
+
+    const insightRows = await fetchInsightsForSession(supabase, askRow.id);
+    const existingInsights = insightRows.map(mapInsightRowToInsight);
+
+    let projectData: ProjectRow | null = null;
+    if (askRow.project_id) {
+      const { data, error } = await supabase
+        .from('projects')
+        .select('id, name, system_prompt')
+        .eq('id', askRow.project_id)
+        .maybeSingle<ProjectRow>();
+
+      if (error) {
+        throw error;
+      }
+
+      projectData = data ?? null;
+    }
+
+    let challengeData: ChallengeRow | null = null;
+    if (askRow.challenge_id) {
+      const { data, error } = await supabase
+        .from('challenges')
+        .select('id, name, system_prompt')
+        .eq('id', askRow.challenge_id)
+        .maybeSingle<ChallengeRow>();
+
+      if (error) {
+        throw error;
+      }
+
+      challengeData = data ?? null;
+    }
+
+    const participantSummaries = participants.map(p => ({ name: p.name, role: p.role ?? null }));
+
+    const promptVariables = buildPromptVariables({
+      ask: askRow,
+      project: projectData,
+      challenge: challengeData,
+      messages,
+      participants: participantSummaries,
+      insights: existingInsights,
+    });
+
+    const aiResult = await executeAgent({
+      supabase,
+      agentSlug: CHAT_AGENT_SLUG,
+      askSessionId: askRow.id,
+      interactionType: CHAT_INTERACTION_TYPE,
+      variables: promptVariables,
+    });
+
+    let message: Message | undefined;
+    let latestAiResponse = '';
+
+    if (typeof aiResult.content === 'string' && aiResult.content.trim().length > 0) {
+      latestAiResponse = aiResult.content.trim();
       const aiMetadata = { senderName: 'Agent' } satisfies Record<string, unknown>;
 
       const { data: insertedRows, error: insertError } = await supabase
         .from('messages')
         .insert({
           ask_session_id: askRow.id,
-          content: webhookData.output_agent,
+          content: latestAiResponse,
           sender_type: 'ai',
           message_type: 'text',
           metadata: aiMetadata,
@@ -535,142 +929,42 @@ export async function POST(
         timestamp: inserted.created_at ?? new Date().toISOString(),
         metadata: normaliseMessageMetadata(inserted.metadata),
       };
+
+      messages.push(message);
     }
 
-    const incomingInsights = normaliseIncomingInsights(webhookData.insights);
+    let refreshedInsights = existingInsights;
 
-    let refreshedInsights = [...insightRows];
+    try {
+      const detectionVariables = buildPromptVariables({
+        ask: askRow,
+        project: projectData,
+        challenge: challengeData,
+        messages,
+        participants: participantSummaries,
+        insights: existingInsights,
+        latestAiResponse,
+      });
 
-    if (incomingInsights.items.length > 0) {
-      const insightTypeMap = await fetchInsightTypeMap(supabase);
-      if (Object.keys(insightTypeMap).length === 0) {
-        throw new Error('No insight types configured');
-      }
-
-      const existingMap = insightRows.reduce<Record<string, InsightRow>>((acc, row) => {
-        acc[row.id] = row;
-        return acc;
-      }, {});
-
-      for (const incoming of incomingInsights.items) {
-        const nowIso = new Date().toISOString();
-        const existing = incoming.id ? existingMap[incoming.id] : undefined;
-        const desiredId = incoming.id ?? randomUUID();
-        const normalisedKpis = normaliseIncomingKpis(incoming.kpis, []);
-        const providedType = normaliseInsightTypeName(incoming.type);
-
-        if (existing) {
-          const existingInsight = mapInsightRowToInsight(existing);
-          const desiredTypeName = providedType ?? existingInsight.type ?? 'idea';
-          const desiredTypeId = resolveInsightTypeId(desiredTypeName, insightTypeMap);
-
-          const updatePayload = {
-            ask_session_id: existing.ask_session_id,
-            content: incoming.content ?? existing.content ?? '',
-            summary: incoming.summary ?? existing.summary ?? null,
-            insight_type_id: desiredTypeId,
-            category: incoming.category ?? existing.category ?? null,
-            status: (incoming.status as Insight['status']) ?? (existing.status as Insight['status']) ?? 'new',
-            priority: incoming.priority ?? existing.priority ?? null,
-            challenge_id: incoming.challengeId ?? existing.challenge_id ?? null,
-            related_challenge_ids: incoming.relatedChallengeIds ?? existing.related_challenge_ids ?? [],
-            source_message_id: incoming.sourceMessageId ?? existing.source_message_id ?? null,
-            updated_at: nowIso,
-          };
-
-          const { error: updateError } = await supabase
-            .from('insights')
-            .update(updatePayload)
-            .eq('id', existing.id);
-
-          if (updateError) {
-            throw updateError;
-          }
-
-          // Replace KPIs in kpi_estimations for this insight
-          await supabase.from('kpi_estimations').delete().eq('insight_id', existing.id);
-          const kpiRowsUpdate = normalisedKpis.map((k) => ({
-            insight_id: existing.id,
-            name: typeof (k as any)?.label === 'string' ? (k as any).label : 'KPI',
-            description: typeof (k as any)?.description === 'string' ? (k as any).description : null,
-            metric_data: (k as any)?.value ?? null,
-          }));
-          if (kpiRowsUpdate.length > 0) {
-            const { error: kpiUpdateErr } = await supabase.from('kpi_estimations').insert(kpiRowsUpdate);
-            if (kpiUpdateErr) throw kpiUpdateErr;
-          }
-
-          if (incoming.authorsProvided) {
-            await replaceInsightAuthors(supabase, existing.id, incoming.authors);
-          }
-
-          const updatedRow = await fetchInsightRowById(supabase, existing.id);
-          if (updatedRow) {
-            existingMap[existing.id] = updatedRow;
-          }
-        } else {
-          const desiredTypeName = providedType ?? 'idea';
-          const desiredTypeId = resolveInsightTypeId(desiredTypeName, insightTypeMap);
-
-          const insertPayload = {
-            id: desiredId,
-            ask_session_id: askRow.id,
-            content: incoming.content ?? '',
-            summary: incoming.summary ?? null,
-            insight_type_id: desiredTypeId,
-            category: incoming.category ?? null,
-            status: (incoming.status as Insight['status']) ?? 'new',
-            priority: incoming.priority ?? null,
-            challenge_id: incoming.challengeId ?? null,
-            related_challenge_ids: incoming.relatedChallengeIds ?? [],
-            source_message_id: incoming.sourceMessageId ?? null,
-            created_at: nowIso,
-            updated_at: nowIso,
-          };
-
-          const { error: createdError } = await supabase
-            .from('insights')
-            .insert(insertPayload);
-
-          if (createdError) {
-            throw createdError;
-          }
-
-          // Insert KPIs for this insight into kpi_estimations
-          const kpiRowsInsert = normalisedKpis.map((k) => ({
-            insight_id: desiredId,
-            name: typeof (k as any)?.label === 'string' ? (k as any).label : 'KPI',
-            description: typeof (k as any)?.description === 'string' ? (k as any).description : null,
-            metric_data: (k as any)?.value ?? null,
-          }));
-          if (kpiRowsInsert.length > 0) {
-            const { error: kpiInsertErr } = await supabase.from('kpi_estimations').insert(kpiRowsInsert);
-            if (kpiInsertErr) throw kpiInsertErr;
-          }
-
-          if (incoming.authorsProvided) {
-            await replaceInsightAuthors(supabase, desiredId, incoming.authors);
-          }
-
-          const createdRow = await fetchInsightRowById(supabase, desiredId);
-          if (createdRow) {
-            existingMap[createdRow.id] = createdRow;
-          }
-        }
-      }
-
-      const latestInsights = await fetchInsightsForSession(supabase, askRow.id);
-      refreshedInsights = latestInsights;
+      refreshedInsights = await triggerInsightDetection(
+        supabase,
+        {
+          askSessionId: askRow.id,
+          messageId: message?.id ?? null,
+          variables: detectionVariables,
+        },
+        insightRows,
+      );
+    } catch (error) {
+      console.error('Insight detection failed', error);
     }
-
-    const serialisedInsights = refreshedInsights.map(mapInsightRowToInsight);
 
     return NextResponse.json<ApiResponse<{ message?: Message; insights: Insight[] }>>({
       success: true,
-      data: { message, insights: serialisedInsights },
+      data: { message, insights: refreshedInsights },
     });
   } catch (error) {
-    console.error('Error triggering AI response:', error);
+    console.error('Error executing AI response pipeline:', error);
     return NextResponse.json<ApiResponse>({
       success: false,
       error: parseErrorMessage(error)
