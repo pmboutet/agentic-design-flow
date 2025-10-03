@@ -58,10 +58,87 @@ function createLogger(options = {}) {
   };
 }
 
+const TRUTHY = new Set(['1', 'true', 't', 'yes', 'y', 'on']);
+const FALSY = new Set(['0', 'false', 'f', 'no', 'n', 'off']);
+
+function parseBoolean(value) {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  const normalised = String(value).trim().toLowerCase();
+  if (TRUTHY.has(normalised)) return true;
+  if (FALSY.has(normalised)) return false;
+  return undefined;
+}
+
+function readBufferFromFile(maybePath) {
+  if (!maybePath) return undefined;
+  const resolved = path.isAbsolute(maybePath)
+    ? maybePath
+    : path.resolve(process.cwd(), maybePath);
+  if (!fs.existsSync(resolved)) {
+    return undefined;
+  }
+  return fs.readFileSync(resolved, 'utf8');
+}
+
+function readBufferFromBase64(value) {
+  if (!value) return undefined;
+  try {
+    return Buffer.from(value, 'base64').toString('utf8');
+  } catch (error) {
+    return undefined;
+  }
+}
+
+function resolveSSLMaterial(primaryEnv, base64Env) {
+  const fromFile = readBufferFromFile(process.env[primaryEnv]);
+  if (fromFile) return fromFile;
+  return readBufferFromBase64(process.env[base64Env]);
+}
+
 function getSSLConfig() {
   const sslMode = (process.env.PGSSLMODE || '').toLowerCase();
   if (sslMode === 'disable') return false;
-  return { rejectUnauthorized: false };
+
+  const ssl = {};
+
+  const rejectFromEnv =
+    parseBoolean(process.env.PGSSLREJECTUNAUTHORIZED) ??
+    parseBoolean(process.env.DATABASE_SSL_REJECT_UNAUTHORIZED);
+  if (rejectFromEnv !== undefined) {
+    ssl.rejectUnauthorized = rejectFromEnv;
+  }
+
+  const ca =
+    resolveSSLMaterial('PGSSLROOTCERT', 'PGSSLROOTCERT_BASE64') ||
+    resolveSSLMaterial('DATABASE_SSL_ROOT_CERT', 'DATABASE_SSL_ROOT_CERT_BASE64');
+  const cert =
+    resolveSSLMaterial('PGSSLCERT', 'PGSSLCERT_BASE64') ||
+    resolveSSLMaterial('DATABASE_SSL_CERT', 'DATABASE_SSL_CERT_BASE64');
+  const key =
+    resolveSSLMaterial('PGSSLKEY', 'PGSSLKEY_BASE64') ||
+    resolveSSLMaterial('DATABASE_SSL_KEY', 'DATABASE_SSL_KEY_BASE64');
+
+  if (ca) {
+    ssl.ca = ca;
+  }
+  if (cert) {
+    ssl.cert = cert;
+  }
+  if (key) {
+    ssl.key = key;
+  }
+
+  if (Object.keys(ssl).length === 0) {
+    return { rejectUnauthorized: false };
+  }
+
+  if (ssl.rejectUnauthorized === undefined) {
+    ssl.rejectUnauthorized = true;
+  }
+
+  return ssl;
 }
 
 async function getClient() {
