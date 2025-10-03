@@ -499,18 +499,18 @@ export default function HomePage() {
         animate={{ opacity: 1, y: 0 }}
         className="app-header border-0 sticky top-0 z-50"
       >
-        <div className="container mx-auto px-6 py-4 space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="container mx-auto px-4 sm:px-6 py-3 space-y-3 sm:space-y-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <motion.div
-              className="flex items-center gap-3"
+              className="flex items-center gap-2.5"
               whileHover={{ scale: 1.05 }}
               transition={{ type: "spring", stiffness: 400 }}
             >
-              <div className="w-10 h-10 bg-gradient-to-br from-primary to-accent rounded-xl flex items-center justify-center shadow-lg">
-                <MessageSquare className="h-6 w-6 text-white" />
+              <div className="w-9 h-9 bg-gradient-to-br from-primary to-accent rounded-lg flex items-center justify-center shadow-lg">
+                <MessageSquare className="h-5 w-5 text-white" />
               </div>
               <div>
-                <h1 className="text-xl font-bold bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
+                <h1 className="text-lg font-semibold sm:text-xl bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
                   Agentic Design Flow
                 </h1>
                 {isTestMode && (
@@ -519,12 +519,12 @@ export default function HomePage() {
               </div>
             </motion.div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-2 sm:justify-end">
               {sessionData.askKey && (
                 <motion.div
                   initial={{ opacity: 0, x: 20 }}
                   animate={{ opacity: 1, x: 0 }}
-                  className="neumorphic-shadow px-3 py-1 rounded-lg bg-white/60 text-sm"
+                  className="neumorphic-shadow px-2.5 py-1 rounded-lg bg-white/70 text-xs sm:text-sm"
                 >
                   <span className="text-muted-foreground">Session&nbsp;:</span>
                   <span className="font-mono text-foreground ml-1">{sessionData.askKey}</span>
@@ -547,11 +547,11 @@ export default function HomePage() {
             <motion.div
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
-              className="rounded-2xl border border-white/40 bg-white/70 backdrop-blur px-6 py-5 shadow-sm"
+              className="rounded-xl border border-white/50 bg-white/80 backdrop-blur px-4 py-4 shadow-sm"
             >
-              <div className="flex items-start justify-between gap-3">
-                <div className="space-y-2 pr-4">
-                  <h3 className="font-semibold tracking-tight text-lg leading-tight text-foreground">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="space-y-1.5 sm:pr-4">
+                  <h3 className="font-semibold tracking-tight text-base sm:text-lg leading-snug text-foreground">
                     {askDetails.question}
                   </h3>
                   {askDetails.description && !isDetailsCollapsed && (
@@ -564,7 +564,7 @@ export default function HomePage() {
                   variant="ghost"
                   size="sm"
                   onClick={() => setIsDetailsCollapsed(prev => !prev)}
-                  className="inline-flex items-center gap-1 whitespace-nowrap"
+                  className="inline-flex items-center gap-1.5 whitespace-nowrap self-start"
                   aria-expanded={!isDetailsCollapsed}
                 >
                   {isDetailsCollapsed ? (
@@ -588,10 +588,10 @@ export default function HomePage() {
                     initial={{ height: 0, opacity: 0 }}
                     animate={{ height: "auto", opacity: 1 }}
                     exit={{ height: 0, opacity: 0 }}
-                    className="mt-4 overflow-hidden"
+                    className="mt-3 overflow-hidden"
                   >
-                    <div className="grid gap-4 text-sm text-muted-foreground sm:grid-cols-3">
-                      <div className="space-y-2">
+                    <div className="grid gap-3 sm:gap-4 text-sm text-muted-foreground sm:grid-cols-3">
+                      <div className="space-y-1.5">
                         <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground/80">Statut</p>
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="inline-flex items-center rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
@@ -607,7 +607,7 @@ export default function HomePage() {
                         </div>
                       </div>
 
-                      <div className="space-y-2">
+                      <div className="space-y-1.5">
                         <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground/80">Cadre</p>
                         <div className="space-y-1 text-foreground">
                           <p className="font-medium">
@@ -619,7 +619,7 @@ export default function HomePage() {
                         </div>
                       </div>
 
-                      <div className="space-y-2">
+                      <div className="space-y-1.5">
                         <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground/80">
                           Participants ({participants.length})
                         </p>
