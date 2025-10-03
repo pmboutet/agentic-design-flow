@@ -26,7 +26,8 @@ export function ChatComponent({
   isLoading,
   onHumanTyping,
   currentParticipantName,
-  isMultiUser
+  isMultiUser,
+  showAgentTyping,
 }: ChatComponentProps) {
   const [inputValue, setInputValue] = useState("");
   const [selectedFiles, setSelectedFiles] = useState<FileUpload[]>([]);
@@ -278,6 +279,26 @@ export function ChatComponent({
           </AnimatePresence>
           <div ref={messagesEndRef} />
         </div>
+
+        <AnimatePresence>
+          {showAgentTyping && (
+            <motion.div
+              key="agent-typing-indicator"
+              initial={{ opacity: 0, y: 4 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 4 }}
+              transition={{ duration: 0.2 }}
+              className="mb-3 flex items-center gap-2 pl-1 text-xs text-muted-foreground/80"
+              aria-live="polite"
+            >
+              <span className="relative flex h-2.5 w-2.5">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary/30" />
+                <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-primary/40" />
+              </span>
+              <span className="italic">L'agent est en train de répondre</span>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* File preview area */}
         {selectedFiles.length > 0 && (

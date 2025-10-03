@@ -669,6 +669,7 @@ export default function HomePage() {
               onHumanTyping={handleHumanTyping}
               currentParticipantName={currentParticipantName}
               isMultiUser={Boolean(sessionData.ask && sessionData.ask.participants.length > 1)}
+              showAgentTyping={awaitingAiResponse}
             />
           </div>
         </motion.div>

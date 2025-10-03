@@ -177,6 +177,7 @@ export interface ChatComponentProps {
   onHumanTyping?: (isTyping: boolean) => void;
   currentParticipantName?: string | null;
   isMultiUser?: boolean;
+  showAgentTyping?: boolean;
 }
 
 export interface ChallengeComponentProps {
