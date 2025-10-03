@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { AlertCircle, Clock, MessageSquare, Sparkles, ChevronDown, ChevronUp, Keyboard } from "lucide-react";
+import { AlertCircle, Clock, MessageSquare, Sparkles, ChevronDown, ChevronUp } from "lucide-react";
 import { ChatComponent } from "@/components/chat/ChatComponent";
 import { InsightPanel } from "@/components/insight/InsightPanel";
 import { Button } from "@/components/ui/button";
@@ -669,46 +669,8 @@ export default function HomePage() {
               onHumanTyping={handleHumanTyping}
               currentParticipantName={currentParticipantName}
               isMultiUser={Boolean(sessionData.ask && sessionData.ask.participants.length > 1)}
+              showAgentTyping={awaitingAiResponse}
             />
-            <AnimatePresence>
-              {awaitingAiResponse && (
-                <motion.div
-                  key="ai-typing-indicator"
-                  initial={{ opacity: 0, y: 12 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: 12 }}
-                  transition={{ duration: 0.3 }}
-                  className="mt-4 rounded-2xl bg-gradient-to-r from-primary/90 via-primary to-accent/80 p-4 shadow-lg shadow-primary/30"
-                  aria-live="polite"
-                >
-                  <div className="flex items-center gap-4 text-white">
-                    <div className="relative flex h-12 w-12 items-center justify-center rounded-full bg-white/20">
-                      <Keyboard className="h-6 w-6" />
-                      <motion.span
-                        className="absolute inset-0 rounded-full border-2 border-white/40"
-                        animate={{ opacity: [0.4, 0.9, 0.4], scale: [1, 1.05, 1] }}
-                        transition={{ duration: 1.8, repeat: Infinity }}
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <p className="text-sm font-semibold uppercase tracking-wide text-white/80">
-                        L'agent est en train de répondre
-                      </p>
-                      <div className="flex items-center gap-2">
-                        {[0, 1, 2].map((index) => (
-                          <motion.span
-                            key={index}
-                            className="h-2 w-2 rounded-full bg-white/80"
-                            animate={{ y: [0, -6, 0], opacity: [0.4, 1, 0.4] }}
-                            transition={{ duration: 0.8, repeat: Infinity, delay: index * 0.18 }}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
           </div>
         </motion.div>
 
