@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 import type { AiAgentRecord, AiModelConfig, PromptVariableDefinition } from "@/types";
 
 interface AgentsResponse {
@@ -33,6 +34,54 @@ type AgentDraft = AiAgentRecord & {
   saveSuccess?: boolean;
 };
 
+type NewAgentDraft = {
+  slug: string;
+  name: string;
+  description: string;
+  systemPrompt: string;
+  userPrompt: string;
+  availableVariables: string[];
+  modelConfigId: string | null;
+  fallbackModelConfigId: string | null;
+  slugManuallyEdited: boolean;
+  isSaving: boolean;
+  error: string | null;
+  successMessage: string | null;
+};
+
+interface CreateAgentResponse {
+  success: boolean;
+  data?: AiAgentRecord;
+  error?: string;
+}
+
+function slugify(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+}
+
+function createEmptyNewAgentDraft(): NewAgentDraft {
+  return {
+    slug: "",
+    name: "",
+    description: "",
+    systemPrompt: "",
+    userPrompt: "",
+    availableVariables: [],
+    modelConfigId: null,
+    fallbackModelConfigId: null,
+    slugManuallyEdited: false,
+    isSaving: false,
+    error: null,
+    successMessage: null,
+  };
+}
+
 function mergeAgentWithDraft(agent: AiAgentRecord): AgentDraft {
   return {
     ...agent,
@@ -53,15 +102,24 @@ export default function AiConfigurationPage() {
   const [variables, setVariables] = useState<PromptVariableDefinition[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isCreating, setIsCreating] = useState(false);
+  const [newAgent, setNewAgent] = useState<NewAgentDraft>(() => createEmptyNewAgentDraft());
 
   const fetchConfiguration = async () => {
     setIsLoading(true);
     setError(null);
     try {
       const [agentsResponse, modelsResponse] = await Promise.all([
-        fetch("/api/admin/ai/agents"),
-        fetch("/api/admin/ai/models"),
+        fetch("/api/admin/ai/agents", { credentials: "include" }),
+        fetch("/api/admin/ai/models", { credentials: "include" }),
       ]);
+
+      if (!agentsResponse.ok) {
+        throw new Error("Impossible de charger les agents");
+      }
+      if (!modelsResponse.ok) {
+        throw new Error("Impossible de charger les modèles");
+      }
 
       const agentsJson: AgentsResponse = await agentsResponse.json();
       const modelsJson: ModelsResponse = await modelsResponse.json();
@@ -87,6 +145,128 @@ export default function AiConfigurationPage() {
   useEffect(() => {
     fetchConfiguration();
   }, []);
+
+  const handleToggleCreateForm = () => {
+    setIsCreating(prev => {
+      const next = !prev;
+      if (!next) {
+        setNewAgent(createEmptyNewAgentDraft());
+      }
+      return next;
+    });
+  };
+
+  const handleNewAgentNameChange = (value: string) => {
+    setNewAgent(prev => {
+      const shouldUpdateSlug = !prev.slugManuallyEdited;
+      return {
+        ...prev,
+        name: value,
+        slug: shouldUpdateSlug ? slugify(value) : prev.slug,
+        error: null,
+        successMessage: null,
+      };
+    });
+  };
+
+  const handleNewAgentSlugChange = (value: string) => {
+    setNewAgent(prev => ({
+      ...prev,
+      slug: value,
+      slugManuallyEdited: true,
+      error: null,
+      successMessage: null,
+    }));
+  };
+
+  const handleNewAgentDescriptionChange = (value: string) => {
+    setNewAgent(prev => ({
+      ...prev,
+      description: value,
+      error: null,
+      successMessage: null,
+    }));
+  };
+
+  const handleNewAgentPromptChange = (field: "system" | "user", value: string) => {
+    setNewAgent(prev => ({
+      ...prev,
+      systemPrompt: field === "system" ? value : prev.systemPrompt,
+      userPrompt: field === "user" ? value : prev.userPrompt,
+      error: null,
+      successMessage: null,
+    }));
+  };
+
+  const handleNewAgentModelChange = (field: "primary" | "fallback", value: string) => {
+    setNewAgent(prev => ({
+      ...prev,
+      modelConfigId: field === "primary" ? (value || null) : prev.modelConfigId,
+      fallbackModelConfigId: field === "fallback" ? (value || null) : prev.fallbackModelConfigId,
+      error: null,
+      successMessage: null,
+    }));
+  };
+
+  const handleNewAgentToggleVariable = (variable: string) => {
+    setNewAgent(prev => {
+      const exists = prev.availableVariables.includes(variable);
+      const updated = exists
+        ? prev.availableVariables.filter(item => item !== variable)
+        : [...prev.availableVariables, variable];
+
+      return {
+        ...prev,
+        availableVariables: updated,
+        error: null,
+        successMessage: null,
+      };
+    });
+  };
+
+  const handleResetNewAgentForm = () => {
+    setNewAgent(createEmptyNewAgentDraft());
+  };
+
+  const handleCreateAgent = async () => {
+    setNewAgent(prev => ({ ...prev, isSaving: true, error: null, successMessage: null }));
+
+    try {
+      const slugValue = newAgent.slug.trim();
+      const response = await fetch("/api/admin/ai/agents", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          slug: slugValue.length > 0 ? slugValue : undefined,
+          name: newAgent.name,
+          description: newAgent.description.trim().length > 0 ? newAgent.description : null,
+          systemPrompt: newAgent.systemPrompt,
+          userPrompt: newAgent.userPrompt,
+          availableVariables: newAgent.availableVariables,
+          modelConfigId: newAgent.modelConfigId,
+          fallbackModelConfigId: newAgent.fallbackModelConfigId,
+        }),
+      });
+
+      const result: CreateAgentResponse = await response.json();
+
+      if (!response.ok || !result.success || !result.data) {
+        throw new Error(result.error || "Impossible de créer l'agent");
+      }
+
+      const createdAgent = result.data;
+
+      setAgents(prev => [...prev, mergeAgentWithDraft(createdAgent)]);
+      setNewAgent({
+        ...createEmptyNewAgentDraft(),
+        successMessage: `Agent "${createdAgent.name}" créé avec succès.`,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Erreur lors de la création de l'agent";
+      setNewAgent(prev => ({ ...prev, isSaving: false, error: message }));
+    }
+  };
 
   const handleToggleVariable = (agentId: string, variable: string) => {
     setAgents(prev => prev.map(agent => {
@@ -137,6 +317,7 @@ export default function AiConfigurationPage() {
       const response = await fetch(`/api/admin/ai/agents/${agentId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
           systemPrompt: agent.systemPromptDraft,
           userPrompt: agent.userPromptDraft,
@@ -177,16 +358,31 @@ export default function AiConfigurationPage() {
     return [...variables].sort((a, b) => a.key.localeCompare(b.key));
   }, [variables]);
 
+  const isCreateDisabled =
+    newAgent.isSaving ||
+    newAgent.name.trim().length === 0 ||
+    newAgent.systemPrompt.trim().length === 0 ||
+    newAgent.userPrompt.trim().length === 0;
+
   return (
     <div className="p-6 space-y-8">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Configuration des agents IA</h1>
           <p className="text-muted-foreground">Gérez les prompts et l'association aux modèles.</p>
         </div>
-        <Button onClick={fetchConfiguration} disabled={isLoading}>
-          Rafraîchir
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            onClick={handleToggleCreateForm}
+            disabled={newAgent.isSaving}
+          >
+            {isCreating ? "Fermer" : "Nouvel agent"}
+          </Button>
+          <Button onClick={fetchConfiguration} disabled={isLoading}>
+            Rafraîchir
+          </Button>
+        </div>
       </div>
 
       {error && (
@@ -196,6 +392,154 @@ export default function AiConfigurationPage() {
           </CardHeader>
           <CardContent>
             <p>{error}</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {isCreating && (
+        <Card className="border-primary/20">
+          <CardHeader>
+            <CardTitle>Nouvel agent IA</CardTitle>
+            <CardDescription>Définissez le prompt, les variables et le modèle associé.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="new-agent-name">Nom</Label>
+                <Input
+                  id="new-agent-name"
+                  placeholder="Agent conversationnel"
+                  value={newAgent.name}
+                  onChange={event => handleNewAgentNameChange(event.target.value)}
+                  disabled={newAgent.isSaving}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="new-agent-slug">Identifiant (slug)</Label>
+                <Input
+                  id="new-agent-slug"
+                  placeholder="agent-conversationnel"
+                  value={newAgent.slug}
+                  onChange={event => handleNewAgentSlugChange(event.target.value)}
+                  disabled={newAgent.isSaving}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="new-agent-description">Description</Label>
+              <Textarea
+                id="new-agent-description"
+                value={newAgent.description}
+                onChange={event => handleNewAgentDescriptionChange(event.target.value)}
+                rows={3}
+                placeholder="Résumé de l'utilisation de cet agent."
+                disabled={newAgent.isSaving}
+              />
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Modèle principal</Label>
+                <select
+                  className="w-full rounded border border-input bg-background px-3 py-2 text-sm"
+                  value={newAgent.modelConfigId ?? ''}
+                  onChange={event => handleNewAgentModelChange("primary", event.target.value)}
+                  disabled={newAgent.isSaving}
+                >
+                  <option value="">Aucun</option>
+                  {models.map(model => (
+                    <option key={model.id} value={model.id}>
+                      {model.name} — {model.model}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-2">
+                <Label>Modèle de secours</Label>
+                <select
+                  className="w-full rounded border border-input bg-background px-3 py-2 text-sm"
+                  value={newAgent.fallbackModelConfigId ?? ''}
+                  onChange={event => handleNewAgentModelChange("fallback", event.target.value)}
+                  disabled={newAgent.isSaving}
+                >
+                  <option value="">Aucun</option>
+                  {models.map(model => (
+                    <option key={model.id} value={model.id}>
+                      {model.name} — {model.model}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="new-agent-system">System prompt</Label>
+                <Textarea
+                  id="new-agent-system"
+                  value={newAgent.systemPrompt}
+                  onChange={event => handleNewAgentPromptChange("system", event.target.value)}
+                  rows={8}
+                  disabled={newAgent.isSaving}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="new-agent-user">User prompt</Label>
+                <Textarea
+                  id="new-agent-user"
+                  value={newAgent.userPrompt}
+                  onChange={event => handleNewAgentPromptChange("user", event.target.value)}
+                  rows={8}
+                  disabled={newAgent.isSaving}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <Label>Variables actives</Label>
+              <div className="flex flex-wrap gap-2">
+                {sortedVariables.map(variable => {
+                  const isActive = newAgent.availableVariables.includes(variable.key);
+                  return (
+                    <button
+                      key={variable.key}
+                      type="button"
+                      onClick={() => handleNewAgentToggleVariable(variable.key)}
+                      className={`px-3 py-1 text-sm rounded-full border transition ${
+                        isActive
+                          ? "bg-primary text-primary-foreground border-primary"
+                          : "bg-muted border-muted-foreground/20"
+                      }`}
+                      disabled={newAgent.isSaving}
+                    >
+                      {variable.key}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {newAgent.error && (
+              <p className="text-sm text-destructive">{newAgent.error}</p>
+            )}
+            {newAgent.successMessage && (
+              <p className="text-sm text-emerald-600">{newAgent.successMessage}</p>
+            )}
+
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={handleCreateAgent} disabled={isCreateDisabled}>
+                {newAgent.isSaving ? "Création en cours..." : "Créer l'agent"}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleResetNewAgentForm}
+                disabled={newAgent.isSaving}
+              >
+                Réinitialiser
+              </Button>
+            </div>
           </CardContent>
         </Card>
       )}
@@ -297,7 +641,11 @@ export default function AiConfigurationPage() {
                           key={variable.key}
                           type="button"
                           onClick={() => handleToggleVariable(agent.id, variable.key)}
-                          className={`px-3 py-1 text-sm rounded-full border transition ${isActive ? 'bg-primary text-primary-foreground border-primary' : 'bg-muted border-muted-foreground/20'}`}
+                          className={`px-3 py-1 text-sm rounded-full border transition ${
+                            isActive
+                              ? "bg-primary text-primary-foreground border-primary"
+                              : "bg-muted border-muted-foreground/20"
+                          }`}
                         >
                           {variable.key}
                         </button>

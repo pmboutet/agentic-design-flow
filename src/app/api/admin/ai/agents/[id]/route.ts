@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminSupabaseClient } from '@/lib/supabaseAdmin';
+import { sanitizePromptVariables } from '@/lib/ai/agents';
 import { parseErrorMessage } from '@/lib/utils';
 
 interface AgentUpdatePayload {
@@ -10,16 +11,6 @@ interface AgentUpdatePayload {
   modelConfigId?: string | null;
   fallbackModelConfigId?: string | null;
   availableVariables?: string[];
-}
-
-function sanitizeVariables(values: unknown): string[] | undefined {
-  if (!Array.isArray(values)) {
-    return undefined;
-  }
-
-  return values
-    .map(value => (typeof value === 'string' ? value.trim() : ''))
-    .filter(value => value.length > 0);
 }
 
 export async function PUT(
@@ -53,7 +44,7 @@ export async function PUT(
       updatePayload.fallback_model_config_id = body.fallbackModelConfigId ?? null;
     }
 
-    const variables = sanitizeVariables(body.availableVariables);
+    const variables = sanitizePromptVariables(body.availableVariables);
     if (variables) {
       updatePayload.available_variables = variables;
     }
