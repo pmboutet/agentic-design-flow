@@ -556,7 +556,7 @@ export async function POST(
         const nowIso = new Date().toISOString();
         const existing = incoming.id ? existingMap[incoming.id] : undefined;
         const desiredId = incoming.id ?? randomUUID();
-        const normalisedKpis = normaliseIncomingKpis(incoming.kpis, existing?.kpis ?? []);
+        const normalisedKpis = normaliseIncomingKpis(incoming.kpis, []);
         const providedType = normaliseInsightTypeName(incoming.type);
 
         if (existing) {
