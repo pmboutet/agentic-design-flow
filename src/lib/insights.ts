@@ -4,6 +4,7 @@ export const INSIGHT_TYPES: Insight['type'][] = ['pain', 'gain', 'opportunity', 
 
 export interface InsightAuthorRow {
   id: string;
+  insight_id?: string | null;
   user_id?: string | null;
   display_name?: string | null;
 }
@@ -16,6 +17,8 @@ export interface InsightRow {
   content?: string | null;
   summary?: string | null;
   type?: string | null;
+  insight_type_id?: string | null;
+  insight_type_name?: string | null;
   category?: string | null;
   status?: string | null;
   priority?: string | null;
@@ -35,6 +38,22 @@ function getAskId(row: any): string | null {
     // Column doesn't exist, return null
     return null;
   }
+}
+
+function isInsightType(value: unknown): value is Insight['type'] {
+  return typeof value === 'string' && INSIGHT_TYPES.includes(value as Insight['type']);
+}
+
+function resolveInsightType(row: InsightRow): Insight['type'] {
+  const candidate = [row.type, row.insight_type_name]
+    .map((value) => (typeof value === 'string' && value.trim().length > 0 ? value.trim().toLowerCase() : null))
+    .find((value): value is string => typeof value === 'string' && value.length > 0);
+
+  if (isInsightType(candidate)) {
+    return candidate;
+  }
+
+  return 'idea';
 }
 
 export function mapInsightRowToInsight(row: InsightRow): Insight {
@@ -59,7 +78,7 @@ export function mapInsightRowToInsight(row: InsightRow): Insight {
     authors,
     content: row.content ?? '',
     summary: row.summary ?? null,
-    type: (row.type as Insight['type']) ?? 'idea',
+    type: resolveInsightType(row),
     category: row.category ?? null,
     status: (row.status as Insight['status']) ?? 'new',
     priority: row.priority ?? null,

@@ -4,6 +4,7 @@ import { ApiResponse, Insight, Message } from '@/types';
 import { getAdminSupabaseClient } from '@/lib/supabaseAdmin';
 import { isValidAskKey, parseErrorMessage } from '@/lib/utils';
 import { INSIGHT_TYPES, mapInsightRowToInsight, type InsightRow } from '@/lib/insights';
+import { fetchInsightRowById, fetchInsightsForSession, fetchInsightTypeMap } from '@/lib/insightQueries';
 import { normaliseMessageMetadata } from '@/lib/messages';
 import { getAskSessionByKey } from '@/lib/asks';
 
@@ -55,6 +56,37 @@ type NormalisedIncomingInsight = IncomingInsight & {
   authorsProvided: boolean;
 };
 
+function normaliseInsightTypeName(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed.toLowerCase() : null;
+}
+
+function resolveInsightTypeId(
+  typeName: string | null,
+  typeMap: Record<string, string>,
+): string {
+  const normalised = typeName ? typeName.trim().toLowerCase() : null;
+
+  if (normalised && typeMap[normalised]) {
+    return typeMap[normalised];
+  }
+
+  if (typeMap.idea) {
+    return typeMap.idea;
+  }
+
+  const [fallbackId] = Object.values(typeMap);
+  if (fallbackId) {
+    return fallbackId;
+  }
+
+  throw new Error('No insight types configured');
+}
+
 async function replaceInsightAuthors(
   supabase: AdminSupabaseClient,
   insightId: string,
@@ -103,36 +135,6 @@ async function replaceInsightAuthors(
   if (insertError) {
     throw insertError;
   }
-}
-
-async function fetchInsightById(
-  supabase: AdminSupabaseClient,
-  insightId: string,
-): Promise<InsightRow | null> {
-  // Try to select with ask_id first, fallback to without it if column doesn't exist
-  let { data, error } = await supabase
-    .from('insights')
-    .select('id, ask_session_id, ask_id, challenge_id, content, summary, type, category, status, priority, created_at, updated_at, related_challenge_ids, kpis, source_message_id, insight_authors (id, user_id, display_name)')
-    .eq('id', insightId)
-    .maybeSingle<InsightRow>();
-
-  // If ask_id column doesn't exist, retry without it
-  if (error && error.message.includes('column insights.ask_id does not exist')) {
-    const fallbackResult = await supabase
-      .from('insights')
-      .select('id, ask_session_id, challenge_id, content, summary, type, category, status, priority, created_at, updated_at, related_challenge_ids, kpis, source_message_id, insight_authors (id, user_id, display_name)')
-      .eq('id', insightId)
-      .maybeSingle<InsightRow>();
-    
-    data = fallbackResult.data;
-    error = fallbackResult.error;
-  }
-
-  if (error) {
-    throw error;
-  }
-
-  return data ?? null;
 }
 
 function normaliseIncomingKpis(kpis: unknown, fallback: Array<Record<string, unknown>> = []): Array<Record<string, unknown>> {
@@ -321,29 +323,7 @@ export async function POST(
       throw messageError;
     }
 
-    // Try to select with ask_id first, fallback to without it if column doesn't exist
-    let { data: insightRows, error: insightError } = await supabase
-      .from('insights')
-      .select('id, ask_session_id, ask_id, challenge_id, content, summary, type, category, status, priority, created_at, updated_at, related_challenge_ids, kpis, source_message_id, insight_authors (id, user_id, display_name)')
-      .eq('ask_session_id', askRow.id)
-      .order('created_at', { ascending: true });
-
-    // If ask_id column doesn't exist, retry without it
-    if (insightError && insightError.message.includes('column insights.ask_id does not exist')) {
-      const fallbackResult = await supabase
-        .from('insights')
-        .select('id, ask_session_id, challenge_id, content, summary, type, category, status, priority, created_at, updated_at, related_challenge_ids, kpis, source_message_id, insight_authors (id, user_id, display_name)')
-        .eq('ask_session_id', askRow.id)
-        .order('created_at', { ascending: true });
-      
-      // Add ask_id as null for rows that don't have it
-      insightRows = fallbackResult.data?.map(row => ({ ...row, ask_id: null })) || null;
-      insightError = fallbackResult.error;
-    }
-
-    if (insightError) {
-      throw insightError;
-    }
+    const insightRows = await fetchInsightsForSession(supabase, askRow.id);
 
     const historyPayload = (messageRows ?? []).map((row) => ({
       id: row.id,
@@ -358,14 +338,14 @@ export async function POST(
 
     const insightsPayload = {
       types: INSIGHT_TYPES,
-      items: (insightRows ?? []).map((row) => {
+      items: insightRows.map((row) => {
         const insight = mapInsightRowToInsight(row);
         return {
           id: row.id,
           askSessionId: row.ask_session_id,
           content: row.content ?? null,
           summary: row.summary ?? null,
-          type: row.type ?? null,
+          type: insight.type,
           category: row.category ?? null,
           status: row.status ?? null,
           priority: row.priority ?? null,
@@ -455,10 +435,15 @@ export async function POST(
 
     const incomingInsights = normaliseIncomingInsights(webhookData.insights);
 
-    let refreshedInsights = insightRows ?? [];
+    let refreshedInsights = [...insightRows];
 
     if (incomingInsights.items.length > 0) {
-      const existingMap = (insightRows ?? []).reduce<Record<string, InsightRow>>((acc, row) => {
+      const insightTypeMap = await fetchInsightTypeMap(supabase);
+      if (Object.keys(insightTypeMap).length === 0) {
+        throw new Error('No insight types configured');
+      }
+
+      const existingMap = insightRows.reduce<Record<string, InsightRow>>((acc, row) => {
         acc[row.id] = row;
         return acc;
       }, {});
@@ -468,13 +453,18 @@ export async function POST(
         const existing = incoming.id ? existingMap[incoming.id] : undefined;
         const desiredId = incoming.id ?? randomUUID();
         const normalisedKpis = normaliseIncomingKpis(incoming.kpis, existing?.kpis ?? []);
+        const providedType = normaliseInsightTypeName(incoming.type);
 
         if (existing) {
+          const existingInsight = mapInsightRowToInsight(existing);
+          const desiredTypeName = providedType ?? existingInsight.type ?? 'idea';
+          const desiredTypeId = resolveInsightTypeId(desiredTypeName, insightTypeMap);
+
           const updatePayload = {
             ask_session_id: existing.ask_session_id,
             content: incoming.content ?? existing.content ?? '',
             summary: incoming.summary ?? existing.summary ?? null,
-            type: (incoming.type as Insight['type']) ?? (existing.type as Insight['type']) ?? 'idea',
+            insight_type_id: desiredTypeId,
             category: incoming.category ?? existing.category ?? null,
             status: (incoming.status as Insight['status']) ?? (existing.status as Insight['status']) ?? 'new',
             priority: incoming.priority ?? existing.priority ?? null,
@@ -498,17 +488,20 @@ export async function POST(
             await replaceInsightAuthors(supabase, existing.id, incoming.authors);
           }
 
-          const updatedRow = await fetchInsightById(supabase, existing.id);
+          const updatedRow = await fetchInsightRowById(supabase, existing.id);
           if (updatedRow) {
             existingMap[existing.id] = updatedRow;
           }
         } else {
+          const desiredTypeName = providedType ?? 'idea';
+          const desiredTypeId = resolveInsightTypeId(desiredTypeName, insightTypeMap);
+
           const insertPayload = {
             id: desiredId,
             ask_session_id: askRow.id,
             content: incoming.content ?? '',
             summary: incoming.summary ?? null,
-            type: (incoming.type as Insight['type']) ?? 'idea',
+            insight_type_id: desiredTypeId,
             category: incoming.category ?? null,
             status: (incoming.status as Insight['status']) ?? 'new',
             priority: incoming.priority ?? null,
@@ -532,40 +525,18 @@ export async function POST(
             await replaceInsightAuthors(supabase, desiredId, incoming.authors);
           }
 
-          const createdRow = await fetchInsightById(supabase, desiredId);
+          const createdRow = await fetchInsightRowById(supabase, desiredId);
           if (createdRow) {
             existingMap[createdRow.id] = createdRow;
           }
         }
       }
 
-      // Try to select with ask_id first, fallback to without it if column doesn't exist
-      let { data: latestInsights, error: latestError } = await supabase
-        .from('insights')
-        .select('id, ask_session_id, ask_id, challenge_id, content, summary, type, category, status, priority, created_at, updated_at, related_challenge_ids, kpis, source_message_id, insight_authors (id, user_id, display_name)')
-        .eq('ask_session_id', askRow.id)
-        .order('created_at', { ascending: true });
-
-      // If ask_id column doesn't exist, retry without it
-      if (latestError && latestError.message.includes('column insights.ask_id does not exist')) {
-        const fallbackResult = await supabase
-          .from('insights')
-          .select('id, ask_session_id, challenge_id, content, summary, type, category, status, priority, created_at, updated_at, related_challenge_ids, kpis, source_message_id, insight_authors (id, user_id, display_name)')
-          .eq('ask_session_id', askRow.id)
-          .order('created_at', { ascending: true });
-        
-        latestInsights = fallbackResult.data;
-        latestError = fallbackResult.error;
-      }
-
-      if (latestError) {
-        throw latestError;
-      }
-
-      refreshedInsights = latestInsights ?? [];
+      const latestInsights = await fetchInsightsForSession(supabase, askRow.id);
+      refreshedInsights = latestInsights;
     }
 
-    const serialisedInsights = (refreshedInsights ?? insightRows ?? []).map(mapInsightRowToInsight);
+    const serialisedInsights = refreshedInsights.map(mapInsightRowToInsight);
 
     return NextResponse.json<ApiResponse<{ message: Message; insights: Insight[] }>>({
       success: true,
