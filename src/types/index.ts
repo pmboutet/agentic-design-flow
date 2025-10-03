@@ -167,6 +167,82 @@ export interface SessionData {
   error: string | null;
 }
 
+// AI agent configuration
+export type AiModelProvider = "anthropic" | "mistral" | "openai" | "custom";
+
+export interface AiModelConfig {
+  id: string;
+  code: string;
+  name: string;
+  provider: AiModelProvider;
+  model: string;
+  baseUrl?: string | null;
+  apiKeyEnvVar: string;
+  additionalHeaders?: Record<string, unknown> | null;
+  isDefault?: boolean;
+  isFallback?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface AiAgentRecord {
+  id: string;
+  slug: string;
+  name: string;
+  description?: string | null;
+  modelConfigId?: string | null;
+  fallbackModelConfigId?: string | null;
+  systemPrompt: string;
+  userPrompt: string;
+  availableVariables: string[];
+  metadata?: Record<string, unknown> | null;
+  createdAt?: string;
+  updatedAt?: string;
+  modelConfig?: AiModelConfig | null;
+  fallbackModelConfig?: AiModelConfig | null;
+}
+
+export type AiAgentInteractionStatus = "pending" | "processing" | "completed" | "failed";
+
+export interface AiAgentLog {
+  id: string;
+  agentId?: string | null;
+  modelConfigId?: string | null;
+  askSessionId?: string | null;
+  messageId?: string | null;
+  interactionType: string;
+  requestPayload: Record<string, unknown>;
+  responsePayload?: Record<string, unknown> | null;
+  status: AiAgentInteractionStatus;
+  errorMessage?: string | null;
+  latencyMs?: number | null;
+  createdAt: string;
+}
+
+export type AiInsightJobStatus = "pending" | "processing" | "completed" | "failed";
+
+export interface AiInsightJob {
+  id: string;
+  askSessionId: string;
+  messageId?: string | null;
+  agentId?: string | null;
+  modelConfigId?: string | null;
+  status: AiInsightJobStatus;
+  attempts: number;
+  lastError?: string | null;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  createdAt: string;
+  updatedAt?: string | null;
+}
+
+export interface PromptVariableDefinition {
+  key: string;
+  label: string;
+  description: string;
+  example?: string;
+}
+
 // Types for component props
 export interface ChatComponentProps {
   askKey: string;
