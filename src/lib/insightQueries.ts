@@ -1,8 +1,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { InsightAuthorRow, InsightRow } from './insights';
 
-const INSIGHT_COLUMNS_COMMON = 'challenge_id, content, summary, category, status, priority, created_at, updated_at, related_challenge_ids, kpis, source_message_id';
-const INSIGHT_COLUMNS_COMMON_NO_REL = 'challenge_id, content, summary, category, status, priority, created_at, updated_at, kpis, source_message_id';
+const INSIGHT_COLUMNS_COMMON = 'challenge_id, content, summary, category, status, priority, created_at, updated_at, related_challenge_ids, source_message_id';
+const INSIGHT_COLUMNS_COMMON_NO_REL = 'challenge_id, content, summary, category, status, priority, created_at, updated_at, source_message_id';
 const INSIGHT_COLUMNS_WITH_ASK_ID = `id, ask_session_id, ask_id, ${INSIGHT_COLUMNS_COMMON}`;
 const INSIGHT_COLUMNS_WITH_ASK_ID_NO_REL = `id, ask_session_id, ask_id, ${INSIGHT_COLUMNS_COMMON_NO_REL}`;
 const INSIGHT_COLUMNS_LEGACY = `id, ask_session_id, ${INSIGHT_COLUMNS_COMMON}`;
@@ -69,6 +69,65 @@ async function hydrateInsightAuthors(
   return rows.map((row) => ({
     ...row,
     insight_authors: authorsByInsight[row.id] ?? [],
+  }));
+}
+
+interface KpiRow {
+  id: string;
+  insight_id: string;
+  name: string;
+  description?: string | null;
+  metric_data?: Record<string, unknown> | null;
+}
+
+async function hydrateInsightKpis(
+  supabase: SupabaseClient,
+  rows: InsightRow[],
+): Promise<InsightRow[]> {
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return [];
+  }
+
+  const insightIds = rows
+    .map((row) => row.id)
+    .filter((id): id is string => typeof id === 'string' && id.length > 0);
+
+  if (insightIds.length === 0) {
+    return rows.map((row) => ({ ...row, kpis: [] }));
+  }
+
+  const { data, error } = await supabase
+    .from('kpi_estimations')
+    .select('id, insight_id, name, description, metric_data')
+    .in('insight_id', insightIds);
+
+  if (error) {
+    throw error;
+  }
+
+  const kpisByInsight = insightIds.reduce<Record<string, Array<Record<string, unknown>>>>((acc, id) => {
+    acc[id] = [];
+    return acc;
+  }, {});
+
+  for (const row of data ?? []) {
+    const entry = row as unknown as KpiRow;
+    const insightId = entry.insight_id;
+    if (!insightId) continue;
+    if (!kpisByInsight[insightId]) {
+      kpisByInsight[insightId] = [];
+    }
+    kpisByInsight[insightId].push({
+      id: entry.id,
+      label: entry.name,
+      description: entry.description ?? null,
+      value: entry.metric_data ?? undefined,
+    });
+  }
+
+  return rows.map((row) => ({
+    ...row,
+    kpis: kpisByInsight[row.id] ?? [],
   }));
 }
 
@@ -228,7 +287,8 @@ async function selectInsightRows(
       const rows = (Array.isArray(data) ? data : []) as unknown as InsightRow[];
       const typedRows = variant.transform(rows);
       const withTypes = await attachInsightTypeNames(supabase, typedRows);
-      return hydrateInsightAuthors(supabase, withTypes);
+      const withAuthors = await hydrateInsightAuthors(supabase, withTypes);
+      return hydrateInsightKpis(supabase, withAuthors);
     }
 
     lastError = error;
