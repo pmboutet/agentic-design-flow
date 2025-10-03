@@ -1,16 +1,17 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { InsightAuthorRow, InsightRow } from './insights';
 
-const INSIGHT_COLUMNS_WITH_ASK_ID = 'id, ask_session_id, ask_id, challenge_id, content, summary, type, category, status, priority, created_at, updated_at, related_challenge_ids, kpis, source_message_id';
-const INSIGHT_COLUMNS_LEGACY = 'id, ask_session_id, challenge_id, content, summary, type, category, status, priority, created_at, updated_at, related_challenge_ids, kpis, source_message_id';
+const INSIGHT_COLUMNS_COMMON = 'challenge_id, content, summary, category, status, priority, created_at, updated_at, related_challenge_ids, kpis, source_message_id';
+const INSIGHT_COLUMNS_WITH_ASK_ID = `id, ask_session_id, ask_id, ${INSIGHT_COLUMNS_COMMON}`;
+const INSIGHT_COLUMNS_LEGACY = `id, ask_session_id, ${INSIGHT_COLUMNS_COMMON}`;
 
-function isMissingAskIdColumnError(error: unknown): boolean {
+function isMissingColumnError(error: unknown, column: string): boolean {
   if (!error || typeof error !== 'object') {
     return false;
   }
 
   const message = (error as { message?: string }).message;
-  return typeof message === 'string' && message.includes('column insights.ask_id does not exist');
+  return typeof message === 'string' && message.includes(`column insights.${column} does not exist`);
 }
 
 async function hydrateInsightAuthors(
@@ -68,44 +69,147 @@ async function hydrateInsightAuthors(
   }));
 }
 
+interface InsightTypeRow {
+  id: string;
+  name?: string | null;
+}
+
+async function attachInsightTypeNames(
+  supabase: SupabaseClient,
+  rows: InsightRow[],
+): Promise<InsightRow[]> {
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return [];
+  }
+
+  const typeIds = Array.from(
+    new Set(
+      rows
+        .map((row) => (typeof row.insight_type_id === 'string' ? row.insight_type_id : null))
+        .filter((id): id is string => typeof id === 'string' && id.length > 0),
+    ),
+  );
+
+  if (typeIds.length === 0) {
+    return rows.map((row) => ({
+      ...row,
+      insight_type_name:
+        typeof row.insight_type_name === 'string' && row.insight_type_name.length > 0
+          ? row.insight_type_name.trim().toLowerCase()
+          : typeof row.type === 'string'
+            ? row.type.trim().toLowerCase()
+            : null,
+    }));
+  }
+
+  const { data, error } = await supabase
+    .from('insight_types')
+    .select('id, name')
+    .in('id', typeIds);
+
+  if (error) {
+    throw error;
+  }
+
+  const namesById = (data ?? []).reduce<Record<string, string>>((acc, row) => {
+    const entry = row as InsightTypeRow;
+    const name = typeof entry.name === 'string' ? entry.name.trim() : '';
+    if (typeof entry.id === 'string' && entry.id.length > 0 && name.length > 0) {
+      acc[entry.id] = name.toLowerCase();
+    }
+    return acc;
+  }, {});
+
+  return rows.map((row) => {
+    const explicitName =
+      typeof row.insight_type_name === 'string' && row.insight_type_name.length > 0
+        ? row.insight_type_name.trim().toLowerCase()
+        : null;
+    const legacyName =
+      typeof row.type === 'string' && row.type.length > 0 ? row.type.trim().toLowerCase() : null;
+    const lookupName =
+      typeof row.insight_type_id === 'string' && row.insight_type_id.length > 0
+        ? namesById[row.insight_type_id] ?? null
+        : null;
+
+    return {
+      ...row,
+      insight_type_name: explicitName ?? legacyName ?? lookupName ?? null,
+    } satisfies InsightRow;
+  });
+}
+
 async function selectInsightRows(
   supabase: SupabaseClient,
   builder: (query: any) => any,
 ): Promise<InsightRow[]> {
-  let query = supabase
-    .from('insights')
-    .select(INSIGHT_COLUMNS_WITH_ASK_ID);
+  type ColumnVariant = {
+    columns: string;
+    missing: string[];
+    transform: (rows: InsightRow[]) => InsightRow[];
+  };
 
-  query = builder(query);
+  const variants: ColumnVariant[] = [
+    {
+      columns: `${INSIGHT_COLUMNS_WITH_ASK_ID}, insight_type_id`,
+      missing: ['ask_id', 'insight_type_id'],
+      transform: (rows: InsightRow[]) => rows,
+    },
+    {
+      columns: `${INSIGHT_COLUMNS_LEGACY}, insight_type_id`,
+      missing: ['insight_type_id'],
+      transform: (rows: InsightRow[]) =>
+        rows.map((row) => ({
+          ...row,
+          ask_id: null,
+        })),
+    },
+    {
+      columns: `${INSIGHT_COLUMNS_WITH_ASK_ID}, type`,
+      missing: ['ask_id', 'type'],
+      transform: (rows: InsightRow[]) => rows,
+    },
+    {
+      columns: `${INSIGHT_COLUMNS_LEGACY}, type`,
+      missing: ['type'],
+      transform: (rows: InsightRow[]) =>
+        rows.map((row) => ({
+          ...row,
+          ask_id: null,
+        })),
+    },
+  ];
 
-  const { data, error } = await query;
+  let lastError: unknown;
 
-  if (!error) {
-    return hydrateInsightAuthors(supabase, (data ?? []) as InsightRow[]);
+  for (const variant of variants) {
+    let query = supabase
+      .from('insights')
+      .select(variant.columns);
+
+    query = builder(query);
+
+    const { data, error } = await query;
+
+    if (!error) {
+      const rows = (Array.isArray(data) ? data : []) as unknown as InsightRow[];
+      const typedRows = variant.transform(rows);
+      const withTypes = await attachInsightTypeNames(supabase, typedRows);
+      return hydrateInsightAuthors(supabase, withTypes);
+    }
+
+    lastError = error;
+
+    if (!variant.missing.some((column) => isMissingColumnError(error, column))) {
+      throw error;
+    }
   }
 
-  if (!isMissingAskIdColumnError(error)) {
-    throw error;
+  if (lastError) {
+    throw lastError;
   }
 
-  let legacyQuery = supabase
-    .from('insights')
-    .select(INSIGHT_COLUMNS_LEGACY);
-
-  legacyQuery = builder(legacyQuery);
-
-  const fallbackResult = await legacyQuery;
-
-  if (fallbackResult.error) {
-    throw fallbackResult.error;
-  }
-
-  const rows = (fallbackResult.data ?? []).map((row) => ({
-    ...row,
-    ask_id: null,
-  })) as InsightRow[];
-
-  return hydrateInsightAuthors(supabase, rows);
+  return [];
 }
 
 export async function fetchInsightsForSession(
@@ -125,4 +229,25 @@ export async function fetchInsightRowById(
 ): Promise<InsightRow | null> {
   const rows = await selectInsightRows(supabase, (query) => query.eq('id', insightId).limit(1));
   return rows[0] ?? null;
+}
+
+export async function fetchInsightTypeMap(
+  supabase: SupabaseClient,
+): Promise<Record<string, string>> {
+  const { data, error } = await supabase
+    .from('insight_types')
+    .select('id, name');
+
+  if (error) {
+    throw error;
+  }
+
+  return (data ?? []).reduce<Record<string, string>>((acc, row) => {
+    const entry = row as InsightTypeRow;
+    const name = typeof entry.name === 'string' ? entry.name.trim().toLowerCase() : '';
+    if (name.length > 0 && typeof entry.id === 'string') {
+      acc[name] = entry.id;
+    }
+    return acc;
+  }, {});
 }

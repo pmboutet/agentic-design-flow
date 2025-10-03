@@ -4,7 +4,7 @@ import { ApiResponse, Insight, Message } from '@/types';
 import { getAdminSupabaseClient } from '@/lib/supabaseAdmin';
 import { isValidAskKey, parseErrorMessage } from '@/lib/utils';
 import { INSIGHT_TYPES, mapInsightRowToInsight, type InsightRow } from '@/lib/insights';
-import { fetchInsightRowById, fetchInsightsForSession } from '@/lib/insightQueries';
+import { fetchInsightRowById, fetchInsightsForSession, fetchInsightTypeMap } from '@/lib/insightQueries';
 import { normaliseMessageMetadata } from '@/lib/messages';
 import { getAskSessionByKey } from '@/lib/asks';
 
@@ -55,6 +55,37 @@ type NormalisedIncomingInsight = IncomingInsight & {
   authors: NormalisedIncomingAuthor[];
   authorsProvided: boolean;
 };
+
+function normaliseInsightTypeName(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed.toLowerCase() : null;
+}
+
+function resolveInsightTypeId(
+  typeName: string | null,
+  typeMap: Record<string, string>,
+): string {
+  const normalised = typeName ? typeName.trim().toLowerCase() : null;
+
+  if (normalised && typeMap[normalised]) {
+    return typeMap[normalised];
+  }
+
+  if (typeMap.idea) {
+    return typeMap.idea;
+  }
+
+  const [fallbackId] = Object.values(typeMap);
+  if (fallbackId) {
+    return fallbackId;
+  }
+
+  throw new Error('No insight types configured');
+}
 
 async function replaceInsightAuthors(
   supabase: AdminSupabaseClient,
@@ -314,7 +345,7 @@ export async function POST(
           askSessionId: row.ask_session_id,
           content: row.content ?? null,
           summary: row.summary ?? null,
-          type: row.type ?? null,
+          type: insight.type,
           category: row.category ?? null,
           status: row.status ?? null,
           priority: row.priority ?? null,
@@ -407,6 +438,11 @@ export async function POST(
     let refreshedInsights = [...insightRows];
 
     if (incomingInsights.items.length > 0) {
+      const insightTypeMap = await fetchInsightTypeMap(supabase);
+      if (Object.keys(insightTypeMap).length === 0) {
+        throw new Error('No insight types configured');
+      }
+
       const existingMap = insightRows.reduce<Record<string, InsightRow>>((acc, row) => {
         acc[row.id] = row;
         return acc;
@@ -417,13 +453,18 @@ export async function POST(
         const existing = incoming.id ? existingMap[incoming.id] : undefined;
         const desiredId = incoming.id ?? randomUUID();
         const normalisedKpis = normaliseIncomingKpis(incoming.kpis, existing?.kpis ?? []);
+        const providedType = normaliseInsightTypeName(incoming.type);
 
         if (existing) {
+          const existingInsight = mapInsightRowToInsight(existing);
+          const desiredTypeName = providedType ?? existingInsight.type ?? 'idea';
+          const desiredTypeId = resolveInsightTypeId(desiredTypeName, insightTypeMap);
+
           const updatePayload = {
             ask_session_id: existing.ask_session_id,
             content: incoming.content ?? existing.content ?? '',
             summary: incoming.summary ?? existing.summary ?? null,
-            type: (incoming.type as Insight['type']) ?? (existing.type as Insight['type']) ?? 'idea',
+            insight_type_id: desiredTypeId,
             category: incoming.category ?? existing.category ?? null,
             status: (incoming.status as Insight['status']) ?? (existing.status as Insight['status']) ?? 'new',
             priority: incoming.priority ?? existing.priority ?? null,
@@ -452,12 +493,15 @@ export async function POST(
             existingMap[existing.id] = updatedRow;
           }
         } else {
+          const desiredTypeName = providedType ?? 'idea';
+          const desiredTypeId = resolveInsightTypeId(desiredTypeName, insightTypeMap);
+
           const insertPayload = {
             id: desiredId,
             ask_session_id: askRow.id,
             content: incoming.content ?? '',
             summary: incoming.summary ?? null,
-            type: (incoming.type as Insight['type']) ?? 'idea',
+            insight_type_id: desiredTypeId,
             category: incoming.category ?? null,
             status: (incoming.status as Insight['status']) ?? 'new',
             priority: incoming.priority ?? null,
