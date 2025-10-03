@@ -553,8 +553,9 @@ export async function POST(
           .select('id, ask_session_id, challenge_id, content, summary, type, category, status, priority, created_at, updated_at, related_challenge_ids, kpis, source_message_id, insight_authors (id, user_id, display_name)')
           .eq('ask_session_id', askRow.id)
           .order('created_at', { ascending: true });
-        
-        latestInsights = fallbackResult.data;
+
+        // Normalise results from legacy schemas without ask_id
+        latestInsights = fallbackResult.data?.map((row) => ({ ...row, ask_id: null })) ?? null;
         latestError = fallbackResult.error;
       }
 

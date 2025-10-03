@@ -243,8 +243,9 @@ export async function GET(
         .select('id, ask_session_id, challenge_id, content, summary, type, category, status, priority, created_at, updated_at, related_challenge_ids, kpis, source_message_id, insight_authors (id, user_id, display_name)')
         .eq('ask_session_id', askSessionId)
         .order('created_at', { ascending: true });
-      
-      insightRows = fallbackResult.data;
+
+      // Normalise legacy results without ask_id
+      insightRows = fallbackResult.data?.map((row) => ({ ...row, ask_id: null })) ?? null;
       insightError = fallbackResult.error;
     }
 
