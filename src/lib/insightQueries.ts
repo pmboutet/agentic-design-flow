@@ -2,8 +2,11 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { InsightAuthorRow, InsightRow } from './insights';
 
 const INSIGHT_COLUMNS_COMMON = 'challenge_id, content, summary, category, status, priority, created_at, updated_at, related_challenge_ids, kpis, source_message_id';
+const INSIGHT_COLUMNS_COMMON_NO_REL = 'challenge_id, content, summary, category, status, priority, created_at, updated_at, kpis, source_message_id';
 const INSIGHT_COLUMNS_WITH_ASK_ID = `id, ask_session_id, ask_id, ${INSIGHT_COLUMNS_COMMON}`;
+const INSIGHT_COLUMNS_WITH_ASK_ID_NO_REL = `id, ask_session_id, ask_id, ${INSIGHT_COLUMNS_COMMON_NO_REL}`;
 const INSIGHT_COLUMNS_LEGACY = `id, ask_session_id, ${INSIGHT_COLUMNS_COMMON}`;
+const INSIGHT_COLUMNS_LEGACY_NO_REL = `id, ask_session_id, ${INSIGHT_COLUMNS_COMMON_NO_REL}`;
 
 function isMissingColumnError(error: unknown, column: string): boolean {
   if (!error || typeof error !== 'object') {
@@ -152,12 +155,17 @@ async function selectInsightRows(
   const variants: ColumnVariant[] = [
     {
       columns: `${INSIGHT_COLUMNS_WITH_ASK_ID}, insight_type_id`,
-      missing: ['ask_id', 'insight_type_id'],
+      missing: ['ask_id', 'insight_type_id', 'related_challenge_ids'],
       transform: (rows: InsightRow[]) => rows,
     },
     {
+      columns: `${INSIGHT_COLUMNS_WITH_ASK_ID_NO_REL}, insight_type_id`,
+      missing: ['ask_id', 'insight_type_id'],
+      transform: (rows: InsightRow[]) => rows.map((row) => ({ ...row, related_challenge_ids: [] })),
+    },
+    {
       columns: `${INSIGHT_COLUMNS_LEGACY}, insight_type_id`,
-      missing: ['insight_type_id'],
+      missing: ['insight_type_id', 'related_challenge_ids'],
       transform: (rows: InsightRow[]) =>
         rows.map((row) => ({
           ...row,
@@ -165,17 +173,42 @@ async function selectInsightRows(
         })),
     },
     {
+      columns: `${INSIGHT_COLUMNS_LEGACY_NO_REL}, insight_type_id`,
+      missing: ['insight_type_id'],
+      transform: (rows: InsightRow[]) =>
+        rows.map((row) => ({
+          ...row,
+          ask_id: null,
+          related_challenge_ids: [],
+        })),
+    },
+    {
       columns: `${INSIGHT_COLUMNS_WITH_ASK_ID}, type`,
-      missing: ['ask_id', 'type'],
+      missing: ['ask_id', 'type', 'related_challenge_ids'],
       transform: (rows: InsightRow[]) => rows,
     },
     {
+      columns: `${INSIGHT_COLUMNS_WITH_ASK_ID_NO_REL}, type`,
+      missing: ['ask_id', 'type'],
+      transform: (rows: InsightRow[]) => rows.map((row) => ({ ...row, related_challenge_ids: [] })),
+    },
+    {
       columns: `${INSIGHT_COLUMNS_LEGACY}, type`,
+      missing: ['type', 'related_challenge_ids'],
+      transform: (rows: InsightRow[]) =>
+        rows.map((row) => ({
+          ...row,
+          ask_id: null,
+        })),
+    },
+    {
+      columns: `${INSIGHT_COLUMNS_LEGACY_NO_REL}, type`,
       missing: ['type'],
       transform: (rows: InsightRow[]) =>
         rows.map((row) => ({
           ...row,
           ask_id: null,
+          related_challenge_ids: [],
         })),
     },
   ];
