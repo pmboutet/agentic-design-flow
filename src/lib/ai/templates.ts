@@ -22,9 +22,11 @@ export function extractTemplateVariables(template: string): string[] {
     return [];
   }
 
-  const matches = template.matchAll(VARIABLE_PATTERN);
   const found = new Set<string>();
-  for (const match of matches) {
+  const iterator = new RegExp(VARIABLE_PATTERN.source, "g");
+
+  let match: RegExpExecArray | null;
+  while ((match = iterator.exec(template)) !== null) {
     if (match[1]) {
       found.add(match[1]);
     }

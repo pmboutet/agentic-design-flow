@@ -203,7 +203,9 @@ export default function AiConfigurationPage() {
       <Card>
         <CardHeader>
           <CardTitle>Variables disponibles</CardTitle>
-          <CardDescription>Insérez ces variables dans vos prompts via la syntaxe {{variable}}.</CardDescription>
+          <CardDescription>
+            Insérez ces variables dans vos prompts via la syntaxe {"{{variable}}"}.
+          </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4 md:grid-cols-2">
           {sortedVariables.map(variable => (
