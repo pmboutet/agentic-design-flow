@@ -313,6 +313,58 @@ export async function POST(
       }, { status: 404 });
     }
 
+    // Load participants to expose authors in webhook payload
+    const { data: participantRows, error: participantError } = await supabase
+      .from('ask_participants')
+      .select('*')
+      .eq('ask_session_id', askRow.id)
+      .order('joined_at', { ascending: true });
+
+    if (participantError) {
+      throw participantError;
+    }
+
+    const participantUserIds = (participantRows ?? [])
+      .map((row) => row.user_id)
+      .filter((value): value is string => Boolean(value));
+
+    let usersById: Record<string, { id: string; email?: string | null; full_name?: string | null; first_name?: string | null; last_name?: string | null } > = {};
+
+    if (participantUserIds.length > 0) {
+      const { data: userRows, error: userError } = await supabase
+        .from('users')
+        .select('id, email, full_name, first_name, last_name')
+        .in('id', participantUserIds);
+
+      if (userError) {
+        throw userError;
+      }
+
+      usersById = (userRows ?? []).reduce<Record<string, { id: string; email?: string | null; full_name?: string | null; first_name?: string | null; last_name?: string | null }>>((acc, user) => {
+        acc[user.id] = user;
+        return acc;
+      }, {});
+    }
+
+    const authorsForWebhook = (participantRows ?? []).map((row, index) => {
+      const user = row.user_id ? usersById[row.user_id] ?? null : null;
+      const name = (() => {
+        if (row.participant_name && row.participant_name.trim().length > 0) return row.participant_name;
+        if (user?.full_name && user.full_name.trim().length > 0) return user.full_name;
+        const parts = [user?.first_name, user?.last_name].filter(Boolean) as string[];
+        if (parts.length > 0) return parts.join(' ');
+        if (user?.email) return user.email;
+        return `Participant ${index + 1}`;
+      })();
+      return {
+        userId: row.user_id ?? null,
+        name,
+        participantId: row.id,
+        role: row.role ?? null,
+        isSpokesperson: Boolean(row.is_spokesperson),
+      } as Record<string, unknown>;
+    });
+
     const { data: messageRows, error: messageError } = await supabase
       .from('messages')
       .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at')
@@ -371,6 +423,23 @@ export async function POST(
       }),
     } satisfies Record<string, unknown>;
 
+    // Build callback URLs depending on environment
+    function resolveBaseUrl(): string {
+      const explicit = process.env.EXTERNAL_CALLBACK_BASE_URL || process.env.NEXT_PUBLIC_SITE_URL;
+      if (explicit) return explicit.replace(/\/$/, '');
+      const vercelUrl = process.env.VERCEL_URL;
+      if (vercelUrl) return `https://${vercelUrl}`;
+      const port = process.env.PORT || '3000';
+      return `http://localhost:${port}`;
+    }
+
+    const baseUrl = resolveBaseUrl();
+    const callback = {
+      baseUrl,
+      respondUrl: `${baseUrl}/api/ask/${key}/respond`,
+      askUrl: `${baseUrl}/api/ask/${key}`,
+    } as Record<string, unknown>;
+
     const webhookResponse = await fetch(webhookUrl, {
       method: 'POST',
       headers: {
@@ -383,6 +452,8 @@ export async function POST(
         action: 'user_message',
         messages: historyPayload,
         insights: insightsPayload,
+        authors: authorsForWebhook,
+        callback,
       }),
     });
 
