@@ -423,15 +423,15 @@ export async function POST(
       }),
     } satisfies Record<string, unknown>;
 
-    // Build callback URLs depending on environment
-    function resolveBaseUrl(): string {
+    // Build callback URLs depending on environment (use const arrow to satisfy ES5 strict mode)
+    const resolveBaseUrl = (): string => {
       const explicit = process.env.EXTERNAL_CALLBACK_BASE_URL || process.env.NEXT_PUBLIC_SITE_URL;
       if (explicit) return explicit.replace(/\/$/, '');
       const vercelUrl = process.env.VERCEL_URL;
       if (vercelUrl) return `https://${vercelUrl}`;
       const port = process.env.PORT || '3000';
       return `http://localhost:${port}`;
-    }
+    };
 
     const baseUrl = resolveBaseUrl();
     const callback = {
