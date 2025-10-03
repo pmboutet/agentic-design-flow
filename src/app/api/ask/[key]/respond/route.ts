@@ -574,7 +574,6 @@ export async function POST(
             priority: incoming.priority ?? existing.priority ?? null,
             challenge_id: incoming.challengeId ?? existing.challenge_id ?? null,
             related_challenge_ids: incoming.relatedChallengeIds ?? existing.related_challenge_ids ?? [],
-            kpis: normalisedKpis,
             source_message_id: incoming.sourceMessageId ?? existing.source_message_id ?? null,
             updated_at: nowIso,
           };
@@ -586,6 +585,19 @@ export async function POST(
 
           if (updateError) {
             throw updateError;
+          }
+
+          // Replace KPIs in kpi_estimations for this insight
+          await supabase.from('kpi_estimations').delete().eq('insight_id', existing.id);
+          const kpiRowsUpdate = normalisedKpis.map((k) => ({
+            insight_id: existing.id,
+            name: typeof (k as any)?.label === 'string' ? (k as any).label : 'KPI',
+            description: typeof (k as any)?.description === 'string' ? (k as any).description : null,
+            metric_data: (k as any)?.value ?? null,
+          }));
+          if (kpiRowsUpdate.length > 0) {
+            const { error: kpiUpdateErr } = await supabase.from('kpi_estimations').insert(kpiRowsUpdate);
+            if (kpiUpdateErr) throw kpiUpdateErr;
           }
 
           if (incoming.authorsProvided) {
@@ -611,7 +623,6 @@ export async function POST(
             priority: incoming.priority ?? null,
             challenge_id: incoming.challengeId ?? null,
             related_challenge_ids: incoming.relatedChallengeIds ?? [],
-            kpis: normalisedKpis,
             source_message_id: incoming.sourceMessageId ?? null,
             created_at: nowIso,
             updated_at: nowIso,
@@ -623,6 +634,18 @@ export async function POST(
 
           if (createdError) {
             throw createdError;
+          }
+
+          // Insert KPIs for this insight into kpi_estimations
+          const kpiRowsInsert = normalisedKpis.map((k) => ({
+            insight_id: desiredId,
+            name: typeof (k as any)?.label === 'string' ? (k as any).label : 'KPI',
+            description: typeof (k as any)?.description === 'string' ? (k as any).description : null,
+            metric_data: (k as any)?.value ?? null,
+          }));
+          if (kpiRowsInsert.length > 0) {
+            const { error: kpiInsertErr } = await supabase.from('kpi_estimations').insert(kpiRowsInsert);
+            if (kpiInsertErr) throw kpiInsertErr;
           }
 
           if (incoming.authorsProvided) {
