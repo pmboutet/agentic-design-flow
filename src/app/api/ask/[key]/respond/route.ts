@@ -272,7 +272,7 @@ function normaliseIncomingInsights(value: unknown): { types: Insight['type'][]; 
 }
 
 export async function POST(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: { key: string } }
 ) {
   try {
@@ -285,14 +285,16 @@ export async function POST(
       }, { status: 400 });
     }
 
-    const webhookUrl = process.env.EXTERNAL_RESPONSE_WEBHOOK;
+    const bodyJson = await (async () => {
+      try {
+        return await request.json();
+      } catch {
+        return null;
+      }
+    })();
 
-    if (!webhookUrl) {
-      return NextResponse.json<ApiResponse>({
-        success: false,
-        error: 'External webhook not configured'
-      }, { status: 500 });
-    }
+    const hasInlineInsights = Boolean(bodyJson && typeof bodyJson === 'object' && bodyJson.insights);
+    const webhookUrl = process.env.EXTERNAL_RESPONSE_WEBHOOK;
 
     const supabase = getAdminSupabaseClient();
 
@@ -440,69 +442,90 @@ export async function POST(
       askUrl: `${baseUrl}/api/ask/${key}`,
     } as Record<string, unknown>;
 
-    const webhookResponse = await fetch(webhookUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Webhook-Source': 'agentic-design-flow',
-        'X-Request-Type': 'user-message',
-      },
-      body: JSON.stringify({
-        askKey: key,
-        action: 'user_message',
-        messages: historyPayload,
-        insights: insightsPayload,
-        authors: authorsForWebhook,
-        callback,
-      }),
-    });
+    let webhookData: any = null;
 
-    if (!webhookResponse.ok) {
-      throw new Error(`External webhook responded with status ${webhookResponse.status}`);
+    if (hasInlineInsights) {
+      // Bypass webhook: use provided payload directly
+      webhookData = {
+        output_agent:
+          (typeof bodyJson?.output_agent === 'string' && bodyJson.output_agent) ||
+          (typeof bodyJson?.message?.content === 'string' && bodyJson.message.content) ||
+          (typeof bodyJson?.content === 'string' && bodyJson.content) ||
+          '',
+        insights: bodyJson.insights,
+      };
+    } else {
+      if (!webhookUrl) {
+        return NextResponse.json<ApiResponse>({
+          success: false,
+          error: 'External webhook not configured'
+        }, { status: 500 });
+      }
+
+      const webhookResponse = await fetch(webhookUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Webhook-Source': 'agentic-design-flow',
+          'X-Request-Type': 'user-message',
+        },
+        body: JSON.stringify({
+          askKey: key,
+          action: 'user_message',
+          messages: historyPayload,
+          insights: insightsPayload,
+          authors: authorsForWebhook,
+          callback,
+        }),
+      });
+
+      if (!webhookResponse.ok) {
+        throw new Error(`External webhook responded with status ${webhookResponse.status}`);
+      }
+
+      webhookData = await webhookResponse.json();
     }
 
-    const webhookData = await webhookResponse.json();
+    let message: Message | undefined;
 
-    if (!webhookData || typeof webhookData.output_agent !== 'string') {
-      throw new Error('Webhook response does not contain output_agent');
+    if (typeof webhookData.output_agent === 'string' && webhookData.output_agent.trim().length > 0) {
+      const aiMetadata = { senderName: 'Agent' } satisfies Record<string, unknown>;
+
+      const { data: insertedRows, error: insertError } = await supabase
+        .from('messages')
+        .insert({
+          ask_session_id: askRow.id,
+          content: webhookData.output_agent,
+          sender_type: 'ai',
+          message_type: 'text',
+          metadata: aiMetadata,
+        })
+        .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at')
+        .limit(1);
+
+      if (insertError) {
+        throw insertError;
+      }
+
+      const inserted = insertedRows?.[0] as MessageRow | undefined;
+
+      if (!inserted) {
+        throw new Error('Unable to store AI response');
+      }
+
+      message = {
+        id: inserted.id,
+        askKey: askRow.ask_key,
+        askSessionId: inserted.ask_session_id,
+        content: inserted.content,
+        type: (inserted.message_type as Message['type']) ?? 'text',
+        senderType: 'ai',
+        senderId: inserted.user_id ?? null,
+        senderName: 'Agent',
+        timestamp: inserted.created_at ?? new Date().toISOString(),
+        metadata: normaliseMessageMetadata(inserted.metadata),
+      };
     }
-
-    const aiMetadata = { senderName: 'Agent' } satisfies Record<string, unknown>;
-
-    const { data: insertedRows, error: insertError } = await supabase
-      .from('messages')
-      .insert({
-        ask_session_id: askRow.id,
-        content: webhookData.output_agent,
-        sender_type: 'ai',
-        message_type: 'text',
-        metadata: aiMetadata,
-      })
-      .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at')
-      .limit(1);
-
-    if (insertError) {
-      throw insertError;
-    }
-
-    const inserted = insertedRows?.[0] as MessageRow | undefined;
-
-    if (!inserted) {
-      throw new Error('Unable to store AI response');
-    }
-
-    const message: Message = {
-      id: inserted.id,
-      askKey: askRow.ask_key,
-      askSessionId: inserted.ask_session_id,
-      content: inserted.content,
-      type: (inserted.message_type as Message['type']) ?? 'text',
-      senderType: 'ai',
-      senderId: inserted.user_id ?? null,
-      senderName: 'Agent',
-      timestamp: inserted.created_at ?? new Date().toISOString(),
-      metadata: normaliseMessageMetadata(inserted.metadata),
-    };
 
     const incomingInsights = normaliseIncomingInsights(webhookData.insights);
 
@@ -609,7 +632,7 @@ export async function POST(
 
     const serialisedInsights = refreshedInsights.map(mapInsightRowToInsight);
 
-    return NextResponse.json<ApiResponse<{ message: Message; insights: Insight[] }>>({
+    return NextResponse.json<ApiResponse<{ message?: Message; insights: Insight[] }>>({
       success: true,
       data: { message, insights: serialisedInsights },
     });
