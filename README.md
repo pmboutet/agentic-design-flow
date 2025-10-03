@@ -12,16 +12,16 @@ Agentic Design Flow enables collective idea generation through AI-driven convers
 
 - **Chat Interface** (1/3 screen): Handles user interactions with text, audio, image, and document support
 - **Challenge Management** (2/3 screen): Displays and allows editing of generated challenges
-- **Webhook System**: Integrates with external systems (n8n, AgentForce) for AI processing
+- **AI Agent Controller**: Internal multi-model orchestration with prompt management and logging
 
 ### Data Flow
 
-1. External system sends ASK (question) via webhook with user KEY
-2. User clicks link and lands on chat interface
-3. User responds with various media types
-4. Response forwarded to external AI system via webhook
-5. AI system analyzes conversation and generates/updates challenges
-6. Challenges displayed with visual feedback for updates
+1. Administrators configurent les prompts et les modèles via `/admin/ai`
+2. Un utilisateur rejoint la session ASK et envoie un message
+3. Le message est enregistré dans la base Supabase
+4. L'agent IA interne est invoqué (Anthropic/Mistral ou autre) avec gestion de retries et fallback
+5. La réponse IA est sauvegardée puis un second agent déclenche la détection d'insights/KPI
+6. L'activité est journalisée dans `ai_agent_logs` et les insights sont affichés en temps réel
 
 ## 🚀 Features
 
@@ -40,11 +40,11 @@ Agentic Design Flow enables collective idea generation through AI-driven convers
 - ✅ Visual highlight on updates
 - ✅ Add/remove challenges, pains, gains, KPIs
 
-### API & Webhooks
-- ✅ RESTful API for all operations
-- ✅ Webhook endpoints for external integration
-- ✅ Key-based session security
-- ✅ Real-time data synchronization
+### API & AI Control
+- ✅ RESTful API for operations et configuration des agents
+- ✅ Orchestrateur IA interne multi-modèles (Anthropic Sonnet 4.5 optimisé, fallback Mistral)
+- ✅ Journalisation détaillée des requêtes/réponses IA
+- ✅ Sécurité via clés ASK et gestion de la configuration côté serveur
 
 ## 🛠️ ASK Key Format & Troubleshooting
 
@@ -68,7 +68,7 @@ https://your-domain.com/test-key
 ### Common Issues
 1. **"Invalid ASK key format"**: Check that your key meets the format requirements above
 2. **"No ASK key provided"**: Ensure your URL includes `?key=your-ask-key`
-3. **"Error Loading Session"**: Verify your backend webhook endpoints are configured correctly
+3. **"Error Loading Session"**: Assurez-vous que la configuration IA (modèles, prompts) est valide et que Supabase est accessible
 
 ## 📡 API Endpoints
 
@@ -90,7 +90,7 @@ DELETE /api/messages/[key]   - Clear messages
 ### Challenges
 ```
 GET    /api/challenges/[key] - Get challenges
-POST   /api/challenges/[key] - Update challenges (webhook)
+POST   /api/challenges/[key] - Update challenges (deprecated)
 PUT    /api/challenges/[key] - Update single challenge
 DELETE /api/challenges/[key] - Clear challenges
 ```
@@ -114,7 +114,7 @@ npm install
 cp .env.local.example .env.local
 
 # Configure your environment variables
-# Edit .env.local with your webhook URLs and secrets
+# Edit .env.local with your Supabase credentials and AI provider keys
 
 # Run development server
 npm run dev
@@ -124,16 +124,16 @@ npm run dev
 
 Create a `.env.local` file from the provided example and supply the values below. The sections are grouped so you can identify which settings you need for your deployment.
 
-#### Webhook Configuration
+#### AI Providers
 ```env
-WEBHOOK_SECRET=your-webhook-secret-here
-WEBHOOK_ENDPOINT=http://localhost:3000/api/webhook
+# Clés d'API pour les modèles IA (exemples)
+ANTHROPIC_API_KEY=sk-ant-...
+MISTRAL_API_KEY=sk-mistral-...
 
-EXTERNAL_ASK_WEBHOOK=https://your-external-system.com/ask-webhook
-EXTERNAL_RESPONSE_WEBHOOK=https://your-external-system.com/response-webhook
-EXTERNAL_CHALLENGE_WEBHOOK=https://your-external-system.com/challenge-webhook
+# Identifiants optionnels si vous utilisez des endpoints personnalisés
+CUSTOM_MODEL_API_KEY=sk-custom-...
+CUSTOM_MODEL_BASE_URL=https://api.your-model.com/v1
 ```
-
 
 #### Database & Persistence (Supabase via Vercel integration)
 ```env
@@ -238,97 +238,22 @@ npm i -g vercel
 # Deploy
 vercel
 
-# Set environment variables in Vercel dashboard
-# Configure your production webhook URLs
+# Set environment variables in Vercel dashboard (Supabase, AI providers, etc.)
 ```
 
 - Install the **Supabase** integration from your Vercel project settings to sync database credentials automatically.
 - Pull those variables locally with `vercel env pull .env.local` so development uses the same connection details.
 
-## 🔗 Integration Guide
+## 🔗 AI Configuration & Journalisation
 
-### External System Integration
-
-#### 1. Sending an ASK
-```javascript
-// POST to your deployed URL
-const response = await fetch('https://your-app.vercel.app/api/ask/your-unique-key', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({
-    askKey: 'your-unique-key',
-    question: 'What challenges do you face in your daily work?',
-    endDate: '2024-12-31T23:59:59Z'
-  })
-});
-```
-
-#### 2. Receiving User Responses
-Your webhook will receive:
-```javascript
-{
-  askKey: 'your-unique-key',
-  message: {
-    id: 'msg-123',
-    content: 'User response text or file data',
-    type: 'text|audio|image|document',
-    sender: 'user',
-    timestamp: '2024-01-01T12:00:00Z',
-    metadata: { fileName: 'document.pdf', fileSize: 1024 }
-  },
-  allMessages: [/* conversation history */]
-}
-```
-
-#### 3. Sending Challenges Update
-```javascript
-// POST to challenges endpoint
-const response = await fetch('https://your-app.vercel.app/api/challenges/your-unique-key', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({
-    askKey: 'your-unique-key',
-    action: 'update', // or 'replace'
-    challenges: [
-      {
-        id: 'challenge-1',
-        name: 'Communication Efficiency',
-        pains: [
-          {
-            id: 'pain-1',
-            name: 'Slow Email Response',
-            description: 'Team members take too long to respond to emails',
-            kpiEstimations: [
-              {
-                description: 'Average response time',
-                value: { metric: 4, unit: 'hours', target: 2 }
-              }
-            ]
-          }
-        ],
-        gains: [
-          {
-            id: 'gain-1',
-            name: 'Faster Decision Making',
-            description: 'Quicker responses lead to faster decisions',
-            kpiEstimations: [
-              {
-                description: 'Decision speed improvement',
-                value: { improvement: '50%', timeframe: 'monthly' }
-              }
-            ]
-          }
-        ]
-      }
-    ]
-  })
-});
-```
+- Rendez-vous sur `/admin/ai` pour visualiser et modifier les prompts, choisir les modèles (Anthropic/Mistral/etc.) et activer les variables disponibles.
+- Consultez `/admin/ai/logs` pour auditer chaque requête envoyée aux fournisseurs IA (payload, réponse, durée, erreurs éventuelles).
+- Les modèles sont enregistrés dans `ai_model_configs` et peuvent être créés ou mis à jour via les endpoints `/api/admin/ai/models`.
 
 ## 🔒 Security
 
 - **Key-based Access**: All data is accessible only with valid ASK keys
-- **Webhook Validation**: Optional webhook secret validation
+- **Journalisation IA**: Tous les appels modèles sont journalisés et auditables
 - **Input Sanitization**: All user inputs are validated and sanitized
 - **File Upload Security**: File type and size validation
 - **No Persistent Storage**: Demo uses in-memory storage (implement database for production)
