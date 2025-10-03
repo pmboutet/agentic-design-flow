@@ -294,6 +294,16 @@ export async function POST(
     })();
 
     const hasInlineInsights = Boolean(bodyJson && typeof bodyJson === 'object' && bodyJson.insights);
+    const requestTypeHeader = (request.headers.get('x-request-type') || '').toLowerCase();
+    const isAgentMessage = (() => {
+      const senderFromRoot = typeof bodyJson?.senderType === 'string' ? bodyJson.senderType : bodyJson?.sender_type;
+      const senderFromMsg = typeof bodyJson?.message?.senderType === 'string' ? bodyJson.message.senderType : bodyJson?.message?.sender_type;
+      if (typeof senderFromRoot === 'string' && senderFromRoot.toLowerCase() === 'ai') return true;
+      if (typeof senderFromMsg === 'string' && senderFromMsg.toLowerCase() === 'ai') return true;
+      if (requestTypeHeader === 'agent-message') return true;
+      if (bodyJson && typeof bodyJson === 'object' && (bodyJson.from === 'agent' || bodyJson.source === 'agent')) return true;
+      return false;
+    })();
     const webhookUrl = process.env.EXTERNAL_RESPONSE_WEBHOOK;
 
     const supabase = getAdminSupabaseClient();
@@ -444,7 +454,7 @@ export async function POST(
 
     let webhookData: any = null;
 
-    if (hasInlineInsights) {
+    if (isAgentMessage || hasInlineInsights) {
       // Bypass webhook: use provided payload directly
       webhookData = {
         output_agent:
