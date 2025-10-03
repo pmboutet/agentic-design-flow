@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { ApiResponse, Ask, AskParticipant, Insight, Message } from '@/types';
 import { isValidAskKey, parseErrorMessage } from '@/lib/utils';
 import { getAdminSupabaseClient } from '@/lib/supabaseAdmin';
-import { mapInsightRowToInsight, type InsightRow } from '@/lib/insights';
+import { mapInsightRowToInsight } from '@/lib/insights';
+import { fetchInsightsForSession } from '@/lib/insightQueries';
 import { normaliseMessageMetadata } from '@/lib/messages';
 import { getAskSessionByKey } from '@/lib/asks';
 
@@ -229,31 +230,9 @@ export async function GET(
       };
     });
 
-    // Try to select with ask_id first, fallback to without it if column doesn't exist
-    let { data: insightRows, error: insightError } = await supabase
-      .from('insights')
-      .select('id, ask_session_id, ask_id, challenge_id, content, summary, type, category, status, priority, created_at, updated_at, related_challenge_ids, kpis, source_message_id, insight_authors (id, user_id, display_name)')
-      .eq('ask_session_id', askSessionId)
-      .order('created_at', { ascending: true });
+    const insightRows = await fetchInsightsForSession(supabase, askSessionId);
 
-    // If ask_id column doesn't exist, retry without it
-    if (insightError && insightError.message.includes('column insights.ask_id does not exist')) {
-      const fallbackResult = await supabase
-        .from('insights')
-        .select('id, ask_session_id, challenge_id, content, summary, type, category, status, priority, created_at, updated_at, related_challenge_ids, kpis, source_message_id, insight_authors (id, user_id, display_name)')
-        .eq('ask_session_id', askSessionId)
-        .order('created_at', { ascending: true });
-
-      // Normalise legacy results without ask_id
-      insightRows = fallbackResult.data?.map((row) => ({ ...row, ask_id: null })) ?? null;
-      insightError = fallbackResult.error;
-    }
-
-    if (insightError) {
-      throw insightError;
-    }
-
-    const insights: Insight[] = ((insightRows ?? []) as InsightRow[]).map(mapInsightRowToInsight);
+    const insights: Insight[] = insightRows.map(mapInsightRowToInsight);
 
     const endDate = askRow.end_date ?? new Date().toISOString();
     const createdAt = askRow.created_at ?? new Date().toISOString();

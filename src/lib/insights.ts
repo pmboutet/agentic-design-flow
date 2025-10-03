@@ -4,6 +4,7 @@ export const INSIGHT_TYPES: Insight['type'][] = ['pain', 'gain', 'opportunity', 
 
 export interface InsightAuthorRow {
   id: string;
+  insight_id?: string | null;
   user_id?: string | null;
   display_name?: string | null;
 }
