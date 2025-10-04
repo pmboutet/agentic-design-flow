@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { AiAgentRecord, AiModelConfig } from "@/types";
 import { fetchModelConfigById } from "./models";
 
-interface AiAgentRow {
+export interface AiAgentRow {
   id: string;
   slug: string;
   name: string;
@@ -17,7 +17,31 @@ interface AiAgentRow {
   updated_at?: string | null;
 }
 
-function mapAgentRow(row: AiAgentRow): AiAgentRecord {
+export function sanitizePromptVariables(values: unknown): string[] | undefined {
+  if (!Array.isArray(values)) {
+    return undefined;
+  }
+
+  const unique = new Set<string>();
+
+  for (const value of values) {
+    if (typeof value !== "string") {
+      continue;
+    }
+
+    const trimmed = value.trim();
+
+    if (trimmed.length === 0) {
+      continue;
+    }
+
+    unique.add(trimmed);
+  }
+
+  return Array.from(unique);
+}
+
+export function mapAgentRow(row: AiAgentRow): AiAgentRecord {
   return {
     id: row.id,
     slug: row.slug,

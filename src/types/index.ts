@@ -168,7 +168,12 @@ export interface SessionData {
 }
 
 // AI agent configuration
-export type AiModelProvider = "anthropic" | "mistral" | "openai" | "custom";
+export type AiModelProvider =
+  | "anthropic"
+  | "vertex_anthropic"
+  | "mistral"
+  | "openai"
+  | "custom";
 
 export interface AiModelConfig {
   id: string;
