@@ -380,7 +380,7 @@ export default function HomePage() {
     console.log('Starting streaming response for askKey:', sessionData.askKey);
 
     try {
-      const response = await fetch(`/api/ask/${sessionData.askKey}/stream-simple`, {
+      const response = await fetch(`/api/ask/${sessionData.askKey}/stream`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
