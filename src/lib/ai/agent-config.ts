@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { AiAgentRecord, AiModelConfig } from '@/types';
+import { renderTemplate } from './templates';
 import { mapModelRow } from './models';
 
 interface RelatedPromptHolder {
@@ -24,6 +25,8 @@ interface AskSessionWithRelations {
   challenges?: RelatedPromptHolder | RelatedPromptHolder[] | null;
 }
 
+type ModelRow = Parameters<typeof mapModelRow>[0];
+
 interface AgentQueryRow {
   id: string;
   slug: string;
@@ -35,13 +38,16 @@ interface AgentQueryRow {
   metadata?: Record<string, unknown> | null;
   model_config_id?: string | null;
   fallback_model_config_id?: string | null;
-  model_configs?: AiModelConfig | null;
-  fallback_model_configs?: AiModelConfig | null;
+  model_configs?: ModelRow | null;
+  fallback_model_configs?: ModelRow | null;
 }
 
-const DEFAULT_CHAT_AGENT_SLUG = 'ask-conversation-response';
+export const DEFAULT_CHAT_AGENT_SLUG = 'ask-conversation-response';
 
 function mapAgentRow(row: AgentQueryRow): AiAgentRecord {
+  const modelConfig = row.model_configs ? mapModelRow(row.model_configs) : null;
+  const fallbackModelConfig = row.fallback_model_configs ? mapModelRow(row.fallback_model_configs) : null;
+
   return {
     id: row.id,
     slug: row.slug,
@@ -53,8 +59,8 @@ function mapAgentRow(row: AgentQueryRow): AiAgentRecord {
     userPrompt: row.user_prompt ?? '',
     availableVariables: Array.isArray(row.available_variables) ? row.available_variables : [],
     metadata: row.metadata ?? null,
-    modelConfig: row.model_configs ?? null,
-    fallbackModelConfig: row.fallback_model_configs ?? null,
+    modelConfig,
+    fallbackModelConfig,
   };
 }
 
@@ -97,6 +103,33 @@ async function fetchAgentBySlug(
   return fetchAgentByIdOrSlug(supabase, { slug });
 }
 
+export async function getChatAgentConfig(
+  supabase: SupabaseClient,
+  variables: PromptVariables = {}
+): Promise<AgentConfigResult> {
+  const agent = await fetchAgentBySlug(supabase, DEFAULT_CHAT_AGENT_SLUG);
+
+  if (!agent) {
+    throw new Error(`Chat agent configuration "${DEFAULT_CHAT_AGENT_SLUG}" not found`);
+  }
+
+  const systemPrompt = substitutePromptVariables(agent.systemPrompt, variables);
+  const userPrompt = agent.userPrompt
+    ? substitutePromptVariables(agent.userPrompt, variables)
+    : undefined;
+
+  const modelConfig = agent.modelConfig ?? await getDefaultModelConfig(supabase);
+  const fallbackModelConfig = agent.fallbackModelConfig ?? await getFallbackModelConfig(supabase);
+
+  return {
+    systemPrompt,
+    userPrompt,
+    modelConfig,
+    fallbackModelConfig: fallbackModelConfig ?? undefined,
+    agent,
+  };
+}
+
 export interface AgentConfigResult {
   systemPrompt: string;
   userPrompt?: string;
@@ -126,17 +159,7 @@ export function substitutePromptVariables(
   template: string,
   variables: PromptVariables
 ): string {
-  let result = template;
-  
-  // Replace all template variables with their values
-  for (const [key, value] of Object.entries(variables)) {
-    if (value !== undefined && value !== null) {
-      const placeholder = `{{${key}}}`;
-      result = result.replace(new RegExp(placeholder, 'g'), value);
-    }
-  }
-  
-  return result;
+  return renderTemplate(template, variables);
 }
 
 /**
@@ -317,24 +340,10 @@ export async function getAgentConfigForAsk(
   }
 
   // Priority 5: Default chat agent fallback
-  const defaultAgent = await fetchAgentBySlug(supabase, DEFAULT_CHAT_AGENT_SLUG);
-
-  if (defaultAgent) {
-    const systemPrompt = substitutePromptVariables(defaultAgent.systemPrompt, variables || {});
-    const userPrompt = defaultAgent.userPrompt
-      ? substitutePromptVariables(defaultAgent.userPrompt, variables || {})
-      : undefined;
-
-    const modelConfig = defaultAgent.modelConfig ?? await getDefaultModelConfig(supabase);
-    const fallbackModelConfig = defaultAgent.fallbackModelConfig ?? await getFallbackModelConfig(supabase);
-
-    return {
-      systemPrompt,
-      userPrompt,
-      modelConfig,
-      fallbackModelConfig: fallbackModelConfig || undefined,
-      agent: defaultAgent,
-    };
+  try {
+    return await getChatAgentConfig(supabase, variables || {});
+  } catch (error) {
+    console.warn('Falling back to hardcoded chat prompt:', error);
   }
 
   // Priority 6: Hardcoded default fallback

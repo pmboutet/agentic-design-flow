@@ -6,10 +6,10 @@ import { normaliseMessageMetadata } from '@/lib/messages';
 import { callModelProviderStream } from '@/lib/ai/providers';
 import { createAgentLog, markAgentLogProcessing, completeAgentLog, failAgentLog } from '@/lib/ai/logs';
 import { DEFAULT_MAX_OUTPUT_TOKENS } from '@/lib/ai/constants';
-import { getAgentConfigForAsk } from '@/lib/ai/agent-config';
-import type { AiAgentLog, AiModelConfig } from '@/types';
+import { getChatAgentConfig, DEFAULT_CHAT_AGENT_SLUG, type PromptVariables, type AgentConfigResult } from '@/lib/ai/agent-config';
+import type { AiAgentLog } from '@/types';
 
-const CHAT_AGENT_SLUG = 'ask-conversation-response';
+const CHAT_AGENT_SLUG = DEFAULT_CHAT_AGENT_SLUG;
 
 interface AskSessionRow {
   id: string;
@@ -321,30 +321,41 @@ export async function POST(
       participants: participantSummaries,
     });
 
-    // Get agent configuration with proper variable substitution
-    let agentConfig;
+    const conversationMessagesPayload = messages.map(message => ({
+      id: message.id,
+      senderType: message.senderType,
+      senderName: message.senderName,
+      content: message.content,
+      timestamp: message.timestamp,
+    }));
+
+    const agentVariables: PromptVariables = {
+      ask_key: askRow.ask_key,
+      ask_question: promptVariables.ask_question || askRow.question,
+      ask_description: promptVariables.ask_description || askRow.description || '',
+      participant_name: promptVariables.participant_name || '',
+      project_name: projectData?.name || '',
+      challenge_name: challengeData?.name || '',
+      previous_messages: promptVariables.message_history || '',
+      message_history: promptVariables.message_history || '',
+      latest_user_message: promptVariables.latest_user_message || '',
+      participants: promptVariables.participants || '',
+      participants_count: String(participantSummaries.length),
+      delivery_mode: 'digital',
+      audience_scope: 'individual',
+      response_mode: 'simultaneous',
+      messages_json: JSON.stringify(conversationMessagesPayload),
+      current_timestamp: new Date().toISOString(),
+    };
+
+    let agentConfig: AgentConfigResult;
     try {
-      agentConfig = await getAgentConfigForAsk(
-        supabase,
-        askRow.id,
-        {
-          ask_question: promptVariables.ask_question || '',
-          ask_description: promptVariables.ask_description || '',
-          participant_name: promptVariables.participant_name || '',
-          project_name: projectData?.name || '',
-          challenge_name: challengeData?.name || '',
-          previous_messages: promptVariables.message_history || '',
-          delivery_mode: 'digital', // TODO: Get from session
-          audience_scope: 'individual', // TODO: Get from session
-          response_mode: 'simultaneous', // TODO: Get from session
-        }
-      );
+      agentConfig = await getChatAgentConfig(supabase, agentVariables);
     } catch (error) {
-      console.error('Error getting agent config:', error);
-      // Return a helpful error message
+      console.error('Error getting chat agent config:', error);
       return new Response(JSON.stringify({
         type: 'error',
-        error: 'AI configuration not found. Please ensure AI model configurations are set up in the database.'
+        error: 'Configuration de l’agent introuvable. Vérifiez la table ai_agents.',
       }), {
         status: 500,
         headers: {
@@ -353,21 +364,48 @@ export async function POST(
       });
     }
 
-    const prompts = {
-      system: agentConfig.systemPrompt,
-      user: agentConfig.userPrompt || `Basé sur l'historique de la conversation et le dernier message de l'utilisateur, fournis une réponse qui :
+    const fallbackUserPrompt = `Basé sur l'historique de la conversation et le dernier message de l'utilisateur, fournis une réponse qui :
 
 1. Reconnaît le contenu du dernier message
 2. Fait le lien avec les échanges précédents si pertinent
 3. Pose une question ou fait une observation qui fait avancer la discussion
 4. Reste concis (2-3 phrases maximum)
 
-Dernier message : ${promptVariables.latest_user_message || 'Aucun message'}
+Dernier message : ${agentVariables.latest_user_message || 'Aucun message'}
 
-Réponds maintenant :`,
+Réponds maintenant :`;
+
+    const prompts = {
+      system: agentConfig.systemPrompt,
+      user: agentConfig.userPrompt && agentConfig.userPrompt.trim().length > 0
+        ? agentConfig.userPrompt
+        : fallbackUserPrompt,
     };
 
     console.log('Using agent config:', agentConfig.modelConfig.provider);
+
+    const agentContext = {
+      ask: {
+        id: askRow.id,
+        key: askRow.ask_key,
+        question: askRow.question,
+        description: askRow.description ?? null,
+        projectId: askRow.project_id ?? null,
+        challengeId: askRow.challenge_id ?? null,
+      },
+      participants: participantSummaries,
+      latestUserMessage: agentVariables.latest_user_message,
+      messages: conversationMessagesPayload,
+    } satisfies Record<string, unknown>;
+
+    const agentRequestPayload = {
+      agentSlug: CHAT_AGENT_SLUG,
+      modelConfigId: agentConfig.modelConfig.id,
+      systemPrompt: prompts.system,
+      userPrompt: prompts.user,
+      variables: agentVariables,
+      context: agentContext,
+    } satisfies Record<string, unknown>;
 
     // Create a log entry for tracking
     let log: AiAgentLog | null = null;
@@ -377,13 +415,7 @@ Réponds maintenant :`,
         askSessionId: askRow.id,
         messageId: null,
         interactionType: 'ask.chat.response',
-        requestPayload: {
-          agentSlug: CHAT_AGENT_SLUG,
-          modelConfigId: agentConfig.modelConfig.id,
-          systemPrompt: prompts.system,
-          userPrompt: prompts.user,
-          variables: promptVariables,
-        },
+        requestPayload: agentRequestPayload,
       });
     } catch (error) {
       console.error('Unable to create agent log for streaming response:', error);
@@ -391,6 +423,7 @@ Réponds maintenant :`,
 
     console.log('System prompt:', prompts.system);
     console.log('User prompt:', prompts.user);
+    console.log('Agent variables:', agentVariables);
     console.log('Model config:', agentConfig.modelConfig);
 
     // Create streaming response
