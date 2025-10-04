@@ -6,6 +6,7 @@ import { normaliseMessageMetadata } from '@/lib/messages';
 import { callModelProviderStream } from '@/lib/ai/providers';
 import { createAgentLog, markAgentLogProcessing, completeAgentLog, failAgentLog } from '@/lib/ai/logs';
 import { DEFAULT_MAX_OUTPUT_TOKENS } from '@/lib/ai/constants';
+import { getAgentConfigForAsk } from '@/lib/ai/agent-config';
 import type { AiModelConfig } from '@/types';
 
 const CHAT_AGENT_SLUG = 'ask-conversation-response';
@@ -310,22 +311,6 @@ export async function POST(
       challengeData = data ?? null;
     }
 
-    // Use direct model configuration
-    const directModelConfig: AiModelConfig = {
-      id: 'temp-anthropic',
-      code: 'anthropic-claude-3-5-sonnet',
-      name: 'Claude 3.5 Sonnet',
-      provider: 'anthropic',
-      model: 'claude-3-5-sonnet-20241022',
-      apiKeyEnvVar: 'ANTHROPIC_API_KEY',
-      baseUrl: 'https://api.anthropic.com/v1',
-      additionalHeaders: {},
-      isDefault: true,
-      isFallback: false,
-    };
-
-    console.log('Using direct model config:', directModelConfig.provider);
-
     const participantSummaries = participants.map(p => ({ name: p.name, role: p.role ?? null }));
 
     const promptVariables = buildPromptVariables({
@@ -336,29 +321,26 @@ export async function POST(
       participants: participantSummaries,
     });
 
-    // Default prompts for conversation response
-    const systemPrompt = `Tu es un assistant IA spécialisé dans la facilitation de conversations et la génération d'insights à partir d'échanges de groupe.
+    // Get agent configuration with proper variable substitution
+    const agentConfig = await getAgentConfigForAsk(
+      supabase,
+      askRow.id,
+      {
+        ask_question: promptVariables.ask_question || '',
+        ask_description: promptVariables.ask_description || '',
+        participant_name: promptVariables.participant_name || '',
+        project_name: projectData?.name || '',
+        challenge_name: challengeData?.name || '',
+        previous_messages: promptVariables.message_history || '',
+        delivery_mode: 'digital', // TODO: Get from session
+        audience_scope: 'individual', // TODO: Get from session
+        response_mode: 'simultaneous', // TODO: Get from session
+      }
+    );
 
-Ton rôle est de :
-1. Analyser les messages des participants
-2. Identifier les points clés et les idées importantes
-3. Poser des questions pertinentes pour approfondir la discussion
-4. Synthétiser les échanges pour faire émerger des insights
-5. Maintenir un ton professionnel mais accessible
-
-Contexte de la session :
-- Question ASK : ${promptVariables.ask_question || 'Non spécifiée'}
-- Description : ${promptVariables.ask_description || 'Aucune'}
-- Participants : ${promptVariables.participants || 'Non spécifiés'}
-
-Historique des messages :
-${promptVariables.message_history || 'Aucun historique'}
-
-Dernier message utilisateur : ${promptVariables.latest_user_message || 'Aucun message'}
-
-Réponds de manière concise et pertinente pour faire avancer la discussion.`;
-
-    const userPrompt = `Basé sur l'historique de la conversation et le dernier message de l'utilisateur, fournis une réponse qui :
+    const prompts = {
+      system: agentConfig.systemPrompt,
+      user: agentConfig.userPrompt || `Basé sur l'historique de la conversation et le dernier message de l'utilisateur, fournis une réponse qui :
 
 1. Reconnaît le contenu du dernier message
 2. Fait le lien avec les échanges précédents si pertinent
@@ -367,22 +349,20 @@ Réponds de manière concise et pertinente pour faire avancer la discussion.`;
 
 Dernier message : ${promptVariables.latest_user_message || 'Aucun message'}
 
-Réponds maintenant :`;
-
-    const prompts = {
-      system: systemPrompt,
-      user: userPrompt,
+Réponds maintenant :`,
     };
+
+    console.log('Using agent config:', agentConfig.modelConfig.provider);
 
     // Create a log entry for tracking
     const log = await createAgentLog(supabase, {
-      agentId: '00000000-0000-0000-0000-000000000000', // UUID valide temporaire
+      agentId: agentConfig.agent?.id || null,
       askSessionId: askRow.id,
       messageId: null,
       interactionType: 'ask.chat.response',
       requestPayload: {
         agentSlug: CHAT_AGENT_SLUG,
-        modelConfigId: directModelConfig.id,
+        modelConfigId: agentConfig.modelConfig.id,
         systemPrompt: prompts.system,
         userPrompt: prompts.user,
         variables: promptVariables,
@@ -391,7 +371,7 @@ Réponds maintenant :`;
 
     console.log('System prompt:', prompts.system);
     console.log('User prompt:', prompts.user);
-    console.log('Model config:', directModelConfig);
+    console.log('Model config:', agentConfig.modelConfig);
 
     // Create streaming response
     const encoder = new TextEncoder();
@@ -400,13 +380,13 @@ Réponds maintenant :`;
         try {
           let fullContent = '';
           
-          console.log('Starting streaming with model:', directModelConfig.provider);
+          console.log('Starting streaming with model:', agentConfig.modelConfig.provider);
           
           // Mark log as processing
-          await markAgentLogProcessing(supabase, log.id, { modelConfigId: directModelConfig.id });
+          await markAgentLogProcessing(supabase, log.id, { modelConfigId: agentConfig.modelConfig.id });
           
           for await (const chunk of callModelProviderStream(
-            directModelConfig,
+            agentConfig.modelConfig,
             {
               systemPrompt: prompts.system,
               userPrompt: prompts.user,
