@@ -3,9 +3,8 @@ import { getAdminSupabaseClient } from '@/lib/supabaseAdmin';
 import { isValidAskKey, parseErrorMessage } from '@/lib/utils';
 import { getAskSessionByKey } from '@/lib/asks';
 import { normaliseMessageMetadata } from '@/lib/messages';
-import { fetchAgentBySlug } from '@/lib/ai';
-import { renderTemplate } from '@/lib/ai/templates';
 import { callModelProviderStream } from '@/lib/ai/providers';
+import { createAgentLog, markAgentLogProcessing, completeAgentLog, failAgentLog } from '@/lib/ai/logs';
 import { DEFAULT_MAX_OUTPUT_TOKENS } from '@/lib/ai/constants';
 import type { AiModelConfig } from '@/types';
 
@@ -311,8 +310,7 @@ export async function POST(
       challengeData = data ?? null;
     }
 
-    // For now, use a direct model configuration instead of agent
-    // TODO: Create proper agent configuration in database
+    // Use direct model configuration
     const directModelConfig: AiModelConfig = {
       id: 'temp-anthropic',
       code: 'anthropic-claude-3-5-sonnet',
@@ -376,6 +374,21 @@ Réponds maintenant :`;
       user: userPrompt,
     };
 
+    // Create a log entry for tracking
+    const log = await createAgentLog(supabase, {
+      agentId: 'temp-agent-id',
+      askSessionId: askRow.id,
+      messageId: null,
+      interactionType: 'ask.chat.response',
+      requestPayload: {
+        agentSlug: CHAT_AGENT_SLUG,
+        modelConfigId: directModelConfig.id,
+        systemPrompt: prompts.system,
+        userPrompt: prompts.user,
+        variables: promptVariables,
+      },
+    });
+
     console.log('System prompt:', prompts.system);
     console.log('User prompt:', prompts.user);
     console.log('Model config:', directModelConfig);
@@ -388,6 +401,9 @@ Réponds maintenant :`;
           let fullContent = '';
           
           console.log('Starting streaming with model:', directModelConfig.provider);
+          
+          // Mark log as processing
+          await markAgentLogProcessing(supabase, log.id, { modelConfigId: directModelConfig.id });
           
           for await (const chunk of callModelProviderStream(
             directModelConfig,
@@ -457,11 +473,22 @@ Réponds maintenant :`;
 
               // Send completion signal
               controller.enqueue(encoder.encode(`data: {"type": "done"}\n\n`));
+              
+              // Complete the log
+              await completeAgentLog(supabase, log.id, {
+                responsePayload: { content: fullContent, streaming: true },
+                latencyMs: Date.now() - Date.now(),
+              });
+              
               controller.close();
             }
           }
         } catch (error) {
           console.error('Streaming error:', error);
+          
+          // Fail the log
+          await failAgentLog(supabase, log.id, parseErrorMessage(error));
+          
           const errorData = JSON.stringify({
             type: 'error',
             error: parseErrorMessage(error)

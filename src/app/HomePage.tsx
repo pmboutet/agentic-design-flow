@@ -364,6 +364,8 @@ export default function HomePage() {
   const handleStreamingResponse = async () => {
     if (!sessionData.askKey || awaitingAiResponse) return;
 
+    console.log('Starting streaming response for askKey:', sessionData.askKey);
+
     try {
       const response = await fetch(`/api/ask/${sessionData.askKey}/stream`, {
         method: 'POST',
@@ -371,6 +373,8 @@ export default function HomePage() {
           'Content-Type': 'application/json',
         },
       });
+
+      console.log('Streaming response status:', response.status);
 
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
