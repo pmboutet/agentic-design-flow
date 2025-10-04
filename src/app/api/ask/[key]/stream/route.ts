@@ -311,15 +311,22 @@ export async function POST(
       challengeData = data ?? null;
     }
 
-    // Get agent configuration
-    const agent = await fetchAgentBySlug(supabase, CHAT_AGENT_SLUG, { includeModels: true });
-    if (!agent) {
-      throw new Error(`Unable to find AI agent with slug "${CHAT_AGENT_SLUG}"`);
-    }
+    // For now, use a direct model configuration instead of agent
+    // TODO: Create proper agent configuration in database
+    const directModelConfig: AiModelConfig = {
+      id: 'temp-anthropic',
+      code: 'anthropic-claude-3-5-sonnet',
+      name: 'Claude 3.5 Sonnet',
+      provider: 'anthropic',
+      model: 'claude-3-5-sonnet-20241022',
+      apiKeyEnvVar: 'ANTHROPIC_API_KEY',
+      baseUrl: 'https://api.anthropic.com/v1',
+      additionalHeaders: {},
+      isDefault: true,
+      isFallback: false,
+    };
 
-    if (!agent.modelConfig) {
-      throw new Error(`Agent ${agent.slug} is not linked to any model configuration`);
-    }
+    console.log('Using direct model config:', directModelConfig.provider);
 
     const participantSummaries = participants.map(p => ({ name: p.name, role: p.role ?? null }));
 
@@ -331,10 +338,47 @@ export async function POST(
       participants: participantSummaries,
     });
 
+    // Default prompts for conversation response
+    const systemPrompt = `Tu es un assistant IA spécialisé dans la facilitation de conversations et la génération d'insights à partir d'échanges de groupe.
+
+Ton rôle est de :
+1. Analyser les messages des participants
+2. Identifier les points clés et les idées importantes
+3. Poser des questions pertinentes pour approfondir la discussion
+4. Synthétiser les échanges pour faire émerger des insights
+5. Maintenir un ton professionnel mais accessible
+
+Contexte de la session :
+- Question ASK : ${promptVariables.ask_question || 'Non spécifiée'}
+- Description : ${promptVariables.ask_description || 'Aucune'}
+- Participants : ${promptVariables.participants || 'Non spécifiés'}
+
+Historique des messages :
+${promptVariables.message_history || 'Aucun historique'}
+
+Dernier message utilisateur : ${promptVariables.latest_user_message || 'Aucun message'}
+
+Réponds de manière concise et pertinente pour faire avancer la discussion.`;
+
+    const userPrompt = `Basé sur l'historique de la conversation et le dernier message de l'utilisateur, fournis une réponse qui :
+
+1. Reconnaît le contenu du dernier message
+2. Fait le lien avec les échanges précédents si pertinent
+3. Pose une question ou fait une observation qui fait avancer la discussion
+4. Reste concis (2-3 phrases maximum)
+
+Dernier message : ${promptVariables.latest_user_message || 'Aucun message'}
+
+Réponds maintenant :`;
+
     const prompts = {
-      system: renderTemplate(agent.systemPrompt, promptVariables),
-      user: renderTemplate(agent.userPrompt, promptVariables),
+      system: systemPrompt,
+      user: userPrompt,
     };
+
+    console.log('System prompt:', prompts.system);
+    console.log('User prompt:', prompts.user);
+    console.log('Model config:', directModelConfig);
 
     // Create streaming response
     const encoder = new TextEncoder();
@@ -343,14 +387,17 @@ export async function POST(
         try {
           let fullContent = '';
           
+          console.log('Starting streaming with model:', directModelConfig.provider);
+          
           for await (const chunk of callModelProviderStream(
-            agent.modelConfig as AiModelConfig,
+            directModelConfig,
             {
               systemPrompt: prompts.system,
               userPrompt: prompts.user,
               maxOutputTokens: DEFAULT_MAX_OUTPUT_TOKENS,
             }
           )) {
+            console.log('Received chunk:', chunk.content, 'done:', chunk.done);
             if (chunk.content) {
               fullContent += chunk.content;
               
