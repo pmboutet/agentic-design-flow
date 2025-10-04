@@ -1,4 +1,3 @@
-import { GoogleAuth } from "google-auth-library";
 import { DEFAULT_MAX_OUTPUT_TOKENS } from "./constants";
 import type { AiModelConfig } from "@/types";
 
@@ -439,96 +438,6 @@ async function parseVertexStream(response: Response): Promise<VertexStreamResult
   };
 }
 
-async function callVertexAnthropic(
-  config: AiModelConfig,
-  request: AiProviderRequest,
-  abortSignal?: AbortSignal,
-): Promise<AiProviderResponse> {
-  const credentialsJson = resolveApiKey(config);
-  let credentials: Record<string, unknown>;
-
-  try {
-    credentials = JSON.parse(credentialsJson);
-  } catch (error) {
-    throw new AiProviderError(
-      `Invalid Google service account JSON in environment variable ${config.apiKeyEnvVar}`,
-      error,
-    );
-  }
-
-  const auth = new GoogleAuth({
-    credentials: credentials as any,
-    scopes: ["https://www.googleapis.com/auth/cloud-platform"],
-  });
-
-  const client = await auth.getClient();
-  const accessToken = await client.getAccessToken();
-
-  if (!accessToken) {
-    throw new AiProviderError("Unable to obtain access token for Vertex AI");
-  }
-
-  const location = resolveVertexLocation(config);
-  const projectId = resolveVertexProjectId(config, credentials);
-
-  const fallbackBaseUrl = `https://${location}-aiplatform.googleapis.com/v1`;
-  const baseUrl = ensureVertexBaseUrl(config.baseUrl ? config.baseUrl : fallbackBaseUrl);
-  const url = `${baseUrl}/projects/${projectId}/locations/${location}/publishers/anthropic/models/${config.model}:streamGenerateContent`;
-
-  const body: Record<string, unknown> = {
-    anthropic_version: "2023-06-01",
-    max_output_tokens: request.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS,
-    system: request.systemPrompt,
-    messages: [
-      {
-        role: "user",
-        content: [
-          {
-            type: "text",
-            text: request.userPrompt,
-          },
-        ],
-      },
-    ],
-  };
-
-  if (typeof request.temperature === "number") {
-    body.temperature = request.temperature;
-  }
-
-  if (request.tools && request.tools.length > 0) {
-    body.tools = request.tools;
-  }
-
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-    signal: abortSignal,
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text().catch(() => null);
-    throw new AiProviderError(
-      `Vertex AI streaming error (${response.status}): ${errorText ?? response.statusText}`,
-    );
-  }
-
-  const streamResult = await parseVertexStream(response);
-
-  return {
-    content: streamResult.text,
-    raw: {
-      events: streamResult.events,
-      stopReason: streamResult.stopReason,
-      toolCalls: streamResult.toolCalls,
-      usage: streamResult.usage,
-    },
-  };
-}
 
 async function callMistral(
   config: AiModelConfig,
@@ -657,8 +566,6 @@ export async function callModelProvider(
   switch (config.provider) {
     case "anthropic":
       return callAnthropic(config, request, abortSignal);
-    case "vertex_anthropic":
-      return callVertexAnthropic(config, request, abortSignal);
     case "mistral":
       return callMistral(config, request, abortSignal);
     case "openai":
@@ -701,7 +608,7 @@ async function* callAnthropicStream(
 
   const body = {
     model: config.model,
-    max_output_tokens: request.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS,
+    max_tokens: request.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS,
     system: request.systemPrompt,
     messages: [
       {
