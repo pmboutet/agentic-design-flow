@@ -9,8 +9,11 @@ export async function POST(
 ) {
   try {
     const { key } = params;
+    const body = await request.json();
+    const userMessage = body.message || 'Bonjour !';
 
     console.log('Simple streaming test for key:', key);
+    console.log('User message:', userMessage);
 
     // Configuration directe du modèle Anthropic
     const modelConfig: AiModelConfig = {
@@ -26,9 +29,18 @@ export async function POST(
       isFallback: false,
     };
 
-    // Prompts simples pour le test
-    const systemPrompt = `Tu es un assistant IA de test. Réponds de manière concise et utile.`;
-    const userPrompt = `Salut ! Peux-tu me dire bonjour et me raconter une petite histoire courte ?`;
+    // Utiliser le message de l'utilisateur avec un prompt plus adapté
+    const systemPrompt = `Tu es un facilitateur de conversation expérimenté. Ton rôle est d'aider les participants à explorer leurs défis, partager leurs expériences et générer des insights collectifs. 
+
+Tu dois :
+- Écouter activement et poser des questions pertinentes
+- Aider à clarifier les problèmes et défis
+- Encourager le partage d'expériences
+- Faire émerger des solutions et insights
+- Maintenir un ton professionnel mais accessible
+
+Réponds de manière concise et engageante.`;
+    const userPrompt = userMessage;
 
     console.log('Starting streaming with model:', modelConfig.provider);
     console.log('System prompt:', systemPrompt);

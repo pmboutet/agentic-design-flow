@@ -367,11 +367,15 @@ export default function HomePage() {
     console.log('Starting streaming response for askKey:', sessionData.askKey);
 
     try {
-      const response = await fetch(`/api/ask/${sessionData.askKey}/stream`, {
+      const response = await fetch(`/api/ask/${sessionData.askKey}/stream-simple`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
+        body: JSON.stringify({
+          message: sessionData.messages[sessionData.messages.length - 1]?.content || '',
+          model: 'anthropic', // Par défaut Anthropic, peut être changé
+        }),
       });
 
       console.log('Streaming response status:', response.status);
