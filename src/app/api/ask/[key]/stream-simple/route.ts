@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { callModelProviderStream } from '@/lib/ai/providers';
 import { DEFAULT_MAX_OUTPUT_TOKENS } from '@/lib/ai/constants';
 import { getAdminSupabaseClient } from '@/lib/supabaseAdmin';
+import { getAskSessionByKey } from '@/lib/asks';
 import type { AiModelConfig } from '@/types';
 
 export async function POST(
@@ -18,7 +19,7 @@ export async function POST(
 
     // Configuration directe du modèle Anthropic
     const modelConfig: AiModelConfig = {
-      id: 'test-anthropic',
+      id: crypto.randomUUID(), // Générer un UUID valide
       code: 'anthropic-claude-3-5-sonnet',
       name: 'Claude 3.5 Sonnet',
       provider: 'anthropic',
@@ -47,8 +48,36 @@ Réponds de manière concise et engageante.`;
     console.log('System prompt:', systemPrompt);
     console.log('User prompt:', userPrompt);
 
-    // Créer un log simple pour le streaming
+    // Récupérer la session ASK pour persister les messages
     const supabase = getAdminSupabaseClient();
+    const { row: askRow, error: askError } = await getAskSessionByKey<{ id: string; ask_key: string }>(
+      supabase,
+      key,
+      'id, ask_key'
+    );
+
+    if (askError) {
+      console.error('Error fetching ask session:', askError);
+      return new Response(
+        JSON.stringify({ error: 'Session not found' }), 
+        { 
+          status: 404,
+          headers: { 'Content-Type': 'application/json' }
+        }
+      );
+    }
+
+    if (!askRow) {
+      return new Response(
+        JSON.stringify({ error: 'Session not found' }), 
+        { 
+          status: 404,
+          headers: { 'Content-Type': 'application/json' }
+        }
+      );
+    }
+
+    // Créer un log simple pour le streaming
     const logId = crypto.randomUUID();
     
     // Insérer le log initial
@@ -57,8 +86,8 @@ Réponds de manière concise et engageante.`;
       .insert({
         id: logId,
         agent_id: null, // Pas d'agent pour le streaming simple
-        model_config_id: modelConfig.id,
-        ask_session_id: null, // Pas de session pour le streaming simple
+        model_config_id: null, // Pas de config modèle pour le streaming simple
+        ask_session_id: askRow.id, // Maintenant on a la session
         interaction_type: 'ask.chat.response.streaming',
         request_payload: {
           systemPrompt,
@@ -108,6 +137,29 @@ Réponds de manière concise et engageante.`;
 
             if (chunk.done) {
               console.log('Streaming completed. Full content:', fullContent);
+              
+              // Persister le message AI en base de données
+              if (fullContent.trim()) {
+                const aiMetadata = { senderName: 'Agent' };
+                
+                const { data: insertedRows, error: insertError } = await supabase
+                  .from('messages')
+                  .insert({
+                    ask_session_id: askRow.id,
+                    content: fullContent.trim(),
+                    sender_type: 'ai',
+                    message_type: 'text',
+                    metadata: aiMetadata,
+                  })
+                  .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at')
+                  .limit(1);
+
+                if (insertError) {
+                  console.error('Error inserting AI message:', insertError);
+                } else {
+                  console.log('AI message persisted with ID:', insertedRows?.[0]?.id);
+                }
+              }
               
               // Mettre à jour le log avec la réponse complète
               const endTime = Date.now();

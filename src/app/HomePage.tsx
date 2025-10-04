@@ -187,7 +187,16 @@ export default function HomePage() {
 
   // Initialize session from URL parameters
   useEffect(() => {
-    const key = searchParams.get('key');
+    // Try multiple ways to get the key
+    const keyFromSearchParams = searchParams.get('key');
+    const keyFromURL = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('key') : null;
+    const key = keyFromSearchParams || keyFromURL;
+    
+    console.log('🔍 Debug - Key from searchParams:', keyFromSearchParams);
+    console.log('🔍 Debug - Key from window.location:', keyFromURL);
+    console.log('🔍 Debug - Final key:', key);
+    console.log('🔍 Debug - All search params:', Object.fromEntries(searchParams.entries()));
+    console.log('🔍 Debug - Window location:', typeof window !== 'undefined' ? window.location.href : 'undefined');
     
     if (!key) {
       setSessionData(prev => ({
@@ -233,8 +242,12 @@ export default function HomePage() {
   // Load session data from external backend via API
   const loadSessionData = async (key: string) => {
     try {
+      console.log('🔍 Debug - loadSessionData called with key:', key);
+      console.log('🔍 Debug - isTestMode:', isTestMode);
+      
       // Use test endpoint if in test mode, otherwise use real API
       const endpoint = isTestMode ? `/api/test/${key}` : `/api/ask/${key}`;
+      console.log('🔍 Debug - endpoint:', endpoint);
       
       const response = await fetch(endpoint);
       const data: ApiResponse<{
@@ -448,6 +461,8 @@ export default function HomePage() {
                   }));
                 } else if (parsed.type === 'done') {
                   setAwaitingAiResponse(false);
+                  // Recharger les messages pour afficher le message persisté
+                  await loadSessionData(sessionData.askKey);
                   return;
                 } else if (parsed.type === 'error') {
                   console.error('Streaming error:', parsed.error);

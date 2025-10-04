@@ -59,14 +59,14 @@ async function createTestSession() {
 
     console.log('✅ Projet créé:', project.id);
 
-    // Créer une session ASK de test
+    // Créer une session ASK de test avec la clé 123
     const { data: askSession, error: askError } = await supabase
       .from('ask_sessions')
       .insert({
-        ask_key: 'test-key',
-        name: 'Session Test Streaming',
-        question: 'Test du streaming avec les APIs IA',
-        description: 'Session pour tester le streaming avec Anthropic et Mistral',
+        ask_key: '123',
+        name: 'Session Test Streaming - Clé 123',
+        question: 'Test du streaming avec la clé 123',
+        description: 'Session pour tester le streaming avec la clé 123',
         start_date: new Date().toISOString(),
         end_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), // 30 jours
         status: 'active',
@@ -88,7 +88,7 @@ async function createTestSession() {
 
     console.log('✅ Session ASK créée:', askSession.ask_key);
     console.log('🎉 Session de test prête ! Vous pouvez maintenant tester le streaming.');
-    console.log('📝 URL de test: http://localhost:3000/api/ask/test-key/stream');
+    console.log('📝 URL de test: http://localhost:3000/?key=123');
 
   } catch (error) {
     console.error('❌ Erreur:', error);
