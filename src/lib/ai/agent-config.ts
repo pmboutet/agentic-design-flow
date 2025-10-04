@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { AiAgentRecord, AiModelConfig } from '@/types';
+import { mapModelRow } from './models';
 
 interface RelatedPromptHolder {
   id: string;
@@ -71,54 +72,6 @@ export function substitutePromptVariables(
 export async function getDefaultModelConfig(
   supabase: SupabaseClient
 ): Promise<AiModelConfig> {
-  const { data, error } = await supabase
-    .from('ai_model_configs')
-    .select('*')
-    .eq('is_default', true)
-    .limit(1)
-    .maybeSingle<AiModelConfig>();
-
-  if (error) {
-    throw new Error(`Failed to fetch default model config: ${error.message}`);
-  }
-
-  if (!data) {
-    // Fallback to a hardcoded default if no default is configured
-    return {
-      id: crypto.randomUUID(),
-      code: 'anthropic-claude-3-5-sonnet',
-      name: 'Claude 3.5 Sonnet',
-      provider: 'anthropic',
-      model: 'claude-3-5-sonnet-20241022',
-      apiKeyEnvVar: 'ANTHROPIC_API_KEY',
-      baseUrl: 'https://api.anthropic.com/v1',
-      additionalHeaders: {},
-      isDefault: true,
-      isFallback: false,
-    };
-  }
-
-  return data;
-}
-
-/**
- * Get fallback model configuration
- */
-export async function getFallbackModelConfig(
-  supabase: SupabaseClient
-): Promise<AiModelConfig | null> {
-  const { data, error } = await supabase
-    .from('ai_model_configs')
-    .select('*')
-    .eq('is_fallback', true)
-    .limit(1)
-    .maybeSingle<AiModelConfig>();
-
-  if (error) {
-    console.warn(`Failed to fetch fallback model config: ${error.message}`);
-    return null;
-  }
-
   return data;
 }
 

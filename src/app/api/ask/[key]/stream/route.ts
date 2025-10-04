@@ -322,21 +322,36 @@ export async function POST(
     });
 
     // Get agent configuration with proper variable substitution
-    const agentConfig = await getAgentConfigForAsk(
-      supabase,
-      askRow.id,
-      {
-        ask_question: promptVariables.ask_question || '',
-        ask_description: promptVariables.ask_description || '',
-        participant_name: promptVariables.participant_name || '',
-        project_name: projectData?.name || '',
-        challenge_name: challengeData?.name || '',
-        previous_messages: promptVariables.message_history || '',
-        delivery_mode: 'digital', // TODO: Get from session
-        audience_scope: 'individual', // TODO: Get from session
-        response_mode: 'simultaneous', // TODO: Get from session
-      }
-    );
+    let agentConfig;
+    try {
+      agentConfig = await getAgentConfigForAsk(
+        supabase,
+        askRow.id,
+        {
+          ask_question: promptVariables.ask_question || '',
+          ask_description: promptVariables.ask_description || '',
+          participant_name: promptVariables.participant_name || '',
+          project_name: projectData?.name || '',
+          challenge_name: challengeData?.name || '',
+          previous_messages: promptVariables.message_history || '',
+          delivery_mode: 'digital', // TODO: Get from session
+          audience_scope: 'individual', // TODO: Get from session
+          response_mode: 'simultaneous', // TODO: Get from session
+        }
+      );
+    } catch (error) {
+      console.error('Error getting agent config:', error);
+      // Return a helpful error message
+      return new Response(JSON.stringify({
+        type: 'error',
+        error: 'AI configuration not found. Please ensure AI model configurations are set up in the database.'
+      }), {
+        status: 500,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+    }
 
     const prompts = {
       system: agentConfig.systemPrompt,
@@ -397,14 +412,15 @@ Réponds maintenant :`,
             }
           }
           
-          for await (const chunk of callModelProviderStream(
-            agentConfig.modelConfig,
-            {
-              systemPrompt: prompts.system,
-              userPrompt: prompts.user,
-              maxOutputTokens: DEFAULT_MAX_OUTPUT_TOKENS,
-            }
-          )) {
+          try {
+            for await (const chunk of callModelProviderStream(
+              agentConfig.modelConfig,
+              {
+                systemPrompt: prompts.system,
+                userPrompt: prompts.user,
+                maxOutputTokens: DEFAULT_MAX_OUTPUT_TOKENS,
+              }
+            )) {
             console.log('Received chunk:', chunk.content, 'done:', chunk.done);
             if (chunk.content) {
               fullContent += chunk.content;
@@ -480,6 +496,26 @@ Réponds maintenant :`,
               
               controller.close();
             }
+          }
+          } catch (streamError) {
+            console.error('Error in model provider stream:', streamError);
+            
+            // Fail the log
+            if (log) {
+              try {
+                await failAgentLog(supabase, log.id, parseErrorMessage(streamError));
+              } catch (failError) {
+                console.error('Unable to mark agent log as failed:', failError);
+              }
+            }
+            
+            const errorData = JSON.stringify({
+              type: 'error',
+              error: parseErrorMessage(streamError)
+            });
+            controller.enqueue(encoder.encode(`data: ${errorData}\n\n`));
+            controller.close();
+            return;
           }
         } catch (error) {
           console.error('Streaming error:', error);

@@ -35,7 +35,22 @@ export class AiProviderError extends Error {
 }
 
 function resolveApiKey(config: AiModelConfig): string {
+  console.log('Resolving API key for config:', {
+    code: config.code,
+    provider: config.provider,
+    model: config.model,
+    apiKeyEnvVar: config.apiKeyEnvVar,
+    availableEnvVars: Object.keys(process.env).filter(key => key.includes('API') || key.includes('KEY'))
+  });
+  
   const key = process.env[config.apiKeyEnvVar];
+  console.log('API key lookup result:', {
+    envVar: config.apiKeyEnvVar,
+    keyExists: !!key,
+    keyLength: key ? key.length : 0,
+    keyPrefix: key ? key.substring(0, 10) + '...' : 'undefined'
+  });
+  
   if (!key) {
     throw new AiProviderError(
       `Missing API key for model ${config.code}. Define environment variable ${config.apiKeyEnvVar}.`
