@@ -1,6 +1,28 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { AiAgentRecord, AiModelConfig } from '@/types';
 
+interface RelatedPromptHolder {
+  id: string;
+  name?: string | null;
+  system_prompt?: string | null;
+}
+
+interface AskSessionWithRelations {
+  id: string;
+  ask_key: string;
+  question: string;
+  description?: string | null;
+  system_prompt?: string | null;
+  ai_config?: Record<string, unknown> | null;
+  project_id?: string | null;
+  challenge_id?: string | null;
+  delivery_mode?: string | null;
+  audience_scope?: string | null;
+  response_mode?: string | null;
+  projects?: RelatedPromptHolder | RelatedPromptHolder[] | null;
+  challenges?: RelatedPromptHolder | RelatedPromptHolder[] | null;
+}
+
 export interface AgentConfigResult {
   systemPrompt: string;
   userPrompt?: string;
@@ -128,7 +150,7 @@ export async function getAgentConfigForAsk(
       challenges!inner(id, name, system_prompt)
     `)
     .eq('id', askSessionId)
-    .maybeSingle();
+    .maybeSingle<AskSessionWithRelations>();
 
   if (askError) {
     throw new Error(`Failed to fetch ASK session: ${askError.message}`);
@@ -196,9 +218,17 @@ export async function getAgentConfigForAsk(
     };
   }
 
+  const projectFromRelation = Array.isArray(askSession.projects)
+    ? askSession.projects[0] ?? null
+    : askSession.projects ?? null;
+
+  const challengeFromRelation = Array.isArray(askSession.challenges)
+    ? askSession.challenges[0] ?? null
+    : askSession.challenges ?? null;
+
   // Priority 3: Project Level
-  if (askSession.project_id && askSession.projects?.system_prompt) {
-    const systemPrompt = substitutePromptVariables(askSession.projects.system_prompt, variables || {});
+  if (askSession.project_id && projectFromRelation?.system_prompt) {
+    const systemPrompt = substitutePromptVariables(projectFromRelation.system_prompt, variables || {});
     const modelConfig = await getDefaultModelConfig(supabase);
     const fallbackModelConfig = await getFallbackModelConfig(supabase);
     
@@ -210,8 +240,8 @@ export async function getAgentConfigForAsk(
   }
 
   // Priority 4: Challenge Level
-  if (askSession.challenge_id && askSession.challenges?.system_prompt) {
-    const systemPrompt = substitutePromptVariables(askSession.challenges.system_prompt, variables || {});
+  if (askSession.challenge_id && challengeFromRelation?.system_prompt) {
+    const systemPrompt = substitutePromptVariables(challengeFromRelation.system_prompt, variables || {});
     const modelConfig = await getDefaultModelConfig(supabase);
     const fallbackModelConfig = await getFallbackModelConfig(supabase);
     
