@@ -57,7 +57,7 @@ async function callAnthropic(
 
   const body: Record<string, unknown> = {
     model: config.model,
-    max_output_tokens: request.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS,
+    max_tokens: request.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS,
     system: request.systemPrompt,
     messages: [
       {
