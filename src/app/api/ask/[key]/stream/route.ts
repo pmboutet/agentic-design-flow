@@ -376,7 +376,7 @@ Réponds maintenant :`;
 
     // Create a log entry for tracking
     const log = await createAgentLog(supabase, {
-      agentId: 'temp-agent-id',
+      agentId: '00000000-0000-0000-0000-000000000000', // UUID valide temporaire
       askSessionId: askRow.id,
       messageId: null,
       interactionType: 'ask.chat.response',
