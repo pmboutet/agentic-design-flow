@@ -113,10 +113,18 @@ export async function getChatAgentConfig(
     throw new Error(`Chat agent configuration "${DEFAULT_CHAT_AGENT_SLUG}" not found`);
   }
 
-  const systemPrompt = substitutePromptVariables(agent.systemPrompt, variables);
-  const userPrompt = agent.userPrompt
-    ? substitutePromptVariables(agent.userPrompt, variables)
-    : undefined;
+  const trimmedSystemPrompt = agent.systemPrompt?.trim() ?? '';
+  if (!trimmedSystemPrompt) {
+    throw new Error(`Chat agent "${DEFAULT_CHAT_AGENT_SLUG}" is missing a system prompt`);
+  }
+
+  const trimmedUserPrompt = agent.userPrompt?.trim() ?? '';
+  if (!trimmedUserPrompt) {
+    throw new Error(`Chat agent "${DEFAULT_CHAT_AGENT_SLUG}" is missing a user prompt`);
+  }
+
+  const systemPrompt = substitutePromptVariables(trimmedSystemPrompt, variables);
+  const userPrompt = substitutePromptVariables(trimmedUserPrompt, variables);
 
   const modelConfig = agent.modelConfig ?? await getDefaultModelConfig(supabase);
   const fallbackModelConfig = agent.fallbackModelConfig ?? await getFallbackModelConfig(supabase);
@@ -340,31 +348,5 @@ export async function getAgentConfigForAsk(
   }
 
   // Priority 5: Default chat agent fallback
-  try {
-    return await getChatAgentConfig(supabase, variables || {});
-  } catch (error) {
-    console.warn('Falling back to hardcoded chat prompt:', error);
-  }
-
-  // Priority 6: Hardcoded default fallback
-  const defaultSystemPrompt = `Tu es un facilitateur de conversation expérimenté. Ton rôle est d'aider les participants à explorer leurs défis, partager leurs expériences et générer des insights collectifs. 
-
-Tu dois :
-- Écouter activement et poser des questions pertinentes
-- Aider à clarifier les problèmes et défis
-- Encourager le partage d'expériences
-- Faire émerger des solutions et insights
-- Maintenir un ton professionnel mais accessible
-
-Réponds de manière concise et engageante.`;
-
-  const systemPrompt = substitutePromptVariables(defaultSystemPrompt, variables || {});
-  const modelConfig = await getDefaultModelConfig(supabase);
-  const fallbackModelConfig = await getFallbackModelConfig(supabase);
-  
-  return {
-    systemPrompt,
-    modelConfig,
-    fallbackModelConfig: fallbackModelConfig || undefined,
-  };
+  return getChatAgentConfig(supabase, variables || {});
 }

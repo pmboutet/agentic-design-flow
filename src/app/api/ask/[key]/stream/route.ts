@@ -364,22 +364,23 @@ export async function POST(
       });
     }
 
-    const fallbackUserPrompt = `Basé sur l'historique de la conversation et le dernier message de l'utilisateur, fournis une réponse qui :
+    const resolvedUserPrompt = agentConfig.userPrompt;
 
-1. Reconnaît le contenu du dernier message
-2. Fait le lien avec les échanges précédents si pertinent
-3. Pose une question ou fait une observation qui fait avancer la discussion
-4. Reste concis (2-3 phrases maximum)
-
-Dernier message : ${agentVariables.latest_user_message || 'Aucun message'}
-
-Réponds maintenant :`;
+    if (!resolvedUserPrompt || resolvedUserPrompt.trim().length === 0) {
+      return new Response(JSON.stringify({
+        type: 'error',
+        error: 'Le prompt utilisateur de l’agent est vide. Vérifiez la configuration AI.',
+      }), {
+        status: 500,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+    }
 
     const prompts = {
       system: agentConfig.systemPrompt,
-      user: agentConfig.userPrompt && agentConfig.userPrompt.trim().length > 0
-        ? agentConfig.userPrompt
-        : fallbackUserPrompt,
+      user: resolvedUserPrompt,
     };
 
     console.log('Using agent config:', agentConfig.modelConfig.provider);
