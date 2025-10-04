@@ -33,27 +33,21 @@ export function ChatComponent({
   const [selectedFiles, setSelectedFiles] = useState<FileUpload[]>([]);
   const [isRecording, setIsRecording] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
-  const [streamingMessage, setStreamingMessage] = useState<string>("");
-  const [isStreaming, setIsStreaming] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const abortControllerRef = useRef<AbortController | null>(null);
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, streamingMessage]);
+  }, [messages]);
 
   useEffect(() => {
     return () => {
       if (typingTimeoutRef.current) {
         clearTimeout(typingTimeoutRef.current);
-      }
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
       }
     };
   }, []);
@@ -72,92 +66,6 @@ export function ChatComponent({
     }, 1500);
   };
 
-  const handleStreamingResponse = async () => {
-    if (!askKey || isStreaming) return;
-
-    setIsStreaming(true);
-    setStreamingMessage("");
-    
-    // Abort any existing request
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
-    
-    abortControllerRef.current = new AbortController();
-
-    try {
-      const response = await fetch(`/api/ask/${askKey}/stream`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        signal: abortControllerRef.current.signal,
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const reader = response.body?.getReader();
-      if (!reader) {
-        throw new Error('No response body');
-      }
-
-      const decoder = new TextDecoder();
-      let buffer = '';
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const data = line.slice(6);
-            if (data.trim()) {
-              try {
-                const parsed = JSON.parse(data);
-                
-                if (parsed.type === 'chunk' && parsed.content) {
-                  setStreamingMessage(prev => prev + parsed.content);
-                } else if (parsed.type === 'message' && parsed.message) {
-                  // The complete message has been stored in the database
-                  // The parent component should refresh the messages
-                  if (onSendMessage) {
-                    // Trigger a refresh by calling onSendMessage with empty content
-                    onSendMessage('', 'text');
-                  }
-                } else if (parsed.type === 'done') {
-                  setIsStreaming(false);
-                  setStreamingMessage("");
-                  return;
-                } else if (parsed.type === 'error') {
-                  console.error('Streaming error:', parsed.error);
-                  setIsStreaming(false);
-                  setStreamingMessage("");
-                  return;
-                }
-              } catch (error) {
-                console.error('Error parsing streaming data:', error);
-              }
-            }
-          }
-        }
-      }
-    } catch (error) {
-      if (error instanceof Error && error.name === 'AbortError') {
-        console.log('Streaming aborted');
-      } else {
-        console.error('Streaming error:', error);
-      }
-    } finally {
-      setIsStreaming(false);
-      setStreamingMessage("");
-    }
-  };
 
   // Handle sending messages
   const handleSendMessage = async () => {
@@ -191,11 +99,6 @@ export function ChatComponent({
     
     if (inputValue.trim()) {
       onSendMessage(inputValue.trim(), 'text');
-      
-      // Trigger streaming response after sending the message
-      setTimeout(() => {
-        handleStreamingResponse();
-      }, 100);
     }
 
     setInputValue("");
@@ -375,33 +278,12 @@ export function ChatComponent({
               );
             })}
             
-            {/* Streaming message */}
-            {isStreaming && streamingMessage && (
-              <MessageBubble
-                key="streaming"
-                message={{
-                  id: 'streaming',
-                  askKey: askKey || '',
-                  askSessionId: '',
-                  content: streamingMessage,
-                  type: 'text',
-                  senderType: 'ai',
-                  senderId: null,
-                  senderName: 'Agent',
-                  timestamp: new Date().toISOString(),
-                  metadata: {},
-                }}
-                showSender={true}
-                senderLabel="Agent"
-                isStreaming={true}
-              />
-            )}
           </AnimatePresence>
           <div ref={messagesEndRef} />
         </div>
 
         <AnimatePresence>
-          {showAgentTyping && !isStreaming && (
+          {showAgentTyping && (
             <motion.div
               key="agent-typing-indicator"
               initial={{ opacity: 0, y: 4 }}
@@ -487,7 +369,7 @@ export function ChatComponent({
               {/* Send button */}
               <Button
                 onClick={handleSendMessage}
-                disabled={isLoading || isStreaming || (!inputValue.trim() && selectedFiles.length === 0)}
+                disabled={isLoading || (!inputValue.trim() && selectedFiles.length === 0)}
                 size="icon"
                 className="h-9 w-9"
               >
@@ -528,12 +410,10 @@ function MessageBubble({
   message,
   showSender,
   senderLabel,
-  isStreaming = false,
 }: {
   message: Message;
   showSender: boolean;
   senderLabel?: string | null;
-  isStreaming?: boolean;
 }) {
   const isUser = message.senderType === 'user';
   const isSystem = message.senderType === 'system';
@@ -568,12 +448,7 @@ function MessageBubble({
           </span>
         )}
         <div className={cn('w-full rounded-lg px-4 py-2 break-words shadow-sm', bubbleClass)}>
-          {message.type === 'text' && (
-            <p className={cn(isStreaming && 'animate-pulse')}>
-              {message.content}
-              {isStreaming && <span className="inline-block w-2 h-4 bg-current ml-1 animate-pulse" />}
-            </p>
-          )}
+          {message.type === 'text' && <p>{message.content}</p>}
           {message.type === 'image' && (
             <img
               src={message.content}
@@ -599,7 +474,6 @@ function MessageBubble({
 
           <div className="text-xs opacity-70 mt-1">
             {new Date(message.timestamp).toLocaleTimeString()}
-            {isStreaming && <span className="ml-2 text-primary">En cours...</span>}
           </div>
         </div>
       </div>

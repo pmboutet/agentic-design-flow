@@ -304,6 +304,7 @@ export default function HomePage() {
     }));
 
     try {
+      // First, save the user message
       const endpoint = isTestMode ? `/api/test/${sessionData.askKey}` : `/api/ask/${sessionData.askKey}`;
 
       const response = await fetch(endpoint, {
@@ -326,6 +327,7 @@ export default function HomePage() {
         throw new Error(data.error || 'Failed to send message');
       }
 
+      // Update the optimistic message with the real one
       if (data.data?.message) {
         setSessionData(prev => ({
           ...prev,
@@ -341,8 +343,9 @@ export default function HomePage() {
         }));
       }
 
+      // Now trigger the streaming AI response
       setAwaitingAiResponse(true);
-      scheduleResponseTimer();
+      await handleStreamingResponse();
 
     } catch (error) {
       console.error('Error sending message:', error);
@@ -354,6 +357,105 @@ export default function HomePage() {
         messages: prev.messages.filter(message => message.id !== optimisticId),
         error: parseErrorMessage(error)
       }));
+    }
+  };
+
+  // Handle streaming AI response
+  const handleStreamingResponse = async () => {
+    if (!sessionData.askKey || awaitingAiResponse) return;
+
+    try {
+      const response = await fetch(`/api/ask/${sessionData.askKey}/stream`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) {
+        throw new Error('No response body');
+      }
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let streamingMessage = '';
+
+      // Add a temporary streaming message
+      const streamingId = `streaming-${Date.now()}`;
+      const streamingMessageObj: Message = {
+        id: streamingId,
+        askKey: sessionData.askKey,
+        askSessionId: sessionData.ask?.askSessionId || '',
+        content: '',
+        type: 'text',
+        senderType: 'ai',
+        senderId: null,
+        senderName: 'Agent',
+        timestamp: new Date().toISOString(),
+        metadata: {},
+      };
+
+      setSessionData(prev => ({
+        ...prev,
+        messages: [...prev.messages, streamingMessageObj],
+      }));
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6);
+            if (data.trim()) {
+              try {
+                const parsed = JSON.parse(data);
+                
+                if (parsed.type === 'chunk' && parsed.content) {
+                  streamingMessage += parsed.content;
+                  setSessionData(prev => ({
+                    ...prev,
+                    messages: prev.messages.map(msg =>
+                      msg.id === streamingId 
+                        ? { ...msg, content: streamingMessage }
+                        : msg
+                    ),
+                  }));
+                } else if (parsed.type === 'message' && parsed.message) {
+                  // Replace the streaming message with the final one
+                  setSessionData(prev => ({
+                    ...prev,
+                    messages: prev.messages.map(msg =>
+                      msg.id === streamingId ? parsed.message : msg
+                    ),
+                  }));
+                } else if (parsed.type === 'done') {
+                  setAwaitingAiResponse(false);
+                  return;
+                } else if (parsed.type === 'error') {
+                  console.error('Streaming error:', parsed.error);
+                  setAwaitingAiResponse(false);
+                  return;
+                }
+              } catch (error) {
+                console.error('Error parsing streaming data:', error);
+              }
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Streaming error:', error);
+      setAwaitingAiResponse(false);
     }
   };
 
