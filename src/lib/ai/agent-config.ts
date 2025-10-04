@@ -24,6 +24,79 @@ interface AskSessionWithRelations {
   challenges?: RelatedPromptHolder | RelatedPromptHolder[] | null;
 }
 
+interface AgentQueryRow {
+  id: string;
+  slug: string;
+  name: string;
+  description?: string | null;
+  system_prompt: string;
+  user_prompt?: string | null;
+  available_variables?: string[] | null;
+  metadata?: Record<string, unknown> | null;
+  model_config_id?: string | null;
+  fallback_model_config_id?: string | null;
+  model_configs?: AiModelConfig | null;
+  fallback_model_configs?: AiModelConfig | null;
+}
+
+const DEFAULT_CHAT_AGENT_SLUG = 'ask-conversation-response';
+
+function mapAgentRow(row: AgentQueryRow): AiAgentRecord {
+  return {
+    id: row.id,
+    slug: row.slug,
+    name: row.name,
+    description: row.description ?? null,
+    modelConfigId: row.model_config_id ?? null,
+    fallbackModelConfigId: row.fallback_model_config_id ?? null,
+    systemPrompt: row.system_prompt,
+    userPrompt: row.user_prompt ?? '',
+    availableVariables: Array.isArray(row.available_variables) ? row.available_variables : [],
+    metadata: row.metadata ?? null,
+    modelConfig: row.model_configs ?? null,
+    fallbackModelConfig: row.fallback_model_configs ?? null,
+  };
+}
+
+async function fetchAgentByIdOrSlug(
+  supabase: SupabaseClient,
+  options: { id?: string | null; slug?: string | null }
+): Promise<AiAgentRecord | null> {
+  let query = supabase.from('ai_agents').select(`
+    *,
+    model_configs!ai_agents_model_config_id_fkey(*),
+    fallback_model_configs!ai_agents_fallback_model_config_id_fkey(*)
+  `);
+
+  if (options.id) {
+    query = query.eq('id', options.id);
+  }
+
+  if (options.slug) {
+    query = query.eq('slug', options.slug);
+  }
+
+  const { data, error } = await query.maybeSingle<AgentQueryRow>();
+
+  if (error) {
+    console.warn(`Failed to fetch agent (${options.id ?? options.slug ?? 'unknown'}): ${error.message}`);
+    return null;
+  }
+
+  if (!data) {
+    return null;
+  }
+
+  return mapAgentRow(data);
+}
+
+async function fetchAgentBySlug(
+  supabase: SupabaseClient,
+  slug: string
+): Promise<AiAgentRecord | null> {
+  return fetchAgentByIdOrSlug(supabase, { slug });
+}
+
 export interface AgentConfigResult {
   systemPrompt: string;
   userPrompt?: string;
@@ -185,24 +258,13 @@ export async function getAgentConfigForAsk(
     const agentSlug = aiConfig.agent_slug;
 
     if (agentId || agentSlug) {
-      let agentQuery = supabase.from('ai_agents').select(`
-        *,
-        model_configs!ai_agents_model_config_id_fkey(*),
-        fallback_model_configs!ai_agents_fallback_model_config_id_fkey(*)
-      `);
+      const agentRecord = await fetchAgentByIdOrSlug(supabase, {
+        id: agentId ?? null,
+        slug: agentSlug ?? null,
+      });
 
-      if (agentId) {
-        agentQuery = agentQuery.eq('id', agentId);
-      } else if (agentSlug) {
-        agentQuery = agentQuery.eq('slug', agentSlug);
-      }
-
-      const { data: agentData, error: agentError } = await agentQuery.maybeSingle();
-
-      if (agentError) {
-        console.warn(`Failed to fetch agent: ${agentError.message}`);
-      } else if (agentData) {
-        agent = agentData as AiAgentRecord;
+      if (agentRecord) {
+        agent = agentRecord;
       }
     }
   }
@@ -254,7 +316,28 @@ export async function getAgentConfigForAsk(
     };
   }
 
-  // Priority 5: Default Fallback
+  // Priority 5: Default chat agent fallback
+  const defaultAgent = await fetchAgentBySlug(supabase, DEFAULT_CHAT_AGENT_SLUG);
+
+  if (defaultAgent) {
+    const systemPrompt = substitutePromptVariables(defaultAgent.systemPrompt, variables || {});
+    const userPrompt = defaultAgent.userPrompt
+      ? substitutePromptVariables(defaultAgent.userPrompt, variables || {})
+      : undefined;
+
+    const modelConfig = defaultAgent.modelConfig ?? await getDefaultModelConfig(supabase);
+    const fallbackModelConfig = defaultAgent.fallbackModelConfig ?? await getFallbackModelConfig(supabase);
+
+    return {
+      systemPrompt,
+      userPrompt,
+      modelConfig,
+      fallbackModelConfig: fallbackModelConfig || undefined,
+      agent: defaultAgent,
+    };
+  }
+
+  // Priority 6: Hardcoded default fallback
   const defaultSystemPrompt = `Tu es un facilitateur de conversation expérimenté. Ton rôle est d'aider les participants à explorer leurs défis, partager leurs expériences et générer des insights collectifs. 
 
 Tu dois :
