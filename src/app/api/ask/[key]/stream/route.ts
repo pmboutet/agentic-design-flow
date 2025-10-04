@@ -7,7 +7,7 @@ import { callModelProviderStream } from '@/lib/ai/providers';
 import { createAgentLog, markAgentLogProcessing, completeAgentLog, failAgentLog } from '@/lib/ai/logs';
 import { DEFAULT_MAX_OUTPUT_TOKENS } from '@/lib/ai/constants';
 import { getAgentConfigForAsk } from '@/lib/ai/agent-config';
-import type { AiModelConfig } from '@/types';
+import type { AiAgentLog, AiModelConfig } from '@/types';
 
 const CHAT_AGENT_SLUG = 'ask-conversation-response';
 
@@ -355,19 +355,24 @@ Réponds maintenant :`,
     console.log('Using agent config:', agentConfig.modelConfig.provider);
 
     // Create a log entry for tracking
-    const log = await createAgentLog(supabase, {
-      agentId: agentConfig.agent?.id || null,
-      askSessionId: askRow.id,
-      messageId: null,
-      interactionType: 'ask.chat.response',
-      requestPayload: {
-        agentSlug: CHAT_AGENT_SLUG,
-        modelConfigId: agentConfig.modelConfig.id,
-        systemPrompt: prompts.system,
-        userPrompt: prompts.user,
-        variables: promptVariables,
-      },
-    });
+    let log: AiAgentLog | null = null;
+    try {
+      log = await createAgentLog(supabase, {
+        agentId: agentConfig.agent?.id || null,
+        askSessionId: askRow.id,
+        messageId: null,
+        interactionType: 'ask.chat.response',
+        requestPayload: {
+          agentSlug: CHAT_AGENT_SLUG,
+          modelConfigId: agentConfig.modelConfig.id,
+          systemPrompt: prompts.system,
+          userPrompt: prompts.user,
+          variables: promptVariables,
+        },
+      });
+    } catch (error) {
+      console.error('Unable to create agent log for streaming response:', error);
+    }
 
     console.log('System prompt:', prompts.system);
     console.log('User prompt:', prompts.user);
@@ -379,11 +384,18 @@ Réponds maintenant :`,
       async start(controller) {
         try {
           let fullContent = '';
+          const startTime = Date.now();
           
           console.log('Starting streaming with model:', agentConfig.modelConfig.provider);
           
           // Mark log as processing
-          await markAgentLogProcessing(supabase, log.id, { modelConfigId: agentConfig.modelConfig.id });
+          if (log) {
+            try {
+              await markAgentLogProcessing(supabase, log.id, { modelConfigId: agentConfig.modelConfig.id });
+            } catch (error) {
+              console.error('Unable to mark agent log processing:', error);
+            }
+          }
           
           for await (const chunk of callModelProviderStream(
             agentConfig.modelConfig,
@@ -455,10 +467,16 @@ Réponds maintenant :`,
               controller.enqueue(encoder.encode(`data: {"type": "done"}\n\n`));
               
               // Complete the log
-              await completeAgentLog(supabase, log.id, {
-                responsePayload: { content: fullContent, streaming: true },
-                latencyMs: Date.now() - Date.now(),
-              });
+              if (log) {
+                try {
+                  await completeAgentLog(supabase, log.id, {
+                    responsePayload: { content: fullContent, streaming: true },
+                    latencyMs: Date.now() - startTime,
+                  });
+                } catch (error) {
+                  console.error('Unable to complete agent log:', error);
+                }
+              }
               
               controller.close();
             }
@@ -467,7 +485,13 @@ Réponds maintenant :`,
           console.error('Streaming error:', error);
           
           // Fail the log
-          await failAgentLog(supabase, log.id, parseErrorMessage(error));
+          if (log) {
+            try {
+              await failAgentLog(supabase, log.id, parseErrorMessage(error));
+            } catch (failError) {
+              console.error('Unable to mark agent log as failed:', failError);
+            }
+          }
           
           const errorData = JSON.stringify({
             type: 'error',

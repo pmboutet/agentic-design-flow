@@ -146,8 +146,8 @@ export async function getAgentConfigForAsk(
       delivery_mode,
       audience_scope,
       response_mode,
-      projects!inner(id, name, system_prompt),
-      challenges!inner(id, name, system_prompt)
+      projects(id, name, system_prompt),
+      challenges(id, name, system_prompt)
     `)
     .eq('id', askSessionId)
     .maybeSingle<AskSessionWithRelations>();
