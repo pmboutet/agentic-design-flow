@@ -66,6 +66,165 @@ interface MessageRow {
   created_at?: string | null;
 }
 
+function parseAgentJsonSafely(rawText: string): unknown | null {
+  const attempts: string[] = [];
+  const trimmed = rawText.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  attempts.push(trimmed);
+
+  const codeFenceMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  if (codeFenceMatch && codeFenceMatch[1]) {
+    attempts.push(codeFenceMatch[1].trim());
+  }
+
+  const bracketCandidate = extractBracketedJson(trimmed);
+  if (bracketCandidate) {
+    attempts.push(bracketCandidate);
+  }
+
+  for (const candidate of attempts) {
+    const parsed = safeJsonParse(candidate);
+    if (parsed !== null) {
+      return parsed;
+    }
+  }
+
+  return null;
+}
+
+function extractBracketedJson(value: string): string | null {
+  const candidates: Array<{ start: number; opener: string; closer: string }> = [];
+
+  const pushCandidate = (char: '[' | '{') => {
+    const index = value.indexOf(char);
+    if (index !== -1) {
+      candidates.push({
+        start: index,
+        opener: char,
+        closer: char === '{' ? '}' : ']',
+      });
+    }
+  };
+
+  pushCandidate('[');
+  pushCandidate('{');
+
+  for (const candidate of candidates) {
+    const end = findMatchingBracket(value, candidate.start, candidate.opener, candidate.closer);
+    if (end !== -1) {
+      return value.slice(candidate.start, end + 1).trim();
+    }
+  }
+
+  return null;
+}
+
+function findMatchingBracket(value: string, start: number, opener: string, closer: string): number {
+  let depth = 0;
+  let inString: false | '"' | '\'' = false;
+  let isEscaped = false;
+
+  for (let index = start; index < value.length; index += 1) {
+    const char = value[index];
+
+    if (inString) {
+      if (isEscaped) {
+        isEscaped = false;
+        continue;
+      }
+
+      if (char === '\\') {
+        isEscaped = true;
+        continue;
+      }
+
+      if (char === inString) {
+        inString = false;
+      }
+
+      continue;
+    }
+
+    if (char === '"' || char === '\'') {
+      inString = char;
+      continue;
+    }
+
+    if (char === opener) {
+      depth += 1;
+    } else if (char === closer) {
+      depth -= 1;
+      if (depth === 0) {
+        return index;
+      }
+    }
+  }
+
+  return -1;
+}
+
+function safeJsonParse(value: string): unknown | null {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+function extractTextFromRawResponse(raw: unknown): string | null {
+  if (!raw || typeof raw !== 'object') {
+    return null;
+  }
+
+  const record = raw as Record<string, unknown>;
+
+  if (typeof record.content === 'string' && record.content.trim().length > 0) {
+    return record.content.trim();
+  }
+
+  if (Array.isArray(record.content)) {
+    const text = record.content
+      .map(block => {
+        if (!block) return '';
+        if (typeof block === 'string') return block;
+        const entry = block as Record<string, unknown>;
+        if (typeof entry.text === 'string') {
+          return entry.text;
+        }
+        if (Array.isArray(entry.content)) {
+          return entry.content
+            .map(inner => {
+              if (!inner) return '';
+              if (typeof inner === 'string') return inner;
+              if (typeof (inner as any).text === 'string') return (inner as any).text;
+              return '';
+            })
+            .join('');
+        }
+        return '';
+      })
+      .join('')
+      .trim();
+
+    if (text.length > 0) {
+      return text;
+    }
+  }
+
+  const choices = Array.isArray((record as any).choices) ? (record as any).choices : [];
+  for (const choice of choices) {
+    const message = choice?.message;
+    if (message && typeof message.content === 'string' && message.content.trim().length > 0) {
+      return message.content.trim();
+    }
+  }
+
+  return null;
+}
+
 interface InsightJobRow {
   id: string;
   ask_session_id: string;
@@ -282,13 +441,28 @@ function parseIncomingAuthor(value: unknown): NormalisedIncomingAuthor | null {
 }
 
 function normaliseIncomingInsights(value: unknown): { types: Insight['type'][]; items: NormalisedIncomingInsight[] } {
-  const envelope = (typeof value === 'object' && value !== null) ? (value as Record<string, unknown>) : {};
+  const envelope = (typeof value === 'object' && value !== null && !Array.isArray(value))
+    ? (value as Record<string, unknown>)
+    : {};
   const rawTypes = Array.isArray(envelope.types) ? envelope.types : [];
   const types = rawTypes
     .map(type => (typeof type === 'string' ? type.trim() : ''))
     .filter((type): type is Insight['type'] => INSIGHT_TYPES.includes(type as Insight['type']));
 
-  const rawItems = Array.isArray(envelope.items) ? envelope.items : [];
+  const rawItemsSource = (() => {
+    if (Array.isArray(value)) {
+      return value;
+    }
+    if (Array.isArray((envelope as any).items)) {
+      return (envelope as any).items;
+    }
+    if (Array.isArray((envelope as any).insights)) {
+      return (envelope as any).insights;
+    }
+    return [];
+  })();
+
+  const rawItems = Array.isArray(rawItemsSource) ? rawItemsSource : [];
 
   const items: NormalisedIncomingInsight[] = rawItems.map((item) => {
     const record = typeof item === 'object' && item !== null ? (item as Record<string, unknown>) : {};
@@ -623,15 +797,22 @@ async function triggerInsightDetection(
       .eq('id', job.id);
 
     const parsedPayload = (() => {
-      try {
-        if (typeof result.content === 'string' && result.content.trim().length > 0) {
-          return JSON.parse(result.content);
+      if (typeof result.content === 'string' && result.content.trim().length > 0) {
+        const parsed = parseAgentJsonSafely(result.content);
+        if (parsed !== null) {
+          return parsed;
         }
-      } catch (error) {
-        console.warn('Unable to parse insight detection response as JSON', error);
       }
 
-      return result.raw ?? {};
+      const fallbackText = extractTextFromRawResponse(result.raw);
+      if (typeof fallbackText === 'string' && fallbackText.trim().length > 0) {
+        const parsed = parseAgentJsonSafely(fallbackText);
+        if (parsed !== null) {
+          return parsed;
+        }
+      }
+
+      throw new Error('Le contenu retourné par l’agent insight n’est pas un JSON valide.');
     })();
 
     const incoming = normaliseIncomingInsights(parsedPayload.insights ?? parsedPayload);
