@@ -684,11 +684,13 @@ function buildPromptVariables(options: {
 }
 
 export async function POST(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: { key: string } }
 ) {
   try {
     const { key } = params;
+    const body = await request.json().catch(() => ({}));
+    const { detectInsights, askSessionId } = body;
 
     if (!key || !isValidAskKey(key)) {
       return NextResponse.json<ApiResponse>({
@@ -714,6 +716,59 @@ export async function POST(
         success: false,
         error: 'ASK introuvable pour la clé fournie'
       }, { status: 404 });
+    }
+
+    // Si c'est une demande de détection d'insights uniquement
+    if (detectInsights && typeof askSessionId !== 'string') {
+      return NextResponse.json<ApiResponse>({
+        success: false,
+        error: 'ASK session identifier is required for insight detection',
+      }, { status: 400 });
+    }
+
+    if (detectInsights && typeof askSessionId === 'string') {
+      if (askSessionId !== askRow.id) {
+        return NextResponse.json<ApiResponse>({
+          success: false,
+          error: 'ASK session mismatch',
+        }, { status: 400 });
+      }
+
+      const existingInsights = await fetchInsightsForSession(supabase, askSessionId);
+      const insightRows = existingInsights;
+      
+      try {
+        const detectionVariables = buildPromptVariables({
+          ask: askRow,
+          project: null, // On peut ajouter la logique pour récupérer le projet si nécessaire
+          challenge: null, // On peut ajouter la logique pour récupérer le challenge si nécessaire
+          messages: [], // On peut récupérer les messages si nécessaire
+          participants: [],
+          insights: insightRows.map(mapInsightRowToInsight),
+          latestAiResponse: null,
+        });
+
+        const refreshedInsights = await triggerInsightDetection(
+          supabase,
+          {
+            askSessionId: askSessionId,
+            messageId: null,
+            variables: detectionVariables,
+          },
+          insightRows,
+        );
+
+        return NextResponse.json<ApiResponse<{ insights: Insight[] }>>({
+          success: true,
+          data: { insights: refreshedInsights },
+        });
+      } catch (error) {
+        console.error('Insight detection failed', error);
+        return NextResponse.json<ApiResponse>({
+          success: false,
+          error: 'Failed to detect insights'
+        }, { status: 500 });
+      }
     }
 
     const { data: participantRows, error: participantError } = await supabase

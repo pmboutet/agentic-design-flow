@@ -271,6 +271,7 @@ export interface InsightPanelProps {
   insights: Insight[];
   onRequestChallengeLink?: (insightId: string) => void;
   askKey: string;
+  isDetectingInsights?: boolean;
 }
 
 // Admin backoffice data

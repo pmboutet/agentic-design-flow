@@ -98,7 +98,7 @@ function InsightCard({ insight, onLink }: { insight: Insight; onLink?: (insightI
   );
 }
 
-export function InsightPanel({ insights, askKey, onRequestChallengeLink }: InsightPanelProps) {
+export function InsightPanel({ insights, askKey, onRequestChallengeLink, isDetectingInsights = false }: InsightPanelProps) {
   const [activeFilter, setActiveFilter] = useState<InsightGroup["value"]>("all");
 
   const filteredInsights = useMemo(() => {
@@ -160,6 +160,30 @@ export function InsightPanel({ insights, askKey, onRequestChallengeLink }: Insig
               filteredInsights.map((insight) => (
                 <InsightCard key={insight.id} insight={insight} onLink={onRequestChallengeLink} />
               ))
+            )}
+          </AnimatePresence>
+          
+          {/* Indicateur de collecte d'insights en cours */}
+          <AnimatePresence>
+            {isDetectingInsights && (
+              <motion.div
+                key="insight-detection-indicator"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ duration: 0.2 }}
+                className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground bg-primary/5 rounded-lg border border-primary/20"
+                aria-live="polite"
+              >
+                <motion.div
+                  animate={{ rotate: 360 }}
+                  transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                  className="flex h-3 w-3 items-center justify-center"
+                >
+                  <Lightbulb className="h-3 w-3 text-primary" />
+                </motion.div>
+                <span className="italic">Collecte d'insights en cours...</span>
+              </motion.div>
             )}
           </AnimatePresence>
         </div>
