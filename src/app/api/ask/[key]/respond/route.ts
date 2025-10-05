@@ -684,7 +684,7 @@ function buildPromptVariables(options: {
 }
 
 export async function POST(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: { key: string } }
 ) {
   try {
@@ -696,6 +696,16 @@ export async function POST(
         error: 'Invalid ASK key format'
       }, { status: 400 });
     }
+
+    let requestPayload: { mode?: string } = {};
+    try {
+      requestPayload = await request.json();
+    } catch {
+      requestPayload = {};
+    }
+
+    const mode = requestPayload.mode === 'insights-only' ? 'insights-only' : 'full';
+    const insightsOnly = mode === 'insights-only';
 
     const supabase = getAdminSupabaseClient();
 
@@ -871,92 +881,103 @@ export async function POST(
 
     const participantSummaries = participants.map(p => ({ name: p.name, role: p.role ?? null }));
 
-    const promptVariables = buildPromptVariables({
-      ask: askRow,
-      project: projectData,
-      challenge: challengeData,
-      messages,
-      participants: participantSummaries,
-      insights: existingInsights,
-    });
-
-    const aiResult = await executeAgent({
-      supabase,
-      agentSlug: CHAT_AGENT_SLUG,
-      askSessionId: askRow.id,
-      interactionType: CHAT_INTERACTION_TYPE,
-      variables: promptVariables,
-    });
-
     let message: Message | undefined;
     let latestAiResponse = '';
+    let detectionMessageId: string | null = null;
 
-    if (typeof aiResult.content === 'string' && aiResult.content.trim().length > 0) {
-      latestAiResponse = aiResult.content.trim();
-      const aiMetadata = { senderName: 'Agent' } satisfies Record<string, unknown>;
-
-      const { data: insertedRows, error: insertError } = await supabase
-        .from('messages')
-        .insert({
-          ask_session_id: askRow.id,
-          content: latestAiResponse,
-          sender_type: 'ai',
-          message_type: 'text',
-          metadata: aiMetadata,
-        })
-        .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at')
-        .limit(1);
-
-      if (insertError) {
-        throw insertError;
-      }
-
-      const inserted = insertedRows?.[0] as MessageRow | undefined;
-
-      if (!inserted) {
-        throw new Error('Unable to store AI response');
-      }
-
-      message = {
-        id: inserted.id,
-        askKey: askRow.ask_key,
-        askSessionId: inserted.ask_session_id,
-        content: inserted.content,
-        type: (inserted.message_type as Message['type']) ?? 'text',
-        senderType: 'ai',
-        senderId: inserted.user_id ?? null,
-        senderName: 'Agent',
-        timestamp: inserted.created_at ?? new Date().toISOString(),
-        metadata: normaliseMessageMetadata(inserted.metadata),
-      };
-
-      messages.push(message);
-    }
-
-    let refreshedInsights = existingInsights;
-
-    try {
-      const detectionVariables = buildPromptVariables({
+    if (!insightsOnly) {
+      const promptVariables = buildPromptVariables({
         ask: askRow,
         project: projectData,
         challenge: challengeData,
         messages,
         participants: participantSummaries,
         insights: existingInsights,
-        latestAiResponse,
       });
 
+      const aiResult = await executeAgent({
+        supabase,
+        agentSlug: CHAT_AGENT_SLUG,
+        askSessionId: askRow.id,
+        interactionType: CHAT_INTERACTION_TYPE,
+        variables: promptVariables,
+      });
+
+      if (typeof aiResult.content === 'string' && aiResult.content.trim().length > 0) {
+        latestAiResponse = aiResult.content.trim();
+        const aiMetadata = { senderName: 'Agent' } satisfies Record<string, unknown>;
+
+        const { data: insertedRows, error: insertError } = await supabase
+          .from('messages')
+          .insert({
+            ask_session_id: askRow.id,
+            content: latestAiResponse,
+            sender_type: 'ai',
+            message_type: 'text',
+            metadata: aiMetadata,
+          })
+          .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at')
+          .limit(1);
+
+        if (insertError) {
+          throw insertError;
+        }
+
+        const inserted = insertedRows?.[0] as MessageRow | undefined;
+
+        if (!inserted) {
+          throw new Error('Unable to store AI response');
+        }
+
+        message = {
+          id: inserted.id,
+          askKey: askRow.ask_key,
+          askSessionId: inserted.ask_session_id,
+          content: inserted.content,
+          type: (inserted.message_type as Message['type']) ?? 'text',
+          senderType: 'ai',
+          senderId: inserted.user_id ?? null,
+          senderName: 'Agent',
+          timestamp: inserted.created_at ?? new Date().toISOString(),
+          metadata: normaliseMessageMetadata(inserted.metadata),
+        };
+
+        messages.push(message);
+        detectionMessageId = message.id;
+      }
+    } else {
+      const latestAiMessage = [...messages].reverse().find(msg => msg.senderType === 'ai');
+      if (latestAiMessage) {
+        latestAiResponse = latestAiMessage.content;
+        detectionMessageId = latestAiMessage.id;
+      }
+    }
+
+    const detectionVariables = buildPromptVariables({
+      ask: askRow,
+      project: projectData,
+      challenge: challengeData,
+      messages,
+      participants: participantSummaries,
+      insights: existingInsights,
+      latestAiResponse,
+    });
+
+    let refreshedInsights: Insight[] = existingInsights;
+
+    try {
       refreshedInsights = await triggerInsightDetection(
         supabase,
         {
           askSessionId: askRow.id,
-          messageId: message?.id ?? null,
+          messageId: detectionMessageId,
           variables: detectionVariables,
         },
         insightRows,
       );
     } catch (error) {
       console.error('Insight detection failed', error);
+      throw error;
     }
 
     return NextResponse.json<ApiResponse<{ message?: Message; insights: Insight[] }>>({
