@@ -282,13 +282,27 @@ function parseIncomingAuthor(value: unknown): NormalisedIncomingAuthor | null {
 }
 
 function normaliseIncomingInsights(value: unknown): { types: Insight['type'][]; items: NormalisedIncomingInsight[] } {
-  const envelope = (typeof value === 'object' && value !== null) ? (value as Record<string, unknown>) : {};
+  const envelope = (typeof value === 'object' && value !== null && !Array.isArray(value))
+    ? (value as Record<string, unknown>)
+    : {};
+
   const rawTypes = Array.isArray(envelope.types) ? envelope.types : [];
   const types = rawTypes
     .map(type => (typeof type === 'string' ? type.trim() : ''))
     .filter((type): type is Insight['type'] => INSIGHT_TYPES.includes(type as Insight['type']));
 
-  const rawItems = Array.isArray(envelope.items) ? envelope.items : [];
+  const rawItems = (() => {
+    if (Array.isArray(value)) {
+      return value;
+    }
+    if (Array.isArray(envelope.items)) {
+      return envelope.items;
+    }
+    if (Array.isArray(envelope.insights)) {
+      return envelope.insights;
+    }
+    return [];
+  })();
 
   const items: NormalisedIncomingInsight[] = rawItems.map((item) => {
     const record = typeof item === 'object' && item !== null ? (item as Record<string, unknown>) : {};
@@ -365,6 +379,19 @@ function normaliseIncomingInsights(value: unknown): { types: Insight['type'][]; 
     types: types.length > 0 ? types : INSIGHT_TYPES,
     items,
   };
+}
+
+function sanitiseJsonString(raw: string): string {
+  let trimmed = raw.trim();
+
+  if (trimmed.startsWith('```')) {
+    trimmed = trimmed.replace(/^```(?:json)?\s*/i, '');
+    if (trimmed.endsWith('```')) {
+      trimmed = trimmed.slice(0, -3);
+    }
+  }
+
+  return trimmed.trim();
 }
 
 async function persistInsights(
@@ -625,7 +652,10 @@ async function triggerInsightDetection(
     const parsedPayload = (() => {
       try {
         if (typeof result.content === 'string' && result.content.trim().length > 0) {
-          return JSON.parse(result.content);
+          const candidate = sanitiseJsonString(result.content);
+          if (candidate.length > 0) {
+            return JSON.parse(candidate);
+          }
         }
       } catch (error) {
         console.warn('Unable to parse insight detection response as JSON', error);
