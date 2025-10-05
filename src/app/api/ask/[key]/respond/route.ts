@@ -815,7 +815,11 @@ async function triggerInsightDetection(
       throw new Error('Le contenu retourné par l’agent insight n’est pas un JSON valide.');
     })();
 
-    const incoming = normaliseIncomingInsights(parsedPayload.insights ?? parsedPayload);
+    const insightsSource = (typeof parsedPayload === 'object' && parsedPayload !== null && 'insights' in parsedPayload)
+      ? (parsedPayload as Record<string, unknown>).insights
+      : parsedPayload;
+
+    const incoming = normaliseIncomingInsights(insightsSource);
     await persistInsights(supabase, options.askSessionId, incoming.items, existingInsights);
 
     await completeInsightJob(supabase, job.id, { modelConfigId: result.modelConfig.id });
