@@ -852,6 +852,18 @@ function buildPromptVariables(options: {
     .map(participant => participant.role ? `${participant.name} (${participant.role})` : participant.name)
     .join(', ');
 
+  const existingInsightsSnapshot = JSON.stringify(
+    options.insights.map(insight => ({
+      id: insight.id,
+      type: insight.type,
+      content: insight.content,
+      summary: insight.summary ?? null,
+      category: insight.category ?? null,
+      priority: insight.priority ?? null,
+      status: insight.status ?? null,
+    })),
+  );
+
   return {
     ask_key: options.ask.ask_key,
     ask_question: options.ask.question,
@@ -865,6 +877,7 @@ function buildPromptVariables(options: {
     participant_name: lastUserMessage?.senderName ?? lastUserMessage?.metadata?.senderName ?? '',
     participants: participantsSummary,
     insights_context: summariseInsights(options.insights),
+    existing_insights_json: existingInsightsSnapshot,
   } satisfies Record<string, string | null | undefined>;
 }
 
