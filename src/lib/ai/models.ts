@@ -16,7 +16,7 @@ interface AiModelConfigRow {
   updated_at?: string | null;
 }
 
-function mapModelRow(row: AiModelConfigRow): AiModelConfig {
+export function mapModelRow(row: AiModelConfigRow): AiModelConfig {
   return {
     id: row.id,
     code: row.code,

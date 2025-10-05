@@ -6,9 +6,10 @@ import { normaliseMessageMetadata } from '@/lib/messages';
 import { callModelProviderStream } from '@/lib/ai/providers';
 import { createAgentLog, markAgentLogProcessing, completeAgentLog, failAgentLog } from '@/lib/ai/logs';
 import { DEFAULT_MAX_OUTPUT_TOKENS } from '@/lib/ai/constants';
-import type { AiModelConfig } from '@/types';
+import { getChatAgentConfig, DEFAULT_CHAT_AGENT_SLUG, type PromptVariables, type AgentConfigResult } from '@/lib/ai/agent-config';
+import type { AiAgentLog } from '@/types';
 
-const CHAT_AGENT_SLUG = 'ask-conversation-response';
+const CHAT_AGENT_SLUG = DEFAULT_CHAT_AGENT_SLUG;
 
 interface AskSessionRow {
   id: string;
@@ -310,22 +311,6 @@ export async function POST(
       challengeData = data ?? null;
     }
 
-    // Use direct model configuration
-    const directModelConfig: AiModelConfig = {
-      id: 'temp-anthropic',
-      code: 'anthropic-claude-3-5-sonnet',
-      name: 'Claude 3.5 Sonnet',
-      provider: 'anthropic',
-      model: 'claude-3-5-sonnet-20241022',
-      apiKeyEnvVar: 'ANTHROPIC_API_KEY',
-      baseUrl: 'https://api.anthropic.com/v1',
-      additionalHeaders: {},
-      isDefault: true,
-      isFallback: false,
-    };
-
-    console.log('Using direct model config:', directModelConfig.provider);
-
     const participantSummaries = participants.map(p => ({ name: p.name, role: p.role ?? null }));
 
     const promptVariables = buildPromptVariables({
@@ -336,62 +321,126 @@ export async function POST(
       participants: participantSummaries,
     });
 
-    // Default prompts for conversation response
-    const systemPrompt = `Tu es un assistant IA spécialisé dans la facilitation de conversations et la génération d'insights à partir d'échanges de groupe.
+    const conversationMessagesPayload = messages.map(message => ({
+      id: message.id,
+      senderType: message.senderType,
+      senderName: message.senderName,
+      content: message.content,
+      timestamp: message.timestamp,
+    }));
 
-Ton rôle est de :
-1. Analyser les messages des participants
-2. Identifier les points clés et les idées importantes
-3. Poser des questions pertinentes pour approfondir la discussion
-4. Synthétiser les échanges pour faire émerger des insights
-5. Maintenir un ton professionnel mais accessible
-
-Contexte de la session :
-- Question ASK : ${promptVariables.ask_question || 'Non spécifiée'}
-- Description : ${promptVariables.ask_description || 'Aucune'}
-- Participants : ${promptVariables.participants || 'Non spécifiés'}
-
-Historique des messages :
-${promptVariables.message_history || 'Aucun historique'}
-
-Dernier message utilisateur : ${promptVariables.latest_user_message || 'Aucun message'}
-
-Réponds de manière concise et pertinente pour faire avancer la discussion.`;
-
-    const userPrompt = `Basé sur l'historique de la conversation et le dernier message de l'utilisateur, fournis une réponse qui :
-
-1. Reconnaît le contenu du dernier message
-2. Fait le lien avec les échanges précédents si pertinent
-3. Pose une question ou fait une observation qui fait avancer la discussion
-4. Reste concis (2-3 phrases maximum)
-
-Dernier message : ${promptVariables.latest_user_message || 'Aucun message'}
-
-Réponds maintenant :`;
-
-    const prompts = {
-      system: systemPrompt,
-      user: userPrompt,
+    const agentVariables: PromptVariables = {
+      ask_key: askRow.ask_key,
+      ask_question: promptVariables.ask_question || askRow.question,
+      ask_description: promptVariables.ask_description || askRow.description || '',
+      participant_name: promptVariables.participant_name || '',
+      project_name: projectData?.name || '',
+      challenge_name: challengeData?.name || '',
+      previous_messages: promptVariables.message_history || '',
+      message_history: promptVariables.message_history || '',
+      latest_user_message: promptVariables.latest_user_message || '',
+      participants: promptVariables.participants || '',
+      participants_count: String(participantSummaries.length),
+      delivery_mode: 'digital',
+      audience_scope: 'individual',
+      response_mode: 'simultaneous',
+      messages_json: JSON.stringify(conversationMessagesPayload),
+      current_timestamp: new Date().toISOString(),
     };
 
-    // Create a log entry for tracking
-    const log = await createAgentLog(supabase, {
-      agentId: '00000000-0000-0000-0000-000000000000', // UUID valide temporaire
-      askSessionId: askRow.id,
-      messageId: null,
-      interactionType: 'ask.chat.response',
-      requestPayload: {
-        agentSlug: CHAT_AGENT_SLUG,
-        modelConfigId: directModelConfig.id,
-        systemPrompt: prompts.system,
-        userPrompt: prompts.user,
-        variables: promptVariables,
+    let agentConfig: AgentConfigResult;
+    try {
+      console.log('🔍 Loading chat agent configuration...');
+      console.log('Agent slug:', DEFAULT_CHAT_AGENT_SLUG);
+      console.log('Variables:', agentVariables);
+      
+      agentConfig = await getChatAgentConfig(supabase, agentVariables);
+      
+      console.log('✅ Chat agent config loaded successfully');
+      console.log('System prompt length:', agentConfig.systemPrompt?.length || 0);
+      console.log('User prompt length:', agentConfig.userPrompt?.length || 0);
+      console.log('Model config:', agentConfig.modelConfig.provider);
+    } catch (error) {
+      console.error('❌ Error getting chat agent config:', error);
+      console.error('Error details:', {
+        message: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        name: error instanceof Error ? error.name : 'Unknown'
+      });
+      
+      return new Response(JSON.stringify({
+        type: 'error',
+        error: `Configuration de l'agent introuvable: ${error instanceof Error ? error.message : String(error)}. Vérifiez la table ai_agents.`,
+      }), {
+        status: 500,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+    }
+
+    const resolvedUserPrompt = agentConfig.userPrompt;
+
+    if (!resolvedUserPrompt || resolvedUserPrompt.trim().length === 0) {
+      return new Response(JSON.stringify({
+        type: 'error',
+        error: 'Le prompt utilisateur de l’agent est vide. Vérifiez la configuration AI.',
+      }), {
+        status: 500,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+    }
+
+    const prompts = {
+      system: agentConfig.systemPrompt,
+      user: resolvedUserPrompt,
+    };
+
+    console.log('Using agent config:', agentConfig.modelConfig.provider);
+
+    const agentContext = {
+      ask: {
+        id: askRow.id,
+        key: askRow.ask_key,
+        question: askRow.question,
+        description: askRow.description ?? null,
+        projectId: askRow.project_id ?? null,
+        challengeId: askRow.challenge_id ?? null,
       },
-    });
+      participants: participantSummaries,
+      latestUserMessage: agentVariables.latest_user_message,
+      messages: conversationMessagesPayload,
+    } satisfies Record<string, unknown>;
+
+    const agentRequestPayload = {
+      agentSlug: CHAT_AGENT_SLUG,
+      modelConfigId: agentConfig.modelConfig.id,
+      systemPrompt: prompts.system,
+      userPrompt: prompts.user,
+      variables: agentVariables,
+      context: agentContext,
+    } satisfies Record<string, unknown>;
+
+    // Create a log entry for tracking
+    let log: AiAgentLog | null = null;
+    try {
+      log = await createAgentLog(supabase, {
+        agentId: agentConfig.agent?.id || null,
+        askSessionId: askRow.id,
+        messageId: null,
+        interactionType: 'ask.chat.response',
+        requestPayload: agentRequestPayload,
+      });
+    } catch (error) {
+      console.error('Unable to create agent log for streaming response:', error);
+    }
 
     console.log('System prompt:', prompts.system);
     console.log('User prompt:', prompts.user);
-    console.log('Model config:', directModelConfig);
+    console.log('Agent variables:', agentVariables);
+    console.log('Model config:', agentConfig.modelConfig);
 
     // Create streaming response
     const encoder = new TextEncoder();
@@ -399,20 +448,28 @@ Réponds maintenant :`;
       async start(controller) {
         try {
           let fullContent = '';
+          const startTime = Date.now();
           
-          console.log('Starting streaming with model:', directModelConfig.provider);
+          console.log('Starting streaming with model:', agentConfig.modelConfig.provider);
           
           // Mark log as processing
-          await markAgentLogProcessing(supabase, log.id, { modelConfigId: directModelConfig.id });
-          
-          for await (const chunk of callModelProviderStream(
-            directModelConfig,
-            {
-              systemPrompt: prompts.system,
-              userPrompt: prompts.user,
-              maxOutputTokens: DEFAULT_MAX_OUTPUT_TOKENS,
+          if (log) {
+            try {
+              await markAgentLogProcessing(supabase, log.id, { modelConfigId: agentConfig.modelConfig.id });
+            } catch (error) {
+              console.error('Unable to mark agent log processing:', error);
             }
-          )) {
+          }
+          
+          try {
+            for await (const chunk of callModelProviderStream(
+              agentConfig.modelConfig,
+              {
+                systemPrompt: prompts.system,
+                userPrompt: prompts.user,
+                maxOutputTokens: DEFAULT_MAX_OUTPUT_TOKENS,
+              }
+            )) {
             console.log('Received chunk:', chunk.content, 'done:', chunk.done);
             if (chunk.content) {
               fullContent += chunk.content;
@@ -475,19 +532,51 @@ Réponds maintenant :`;
               controller.enqueue(encoder.encode(`data: {"type": "done"}\n\n`));
               
               // Complete the log
-              await completeAgentLog(supabase, log.id, {
-                responsePayload: { content: fullContent, streaming: true },
-                latencyMs: Date.now() - Date.now(),
-              });
+              if (log) {
+                try {
+                  await completeAgentLog(supabase, log.id, {
+                    responsePayload: { content: fullContent, streaming: true },
+                    latencyMs: Date.now() - startTime,
+                  });
+                } catch (error) {
+                  console.error('Unable to complete agent log:', error);
+                }
+              }
               
               controller.close();
             }
+          }
+          } catch (streamError) {
+            console.error('Error in model provider stream:', streamError);
+            
+            // Fail the log
+            if (log) {
+              try {
+                await failAgentLog(supabase, log.id, parseErrorMessage(streamError));
+              } catch (failError) {
+                console.error('Unable to mark agent log as failed:', failError);
+              }
+            }
+            
+            const errorData = JSON.stringify({
+              type: 'error',
+              error: parseErrorMessage(streamError)
+            });
+            controller.enqueue(encoder.encode(`data: ${errorData}\n\n`));
+            controller.close();
+            return;
           }
         } catch (error) {
           console.error('Streaming error:', error);
           
           // Fail the log
-          await failAgentLog(supabase, log.id, parseErrorMessage(error));
+          if (log) {
+            try {
+              await failAgentLog(supabase, log.id, parseErrorMessage(error));
+            } catch (failError) {
+              console.error('Unable to mark agent log as failed:', failError);
+            }
+          }
           
           const errorData = JSON.stringify({
             type: 'error',

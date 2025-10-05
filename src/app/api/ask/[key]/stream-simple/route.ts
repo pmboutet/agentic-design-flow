@@ -3,6 +3,7 @@ import { callModelProviderStream } from '@/lib/ai/providers';
 import { DEFAULT_MAX_OUTPUT_TOKENS } from '@/lib/ai/constants';
 import { getAdminSupabaseClient } from '@/lib/supabaseAdmin';
 import { getAskSessionByKey } from '@/lib/asks';
+import { getAgentConfigForAsk } from '@/lib/ai/agent-config';
 import type { AiModelConfig } from '@/types';
 
 export async function POST(
@@ -17,43 +18,19 @@ export async function POST(
     console.log('Simple streaming test for key:', key);
     console.log('User message:', userMessage);
 
-    // Configuration directe du modèle Anthropic
-    const modelConfig: AiModelConfig = {
-      id: crypto.randomUUID(), // Générer un UUID valide
-      code: 'anthropic-claude-3-5-sonnet',
-      name: 'Claude 3.5 Sonnet',
-      provider: 'anthropic',
-      model: 'claude-3-5-sonnet-20241022',
-      apiKeyEnvVar: 'ANTHROPIC_API_KEY',
-      baseUrl: 'https://api.anthropic.com/v1',
-      additionalHeaders: {},
-      isDefault: true,
-      isFallback: false,
-    };
-
-    // Utiliser le message de l'utilisateur avec un prompt plus adapté
-    const systemPrompt = `Tu es un facilitateur de conversation expérimenté. Ton rôle est d'aider les participants à explorer leurs défis, partager leurs expériences et générer des insights collectifs. 
-
-Tu dois :
-- Écouter activement et poser des questions pertinentes
-- Aider à clarifier les problèmes et défis
-- Encourager le partage d'expériences
-- Faire émerger des solutions et insights
-- Maintenir un ton professionnel mais accessible
-
-Réponds de manière concise et engageante.`;
-    const userPrompt = userMessage;
-
-    console.log('Starting streaming with model:', modelConfig.provider);
-    console.log('System prompt:', systemPrompt);
-    console.log('User prompt:', userPrompt);
-
-    // Récupérer la session ASK pour persister les messages
+    // Récupérer la session ASK pour obtenir la configuration de l'agent
     const supabase = getAdminSupabaseClient();
-    const { row: askRow, error: askError } = await getAskSessionByKey<{ id: string; ask_key: string }>(
+    const { row: askRow, error: askError } = await getAskSessionByKey<{ 
+      id: string; 
+      ask_key: string; 
+      question: string; 
+      description?: string | null;
+      project_id?: string | null;
+      challenge_id?: string | null;
+    }>(
       supabase,
       key,
-      'id, ask_key'
+      'id, ask_key, question, description, project_id, challenge_id'
     );
 
     if (askError) {
@@ -76,6 +53,30 @@ Réponds de manière concise et engageante.`;
         }
       );
     }
+
+    // Récupérer la configuration de l'agent avec les variables de contexte
+    const agentConfig = await getAgentConfigForAsk(
+      supabase,
+      askRow.id,
+      {
+        ask_question: askRow.question,
+        ask_description: askRow.description || '',
+        participant_name: 'Participant', // TODO: Get actual participant name
+        project_name: '', // TODO: Get project name if available
+        challenge_name: '', // TODO: Get challenge name if available
+        delivery_mode: 'digital', // TODO: Get from session
+        audience_scope: 'individual', // TODO: Get from session
+        response_mode: 'simultaneous', // TODO: Get from session
+      }
+    );
+
+    const systemPrompt = agentConfig.systemPrompt;
+    const modelConfig = agentConfig.modelConfig;
+    const userPrompt = userMessage;
+
+    console.log('Starting streaming with model:', modelConfig.provider);
+    console.log('System prompt:', systemPrompt);
+    console.log('User prompt:', userPrompt);
 
     // Créer un log simple pour le streaming
     const logId = crypto.randomUUID();
