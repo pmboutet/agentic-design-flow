@@ -270,6 +270,10 @@ export default function HomePage() {
     setSessionData(prev => ({
       ...prev,
       askKey: key,
+      ask: null,
+      messages: [],
+      insights: [],
+      challenges: [],
       isLoading: true,
       error: null
     }));

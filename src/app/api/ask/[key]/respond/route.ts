@@ -90,6 +90,9 @@ type IncomingInsight = {
   kpis?: Array<Record<string, unknown>>;
   sourceMessageId?: string | null;
   authors?: unknown;
+  action?: string;
+  mergedIntoId?: string | null;
+  duplicateOfId?: string | null;
 };
 
 type NormalisedIncomingAuthor = {
@@ -355,6 +358,8 @@ function normaliseIncomingInsights(value: unknown): { types: Insight['type'][]; 
 
     const primaryAuthor = authors[0] ?? null;
 
+    const actionValue = getString('action');
+
     return {
       id: getString('id'),
       askSessionId: getString('askSessionId') ?? getString('ask_session_id'),
@@ -372,6 +377,9 @@ function normaliseIncomingInsights(value: unknown): { types: Insight['type'][]; 
       sourceMessageId: getString('sourceMessageId') ?? getString('source_message_id') ?? null,
       authors,
       authorsProvided,
+      action: actionValue ? actionValue.toLowerCase() : undefined,
+      mergedIntoId: getString('mergedIntoId') ?? getString('merged_into_id') ?? getString('mergeTargetId') ?? null,
+      duplicateOfId: getString('duplicateOfId') ?? getString('duplicate_of_id') ?? null,
     } satisfies NormalisedIncomingInsight;
   });
 
@@ -414,12 +422,116 @@ async function persistInsights(
     return acc;
   }, {});
 
+  const normaliseKey = (value?: string | null): string => {
+    if (typeof value !== 'string') {
+      return '';
+    }
+    return value.replace(/\s+/g, ' ').trim().toLowerCase();
+  };
+
+  const contentIndex = new Map<string, InsightRow>();
+  const summaryIndex = new Map<string, InsightRow>();
+  const indexRow = (row: InsightRow | null | undefined) => {
+    if (!row) return;
+    const contentKey = normaliseKey(row.content ?? null);
+    if (contentKey) contentIndex.set(contentKey, row);
+    const summaryKey = normaliseKey(row.summary ?? null);
+    if (summaryKey) summaryIndex.set(summaryKey, row);
+  };
+
+  const removeFromIndex = (row: InsightRow | null | undefined) => {
+    if (!row) return;
+    const contentKey = normaliseKey(row.content ?? null);
+    if (contentKey) contentIndex.delete(contentKey);
+    const summaryKey = normaliseKey(row.summary ?? null);
+    if (summaryKey) summaryIndex.delete(summaryKey);
+  };
+
+  Object.values(existingMap).forEach(indexRow);
+
+  const processedKeys = new Set<string>();
+
   for (const incoming of incomingInsights) {
     const nowIso = new Date().toISOString();
-    const existing = incoming.id ? existingMap[incoming.id] : undefined;
+    const dedupeKey = [normaliseKey(incoming.content), normaliseKey(incoming.summary), incoming.type ?? ''].join('|');
+    if (dedupeKey.trim().length > 0) {
+      if (processedKeys.has(dedupeKey)) {
+        continue;
+      }
+      processedKeys.add(dedupeKey);
+    }
+
+    let existing = incoming.id ? existingMap[incoming.id] : undefined;
+
+    if (!existing && incoming.duplicateOfId && existingMap[incoming.duplicateOfId]) {
+      existing = existingMap[incoming.duplicateOfId];
+    }
+
+    if (!existing) {
+      const contentMatch = contentIndex.get(normaliseKey(incoming.content));
+      const summaryMatch = summaryIndex.get(normaliseKey(incoming.summary));
+      existing = contentMatch ?? summaryMatch ?? undefined;
+    }
+
     const desiredId = incoming.id ?? randomUUID();
     const normalisedKpis = normaliseIncomingKpis(incoming.kpis, []);
     const providedType = normaliseInsightTypeName(incoming.type);
+    const action = incoming.action ?? '';
+    const targetRow = existing ?? null;
+
+    if (action === 'delete' || action === 'remove' || action === 'obsolete') {
+      if (targetRow) {
+        await supabase.from('kpi_estimations').delete().eq('insight_id', targetRow.id);
+        await supabase.from('insight_authors').delete().eq('insight_id', targetRow.id);
+        await supabase.from('insights').delete().eq('id', targetRow.id);
+        delete existingMap[targetRow.id];
+        removeFromIndex(targetRow);
+      }
+      continue;
+    }
+
+    if (action === 'merge' && targetRow) {
+      const mergeSummaryNote = incoming.summary ?? targetRow.summary ?? '';
+      const mergedNote = incoming.mergedIntoId
+        ? `${mergeSummaryNote}${mergeSummaryNote ? '\n\n' : ''}[Fusion] Fusionné avec l'insight ${incoming.mergedIntoId}`
+        : mergeSummaryNote;
+
+      const updatePayload = {
+        ask_session_id: targetRow.ask_session_id,
+        content: incoming.content ?? targetRow.content ?? '',
+        summary: mergedNote,
+        insight_type_id: targetRow.insight_type_id,
+        category: incoming.category ?? targetRow.category ?? null,
+        status: 'archived' as Insight['status'],
+        priority: incoming.priority ?? targetRow.priority ?? null,
+        challenge_id: incoming.challengeId ?? targetRow.challenge_id ?? null,
+        related_challenge_ids: incoming.relatedChallengeIds ?? targetRow.related_challenge_ids ?? [],
+        source_message_id: incoming.sourceMessageId ?? targetRow.source_message_id ?? null,
+        updated_at: nowIso,
+      } satisfies Record<string, unknown>;
+
+      const { error: mergeUpdateErr } = await supabase
+        .from('insights')
+        .update(updatePayload)
+        .eq('id', targetRow.id);
+
+      if (mergeUpdateErr) {
+        throw mergeUpdateErr;
+      }
+
+      await supabase.from('kpi_estimations').delete().eq('insight_id', targetRow.id);
+      if (incoming.authorsProvided) {
+        await replaceInsightAuthors(supabase, targetRow.id, incoming.authors);
+      }
+
+      const mergedRow = await fetchInsightRowById(supabase, targetRow.id);
+      if (mergedRow) {
+        existingMap[targetRow.id] = mergedRow;
+        removeFromIndex(targetRow);
+        indexRow(mergedRow);
+      }
+      continue;
+    }
 
     if (existing) {
       const existingInsight = mapInsightRowToInsight(existing);
@@ -468,6 +580,8 @@ async function persistInsights(
       const updatedRow = await fetchInsightRowById(supabase, existing.id);
       if (updatedRow) {
         existingMap[existing.id] = updatedRow;
+        removeFromIndex(existing);
+        indexRow(updatedRow);
       }
     } else {
       const desiredTypeName = providedType ?? 'idea';
@@ -515,6 +629,7 @@ async function persistInsights(
       const createdRow = await fetchInsightRowById(supabase, desiredId);
       if (createdRow) {
         existingMap[createdRow.id] = createdRow;
+        indexRow(createdRow);
       }
     }
   }
