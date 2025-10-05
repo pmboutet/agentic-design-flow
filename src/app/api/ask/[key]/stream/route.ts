@@ -350,12 +350,27 @@ export async function POST(
 
     let agentConfig: AgentConfigResult;
     try {
+      console.log('🔍 Loading chat agent configuration...');
+      console.log('Agent slug:', DEFAULT_CHAT_AGENT_SLUG);
+      console.log('Variables:', agentVariables);
+      
       agentConfig = await getChatAgentConfig(supabase, agentVariables);
+      
+      console.log('✅ Chat agent config loaded successfully');
+      console.log('System prompt length:', agentConfig.systemPrompt?.length || 0);
+      console.log('User prompt length:', agentConfig.userPrompt?.length || 0);
+      console.log('Model config:', agentConfig.modelConfig.provider);
     } catch (error) {
-      console.error('Error getting chat agent config:', error);
+      console.error('❌ Error getting chat agent config:', error);
+      console.error('Error details:', {
+        message: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        name: error instanceof Error ? error.name : 'Unknown'
+      });
+      
       return new Response(JSON.stringify({
         type: 'error',
-        error: 'Configuration de l’agent introuvable. Vérifiez la table ai_agents.',
+        error: `Configuration de l'agent introuvable: ${error instanceof Error ? error.message : String(error)}. Vérifiez la table ai_agents.`,
       }), {
         status: 500,
         headers: {

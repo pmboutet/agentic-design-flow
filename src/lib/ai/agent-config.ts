@@ -38,15 +38,15 @@ interface AgentQueryRow {
   metadata?: Record<string, unknown> | null;
   model_config_id?: string | null;
   fallback_model_config_id?: string | null;
-  model_configs?: ModelRow | null;
-  fallback_model_configs?: ModelRow | null;
+  model_config?: ModelRow | null;
+  fallback_model_config?: ModelRow | null;
 }
 
 export const DEFAULT_CHAT_AGENT_SLUG = 'ask-conversation-response';
 
 function mapAgentRow(row: AgentQueryRow): AiAgentRecord {
-  const modelConfig = row.model_configs ? mapModelRow(row.model_configs) : null;
-  const fallbackModelConfig = row.fallback_model_configs ? mapModelRow(row.fallback_model_configs) : null;
+  const modelConfig = row.model_config ? mapModelRow(row.model_config) : null;
+  const fallbackModelConfig = row.fallback_model_config ? mapModelRow(row.fallback_model_config) : null;
 
   return {
     id: row.id,
@@ -70,8 +70,8 @@ async function fetchAgentByIdOrSlug(
 ): Promise<AiAgentRecord | null> {
   let query = supabase.from('ai_agents').select(`
     *,
-    model_configs!ai_agents_model_config_id_fkey(*),
-    fallback_model_configs!ai_agents_fallback_model_config_id_fkey(*)
+    model_config:ai_model_configs!model_config_id(*),
+    fallback_model_config:ai_model_configs!fallback_model_config_id(*)
   `);
 
   if (options.id) {
