@@ -834,6 +834,7 @@ export default function HomePage() {
             </motion.div>
           )}
         </div>
+        </div>
       </motion.header>
 
       {/* Main Content with Beautiful Layout */}
