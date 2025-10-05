@@ -675,6 +675,7 @@ export default function HomePage() {
         </motion.div>
       </div>
     );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-100 via-white to-indigo-200">
