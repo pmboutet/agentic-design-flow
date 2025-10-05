@@ -691,6 +691,7 @@ export async function POST(
     const { key } = params;
     const body = await request.json().catch(() => ({}));
     const { detectInsights, askSessionId } = body;
+    const detectInsightsOnly = detectInsights === true;
 
     if (!key || !isValidAskKey(key)) {
       return NextResponse.json<ApiResponse>({
@@ -718,56 +719,19 @@ export async function POST(
       }, { status: 404 });
     }
 
-    // Si c'est une demande de détection d'insights uniquement
-    if (detectInsights && typeof askSessionId !== 'string') {
-      return NextResponse.json<ApiResponse>({
-        success: false,
-        error: 'ASK session identifier is required for insight detection',
-      }, { status: 400 });
-    }
+    if (detectInsightsOnly) {
+      if (typeof askSessionId !== 'string') {
+        return NextResponse.json<ApiResponse>({
+          success: false,
+          error: 'ASK session identifier is required for insight detection',
+        }, { status: 400 });
+      }
 
-    if (detectInsights && typeof askSessionId === 'string') {
       if (askSessionId !== askRow.id) {
         return NextResponse.json<ApiResponse>({
           success: false,
           error: 'ASK session mismatch',
         }, { status: 400 });
-      }
-
-      const existingInsights = await fetchInsightsForSession(supabase, askSessionId);
-      const insightRows = existingInsights;
-      
-      try {
-        const detectionVariables = buildPromptVariables({
-          ask: askRow,
-          project: null, // On peut ajouter la logique pour récupérer le projet si nécessaire
-          challenge: null, // On peut ajouter la logique pour récupérer le challenge si nécessaire
-          messages: [], // On peut récupérer les messages si nécessaire
-          participants: [],
-          insights: insightRows.map(mapInsightRowToInsight),
-          latestAiResponse: null,
-        });
-
-        const refreshedInsights = await triggerInsightDetection(
-          supabase,
-          {
-            askSessionId: askSessionId,
-            messageId: null,
-            variables: detectionVariables,
-          },
-          insightRows,
-        );
-
-        return NextResponse.json<ApiResponse<{ insights: Insight[] }>>({
-          success: true,
-          data: { insights: refreshedInsights },
-        });
-      } catch (error) {
-        console.error('Insight detection failed', error);
-        return NextResponse.json<ApiResponse>({
-          success: false,
-          error: 'Failed to detect insights'
-        }, { status: 500 });
       }
     }
 
@@ -934,6 +898,43 @@ export async function POST(
       participants: participantSummaries,
       insights: existingInsights,
     });
+
+    if (detectInsightsOnly) {
+      try {
+        const lastAiMessage = [...messages].reverse().find(message => message.senderType === 'ai');
+
+        const detectionVariables = buildPromptVariables({
+          ask: askRow,
+          project: projectData,
+          challenge: challengeData,
+          messages,
+          participants: participantSummaries,
+          insights: existingInsights,
+          latestAiResponse: lastAiMessage?.content ?? null,
+        });
+
+        const refreshedInsights = await triggerInsightDetection(
+          supabase,
+          {
+            askSessionId: askRow.id,
+            messageId: lastAiMessage?.id ?? null,
+            variables: detectionVariables,
+          },
+          insightRows,
+        );
+
+        return NextResponse.json<ApiResponse<{ insights: Insight[] }>>({
+          success: true,
+          data: { insights: refreshedInsights },
+        });
+      } catch (error) {
+        console.error('Insight detection failed', error);
+        return NextResponse.json<ApiResponse>({
+          success: false,
+          error: 'Failed to detect insights'
+        }, { status: 500 });
+      }
+    }
 
     const aiResult = await executeAgent({
       supabase,
