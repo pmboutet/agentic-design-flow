@@ -33,7 +33,6 @@ export default function HomePage() {
     isLoading: false,
     error: null
   });
-  const responseTimerRef = useRef<NodeJS.Timeout | null>(null);
   const [awaitingAiResponse, setAwaitingAiResponse] = useState(false);
   const participantFromUrl = searchParams.get('participant') || searchParams.get('participantName');
   const currentParticipantName = participantFromUrl?.trim() ? participantFromUrl.trim() : null;
@@ -65,15 +64,8 @@ export default function HomePage() {
 
   const timeRemaining = askDetails?.endDate ? formatTimeRemaining(askDetails.endDate) : null;
 
-  const cancelResponseTimer = useCallback(() => {
-    if (responseTimerRef.current) {
-      clearTimeout(responseTimerRef.current);
-      responseTimerRef.current = null;
-    }
-  }, []);
-
-  const triggerAiResponse = useCallback(async () => {
-    if (!sessionData.askKey) {
+  const triggerInsightDetection = useCallback(async () => {
+    if (!sessionData.askKey || isTestMode) {
       return;
     }
 
@@ -82,83 +74,34 @@ export default function HomePage() {
         ...prev,
         isLoading: true,
       }));
-
-      if (isTestMode) {
-        const simulatedAiMessage: Message = {
-          id: `ai-${Date.now()}`,
-          askKey: sessionData.askKey,
-          askSessionId: sessionData.ask?.askSessionId,
-          content: "Message de test : voici une réponse simulée de l'agent.",
-          type: 'text',
-          senderType: 'ai',
-          senderId: null,
-          senderName: 'Agent',
-          timestamp: new Date().toISOString(),
-          metadata: { senderName: 'Agent' },
-        };
-
-        setSessionData(prev => ({
-          ...prev,
-          messages: [...prev.messages, simulatedAiMessage],
-          isLoading: false,
-        }));
-        return;
-      }
-
       const response = await fetch(`/api/ask/${sessionData.askKey}/respond`, {
         method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ mode: 'insights-only' }),
       });
 
-      const data: ApiResponse<{ message: Message; insights?: Insight[] }> = await response.json();
+      const data: ApiResponse<{ insights?: Insight[] }> = await response.json();
 
-      if (!data.success) {
-        throw new Error(data.error || 'Unable to retrieve AI response');
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || `Unable to trigger insight detection (status ${response.status})`);
       }
 
-      if (data.data?.message) {
-        setSessionData(prev => ({
-          ...prev,
-          messages: [...prev.messages, data.data!.message],
-          insights: data.data?.insights ?? prev.insights,
-          isLoading: false,
-        }));
-      } else if (data.data?.insights) {
-        setSessionData(prev => ({
-          ...prev,
-          insights: data.data?.insights ?? prev.insights,
-          isLoading: false,
-        }));
-      } else {
-        setSessionData(prev => ({
-          ...prev,
-          isLoading: false,
-        }));
-      }
+      setSessionData(prev => ({
+        ...prev,
+        insights: data.data?.insights ?? prev.insights,
+        isLoading: false,
+      }));
     } catch (error) {
-      console.error('Unable to trigger AI response webhook', error);
+      console.error('Unable to trigger insight detection', error);
       setSessionData(prev => ({
         ...prev,
         isLoading: false,
         error: parseErrorMessage(error)
       }));
-    } finally {
-      setAwaitingAiResponse(false);
-      cancelResponseTimer();
     }
-  }, [cancelResponseTimer, sessionData.ask?.askSessionId, sessionData.askKey, isTestMode]);
-
-  const scheduleResponseTimer = useCallback(() => {
-    cancelResponseTimer();
-    responseTimerRef.current = setTimeout(() => {
-      triggerAiResponse();
-    }, 3000);
-  }, [cancelResponseTimer, triggerAiResponse]);
-
-  useEffect(() => {
-    return () => {
-      cancelResponseTimer();
-    };
-  }, [cancelResponseTimer]);
+  }, [sessionData.askKey, isTestMode]);
 
   useEffect(() => {
     setIsDetailsCollapsed(false);
@@ -226,18 +169,6 @@ export default function HomePage() {
     // Load session data from external backend or test endpoint
     loadSessionData(key);
   }, [searchParams]);
-
-  const handleHumanTyping = useCallback((isTyping: boolean) => {
-    if (!awaitingAiResponse) {
-      return;
-    }
-
-    if (isTyping) {
-      cancelResponseTimer();
-    } else {
-      scheduleResponseTimer();
-    }
-  }, [awaitingAiResponse, cancelResponseTimer, scheduleResponseTimer]);
 
   // Load session data from external backend via API
   const loadSessionData = async (key: string) => {
@@ -357,13 +288,17 @@ export default function HomePage() {
       }
 
       // Now trigger the streaming AI response
+      if (isTestMode) {
+        setAwaitingAiResponse(false);
+        return;
+      }
+
       setAwaitingAiResponse(true);
       await handleStreamingResponse();
 
     } catch (error) {
       console.error('Error sending message:', error);
       setAwaitingAiResponse(false);
-      cancelResponseTimer();
       setSessionData(prev => ({
         ...prev,
         isLoading: false,
@@ -380,7 +315,10 @@ export default function HomePage() {
     console.log('Starting streaming response for askKey:', sessionData.askKey);
 
     try {
-      const response = await fetch(`/api/ask/${sessionData.askKey}/stream`, {
+      const currentAskKey = sessionData.askKey;
+      const currentAskSessionId = sessionData.ask?.askSessionId || '';
+
+      const response = await fetch(`/api/ask/${currentAskKey}/stream`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -410,8 +348,8 @@ export default function HomePage() {
       const streamingId = `streaming-${Date.now()}`;
       const streamingMessageObj: Message = {
         id: streamingId,
-        askKey: sessionData.askKey,
-        askSessionId: sessionData.ask?.askSessionId || '',
+        askKey: currentAskKey,
+        askSessionId: currentAskSessionId,
         content: '',
         type: 'text',
         senderType: 'ai',
@@ -461,8 +399,10 @@ export default function HomePage() {
                   }));
                 } else if (parsed.type === 'done') {
                   setAwaitingAiResponse(false);
-                  // Recharger les messages pour afficher le message persisté
-                  await loadSessionData(sessionData.askKey);
+                  await triggerInsightDetection();
+                  if (currentAskKey) {
+                    await loadSessionData(currentAskKey);
+                  }
                   return;
                 } else if (parsed.type === 'error') {
                   console.error('Streaming error:', parsed.error);
@@ -791,7 +731,6 @@ export default function HomePage() {
               messages={sessionData.messages}
               onSendMessage={handleSendMessage}
               isLoading={sessionData.isLoading}
-              onHumanTyping={handleHumanTyping}
               currentParticipantName={currentParticipantName}
               isMultiUser={Boolean(sessionData.ask && sessionData.ask.participants.length > 1)}
               showAgentTyping={awaitingAiResponse}
