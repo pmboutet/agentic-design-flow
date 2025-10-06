@@ -23,6 +23,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { cn } from "@/lib/utils";
 import { getMockProjectJourneyData } from "@/lib/mockProjectJourney";
 import {
+  type ChallengeRecord,
   type ProjectAskOverview,
   type ProjectChallengeNode,
   type ProjectJourneyBoardData,
@@ -69,6 +70,16 @@ const insightTypeClasses: Record<ProjectParticipantInsight["type"], string> = {
   signal: "border-sky-400/40 bg-sky-500/10 text-sky-200",
   idea: "border-amber-400/40 bg-amber-500/10 text-amber-200",
 };
+
+type ChallengeStatus = "open" | "in_progress" | "active" | "closed" | "archived";
+
+const challengeStatusOptions: { value: ChallengeStatus; label: string }[] = [
+  { value: "open", label: "Open" },
+  { value: "in_progress", label: "In progress" },
+  { value: "active", label: "Active" },
+  { value: "closed", label: "Closed" },
+  { value: "archived", label: "Archived" },
+];
 
 const USE_MOCK_JOURNEY = process.env.NEXT_PUBLIC_USE_MOCK_PROJECT_JOURNEY === "true";
 
@@ -154,6 +165,24 @@ type ProjectEditState = {
   systemPrompt: string;
 };
 
+type ChallengeFormState = {
+  title: string;
+  description: string;
+  status: ChallengeStatus;
+  impact: ProjectChallengeNode["impact"];
+  ownerIds: string[];
+};
+
+function createEmptyChallengeForm(): ChallengeFormState {
+  return {
+    title: "",
+    description: "",
+    status: "open",
+    impact: "medium",
+    ownerIds: [],
+  };
+}
+
 export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
   const [boardData, setBoardData] = useState<ProjectJourneyBoardData | null>(
     USE_MOCK_JOURNEY ? getMockProjectJourneyData(projectId) : null,
@@ -163,6 +192,10 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
   const [feedback, setFeedback] = useState<FeedbackState | null>(null);
   const [isEditingProject, setIsEditingProject] = useState(false);
   const [isSavingProject, setIsSavingProject] = useState(false);
+  const [isCreatingChallenge, setIsCreatingChallenge] = useState(false);
+  const [isSavingChallenge, setIsSavingChallenge] = useState(false);
+  const [challengeFeedback, setChallengeFeedback] = useState<FeedbackState | null>(null);
+  const [challengeFormValues, setChallengeFormValues] = useState<ChallengeFormState>(() => createEmptyChallengeForm());
   const [editValues, setEditValues] = useState<ProjectEditState>({
     name: "",
     description: "",
@@ -537,6 +570,162 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
     setEditValues(current => ({ ...current, [field]: value }));
   };
 
+  const resetChallengeFormValues = () => {
+    setChallengeFormValues(createEmptyChallengeForm());
+  };
+
+  const handleChallengeStart = () => {
+    setIsCreatingChallenge(true);
+    setChallengeFeedback(null);
+    resetChallengeFormValues();
+  };
+
+  const handleChallengeCancel = () => {
+    setIsCreatingChallenge(false);
+    setIsSavingChallenge(false);
+    setChallengeFeedback(null);
+    resetChallengeFormValues();
+  };
+
+  const handleChallengeFieldChange = (
+    field: Extract<keyof ChallengeFormState, "title" | "description" | "status" | "impact">,
+  ) =>
+    (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+      const { value } = event.target;
+      setChallengeFormValues(current => ({
+        ...current,
+        [field]:
+          field === "impact"
+            ? (value as ChallengeFormState["impact"])
+            : field === "status"
+              ? (value as ChallengeFormState["status"])
+              : value,
+      }));
+    };
+
+  const handleChallengeOwnerToggle = (ownerId: string) => {
+    setChallengeFormValues(current => {
+      const hasOwner = current.ownerIds.includes(ownerId);
+      return {
+        ...current,
+        ownerIds: hasOwner ? current.ownerIds.filter(id => id !== ownerId) : [...current.ownerIds, ownerId],
+      };
+    });
+  };
+
+  const handleChallengeSave = async () => {
+    if (!boardData) {
+      return;
+    }
+
+    const trimmedTitle = challengeFormValues.title.trim();
+    if (!trimmedTitle) {
+      setChallengeFeedback({ type: "error", message: "Please provide a challenge title." });
+      return;
+    }
+
+    const trimmedDescription = challengeFormValues.description.trim();
+    const normalizedStatus = challengeFormValues.status;
+    const owners = boardData.availableUsers
+      .filter(user => challengeFormValues.ownerIds.includes(user.id))
+      .map(user => ({ id: user.id, name: user.name, role: user.role }));
+    const fallbackId = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : `challenge-${Date.now()}`;
+    const validImpacts = Object.keys(impactLabels) as ProjectChallengeNode["impact"][];
+    const validStatuses = challengeStatusOptions.map(option => option.value) as ChallengeStatus[];
+
+    const buildChallengeNode = (id: string, overrides?: Partial<ProjectChallengeNode>): ProjectChallengeNode => ({
+      id,
+      title: overrides?.title ?? trimmedTitle,
+      description: overrides?.description ?? trimmedDescription,
+      status: overrides?.status ?? normalizedStatus,
+      impact: overrides?.impact ?? challengeFormValues.impact,
+      owners,
+      relatedInsightIds: overrides?.relatedInsightIds ?? [],
+      children: [],
+    });
+
+    setIsSavingChallenge(true);
+    setChallengeFeedback(null);
+
+    try {
+      if (USE_MOCK_JOURNEY) {
+        const localChallenge = buildChallengeNode(fallbackId);
+        setBoardData(current =>
+          current
+            ? {
+                ...current,
+                challenges: [localChallenge, ...current.challenges],
+              }
+            : current,
+        );
+        setActiveChallengeId(localChallenge.id);
+        setIsCreatingChallenge(false);
+        resetChallengeFormValues();
+        setChallengeFeedback({ type: "success", message: "Challenge added to the journey." });
+        return;
+      }
+
+      const payload = {
+        name: trimmedTitle,
+        description: trimmedDescription,
+        status: normalizedStatus,
+        priority: challengeFormValues.impact,
+        projectId: boardData.projectId,
+        assignedTo: owners[0]?.id ?? "",
+      };
+
+      const response = await fetch("/api/admin/challenges", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || "Unable to create challenge.");
+      }
+
+      const created = result.data as ChallengeRecord;
+      const challengeId = created?.id ?? fallbackId;
+      const serverImpact = created?.priority && validImpacts.includes(created.priority as ProjectChallengeNode["impact"])
+        ? (created.priority as ProjectChallengeNode["impact"])
+        : challengeFormValues.impact;
+      const serverStatus = created?.status && validStatuses.includes(created.status as ChallengeStatus)
+        ? (created.status as ChallengeStatus)
+        : normalizedStatus;
+
+      const challengeNode = buildChallengeNode(challengeId, {
+        title: created?.name ?? trimmedTitle,
+        description: created?.description ?? trimmedDescription,
+        status: serverStatus,
+        impact: serverImpact,
+      });
+
+      setBoardData(current =>
+        current
+          ? {
+              ...current,
+              challenges: [challengeNode, ...current.challenges],
+            }
+          : current,
+      );
+      setActiveChallengeId(challengeNode.id);
+      setIsCreatingChallenge(false);
+      resetChallengeFormValues();
+      setChallengeFeedback({ type: "success", message: "Challenge created successfully." });
+    } catch (error) {
+      console.error("Failed to create challenge", error);
+      setChallengeFeedback({
+        type: "error",
+        message: error instanceof Error ? error.message : "Unable to create challenge.",
+      });
+    } finally {
+      setIsSavingChallenge(false);
+    }
+  };
+
   const handleProjectSave = async () => {
     if (!boardData) {
       return;
@@ -813,12 +1002,134 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
                   <Sparkles className="h-4 w-4" />
                   Launch AI challenge builder
                 </Button>
-                <Button type="button" size="sm" className="gap-2 bg-indigo-500 text-white hover:bg-indigo-400">
+                <Button
+                  type="button"
+                  size="sm"
+                  className="gap-2 bg-indigo-500 text-white hover:bg-indigo-400"
+                  onClick={handleChallengeStart}
+                  disabled={isCreatingChallenge || isSavingChallenge}
+                >
                   <Plus className="h-4 w-4" />
                   New challenge
                 </Button>
               </div>
             </div>
+            {challengeFeedback ? (
+              <Alert variant={challengeFeedback.type === "success" ? "default" : "destructive"}>
+                <AlertDescription>{challengeFeedback.message}</AlertDescription>
+              </Alert>
+            ) : null}
+
+            {isCreatingChallenge ? (
+              <Card className="border border-indigo-300/40 bg-slate-900/70">
+                <CardHeader>
+                  <CardTitle>Create a new challenge</CardTitle>
+                  <p className="text-sm text-slate-300">
+                    Provide a clear title, status and description so collaborators can respond effectively.
+                  </p>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="flex flex-col gap-2">
+                      <Label htmlFor="challenge-title">Title</Label>
+                      <Input
+                        id="challenge-title"
+                        value={challengeFormValues.title}
+                        onChange={handleChallengeFieldChange("title")}
+                        placeholder="What problem are you addressing?"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      <Label htmlFor="challenge-status">Status</Label>
+                      <select
+                        id="challenge-status"
+                        value={challengeFormValues.status}
+                        onChange={handleChallengeFieldChange("status")}
+                        className="rounded-md border border-white/10 bg-slate-950/80 px-3 py-2 text-sm text-slate-100 focus:border-indigo-400 focus:outline-none focus:ring focus:ring-indigo-400/20"
+                      >
+                        {challengeStatusOptions.map(option => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      <Label htmlFor="challenge-impact">Impact</Label>
+                      <select
+                        id="challenge-impact"
+                        value={challengeFormValues.impact}
+                        onChange={handleChallengeFieldChange("impact")}
+                        className="rounded-md border border-white/10 bg-slate-950/80 px-3 py-2 text-sm text-slate-100 focus:border-indigo-400 focus:outline-none focus:ring focus:ring-indigo-400/20"
+                      >
+                        {(Object.entries(impactLabels) as [ProjectChallengeNode["impact"], string][]).map(([value, label]) => (
+                          <option key={value} value={value}>
+                            {label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="md:col-span-2 flex flex-col gap-2">
+                      <Label htmlFor="challenge-description">Description</Label>
+                      <Textarea
+                        id="challenge-description"
+                        rows={3}
+                        value={challengeFormValues.description}
+                        onChange={handleChallengeFieldChange("description")}
+                        placeholder="Provide useful context so the team understands the challenge."
+                      />
+                    </div>
+                  </div>
+                  {boardData.availableUsers.length ? (
+                    <div className="flex flex-col gap-2">
+                      <Label>Owners</Label>
+                      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                        {boardData.availableUsers.map(user => {
+                          const isSelected = challengeFormValues.ownerIds.includes(user.id);
+                          return (
+                            <label
+                              key={user.id}
+                              className={cn(
+                                "inline-flex cursor-pointer items-center gap-2 rounded-lg border bg-slate-950/60 px-3 py-2 text-sm transition",
+                                isSelected
+                                  ? "border-indigo-400/70 bg-indigo-500/10 text-indigo-100"
+                                  : "border-white/10 text-slate-200 hover:border-indigo-300/50",
+                              )}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={() => handleChallengeOwnerToggle(user.id)}
+                                className="h-4 w-4 rounded border-white/30 bg-slate-900 text-indigo-500 focus:ring-indigo-400"
+                              />
+                              <span className="flex flex-col leading-tight">
+                                <span className="font-medium text-white">{user.name}</span>
+                                {user.role ? <span className="text-xs text-slate-400">{user.role}</span> : null}
+                              </span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : null}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      type="button"
+                      className="gap-2 bg-indigo-500 text-white hover:bg-indigo-400"
+                      onClick={handleChallengeSave}
+                      disabled={isSavingChallenge || !challengeFormValues.title.trim()}
+                    >
+                      {isSavingChallenge ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                      Save challenge
+                    </Button>
+                    <Button type="button" variant="outline" onClick={handleChallengeCancel} disabled={isSavingChallenge} className="gap-2">
+                      <X className="h-4 w-4" />
+                      Cancel
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            ) : null}
             {boardData.challenges.length ? (
               renderChallengeList(boardData.challenges)
             ) : (
