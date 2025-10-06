@@ -124,12 +124,16 @@ export default function HomePage() {
 
       const response = await fetch(`/api/ask/${sessionData.askKey}/respond`, {
         method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ mode: 'insights-only' }),
       });
 
-      const data: ApiResponse<{ message: Message; insights?: Insight[] }> = await response.json();
+      const data: ApiResponse<{ insights?: Insight[] }> = await response.json();
 
-      if (!data.success) {
-        throw new Error(data.error || 'Unable to retrieve AI response');
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || `Unable to trigger insight detection (status ${response.status})`);
       }
 
       if (data.data?.message) {
@@ -159,15 +163,12 @@ export default function HomePage() {
         }));
       }
     } catch (error) {
-      console.error('Unable to trigger AI response webhook', error);
+      console.error('Unable to trigger insight detection', error);
       setSessionData(prev => ({
         ...prev,
         isLoading: false,
         error: parseErrorMessage(error)
       }));
-    } finally {
-      setAwaitingAiResponse(false);
-      cancelResponseTimer();
     }
   }, [cancelResponseTimer, sessionData.ask?.askSessionId, sessionData.askKey, isTestMode]);
 
@@ -459,6 +460,11 @@ export default function HomePage() {
       }
 
       // Now trigger the streaming AI response
+      if (isTestMode) {
+        setAwaitingAiResponse(false);
+        return;
+      }
+
       setAwaitingAiResponse(true);
       const insightsCapturedDuringStream = await handleStreamingResponse();
       
@@ -470,7 +476,6 @@ export default function HomePage() {
     } catch (error) {
       console.error('Error sending message:', error);
       setAwaitingAiResponse(false);
-      cancelResponseTimer();
       setSessionData(prev => ({
         ...prev,
         isLoading: false,
@@ -489,7 +494,10 @@ export default function HomePage() {
     console.log('Starting streaming response for askKey:', sessionData.askKey);
 
     try {
-      const response = await fetch(`/api/ask/${sessionData.askKey}/stream`, {
+      const currentAskKey = sessionData.askKey;
+      const currentAskSessionId = sessionData.ask?.askSessionId || '';
+
+      const response = await fetch(`/api/ask/${currentAskKey}/stream`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -521,8 +529,8 @@ export default function HomePage() {
       const streamingMessageObj: Message = {
         clientId: streamingId,
         id: streamingId,
-        askKey: sessionData.askKey,
-        askSessionId: sessionData.ask?.askSessionId || '',
+        askKey: currentAskKey,
+        askSessionId: currentAskSessionId,
         content: '',
         type: 'text',
         senderType: 'ai',
@@ -917,7 +925,6 @@ export default function HomePage() {
               messages={sessionData.messages}
               onSendMessage={handleSendMessage}
               isLoading={sessionData.isLoading}
-              onHumanTyping={handleHumanTyping}
               currentParticipantName={currentParticipantName}
               isMultiUser={Boolean(sessionData.ask && sessionData.ask.participants.length > 1)}
               showAgentTyping={awaitingAiResponse}

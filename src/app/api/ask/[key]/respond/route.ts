@@ -66,6 +66,165 @@ interface MessageRow {
   created_at?: string | null;
 }
 
+function parseAgentJsonSafely(rawText: string): unknown | null {
+  const attempts: string[] = [];
+  const trimmed = rawText.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  attempts.push(trimmed);
+
+  const codeFenceMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  if (codeFenceMatch && codeFenceMatch[1]) {
+    attempts.push(codeFenceMatch[1].trim());
+  }
+
+  const bracketCandidate = extractBracketedJson(trimmed);
+  if (bracketCandidate) {
+    attempts.push(bracketCandidate);
+  }
+
+  for (const candidate of attempts) {
+    const parsed = safeJsonParse(candidate);
+    if (parsed !== null) {
+      return parsed;
+    }
+  }
+
+  return null;
+}
+
+function extractBracketedJson(value: string): string | null {
+  const candidates: Array<{ start: number; opener: string; closer: string }> = [];
+
+  const pushCandidate = (char: '[' | '{') => {
+    const index = value.indexOf(char);
+    if (index !== -1) {
+      candidates.push({
+        start: index,
+        opener: char,
+        closer: char === '{' ? '}' : ']',
+      });
+    }
+  };
+
+  pushCandidate('[');
+  pushCandidate('{');
+
+  for (const candidate of candidates) {
+    const end = findMatchingBracket(value, candidate.start, candidate.opener, candidate.closer);
+    if (end !== -1) {
+      return value.slice(candidate.start, end + 1).trim();
+    }
+  }
+
+  return null;
+}
+
+function findMatchingBracket(value: string, start: number, opener: string, closer: string): number {
+  let depth = 0;
+  let inString: false | '"' | '\'' = false;
+  let isEscaped = false;
+
+  for (let index = start; index < value.length; index += 1) {
+    const char = value[index];
+
+    if (inString) {
+      if (isEscaped) {
+        isEscaped = false;
+        continue;
+      }
+
+      if (char === '\\') {
+        isEscaped = true;
+        continue;
+      }
+
+      if (char === inString) {
+        inString = false;
+      }
+
+      continue;
+    }
+
+    if (char === '"' || char === '\'') {
+      inString = char;
+      continue;
+    }
+
+    if (char === opener) {
+      depth += 1;
+    } else if (char === closer) {
+      depth -= 1;
+      if (depth === 0) {
+        return index;
+      }
+    }
+  }
+
+  return -1;
+}
+
+function safeJsonParse(value: string): unknown | null {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+function extractTextFromRawResponse(raw: unknown): string | null {
+  if (!raw || typeof raw !== 'object') {
+    return null;
+  }
+
+  const record = raw as Record<string, unknown>;
+
+  if (typeof record.content === 'string' && record.content.trim().length > 0) {
+    return record.content.trim();
+  }
+
+  if (Array.isArray(record.content)) {
+    const text = record.content
+      .map(block => {
+        if (!block) return '';
+        if (typeof block === 'string') return block;
+        const entry = block as Record<string, unknown>;
+        if (typeof entry.text === 'string') {
+          return entry.text;
+        }
+        if (Array.isArray(entry.content)) {
+          return entry.content
+            .map(inner => {
+              if (!inner) return '';
+              if (typeof inner === 'string') return inner;
+              if (typeof (inner as any).text === 'string') return (inner as any).text;
+              return '';
+            })
+            .join('');
+        }
+        return '';
+      })
+      .join('')
+      .trim();
+
+    if (text.length > 0) {
+      return text;
+    }
+  }
+
+  const choices = Array.isArray((record as any).choices) ? (record as any).choices : [];
+  for (const choice of choices) {
+    const message = choice?.message;
+    if (message && typeof message.content === 'string' && message.content.trim().length > 0) {
+      return message.content.trim();
+    }
+  }
+
+  return null;
+}
+
 interface InsightJobRow {
   id: string;
   ask_session_id: string;
@@ -814,14 +973,16 @@ async function triggerInsightDetection(
             return JSON.parse(candidate);
           }
         }
-      } catch (error) {
-        console.warn('Unable to parse insight detection response as JSON', error);
       }
 
-      return result.raw ?? {};
+      throw new Error('Le contenu retourné par l’agent insight n’est pas un JSON valide.');
     })();
 
-    const incoming = normaliseIncomingInsights(parsedPayload.insights ?? parsedPayload);
+    const insightsSource = (typeof parsedPayload === 'object' && parsedPayload !== null && 'insights' in parsedPayload)
+      ? (parsedPayload as Record<string, unknown>).insights
+      : parsedPayload;
+
+    const incoming = normaliseIncomingInsights(insightsSource);
     await persistInsights(supabase, options.askSessionId, incoming.items, existingInsights);
 
     await completeInsightJob(supabase, job.id, { modelConfigId: result.modelConfig.id });
@@ -853,6 +1014,18 @@ function buildPromptVariables(options: {
   const participantsSummary = options.participants
     .map(participant => participant.role ? `${participant.name} (${participant.role})` : participant.name)
     .join(', ');
+
+  const existingInsightsSnapshot = JSON.stringify(
+    options.insights.map(insight => ({
+      id: insight.id,
+      type: insight.type,
+      content: insight.content,
+      summary: insight.summary ?? null,
+      category: insight.category ?? null,
+      priority: insight.priority ?? null,
+      status: insight.status ?? null,
+    })),
+  );
 
   return {
     ask_key: options.ask.ask_key,
@@ -886,6 +1059,16 @@ export async function POST(
         error: 'Invalid ASK key format'
       }, { status: 400 });
     }
+
+    let requestPayload: { mode?: string } = {};
+    try {
+      requestPayload = await request.json();
+    } catch {
+      requestPayload = {};
+    }
+
+    const mode = requestPayload.mode === 'insights-only' ? 'insights-only' : 'full';
+    const insightsOnly = mode === 'insights-only';
 
     const supabase = getAdminSupabaseClient();
 
@@ -1133,73 +1316,101 @@ export async function POST(
 
     let message: Message | undefined;
     let latestAiResponse = '';
+    let detectionMessageId: string | null = null;
 
-    if (typeof aiResult.content === 'string' && aiResult.content.trim().length > 0) {
-      latestAiResponse = aiResult.content.trim();
-      const aiMetadata = { senderName: 'Agent' } satisfies Record<string, unknown>;
-
-      const { data: insertedRows, error: insertError } = await supabase
-        .from('messages')
-        .insert({
-          ask_session_id: askRow.id,
-          content: latestAiResponse,
-          sender_type: 'ai',
-          message_type: 'text',
-          metadata: aiMetadata,
-        })
-        .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at')
-        .limit(1);
-
-      if (insertError) {
-        throw insertError;
-      }
-
-      const inserted = insertedRows?.[0] as MessageRow | undefined;
-
-      if (!inserted) {
-        throw new Error('Unable to store AI response');
-      }
-
-      message = {
-        id: inserted.id,
-        askKey: askRow.ask_key,
-        askSessionId: inserted.ask_session_id,
-        content: inserted.content,
-        type: (inserted.message_type as Message['type']) ?? 'text',
-        senderType: 'ai',
-        senderId: inserted.user_id ?? null,
-        senderName: 'Agent',
-        timestamp: inserted.created_at ?? new Date().toISOString(),
-        metadata: normaliseMessageMetadata(inserted.metadata),
-      };
-
-      messages.push(message);
-    }
-
-    let refreshedInsights = existingInsights;
-
-    try {
-      const detectionVariables = buildPromptVariables({
+    if (!insightsOnly) {
+      const promptVariables = buildPromptVariables({
         ask: askRow,
         project: projectData,
         challenge: challengeData,
         messages,
         participants: participantSummaries,
         insights: existingInsights,
-        latestAiResponse,
       });
 
+      const aiResult = await executeAgent({
+        supabase,
+        agentSlug: CHAT_AGENT_SLUG,
+        askSessionId: askRow.id,
+        interactionType: CHAT_INTERACTION_TYPE,
+        variables: promptVariables,
+      });
+
+      if (typeof aiResult.content === 'string' && aiResult.content.trim().length > 0) {
+        latestAiResponse = aiResult.content.trim();
+        const aiMetadata = { senderName: 'Agent' } satisfies Record<string, unknown>;
+
+        const { data: insertedRows, error: insertError } = await supabase
+          .from('messages')
+          .insert({
+            ask_session_id: askRow.id,
+            content: latestAiResponse,
+            sender_type: 'ai',
+            message_type: 'text',
+            metadata: aiMetadata,
+          })
+          .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at')
+          .limit(1);
+
+        if (insertError) {
+          throw insertError;
+        }
+
+        const inserted = insertedRows?.[0] as MessageRow | undefined;
+
+        if (!inserted) {
+          throw new Error('Unable to store AI response');
+        }
+
+        message = {
+          id: inserted.id,
+          askKey: askRow.ask_key,
+          askSessionId: inserted.ask_session_id,
+          content: inserted.content,
+          type: (inserted.message_type as Message['type']) ?? 'text',
+          senderType: 'ai',
+          senderId: inserted.user_id ?? null,
+          senderName: 'Agent',
+          timestamp: inserted.created_at ?? new Date().toISOString(),
+          metadata: normaliseMessageMetadata(inserted.metadata),
+        };
+
+        messages.push(message);
+        detectionMessageId = message.id;
+      }
+    } else {
+      const latestAiMessage = [...messages].reverse().find(msg => msg.senderType === 'ai');
+      if (latestAiMessage) {
+        latestAiResponse = latestAiMessage.content;
+        detectionMessageId = latestAiMessage.id;
+      }
+    }
+
+    const detectionVariables = buildPromptVariables({
+      ask: askRow,
+      project: projectData,
+      challenge: challengeData,
+      messages,
+      participants: participantSummaries,
+      insights: existingInsights,
+      latestAiResponse,
+    });
+
+    let refreshedInsights: Insight[] = existingInsights;
+
+    try {
       refreshedInsights = await triggerInsightDetection(
         supabase,
         {
           askSessionId: askRow.id,
-          messageId: message?.id ?? null,
+          messageId: detectionMessageId,
           variables: detectionVariables,
         },
         insightRows,
       );
     } catch (error) {
       console.error('Insight detection failed', error);
+      throw error;
     }
 
     return NextResponse.json<ApiResponse<{ message?: Message; insights: Insight[] }>>({
