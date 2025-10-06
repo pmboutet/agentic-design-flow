@@ -249,6 +249,9 @@ type IncomingInsight = {
   kpis?: Array<Record<string, unknown>>;
   sourceMessageId?: string | null;
   authors?: unknown;
+  action?: string;
+  mergedIntoId?: string | null;
+  duplicateOfId?: string | null;
 };
 
 type NormalisedIncomingAuthor = {
@@ -301,14 +304,56 @@ function formatMessageHistory(messages: Message[]): string {
     .join('\n');
 }
 
-function summariseInsights(insights: Insight[]): string {
+function serialiseInsightsForPrompt(insights: Insight[]): string {
   if (insights.length === 0) {
-    return '';
+    return '[]';
   }
 
-  return insights
-    .map(insight => `- (${insight.type}) ${insight.summary ?? insight.content}`)
-    .join('\n');
+  const payload = insights.map((insight) => {
+    const authors = (insight.authors ?? []).map((author) => ({
+      userId: author.userId ?? null,
+      name: author.name ?? null,
+    }));
+
+    const kpiEstimations = (insight.kpis ?? []).map((kpi) => ({
+      name: kpi.label,
+      description: kpi.description ?? null,
+      metric_data: kpi.value ?? null,
+    }));
+
+    const entry: Record<string, unknown> = {
+      id: insight.id,
+      type: insight.type,
+      content: insight.content,
+      summary: insight.summary ?? null,
+      category: insight.category ?? null,
+      priority: insight.priority ?? null,
+      status: insight.status,
+      challengeId: insight.challengeId ?? null,
+      relatedChallengeIds: insight.relatedChallengeIds ?? [],
+      sourceMessageId: insight.sourceMessageId ?? null,
+    };
+
+    if (insight.authorId) {
+      entry.authorId = insight.authorId;
+    }
+
+    if (insight.authorName) {
+      entry.authorName = insight.authorName;
+    }
+
+    if (authors.length > 0) {
+      entry.authors = authors;
+    }
+
+    if (kpiEstimations.length > 0) {
+      entry.kpi_estimations = kpiEstimations;
+    }
+
+    return entry;
+  });
+
+  return JSON.stringify(payload);
 }
 
 function normaliseInsightTypeName(value: unknown): string | null {
@@ -444,25 +489,24 @@ function normaliseIncomingInsights(value: unknown): { types: Insight['type'][]; 
   const envelope = (typeof value === 'object' && value !== null && !Array.isArray(value))
     ? (value as Record<string, unknown>)
     : {};
+
   const rawTypes = Array.isArray(envelope.types) ? envelope.types : [];
   const types = rawTypes
     .map(type => (typeof type === 'string' ? type.trim() : ''))
     .filter((type): type is Insight['type'] => INSIGHT_TYPES.includes(type as Insight['type']));
 
-  const rawItemsSource = (() => {
+  const rawItems = (() => {
     if (Array.isArray(value)) {
       return value;
     }
-    if (Array.isArray((envelope as any).items)) {
-      return (envelope as any).items;
+    if (Array.isArray(envelope.items)) {
+      return envelope.items;
     }
-    if (Array.isArray((envelope as any).insights)) {
-      return (envelope as any).insights;
+    if (Array.isArray(envelope.insights)) {
+      return envelope.insights;
     }
     return [];
   })();
-
-  const rawItems = Array.isArray(rawItemsSource) ? rawItemsSource : [];
 
   const items: NormalisedIncomingInsight[] = rawItems.map((item) => {
     const record = typeof item === 'object' && item !== null ? (item as Record<string, unknown>) : {};
@@ -515,6 +559,8 @@ function normaliseIncomingInsights(value: unknown): { types: Insight['type'][]; 
 
     const primaryAuthor = authors[0] ?? null;
 
+    const actionValue = getString('action');
+
     return {
       id: getString('id'),
       askSessionId: getString('askSessionId') ?? getString('ask_session_id'),
@@ -532,6 +578,9 @@ function normaliseIncomingInsights(value: unknown): { types: Insight['type'][]; 
       sourceMessageId: getString('sourceMessageId') ?? getString('source_message_id') ?? null,
       authors,
       authorsProvided,
+      action: actionValue ? actionValue.toLowerCase() : undefined,
+      mergedIntoId: getString('mergedIntoId') ?? getString('merged_into_id') ?? getString('mergeTargetId') ?? null,
+      duplicateOfId: getString('duplicateOfId') ?? getString('duplicate_of_id') ?? null,
     } satisfies NormalisedIncomingInsight;
   });
 
@@ -539,6 +588,19 @@ function normaliseIncomingInsights(value: unknown): { types: Insight['type'][]; 
     types: types.length > 0 ? types : INSIGHT_TYPES,
     items,
   };
+}
+
+function sanitiseJsonString(raw: string): string {
+  let trimmed = raw.trim();
+
+  if (trimmed.startsWith('```')) {
+    trimmed = trimmed.replace(/^```(?:json)?\s*/i, '');
+    if (trimmed.endsWith('```')) {
+      trimmed = trimmed.slice(0, -3);
+    }
+  }
+
+  return trimmed.trim();
 }
 
 async function persistInsights(
@@ -561,12 +623,116 @@ async function persistInsights(
     return acc;
   }, {});
 
+  const normaliseKey = (value?: string | null): string => {
+    if (typeof value !== 'string') {
+      return '';
+    }
+    return value.replace(/\s+/g, ' ').trim().toLowerCase();
+  };
+
+  const contentIndex = new Map<string, InsightRow>();
+  const summaryIndex = new Map<string, InsightRow>();
+  const indexRow = (row: InsightRow | null | undefined) => {
+    if (!row) return;
+    const contentKey = normaliseKey(row.content ?? null);
+    if (contentKey) contentIndex.set(contentKey, row);
+    const summaryKey = normaliseKey(row.summary ?? null);
+    if (summaryKey) summaryIndex.set(summaryKey, row);
+  };
+
+  const removeFromIndex = (row: InsightRow | null | undefined) => {
+    if (!row) return;
+    const contentKey = normaliseKey(row.content ?? null);
+    if (contentKey) contentIndex.delete(contentKey);
+    const summaryKey = normaliseKey(row.summary ?? null);
+    if (summaryKey) summaryIndex.delete(summaryKey);
+  };
+
+  Object.values(existingMap).forEach(indexRow);
+
+  const processedKeys = new Set<string>();
+
   for (const incoming of incomingInsights) {
     const nowIso = new Date().toISOString();
-    const existing = incoming.id ? existingMap[incoming.id] : undefined;
+    const dedupeKey = [normaliseKey(incoming.content), normaliseKey(incoming.summary), incoming.type ?? ''].join('|');
+    if (dedupeKey.trim().length > 0) {
+      if (processedKeys.has(dedupeKey)) {
+        continue;
+      }
+      processedKeys.add(dedupeKey);
+    }
+
+    let existing = incoming.id ? existingMap[incoming.id] : undefined;
+
+    if (!existing && incoming.duplicateOfId && existingMap[incoming.duplicateOfId]) {
+      existing = existingMap[incoming.duplicateOfId];
+    }
+
+    if (!existing) {
+      const contentMatch = contentIndex.get(normaliseKey(incoming.content));
+      const summaryMatch = summaryIndex.get(normaliseKey(incoming.summary));
+      existing = contentMatch ?? summaryMatch ?? undefined;
+    }
+
     const desiredId = incoming.id ?? randomUUID();
     const normalisedKpis = normaliseIncomingKpis(incoming.kpis, []);
     const providedType = normaliseInsightTypeName(incoming.type);
+    const action = incoming.action ?? '';
+    const targetRow = existing ?? null;
+
+    if (action === 'delete' || action === 'remove' || action === 'obsolete') {
+      if (targetRow) {
+        await supabase.from('kpi_estimations').delete().eq('insight_id', targetRow.id);
+        await supabase.from('insight_authors').delete().eq('insight_id', targetRow.id);
+        await supabase.from('insights').delete().eq('id', targetRow.id);
+        delete existingMap[targetRow.id];
+        removeFromIndex(targetRow);
+      }
+      continue;
+    }
+
+    if (action === 'merge' && targetRow) {
+      const mergeSummaryNote = incoming.summary ?? targetRow.summary ?? '';
+      const mergedNote = incoming.mergedIntoId
+        ? `${mergeSummaryNote}${mergeSummaryNote ? '\n\n' : ''}[Fusion] Fusionné avec l'insight ${incoming.mergedIntoId}`
+        : mergeSummaryNote;
+
+      const updatePayload = {
+        ask_session_id: targetRow.ask_session_id,
+        content: incoming.content ?? targetRow.content ?? '',
+        summary: mergedNote,
+        insight_type_id: targetRow.insight_type_id,
+        category: incoming.category ?? targetRow.category ?? null,
+        status: 'archived' as Insight['status'],
+        priority: incoming.priority ?? targetRow.priority ?? null,
+        challenge_id: incoming.challengeId ?? targetRow.challenge_id ?? null,
+        related_challenge_ids: incoming.relatedChallengeIds ?? targetRow.related_challenge_ids ?? [],
+        source_message_id: incoming.sourceMessageId ?? targetRow.source_message_id ?? null,
+        updated_at: nowIso,
+      } satisfies Record<string, unknown>;
+
+      const { error: mergeUpdateErr } = await supabase
+        .from('insights')
+        .update(updatePayload)
+        .eq('id', targetRow.id);
+
+      if (mergeUpdateErr) {
+        throw mergeUpdateErr;
+      }
+
+      await supabase.from('kpi_estimations').delete().eq('insight_id', targetRow.id);
+      if (incoming.authorsProvided) {
+        await replaceInsightAuthors(supabase, targetRow.id, incoming.authors);
+      }
+
+      const mergedRow = await fetchInsightRowById(supabase, targetRow.id);
+      if (mergedRow) {
+        existingMap[targetRow.id] = mergedRow;
+        removeFromIndex(targetRow);
+        indexRow(mergedRow);
+      }
+      continue;
+    }
 
     if (existing) {
       const existingInsight = mapInsightRowToInsight(existing);
@@ -615,6 +781,8 @@ async function persistInsights(
       const updatedRow = await fetchInsightRowById(supabase, existing.id);
       if (updatedRow) {
         existingMap[existing.id] = updatedRow;
+        removeFromIndex(existing);
+        indexRow(updatedRow);
       }
     } else {
       const desiredTypeName = providedType ?? 'idea';
@@ -662,6 +830,7 @@ async function persistInsights(
       const createdRow = await fetchInsightRowById(supabase, desiredId);
       if (createdRow) {
         existingMap[createdRow.id] = createdRow;
+        indexRow(createdRow);
       }
     }
   }
@@ -797,18 +966,12 @@ async function triggerInsightDetection(
       .eq('id', job.id);
 
     const parsedPayload = (() => {
-      if (typeof result.content === 'string' && result.content.trim().length > 0) {
-        const parsed = parseAgentJsonSafely(result.content);
-        if (parsed !== null) {
-          return parsed;
-        }
-      }
-
-      const fallbackText = extractTextFromRawResponse(result.raw);
-      if (typeof fallbackText === 'string' && fallbackText.trim().length > 0) {
-        const parsed = parseAgentJsonSafely(fallbackText);
-        if (parsed !== null) {
-          return parsed;
+      try {
+        if (typeof result.content === 'string' && result.content.trim().length > 0) {
+          const candidate = sanitiseJsonString(result.content);
+          if (candidate.length > 0) {
+            return JSON.parse(candidate);
+          }
         }
       }
 
@@ -876,8 +1039,7 @@ function buildPromptVariables(options: {
     latest_ai_response: options.latestAiResponse ?? '',
     participant_name: lastUserMessage?.senderName ?? lastUserMessage?.metadata?.senderName ?? '',
     participants: participantsSummary,
-    insights_context: summariseInsights(options.insights),
-    existing_insights_json: existingInsightsSnapshot,
+    existing_insights_json: serialiseInsightsForPrompt(options.insights),
   } satisfies Record<string, string | null | undefined>;
 }
 
@@ -887,6 +1049,9 @@ export async function POST(
 ) {
   try {
     const { key } = params;
+    const body = await request.json().catch(() => ({}));
+    const { detectInsights, askSessionId } = body;
+    const detectInsightsOnly = detectInsights === true;
 
     if (!key || !isValidAskKey(key)) {
       return NextResponse.json<ApiResponse>({
@@ -922,6 +1087,22 @@ export async function POST(
         success: false,
         error: 'ASK introuvable pour la clé fournie'
       }, { status: 404 });
+    }
+
+    if (detectInsightsOnly) {
+      if (typeof askSessionId !== 'string') {
+        return NextResponse.json<ApiResponse>({
+          success: false,
+          error: 'ASK session identifier is required for insight detection',
+        }, { status: 400 });
+      }
+
+      if (askSessionId !== askRow.id) {
+        return NextResponse.json<ApiResponse>({
+          success: false,
+          error: 'ASK session mismatch',
+        }, { status: 400 });
+      }
     }
 
     const { data: participantRows, error: participantError } = await supabase
@@ -1078,6 +1259,60 @@ export async function POST(
     }
 
     const participantSummaries = participants.map(p => ({ name: p.name, role: p.role ?? null }));
+
+    const promptVariables = buildPromptVariables({
+      ask: askRow,
+      project: projectData,
+      challenge: challengeData,
+      messages,
+      participants: participantSummaries,
+      insights: existingInsights,
+    });
+
+    if (detectInsightsOnly) {
+      try {
+        const lastAiMessage = [...messages].reverse().find(message => message.senderType === 'ai');
+
+        const detectionVariables = buildPromptVariables({
+          ask: askRow,
+          project: projectData,
+          challenge: challengeData,
+          messages,
+          participants: participantSummaries,
+          insights: existingInsights,
+          latestAiResponse: lastAiMessage?.content ?? null,
+        });
+
+        const refreshedInsights = await triggerInsightDetection(
+          supabase,
+          {
+            askSessionId: askRow.id,
+            messageId: lastAiMessage?.id ?? null,
+            variables: detectionVariables,
+          },
+          insightRows,
+        );
+
+        return NextResponse.json<ApiResponse<{ insights: Insight[] }>>({
+          success: true,
+          data: { insights: refreshedInsights },
+        });
+      } catch (error) {
+        console.error('Insight detection failed', error);
+        return NextResponse.json<ApiResponse>({
+          success: false,
+          error: 'Failed to detect insights'
+        }, { status: 500 });
+      }
+    }
+
+    const aiResult = await executeAgent({
+      supabase,
+      agentSlug: CHAT_AGENT_SLUG,
+      askSessionId: askRow.id,
+      interactionType: CHAT_INTERACTION_TYPE,
+      variables: promptVariables,
+    });
 
     let message: Message | undefined;
     let latestAiResponse = '';

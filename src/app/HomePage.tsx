@@ -33,7 +33,11 @@ export default function HomePage() {
     isLoading: false,
     error: null
   });
+  const responseTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const insightDetectionTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const hasPostedMessageSinceRefreshRef = useRef(false);
   const [awaitingAiResponse, setAwaitingAiResponse] = useState(false);
+  const [isDetectingInsights, setIsDetectingInsights] = useState(false);
   const participantFromUrl = searchParams.get('participant') || searchParams.get('participantName');
   const currentParticipantName = participantFromUrl?.trim() ? participantFromUrl.trim() : null;
   const isTestMode = searchParams.get('mode') === 'test';
@@ -64,8 +68,26 @@ export default function HomePage() {
 
   const timeRemaining = askDetails?.endDate ? formatTimeRemaining(askDetails.endDate) : null;
 
-  const triggerInsightDetection = useCallback(async () => {
-    if (!sessionData.askKey || isTestMode) {
+  const cancelResponseTimer = useCallback(() => {
+    if (responseTimerRef.current) {
+      clearTimeout(responseTimerRef.current);
+      responseTimerRef.current = null;
+    }
+  }, []);
+
+  const cancelInsightDetectionTimer = useCallback(() => {
+    if (insightDetectionTimerRef.current) {
+      clearTimeout(insightDetectionTimerRef.current);
+      insightDetectionTimerRef.current = null;
+    }
+  }, []);
+
+  const markMessagePosted = useCallback(() => {
+    hasPostedMessageSinceRefreshRef.current = true;
+  }, []);
+
+  const triggerAiResponse = useCallback(async () => {
+    if (!sessionData.askKey) {
       return;
     }
 
@@ -74,6 +96,32 @@ export default function HomePage() {
         ...prev,
         isLoading: true,
       }));
+
+      if (isTestMode) {
+        const simulatedId = `ai-${Date.now()}`;
+        const simulatedAiMessage: Message = {
+          clientId: simulatedId,
+          id: simulatedId,
+          askKey: sessionData.askKey,
+          askSessionId: sessionData.ask?.askSessionId,
+          content: "Message de test : voici une réponse simulée de l'agent.",
+          type: 'text',
+          senderType: 'ai',
+          senderId: null,
+          senderName: 'Agent',
+          timestamp: new Date().toISOString(),
+          metadata: { senderName: 'Agent' },
+        };
+
+        markMessagePosted();
+        setSessionData(prev => ({
+          ...prev,
+          messages: [...prev.messages, simulatedAiMessage],
+          isLoading: false,
+        }));
+        return;
+      }
+
       const response = await fetch(`/api/ask/${sessionData.askKey}/respond`, {
         method: 'POST',
         headers: {
@@ -88,11 +136,32 @@ export default function HomePage() {
         throw new Error(data.error || `Unable to trigger insight detection (status ${response.status})`);
       }
 
-      setSessionData(prev => ({
-        ...prev,
-        insights: data.data?.insights ?? prev.insights,
-        isLoading: false,
-      }));
+      if (data.data?.message) {
+        markMessagePosted();
+        setSessionData(prev => ({
+          ...prev,
+          messages: [
+            ...prev.messages,
+            {
+              ...data.data!.message,
+              clientId: data.data!.message.clientId ?? data.data!.message.id,
+            },
+          ],
+          insights: data.data?.insights ?? prev.insights,
+          isLoading: false,
+        }));
+      } else if (data.data?.insights) {
+        setSessionData(prev => ({
+          ...prev,
+          insights: data.data?.insights ?? prev.insights,
+          isLoading: false,
+        }));
+      } else {
+        setSessionData(prev => ({
+          ...prev,
+          isLoading: false,
+        }));
+      }
     } catch (error) {
       console.error('Unable to trigger insight detection', error);
       setSessionData(prev => ({
@@ -101,7 +170,70 @@ export default function HomePage() {
         error: parseErrorMessage(error)
       }));
     }
-  }, [sessionData.askKey, isTestMode]);
+  }, [cancelResponseTimer, sessionData.ask?.askSessionId, sessionData.askKey, isTestMode]);
+
+  const scheduleResponseTimer = useCallback(() => {
+    cancelResponseTimer();
+    responseTimerRef.current = setTimeout(() => {
+      triggerAiResponse();
+    }, 3000);
+  }, [cancelResponseTimer, triggerAiResponse]);
+
+  const triggerInsightDetection = useCallback(async () => {
+    if (!sessionData.askKey || !sessionData.ask?.askSessionId) {
+      return;
+    }
+
+    if (!hasPostedMessageSinceRefreshRef.current) {
+      return;
+    }
+
+    try {
+      setIsDetectingInsights(true);
+      
+      const response = await fetch(`/api/ask/${sessionData.askKey}/respond`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          detectInsights: true,
+          askSessionId: sessionData.ask.askSessionId,
+        }),
+      });
+
+      const data: ApiResponse<{ insights: Insight[] }> = await response.json();
+
+      if (data.success && data.data?.insights) {
+        setSessionData(prev => ({
+          ...prev,
+          insights: data.data!.insights,
+        }));
+      }
+    } catch (error) {
+      console.error('Error detecting insights:', error);
+    } finally {
+      setIsDetectingInsights(false);
+    }
+  }, [sessionData.askKey, sessionData.ask?.askSessionId]);
+
+  const scheduleInsightDetection = useCallback(() => {
+    if (!hasPostedMessageSinceRefreshRef.current) {
+      return;
+    }
+
+    cancelInsightDetectionTimer();
+    insightDetectionTimerRef.current = setTimeout(() => {
+      triggerInsightDetection();
+    }, 2500); // 2.5 secondes après le dernier message
+  }, [cancelInsightDetectionTimer, triggerInsightDetection]);
+
+  useEffect(() => {
+    return () => {
+      cancelResponseTimer();
+      cancelInsightDetectionTimer();
+    };
+  }, [cancelResponseTimer, cancelInsightDetectionTimer]);
 
   useEffect(() => {
     setIsDetailsCollapsed(false);
@@ -162,13 +294,36 @@ export default function HomePage() {
     setSessionData(prev => ({
       ...prev,
       askKey: key,
+      ask: null,
+      messages: [],
+      insights: [],
+      challenges: [],
       isLoading: true,
       error: null
     }));
 
+    hasPostedMessageSinceRefreshRef.current = false;
+
     // Load session data from external backend or test endpoint
     loadSessionData(key);
   }, [searchParams]);
+
+  const handleHumanTyping = useCallback((isTyping: boolean) => {
+    if (isTyping) {
+      cancelResponseTimer();
+      cancelInsightDetectionTimer();
+    } else {
+      if (awaitingAiResponse) {
+        scheduleResponseTimer();
+      } else {
+        // Si l'utilisateur arrête de taper et qu'aucune réponse AI n'est en cours,
+        // programmer la détection d'insights
+        if (hasPostedMessageSinceRefreshRef.current) {
+          scheduleInsightDetection();
+        }
+      }
+    }
+  }, [awaitingAiResponse, cancelResponseTimer, scheduleResponseTimer, cancelInsightDetectionTimer, scheduleInsightDetection]);
 
   // Load session data from external backend via API
   const loadSessionData = async (key: string) => {
@@ -192,15 +347,28 @@ export default function HomePage() {
         throw new Error(data.error || 'Failed to load session data from backend');
       }
 
-      setSessionData(prev => ({
-        ...prev,
-        ask: data.data!.ask,
-        messages: data.data!.messages,
-        insights: data.data?.insights ?? [],
-        challenges: data.data?.challenges ?? [],
-        isLoading: false,
-        error: null
-      }));
+      const hasPersistedMessages = (data.data?.messages ?? []).length > 0;
+      hasPostedMessageSinceRefreshRef.current = hasPersistedMessages;
+
+      setSessionData(prev => {
+        const messagesWithClientIds = (data.data?.messages ?? []).map(message => {
+          const existing = prev.messages.find(prevMessage => prevMessage.id === message.id);
+          return {
+            ...message,
+            clientId: existing?.clientId ?? message.clientId ?? message.id,
+          };
+        });
+
+        return {
+          ...prev,
+          ask: data.data!.ask,
+          messages: messagesWithClientIds,
+          insights: data.data?.insights ?? [],
+          challenges: data.data?.challenges ?? [],
+          isLoading: false,
+          error: null,
+        };
+      });
 
     } catch (error) {
       console.error('Error loading session data:', error);
@@ -229,6 +397,7 @@ export default function HomePage() {
     } as Message['metadata'];
 
     const optimisticMessage: Message = {
+      clientId: optimisticId,
       id: optimisticId,
       askKey: sessionData.askKey,
       askSessionId: sessionData.ask?.askSessionId,
@@ -273,10 +442,13 @@ export default function HomePage() {
 
       // Update the optimistic message with the real one
       if (data.data?.message) {
+        markMessagePosted();
         setSessionData(prev => ({
           ...prev,
           messages: prev.messages.map(message =>
-            message.id === optimisticId ? data.data!.message : message
+            message.clientId === optimisticId
+              ? { ...data.data!.message, clientId: message.clientId ?? optimisticId }
+              : message
           ),
           isLoading: false,
         }));
@@ -294,7 +466,12 @@ export default function HomePage() {
       }
 
       setAwaitingAiResponse(true);
-      await handleStreamingResponse();
+      const insightsCapturedDuringStream = await handleStreamingResponse();
+      
+      // Programmer la détection d'insights seulement si aucune donnée n'a été envoyée pendant le streaming
+      if (!insightsCapturedDuringStream) {
+        scheduleInsightDetection();
+      }
 
     } catch (error) {
       console.error('Error sending message:', error);
@@ -302,16 +479,18 @@ export default function HomePage() {
       setSessionData(prev => ({
         ...prev,
         isLoading: false,
-        messages: prev.messages.filter(message => message.id !== optimisticId),
+        messages: prev.messages.filter(message => message.clientId !== optimisticId),
         error: parseErrorMessage(error)
       }));
     }
   };
 
   // Handle streaming AI response
-  const handleStreamingResponse = async () => {
-    if (!sessionData.askKey || awaitingAiResponse) return;
+  const handleStreamingResponse = async (): Promise<boolean> => {
+    if (!sessionData.askKey || awaitingAiResponse) return false;
 
+    // Annuler la détection d'insights pendant le streaming
+    cancelInsightDetectionTimer();
     console.log('Starting streaming response for askKey:', sessionData.askKey);
 
     try {
@@ -343,10 +522,12 @@ export default function HomePage() {
       const decoder = new TextDecoder();
       let buffer = '';
       let streamingMessage = '';
+      let insightsUpdatedDuringStream = false;
 
       // Add a temporary streaming message
       const streamingId = `streaming-${Date.now()}`;
       const streamingMessageObj: Message = {
+        clientId: streamingId,
         id: streamingId,
         askKey: currentAskKey,
         askSessionId: currentAskSessionId,
@@ -384,30 +565,44 @@ export default function HomePage() {
                   setSessionData(prev => ({
                     ...prev,
                     messages: prev.messages.map(msg =>
-                      msg.id === streamingId 
+                      msg.clientId === streamingId 
                         ? { ...msg, content: streamingMessage }
                         : msg
                     ),
                   }));
                 } else if (parsed.type === 'message' && parsed.message) {
                   // Replace the streaming message with the final one
+                  markMessagePosted();
                   setSessionData(prev => ({
                     ...prev,
                     messages: prev.messages.map(msg =>
-                      msg.id === streamingId ? parsed.message : msg
+                      msg.clientId === streamingId
+                        ? { ...parsed.message, clientId: msg.clientId ?? streamingId }
+                        : msg
                     ),
+                  }));
+                } else if (parsed.type === 'insights') {
+                  insightsUpdatedDuringStream = true;
+                  const insights = Array.isArray(parsed.insights) ? parsed.insights : [];
+                  cancelInsightDetectionTimer();
+                  setIsDetectingInsights(false);
+                  setSessionData(prev => ({
+                    ...prev,
+                    insights,
                   }));
                 } else if (parsed.type === 'done') {
                   setAwaitingAiResponse(false);
-                  await triggerInsightDetection();
-                  if (currentAskKey) {
-                    await loadSessionData(currentAskKey);
+                  // Recharger les messages pour afficher le message persisté
+                  await loadSessionData(sessionData.askKey);
+                  if (insightsUpdatedDuringStream) {
+                    cancelInsightDetectionTimer();
+                    setIsDetectingInsights(false);
                   }
-                  return;
+                  return insightsUpdatedDuringStream;
                 } else if (parsed.type === 'error') {
                   console.error('Streaming error:', parsed.error);
                   setAwaitingAiResponse(false);
-                  return;
+                  return false;
                 }
               } catch (error) {
                 console.error('Error parsing streaming data:', error);
@@ -416,9 +611,12 @@ export default function HomePage() {
           }
         }
       }
+
+      return insightsUpdatedDuringStream;
     } catch (error) {
       console.error('Streaming error:', error);
       setAwaitingAiResponse(false);
+      return false;
     }
   };
 
@@ -565,7 +763,7 @@ export default function HomePage() {
         className="app-header border-0 sticky top-0 z-50"
       >
         <div className="container mx-auto px-4 sm:px-6 py-3 space-y-3 sm:space-y-4">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <motion.div
               className="flex items-center gap-2.5"
               whileHover={{ scale: 1.05 }}
@@ -583,101 +781,96 @@ export default function HomePage() {
                 )}
               </div>
             </motion.div>
+            {askDetails && (
+              <motion.div
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="w-full rounded-xl border border-white/50 bg-white/80 backdrop-blur px-4 py-4 shadow-sm sm:max-w-[75vw] md:max-w-3xl"
+              >
+                <div className="flex flex-col gap-3">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="space-y-1 sm:pr-4">
+                      <h3 className="font-semibold tracking-tight text-xs sm:text-sm leading-snug text-foreground">
+                        {askDetails.question}
+                      </h3>
+                      {askDetails.description && !isDetailsCollapsed && (
+                        <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed">
+                          {askDetails.description}
+                        </p>
+                      )}
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setIsDetailsCollapsed(prev => !prev)}
+                      className="inline-flex items-center gap-1.5 whitespace-nowrap self-start sm:self-start"
+                      aria-expanded={!isDetailsCollapsed}
+                    >
+                      {isDetailsCollapsed ? (
+                        <>
+                          <ChevronDown className="h-4 w-4" />
+                          Infos
+                        </>
+                      ) : (
+                        <>
+                          <ChevronUp className="h-4 w-4" />
+                          Masquer
+                        </>
+                      )}
+                    </Button>
+                  </div>
 
-            <div className="flex flex-wrap items-center gap-2 sm:justify-end">
-              {sessionData.askKey && (
-                <motion.div
-                  initial={{ opacity: 0, x: 20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  className="neumorphic-shadow px-2.5 py-1 rounded-lg bg-white/70 text-xs sm:text-sm"
-                >
-                  <span className="text-muted-foreground">Session&nbsp;:</span>
-                  <span className="font-mono text-foreground ml-1">{sessionData.askKey}</span>
-                </motion.div>
-              )}
-
-              {sessionData.ask && (
-                <motion.span
-                  initial={{ opacity: 0, x: 20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  className={sessionData.ask.isActive ? 'session-active' : 'session-closed'}
-                >
-                  {sessionData.ask.isActive ? 'Active' : 'Closed'}
-                </motion.span>
-              )}
-            </div>
-          </div>
-
-          {askDetails && (
-            <motion.div
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="rounded-xl border border-white/50 bg-white/80 backdrop-blur px-4 py-4 shadow-sm"
-            >
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                <div className="space-y-1.5 sm:pr-4">
-                  <h3 className="font-semibold tracking-tight text-base sm:text-lg leading-snug text-foreground">
-                    {askDetails.question}
-                  </h3>
-                  {askDetails.description && !isDetailsCollapsed && (
-                    <p className="text-sm text-muted-foreground leading-relaxed">
-                      {askDetails.description}
-                    </p>
-                  )}
                 </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setIsDetailsCollapsed(prev => !prev)}
-                  className="inline-flex items-center gap-1.5 whitespace-nowrap self-start"
-                  aria-expanded={!isDetailsCollapsed}
-                >
-                  {isDetailsCollapsed ? (
-                    <>
-                      <ChevronDown className="h-4 w-4" />
-                      Infos
-                    </>
-                  ) : (
-                    <>
-                      <ChevronUp className="h-4 w-4" />
-                      Masquer
-                    </>
-                  )}
-                </Button>
-              </div>
 
-              <AnimatePresence initial={false}>
-                {!isDetailsCollapsed && (
-                  <motion.div
-                    key="ask-details"
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: "auto", opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }}
-                    className="mt-3 overflow-hidden"
-                  >
+                <AnimatePresence initial={false}>
+                  {!isDetailsCollapsed && (
+                    <motion.div
+                      key="ask-details"
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: "auto", opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      className="mt-3 overflow-hidden"
+                    >
                     <div className="grid gap-3 sm:gap-4 text-sm text-muted-foreground sm:grid-cols-3">
                       <div className="space-y-1.5">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground/80">Statut</p>
+                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground/80">Session</p>
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="inline-flex items-center rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
-                            {statusLabel}
-                          </span>
-                          {timelineLabel && <span>{timelineLabel}</span>}
-                          {timeRemaining && (
-                            <span className="inline-flex items-center gap-1 text-primary">
-                              <Clock className="h-3.5 w-3.5" />
-                              <span>{timeRemaining}</span>
+                          {sessionData.askKey && (
+                            <span className="inline-flex items-center rounded-full bg-white/80 px-3 py-1 text-xs font-medium text-foreground shadow-sm">
+                              Session:
+                              <span className="font-mono text-foreground ml-1">{sessionData.askKey}</span>
+                            </span>
+                          )}
+                          {sessionData.ask && (
+                            <span className={sessionData.ask.isActive ? 'session-active' : 'session-closed'}>
+                              {sessionData.ask.isActive ? 'Active' : 'Closed'}
                             </span>
                           )}
                         </div>
                       </div>
 
                       <div className="space-y-1.5">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground/80">Cadre</p>
-                        <div className="space-y-1 text-foreground">
-                          <p className="font-medium">
-                            {getDeliveryModeLabel(askDetails.deliveryMode)}
-                          </p>
+                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground/80">Statut</p>
+                        <div className="flex flex-wrap items-center gap-2">
+                            <span className="inline-flex items-center rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
+                              {statusLabel}
+                            </span>
+                            {timelineLabel && <span>{timelineLabel}</span>}
+                            {timeRemaining && (
+                              <span className="inline-flex items-center gap-1 text-primary">
+                                <Clock className="h-3.5 w-3.5" />
+                                <span>{timeRemaining}</span>
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground/80">Cadre</p>
+                          <div className="space-y-1 text-foreground">
+                            <p className="font-medium">
+                              {getDeliveryModeLabel(askDetails.deliveryMode)}
+                            </p>
                           <p className="text-muted-foreground">
                             {getAudienceDescription(askDetails.audienceScope, askDetails.responseMode)}
                           </p>
@@ -712,6 +905,7 @@ export default function HomePage() {
               </AnimatePresence>
             </motion.div>
           )}
+        </div>
         </div>
       </motion.header>
 
@@ -749,6 +943,7 @@ export default function HomePage() {
             <InsightPanel
               insights={sessionData.insights}
               askKey={sessionData.askKey}
+              isDetectingInsights={isDetectingInsights}
             />
           </div>
         </motion.div>

@@ -35,6 +35,10 @@ export interface Ask {
 export type MessageSenderType = 'user' | 'ai' | 'system';
 
 export interface Message {
+  /**
+   * Stable identifier used on the client to avoid React remounts while keeping server ids
+   */
+  clientId?: string;
   id: string;
   askKey: string;
   askSessionId?: string;
@@ -271,6 +275,7 @@ export interface InsightPanelProps {
   insights: Insight[];
   onRequestChallengeLink?: (insightId: string) => void;
   askKey: string;
+  isDetectingInsights?: boolean;
 }
 
 // Admin backoffice data

@@ -3,10 +3,46 @@
 import { useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Lightbulb, Filter, Link2, MessageSquareQuote } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import type { Components } from "react-markdown";
 import { InsightPanelProps, Insight } from "@/types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { cn, formatRelativeDate, getInsightTypeLabel } from "@/lib/utils";
+
+const insightMarkdownComponents: Components = {
+  p: ({ children }) => (
+    <p className="mb-2 last:mb-0 text-sm text-slate-800 leading-relaxed">{children}</p>
+  ),
+  ul: ({ children }) => (
+    <ul className="mb-2 list-disc space-y-1 pl-5 text-sm text-slate-800 leading-relaxed">{children}</ul>
+  ),
+  ol: ({ children }) => (
+    <ol className="mb-2 list-decimal space-y-1 pl-5 text-sm text-slate-800 leading-relaxed">{children}</ol>
+  ),
+  li: ({ children }) => (
+    <li className="text-sm text-slate-800 leading-relaxed marker:text-primary">{children}</li>
+  ),
+  blockquote: ({ children }) => (
+    <blockquote className="mb-2 border-l-4 border-primary/40 bg-primary/5 px-3 py-2 text-sm italic text-slate-700">
+      {children}
+    </blockquote>
+  ),
+  a: ({ children, ...props }) => (
+    <a
+      {...props}
+      className="text-sm text-primary underline decoration-primary/60 underline-offset-2 hover:text-primary/80"
+      target="_blank"
+      rel="noopener noreferrer"
+    >
+      {children}
+    </a>
+  ),
+  strong: ({ children }) => (
+    <strong className="font-semibold text-slate-900">{children}</strong>
+  ),
+  em: ({ children }) => <em className="italic text-slate-700">{children}</em>,
+};
 
 interface InsightGroup {
   label: string;
@@ -55,9 +91,20 @@ function InsightCard({ insight, onLink }: { insight: Insight; onLink?: (insightI
               </span>
             )}
           </div>
-          <p className="text-sm text-slate-800 leading-relaxed">
-            {insight.summary || insight.content}
-          </p>
+          {(() => {
+            const insightContent = (insight.summary || insight.content || "").trim();
+            if (!insightContent) {
+              return null;
+            }
+            return (
+              <ReactMarkdown
+                className="space-y-2"
+                components={insightMarkdownComponents}
+              >
+                {insightContent}
+              </ReactMarkdown>
+            );
+          })()}
           {insight.kpis?.length ? (
             <div className="rounded-md bg-slate-50 px-3 py-2">
               <p className="mb-1 text-xs font-semibold text-slate-600">KPIs associés</p>
@@ -98,7 +145,7 @@ function InsightCard({ insight, onLink }: { insight: Insight; onLink?: (insightI
   );
 }
 
-export function InsightPanel({ insights, askKey, onRequestChallengeLink }: InsightPanelProps) {
+export function InsightPanel({ insights, askKey, onRequestChallengeLink, isDetectingInsights = false }: InsightPanelProps) {
   const [activeFilter, setActiveFilter] = useState<InsightGroup["value"]>("all");
 
   const filteredInsights = useMemo(() => {
@@ -160,6 +207,30 @@ export function InsightPanel({ insights, askKey, onRequestChallengeLink }: Insig
               filteredInsights.map((insight) => (
                 <InsightCard key={insight.id} insight={insight} onLink={onRequestChallengeLink} />
               ))
+            )}
+          </AnimatePresence>
+          
+          {/* Indicateur de collecte d'insights en cours */}
+          <AnimatePresence>
+            {isDetectingInsights && (
+              <motion.div
+                key="insight-detection-indicator"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ duration: 0.2 }}
+                className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground bg-primary/5 rounded-lg border border-primary/20"
+                aria-live="polite"
+              >
+                <motion.div
+                  animate={{ rotate: 360 }}
+                  transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                  className="flex h-3 w-3 items-center justify-center"
+                >
+                  <Lightbulb className="h-3 w-3 text-primary" />
+                </motion.div>
+                <span className="italic">Collecte d'insights en cours...</span>
+              </motion.div>
             )}
           </AnimatePresence>
         </div>

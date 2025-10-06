@@ -58,9 +58,9 @@ export const PROMPT_VARIABLES: PromptVariableDefinition[] = [
     description: "Participants connus de la session, sérialisés au format lisible.",
   },
   {
-    key: "insights_context",
-    label: "Résumé des insights",
-    description: "Résumé concis des insights déjà détectés pour la session.",
+    key: "existing_insights_json",
+    label: "Insights existants (JSON)",
+    description: "Sérialisation JSON complète des insights déjà enregistrés pour la session, incluant leurs identifiants.",
   },
 ];
 
