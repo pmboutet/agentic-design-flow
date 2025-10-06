@@ -127,6 +127,7 @@ Contexte :
 - Question ASK : {{ask_question}}
 - Participants : {{participants}}
 - Historique : {{message_history}}
+- Insights existants : {{existing_insights_json}}
 
 Extrais les insights les plus pertinents et structure-les de manière claire.`,
         user_prompt: `Analyse cette conversation et extrais les insights les plus importants :
@@ -140,7 +141,7 @@ Fournis une réponse structurée avec les insights identifiés.`,
           'ask_description', 
           'message_history',
           'participants',
-          'insights_context'
+          'existing_insights_json'
         ]
       }
     ];

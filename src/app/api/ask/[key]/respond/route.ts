@@ -145,14 +145,56 @@ function formatMessageHistory(messages: Message[]): string {
     .join('\n');
 }
 
-function summariseInsights(insights: Insight[]): string {
+function serialiseInsightsForPrompt(insights: Insight[]): string {
   if (insights.length === 0) {
-    return '';
+    return '[]';
   }
 
-  return insights
-    .map(insight => `- (${insight.type}) ${insight.summary ?? insight.content}`)
-    .join('\n');
+  const payload = insights.map((insight) => {
+    const authors = (insight.authors ?? []).map((author) => ({
+      userId: author.userId ?? null,
+      name: author.name ?? null,
+    }));
+
+    const kpiEstimations = (insight.kpis ?? []).map((kpi) => ({
+      name: kpi.label,
+      description: kpi.description ?? null,
+      metric_data: kpi.value ?? null,
+    }));
+
+    const entry: Record<string, unknown> = {
+      id: insight.id,
+      type: insight.type,
+      content: insight.content,
+      summary: insight.summary ?? null,
+      category: insight.category ?? null,
+      priority: insight.priority ?? null,
+      status: insight.status,
+      challengeId: insight.challengeId ?? null,
+      relatedChallengeIds: insight.relatedChallengeIds ?? [],
+      sourceMessageId: insight.sourceMessageId ?? null,
+    };
+
+    if (insight.authorId) {
+      entry.authorId = insight.authorId;
+    }
+
+    if (insight.authorName) {
+      entry.authorName = insight.authorName;
+    }
+
+    if (authors.length > 0) {
+      entry.authors = authors;
+    }
+
+    if (kpiEstimations.length > 0) {
+      entry.kpi_estimations = kpiEstimations;
+    }
+
+    return entry;
+  });
+
+  return JSON.stringify(payload);
 }
 
 function normaliseInsightTypeName(value: unknown): string | null {
@@ -824,7 +866,7 @@ function buildPromptVariables(options: {
     latest_ai_response: options.latestAiResponse ?? '',
     participant_name: lastUserMessage?.senderName ?? lastUserMessage?.metadata?.senderName ?? '',
     participants: participantsSummary,
-    insights_context: summariseInsights(options.insights),
+    existing_insights_json: serialiseInsightsForPrompt(options.insights),
   } satisfies Record<string, string | null | undefined>;
 }
 
