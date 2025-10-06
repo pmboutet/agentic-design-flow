@@ -93,8 +93,10 @@ export default function HomePage() {
       }));
 
       if (isTestMode) {
+        const simulatedId = `ai-${Date.now()}`;
         const simulatedAiMessage: Message = {
-          id: `ai-${Date.now()}`,
+          clientId: simulatedId,
+          id: simulatedId,
           askKey: sessionData.askKey,
           askSessionId: sessionData.ask?.askSessionId,
           content: "Message de test : voici une réponse simulée de l'agent.",
@@ -127,7 +129,13 @@ export default function HomePage() {
       if (data.data?.message) {
         setSessionData(prev => ({
           ...prev,
-          messages: [...prev.messages, data.data!.message],
+          messages: [
+            ...prev.messages,
+            {
+              ...data.data!.message,
+              clientId: data.data!.message.clientId ?? data.data!.message.id,
+            },
+          ],
           insights: data.data?.insights ?? prev.insights,
           isLoading: false,
         }));
@@ -319,15 +327,25 @@ export default function HomePage() {
         throw new Error(data.error || 'Failed to load session data from backend');
       }
 
-      setSessionData(prev => ({
-        ...prev,
-        ask: data.data!.ask,
-        messages: data.data!.messages,
-        insights: data.data?.insights ?? [],
-        challenges: data.data?.challenges ?? [],
-        isLoading: false,
-        error: null
-      }));
+      setSessionData(prev => {
+        const messagesWithClientIds = (data.data?.messages ?? []).map(message => {
+          const existing = prev.messages.find(prevMessage => prevMessage.id === message.id);
+          return {
+            ...message,
+            clientId: existing?.clientId ?? message.clientId ?? message.id,
+          };
+        });
+
+        return {
+          ...prev,
+          ask: data.data!.ask,
+          messages: messagesWithClientIds,
+          insights: data.data?.insights ?? [],
+          challenges: data.data?.challenges ?? [],
+          isLoading: false,
+          error: null,
+        };
+      });
 
     } catch (error) {
       console.error('Error loading session data:', error);
@@ -356,6 +374,7 @@ export default function HomePage() {
     } as Message['metadata'];
 
     const optimisticMessage: Message = {
+      clientId: optimisticId,
       id: optimisticId,
       askKey: sessionData.askKey,
       askSessionId: sessionData.ask?.askSessionId,
@@ -403,7 +422,9 @@ export default function HomePage() {
         setSessionData(prev => ({
           ...prev,
           messages: prev.messages.map(message =>
-            message.id === optimisticId ? data.data!.message : message
+            message.clientId === optimisticId
+              ? { ...data.data!.message, clientId: message.clientId ?? optimisticId }
+              : message
           ),
           isLoading: false,
         }));
@@ -428,7 +449,7 @@ export default function HomePage() {
       setSessionData(prev => ({
         ...prev,
         isLoading: false,
-        messages: prev.messages.filter(message => message.id !== optimisticId),
+        messages: prev.messages.filter(message => message.clientId !== optimisticId),
         error: parseErrorMessage(error)
       }));
     }
@@ -472,6 +493,7 @@ export default function HomePage() {
       // Add a temporary streaming message
       const streamingId = `streaming-${Date.now()}`;
       const streamingMessageObj: Message = {
+        clientId: streamingId,
         id: streamingId,
         askKey: sessionData.askKey,
         askSessionId: sessionData.ask?.askSessionId || '',
@@ -509,7 +531,7 @@ export default function HomePage() {
                   setSessionData(prev => ({
                     ...prev,
                     messages: prev.messages.map(msg =>
-                      msg.id === streamingId 
+                      msg.clientId === streamingId 
                         ? { ...msg, content: streamingMessage }
                         : msg
                     ),
@@ -519,7 +541,9 @@ export default function HomePage() {
                   setSessionData(prev => ({
                     ...prev,
                     messages: prev.messages.map(msg =>
-                      msg.id === streamingId ? parsed.message : msg
+                      msg.clientId === streamingId
+                        ? { ...parsed.message, clientId: msg.clientId ?? streamingId }
+                        : msg
                     ),
                   }));
                 } else if (parsed.type === 'done') {

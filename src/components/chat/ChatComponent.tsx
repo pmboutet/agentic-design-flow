@@ -270,7 +270,7 @@ export function ChatComponent({
 
               return (
                 <MessageBubble
-                  key={message.id}
+                  key={message.clientId ?? message.id}
                   message={{ ...message, senderName: effectiveSenderName }}
                   showSender={showSenderName}
                   senderLabel={effectiveSenderName}
