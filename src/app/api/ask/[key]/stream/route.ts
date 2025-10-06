@@ -9,6 +9,12 @@ import { DEFAULT_MAX_OUTPUT_TOKENS } from '@/lib/ai/constants';
 import { getChatAgentConfig, DEFAULT_CHAT_AGENT_SLUG, type PromptVariables, type AgentConfigResult } from '@/lib/ai/agent-config';
 import type { AiAgentLog, Insight } from '@/types';
 
+interface InsightDetectionResponse {
+  success: boolean;
+  data?: { insights?: Insight[] };
+  error?: string;
+}
+
 const CHAT_AGENT_SLUG = DEFAULT_CHAT_AGENT_SLUG;
 
 interface AskSessionRow {
@@ -547,13 +553,7 @@ export async function POST(
                 });
 
                 if (detectionResponse.ok) {
-                  type DetectionPayload = {
-                    success: boolean;
-                    data?: { insights?: Insight[] };
-                    error?: string;
-                  };
-
-                  const detectionJson = (await detectionResponse.json()) as DetectionPayload;
+                  const detectionJson = (await detectionResponse.json()) as InsightDetectionResponse;
 
                   if (detectionJson.success) {
                     const insights = detectionJson.data?.insights ?? [];

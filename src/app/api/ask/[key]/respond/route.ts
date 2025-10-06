@@ -1149,6 +1149,7 @@ export async function POST(
       };
     });
 
+    
     const { data: messageRows, error: messageError } = await supabase
       .from('messages')
       .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at')
@@ -1224,6 +1225,7 @@ export async function POST(
         metadata: metadata,
       };
     });
+
 
     const insightRows = await fetchInsightsForSession(supabase, askRow.id);
     const existingInsights = insightRows.map(mapInsightRowToInsight);
