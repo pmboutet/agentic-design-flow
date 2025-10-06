@@ -156,7 +156,7 @@ export function InsightPanel({ insights, askKey, onRequestChallengeLink, isDetec
   }, [activeFilter, insights]);
 
   return (
-    <Card className="h-full glass-card overflow-hidden">
+    <Card className="h-full glass-card flex flex-col overflow-hidden">
       <CardHeader className="flex flex-row items-start justify-between gap-4 pb-4">
         <div>
           <CardTitle className="flex items-center gap-2 text-lg">
@@ -172,7 +172,7 @@ export function InsightPanel({ insights, askKey, onRequestChallengeLink, isDetec
           Filtrer
         </Button>
       </CardHeader>
-      <CardContent className="flex h-full flex-col">
+      <CardContent className="flex-1 flex flex-col overflow-hidden">
         <div className="mb-4 flex flex-wrap gap-2">
           {INSIGHT_GROUPS.map((group) => (
             <button
