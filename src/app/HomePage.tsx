@@ -79,6 +79,7 @@ export default function HomePage() {
     if (insightDetectionTimerRef.current) {
       clearTimeout(insightDetectionTimerRef.current);
       insightDetectionTimerRef.current = null;
+      setIsDetectingInsights(false);
     }
   }, []);
 
@@ -185,10 +186,12 @@ export default function HomePage() {
 
   const triggerInsightDetection = useCallback(async () => {
     if (!sessionData.askKey || !sessionData.ask?.askSessionId) {
+      setIsDetectingInsights(false);
       return;
     }
 
     if (!hasPostedMessageSinceRefreshRef.current) {
+      setIsDetectingInsights(false);
       return;
     }
 
@@ -222,15 +225,25 @@ export default function HomePage() {
   }, [sessionData.askKey, sessionData.ask?.askSessionId]);
 
   const scheduleInsightDetection = useCallback(() => {
-    if (!hasPostedMessageSinceRefreshRef.current) {
+    if (
+      !hasPostedMessageSinceRefreshRef.current ||
+      !sessionData.askKey ||
+      !sessionData.ask?.askSessionId
+    ) {
       return;
     }
 
     cancelInsightDetectionTimer();
+    setIsDetectingInsights(true);
     insightDetectionTimerRef.current = setTimeout(() => {
       triggerInsightDetection();
     }, 2500); // 2.5 secondes après le dernier message
-  }, [cancelInsightDetectionTimer, triggerInsightDetection]);
+  }, [
+    cancelInsightDetectionTimer,
+    triggerInsightDetection,
+    sessionData.ask?.askSessionId,
+    sessionData.askKey,
+  ]);
 
   useEffect(() => {
     return () => {
