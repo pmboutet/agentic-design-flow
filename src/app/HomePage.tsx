@@ -136,24 +136,28 @@ export default function HomePage() {
         throw new Error(data.error || `Unable to trigger insight detection (status ${response.status})`);
       }
 
-      if (data.data?.message) {
+      const payload = data.data;
+      const message = payload?.message;
+      const insights = payload?.insights;
+
+      if (message) {
         markMessagePosted();
         setSessionData(prev => ({
           ...prev,
           messages: [
             ...prev.messages,
             {
-              ...data.data!.message,
-              clientId: data.data!.message.clientId ?? data.data!.message.id,
+              ...message,
+              clientId: message.clientId ?? message.id,
             },
           ],
-          insights: data.data?.insights ?? prev.insights,
+          insights: insights ?? prev.insights,
           isLoading: false,
         }));
-      } else if (data.data?.insights) {
+      } else if (insights) {
         setSessionData(prev => ({
           ...prev,
-          insights: data.data?.insights ?? prev.insights,
+          insights: insights ?? prev.insights,
           isLoading: false,
         }));
       } else {
