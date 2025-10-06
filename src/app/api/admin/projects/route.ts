@@ -17,7 +17,8 @@ const projectSchema = z.object({
   startDate: dateSchema,
   endDate: dateSchema,
   status: z.enum(statusValues).default("active"),
-  createdBy: z.string().uuid().optional().or(z.literal(""))
+  createdBy: z.string().uuid().optional().or(z.literal("")),
+  systemPrompt: z.string().trim().max(8000).optional().or(z.literal(""))
 });
 
 function mapProject(row: any): ProjectRecord {
@@ -32,7 +33,8 @@ function mapProject(row: any): ProjectRecord {
     endDate: row.end_date,
     createdBy: row.created_by,
     createdAt: row.created_at,
-    updatedAt: row.updated_at
+    updatedAt: row.updated_at,
+    systemPrompt: row.system_prompt ?? null
   };
 }
 
@@ -78,7 +80,8 @@ export async function POST(request: NextRequest) {
         client_id: payload.clientId,
         start_date: startDate,
         end_date: endDate,
-        created_by: payload.createdBy && payload.createdBy !== "" ? payload.createdBy : null
+        created_by: payload.createdBy && payload.createdBy !== "" ? payload.createdBy : null,
+        system_prompt: sanitizeOptional(payload.systemPrompt || null)
       })
       .select("*, clients(name)")
       .single();

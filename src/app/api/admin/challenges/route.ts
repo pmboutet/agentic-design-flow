@@ -13,9 +13,11 @@ function mapChallenge(row: any): ChallengeRecord {
     category: row.category,
     projectId: row.project_id,
     projectName: row.projects?.name ?? null,
+    parentChallengeId: row.parent_challenge_id ?? null,
     assignedTo: row.assigned_to,
     dueDate: row.due_date,
-    updatedAt: row.updated_at
+    updatedAt: row.updated_at,
+    systemPrompt: row.system_prompt ?? null
   };
 }
 

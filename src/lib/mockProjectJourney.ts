@@ -1,78 +1,45 @@
 import { ProjectJourneyBoardData } from "@/types";
 
 /**
- * Temporary mock data used to showcase the new project journey board UI.
- * In the future this should be replaced by a real API call.
+ * Temporary mock data used to showcase the project journey board UI.
+ * The real admin experience should rely on `/api/admin/projects/[id]/journey`.
  */
 export function getMockProjectJourneyData(projectId: string): ProjectJourneyBoardData {
   return {
     projectId,
-    projectName: "Programme Phygital Nova",
+    projectName: "Nova Retail Transformation",
     clientName: "Nova Retail Europe",
     projectGoal:
-      "Aligner les équipes magasins et e-commerce pour offrir une expérience client sans couture sur les canaux physiques et digitaux.",
-    timeframe: "T2 2024",
+      "Align store and e-commerce teams to deliver a seamless hybrid customer experience across physical and digital channels.",
+    projectDescription:
+      "A cross-functional acceleration initiative combining store operations, digital product and customer care to remove the most painful moments of the click & collect journey.",
+    projectStatus: "active",
+    projectStartDate: "2024-04-01T09:00:00Z",
+    projectEndDate: "2024-07-31T17:00:00Z",
+    projectSystemPrompt:
+      "You are the lead AI facilitator for the Nova Retail Transformation program. Your role is to help the core team surface insights, synthesise challenges and design interventions that improve the unified customer promise across online and in-store touchpoints.",
+    timeframe: "Apr 2024 – Jul 2024",
     availableUsers: [
-      {
-        id: "user-alice",
-        name: "Alice Martin",
-        role: "Store Manager",
-        avatarInitials: "AM",
-        avatarColor: "bg-emerald-500",
-      },
-      {
-        id: "user-leo",
-        name: "Léo Dupont",
-        role: "Digital Product Owner",
-        avatarInitials: "LD",
-        avatarColor: "bg-indigo-500",
-      },
-      {
-        id: "user-fatou",
-        name: "Fatou Ndiaye",
-        role: "Experience Designer",
-        avatarInitials: "FN",
-        avatarColor: "bg-amber-500",
-      },
-      {
-        id: "user-marc",
-        name: "Marc Petit",
-        role: "Logistics Lead",
-        avatarInitials: "MP",
-        avatarColor: "bg-sky-500",
-      },
-      {
-        id: "user-julia",
-        name: "Julia Costa",
-        role: "Customer Care",
-        avatarInitials: "JC",
-        avatarColor: "bg-rose-500",
-      },
-      {
-        id: "user-samir",
-        name: "Samir Cohen",
-        role: "Operations Analyst",
-        avatarInitials: "SC",
-        avatarColor: "bg-purple-500",
-      },
+      { id: "user-alice", name: "Alice Martin", role: "Store Manager", avatarInitials: "AM", avatarColor: "bg-emerald-500" },
+      { id: "user-leo", name: "Leo Dupont", role: "Digital Product Owner", avatarInitials: "LD", avatarColor: "bg-indigo-500" },
+      { id: "user-fatou", name: "Fatou Ndiaye", role: "Experience Designer", avatarInitials: "FN", avatarColor: "bg-amber-500" },
+      { id: "user-marc", name: "Marc Petit", role: "Logistics Lead", avatarInitials: "MP", avatarColor: "bg-sky-500" },
+      { id: "user-julia", name: "Julia Costa", role: "Customer Care", avatarInitials: "JC", avatarColor: "bg-rose-500" },
+      { id: "user-samir", name: "Samir Cohen", role: "Operations Analyst", avatarInitials: "SC", avatarColor: "bg-purple-500" },
     ],
     asks: [
       {
-        id: "ask-observations",
-        title: "ASK #1 · Observations terrain",
+        id: "ask-field-observation",
+        title: "ASK #1 · Store field observations",
         summary:
-          "Collecter les irritants terrain lors des pics d'activité pour comprendre les frictions des équipes magasin.",
+          "Capture the top operational blockers observed during peak hours to understand where store and digital workflows conflict.",
         status: "active",
-        theme: "Expérience magasin",
+        theme: "Store experience",
         dueDate: "2024-05-30",
-        originatingChallengeIds: [
-          "challenge-visibility",
-          "challenge-data-stream",
-          "challenge-order-promise",
-        ],
+        originatingChallengeIds: ["challenge-inventory-sync", "challenge-stock-visibility", "challenge-promise-accuracy"],
         relatedProjects: [
-          { id: projectId, name: "Programme Phygital Nova" },
-          { id: "project-ops-2024", name: "Ops Click & Collect 2024" },
+          { id: projectId, name: "Nova Retail Transformation" },
+          { id: "project-click-collect", name: "Click & Collect 2024" },
         ],
         participants: [
           {
@@ -84,13 +51,13 @@ export function getMockProjectJourneyData(projectId: string): ProjectJourneyBoar
             insights: [
               {
                 id: "insight-stock-visibility",
-                title: "Visibilité limitée sur les stocks e-commerce",
+                title: "Limited visibility on online inventory",
                 type: "pain",
                 description:
-                  "Nous ne savons pas si l'article est réellement disponible en e-commerce. Nous promettons des retraits en magasin que nous ne pouvons pas honorer.",
+                  "Store teams cannot confirm online stock availability in real time, leading to broken promises for in-store pickup.",
                 updatedAt: "2024-04-12T09:00:00Z",
                 isCompleted: true,
-                relatedChallengeIds: ["challenge-visibility", "challenge-data-stream"],
+                relatedChallengeIds: ["challenge-stock-visibility", "challenge-inventory-sync"],
                 contributors: [
                   { id: "user-alice", name: "Alice Martin", role: "Store Manager" },
                   { id: "user-marc", name: "Marc Petit", role: "Logistics Lead" },
@@ -98,7 +65,7 @@ export function getMockProjectJourneyData(projectId: string): ProjectJourneyBoar
                 kpis: [
                   {
                     id: "kpi-stockout",
-                    label: "Ruptures / semaine",
+                    label: "Pickup failures per week",
                     current: "14 incidents",
                     target: "5 incidents",
                     delta: "-64%",
@@ -107,13 +74,13 @@ export function getMockProjectJourneyData(projectId: string): ProjectJourneyBoar
               },
               {
                 id: "insight-pickup-waiting",
-                title: "Attente client lors du retrait",
+                title: "Customer waiting time at pickup counter",
                 type: "signal",
                 description:
-                  "Les clients attendent en moyenne 12 minutes pour récupérer leur commande click & collect pendant les pics.",
+                  "Customers wait an average of 12 minutes to collect orders during the evening peaks, generating negative NPS comments about the pickup promise.",
                 updatedAt: "2024-04-14T10:30:00Z",
                 isCompleted: true,
-                relatedChallengeIds: ["challenge-omnichannel"],
+                relatedChallengeIds: ["challenge-omnichannel-delivery"],
                 contributors: [
                   { id: "user-alice", name: "Alice Martin", role: "Store Manager" },
                   { id: "user-julia", name: "Julia Costa", role: "Customer Care" },
@@ -121,7 +88,7 @@ export function getMockProjectJourneyData(projectId: string): ProjectJourneyBoar
                 kpis: [
                   {
                     id: "kpi-waiting",
-                    label: "Temps d'attente moyen",
+                    label: "Average pickup waiting time",
                     current: "12 min",
                     target: "6 min",
                     delta: "-50%",
@@ -139,13 +106,13 @@ export function getMockProjectJourneyData(projectId: string): ProjectJourneyBoar
             insights: [
               {
                 id: "insight-inventory-sync",
-                title: "Synchronisation des inventaires",
+                title: "Inventory synchronisation still batch based",
                 type: "pain",
                 description:
-                  "La synchronisation entre notre WMS et la plateforme e-commerce se fait encore en batch toutes les 3 heures.",
+                  "The warehouse management system only synchronises with the e-commerce platform every three hours, creating inventory mismatches during peak demand.",
                 updatedAt: "2024-04-15T08:45:00Z",
                 isCompleted: false,
-                relatedChallengeIds: ["challenge-data-stream"],
+                relatedChallengeIds: ["challenge-inventory-sync"],
                 contributors: [
                   { id: "user-marc", name: "Marc Petit", role: "Logistics Lead" },
                   { id: "user-samir", name: "Samir Cohen", role: "Operations Analyst" },
@@ -153,13 +120,13 @@ export function getMockProjectJourneyData(projectId: string): ProjectJourneyBoar
                 kpis: [
                   {
                     id: "kpi-sync",
-                    label: "Fréquence d'actualisation",
-                    current: "Toutes les 3h",
-                    target: "Temps réel",
+                    label: "Refresh frequency",
+                    current: "Every 3h",
+                    target: "Real time",
                   },
                   {
                     id: "kpi-orders",
-                    label: "Commandes annulées",
+                    label: "Cancelled pickup orders",
                     current: "7%",
                     target: "2%",
                     delta: "-5 pts",
@@ -171,21 +138,17 @@ export function getMockProjectJourneyData(projectId: string): ProjectJourneyBoar
         ],
       },
       {
-        id: "ask-experience",
-        title: "ASK #2 · Expérience client",
+        id: "ask-journey-reassurance",
+        title: "ASK #2 · Phygital journey reassurance",
         summary:
-          "Identifier les moments critiques du parcours client phygital et les opportunités de réassurance.",
+          "Identify the reassurance moments needed through the hybrid journey to reduce anxiety and improve loyalty for first-time customers.",
         status: "active",
-        theme: "Parcours client",
+        theme: "Customer journey",
         dueDate: "2024-06-10",
-        originatingChallengeIds: [
-          "challenge-omnichannel",
-          "challenge-employee-adoption",
-          "challenge-training",
-        ],
+        originatingChallengeIds: ["challenge-omnichannel-delivery", "challenge-change-adoption"],
         relatedProjects: [
-          { id: projectId, name: "Programme Phygital Nova" },
-          { id: "project-cx-2024", name: "CX Omnicanal 2024" },
+          { id: projectId, name: "Nova Retail Transformation" },
+          { id: "project-cx-2024", name: "CX Omnichannel 2024" },
         ],
         participants: [
           {
@@ -197,46 +160,24 @@ export function getMockProjectJourneyData(projectId: string): ProjectJourneyBoar
             insights: [
               {
                 id: "insight-app-latency",
-                title: "Latence de l'app vendeur",
+                title: "Associate app latency at the counter",
                 type: "pain",
                 description:
-                  "L'application vendeur met parfois plus de 8 secondes à charger le profil client avec l'historique d'achat.",
-                updatedAt: "2024-04-16T16:20:00Z",
+                  "Associates wait up to 45 seconds when searching for an order in the store app while the customer is in front of them, causing visible frustration.",
+                updatedAt: "2024-05-05T16:20:00Z",
                 isCompleted: false,
-                relatedChallengeIds: ["challenge-data-stream", "challenge-employee-adoption"],
+                relatedChallengeIds: ["challenge-omnichannel-delivery"],
                 contributors: [
                   { id: "user-julia", name: "Julia Costa", role: "Customer Care" },
-                  { id: "user-alice", name: "Alice Martin", role: "Store Manager" },
+                  { id: "user-leo", name: "Leo Dupont", role: "Digital Product Owner" },
                 ],
                 kpis: [
                   {
                     id: "kpi-latency",
-                    label: "Temps de chargement",
-                    current: "8,4 s",
-                    target: "2,5 s",
-                    delta: "-70%",
-                  },
-                ],
-              },
-              {
-                id: "insight-promised-date",
-                title: "Promesse de date de livraison",
-                type: "gain",
-                description:
-                  "Avec une meilleure visibilité des stocks, nous pourrions proposer des créneaux de livraison fiables et personnalisés.",
-                updatedAt: "2024-04-17T09:10:00Z",
-                isCompleted: false,
-                relatedChallengeIds: ["challenge-omnichannel"],
-                contributors: [
-                  { id: "user-julia", name: "Julia Costa", role: "Customer Care" },
-                  { id: "user-leo", name: "Léo Dupont", role: "Digital Product Owner" },
-                ],
-                kpis: [
-                  {
-                    id: "kpi-nps",
-                    label: "Impact sur NPS",
-                    current: "+4 pts",
-                    comment: "Projection basée sur les feedbacks clients",
+                    label: "Search latency",
+                    current: "45 s",
+                    target: "15 s",
+                    delta: "-30 s",
                   },
                 ],
               },
@@ -250,107 +191,19 @@ export function getMockProjectJourneyData(projectId: string): ProjectJourneyBoar
             avatarColor: "bg-amber-500",
             insights: [
               {
-                id: "insight-dashboard-adoption",
-                title: "Adoption des dashboards",
-                type: "signal",
+                id: "insight-onboarding",
+                title: "Associates lack guidance on hybrid promises",
+                type: "idea",
                 description:
-                  "Moins de 30% des managers consultent les dashboards phygitaux chaque semaine. Ils ne savent pas comment prioriser.",
-                updatedAt: "2024-04-18T11:30:00Z",
+                  "Teams asked for a simple one-pager summarising the hybrid promise and escalation rules for out-of-stock scenarios.",
+                updatedAt: "2024-05-08T13:00:00Z",
                 isCompleted: false,
-                relatedChallengeIds: ["challenge-employee-adoption", "challenge-training"],
+                relatedChallengeIds: ["challenge-change-adoption"],
                 contributors: [
                   { id: "user-fatou", name: "Fatou Ndiaye", role: "Experience Designer" },
                   { id: "user-alice", name: "Alice Martin", role: "Store Manager" },
                 ],
-                kpis: [
-                  {
-                    id: "kpi-adoption",
-                    label: "Taux d'usage hebdo",
-                    current: "28%",
-                    target: "75%",
-                    delta: "+47 pts",
-                  },
-                ],
-              },
-            ],
-          },
-        ],
-      },
-      {
-        id: "ask-innovation",
-        title: "ASK #3 · Laboratoire phygital",
-        summary:
-          "Explorer des idées innovantes avec les équipes mixtes pour fluidifier l'expérience de retrait en boutique.",
-        status: "draft",
-        theme: "Innovation",
-        dueDate: "2024-06-28",
-        originatingChallengeIds: [
-          "challenge-omnichannel",
-          "challenge-data-stream",
-        ],
-        relatedProjects: [
-          { id: projectId, name: "Programme Phygital Nova" },
-        ],
-        participants: [
-          {
-            id: "user-leo",
-            name: "Léo Dupont",
-            role: "Digital Product Owner",
-            avatarInitials: "LD",
-            avatarColor: "bg-indigo-500",
-            insights: [
-              {
-                id: "insight-voice-assistant",
-                title: "Assistant vocal de préparation",
-                type: "idea",
-                description:
-                  "Tester un assistant vocal pour guider les préparateurs durant la constitution des commandes express.",
-                updatedAt: "2024-04-20T14:00:00Z",
-                isCompleted: false,
-                relatedChallengeIds: ["challenge-omnichannel"],
-                contributors: [
-                  { id: "user-leo", name: "Léo Dupont", role: "Digital Product Owner" },
-                  { id: "user-samir", name: "Samir Cohen", role: "Operations Analyst" },
-                ],
-                kpis: [
-                  {
-                    id: "kpi-prep-time",
-                    label: "Temps de préparation",
-                    current: "11 min",
-                    target: "7 min",
-                  },
-                ],
-              },
-            ],
-          },
-          {
-            id: "user-samir",
-            name: "Samir Cohen",
-            role: "Operations Analyst",
-            avatarInitials: "SC",
-            avatarColor: "bg-purple-500",
-            insights: [
-              {
-                id: "insight-data-governance",
-                title: "Gouvernance données phygital",
-                type: "pain",
-                description:
-                  "Les règles de gouvernance ne sont pas alignées entre les équipes SI magasin et e-commerce, d'où des conflits de priorités.",
-                updatedAt: "2024-04-19T17:40:00Z",
-                isCompleted: false,
-                relatedChallengeIds: ["challenge-visibility", "challenge-data-stream"],
-                contributors: [
-                  { id: "user-samir", name: "Samir Cohen", role: "Operations Analyst" },
-                  { id: "user-leo", name: "Léo Dupont", role: "Digital Product Owner" },
-                ],
-                kpis: [
-                  {
-                    id: "kpi-governance",
-                    label: "Comité transverse",
-                    current: "1/mois",
-                    target: "2/mois",
-                  },
-                ],
+                kpis: [],
               },
             ],
           },
@@ -359,98 +212,69 @@ export function getMockProjectJourneyData(projectId: string): ProjectJourneyBoar
     ],
     challenges: [
       {
-        id: "challenge-visibility",
-        title: "Unifier la visibilité stock",
+        id: "challenge-omnichannel-delivery",
+        title: "Deliver a reliable hybrid order promise",
         description:
-          "Les équipes magasin et e-commerce disposent de vues différentes et parfois contradictoires sur les niveaux de stocks.",
-        status: "in_progress",
+          "Ensure promises made online can be honoured in store with consistent communication to customers and associates.",
+        status: "active",
         impact: "high",
         owners: [
-          { id: "user-leo", name: "Léo Dupont", role: "Digital Product Owner" },
-          { id: "user-marc", name: "Marc Petit", role: "Logistics Lead" },
+          { id: "user-leo", name: "Leo Dupont", role: "Digital Product Owner" },
+          { id: "user-alice", name: "Alice Martin", role: "Store Manager" },
         ],
-        relatedInsightIds: ["insight-stock-visibility", "insight-data-governance"],
+        relatedInsightIds: ["insight-pickup-waiting", "insight-app-latency"],
         children: [
           {
-            id: "challenge-data-stream",
-            title: "Construire un flux de données temps réel",
+            id: "challenge-stock-visibility",
+            title: "Share real-time inventory confidence",
             description:
-              "Mettre en place une synchronisation continue entre WMS, ERP et plateforme e-commerce pour réduire l'écart de visibilité.",
-            status: "exploring",
+              "Expose dependable inventory signals to store teams and the e-commerce platform to keep the promise reliable.",
+            status: "in_progress",
             impact: "critical",
-            owners: [
-              { id: "user-samir", name: "Samir Cohen", role: "Operations Analyst" },
-              { id: "user-alice", name: "Alice Martin", role: "Store Manager" },
-            ],
-            relatedInsightIds: [
-              "insight-stock-visibility",
-              "insight-inventory-sync",
-              "insight-app-latency",
-              "insight-data-governance",
-            ],
-            children: [
-              {
-                id: "challenge-training",
-                title: "Former les équipes aux dashboards",
-                description:
-                  "Accompagner les managers magasin dans la lecture des nouveaux indicateurs temps réel.",
-                status: "planned",
-                impact: "medium",
-                owners: [
-                  { id: "user-fatou", name: "Fatou Ndiaye", role: "Experience Designer" },
-                  { id: "user-julia", name: "Julia Costa", role: "Customer Care" },
-                ],
-                relatedInsightIds: ["insight-dashboard-adoption"],
-              },
-            ],
+            owners: [{ id: "user-marc", name: "Marc Petit", role: "Logistics Lead" }],
+            relatedInsightIds: ["insight-stock-visibility"],
+            children: [],
           },
           {
-            id: "challenge-order-promise",
-            title: "Sécuriser la promesse de retrait",
+            id: "challenge-inventory-sync",
+            title: "Move from batch to streaming inventory sync",
             description:
-              "Garantir qu'une commande promise en retrait magasin soit réellement disponible au moment choisi par le client.",
-            status: "in_progress",
+              "Reduce the synchronisation lag between the warehouse and the digital storefront to keep availability promises accurate.",
+            status: "active",
             impact: "high",
             owners: [
               { id: "user-marc", name: "Marc Petit", role: "Logistics Lead" },
-              { id: "user-julia", name: "Julia Costa", role: "Customer Care" },
+              { id: "user-samir", name: "Samir Cohen", role: "Operations Analyst" },
             ],
-            relatedInsightIds: ["insight-pickup-waiting", "insight-promised-date"],
+            relatedInsightIds: ["insight-inventory-sync"],
+            children: [],
           },
         ],
       },
       {
-        id: "challenge-omnichannel",
-        title: "Fluidifier le parcours omnicanal",
+        id: "challenge-change-adoption",
+        title: "Help associates embrace hybrid rituals",
         description:
-          "Créer une expérience sans rupture entre commande en ligne, retrait magasin et support client.",
-        status: "in_progress",
-        impact: "high",
-        owners: [
-          { id: "user-julia", name: "Julia Costa", role: "Customer Care" },
-          { id: "user-leo", name: "Léo Dupont", role: "Digital Product Owner" },
-        ],
-        relatedInsightIds: [
-          "insight-pickup-waiting",
-          "insight-promised-date",
-          "insight-voice-assistant",
-        ],
+          "Equip store teams with clear rituals, language and tools so that the hybrid promise becomes part of daily operations.",
+        status: "open",
+        impact: "medium",
+        owners: [{ id: "user-fatou", name: "Fatou Ndiaye", role: "Experience Designer" }],
+        relatedInsightIds: ["insight-onboarding"],
         children: [
           {
-            id: "challenge-employee-adoption",
-            title: "Favoriser l'adoption des outils collaborateurs",
+            id: "challenge-promise-accuracy",
+            title: "Make the promise visible at the counter",
             description:
-              "Donner envie aux équipes de s'approprier les outils phygitaux en magasin pour mieux servir les clients.",
-            status: "exploring",
+              "Give store teams quick scripts and escalation rules to respond when the promise cannot be fulfilled.",
+            status: "open",
             impact: "medium",
-            owners: [
-              { id: "user-alice", name: "Alice Martin", role: "Store Manager" },
-              { id: "user-fatou", name: "Fatou Ndiaye", role: "Experience Designer" },
-            ],
-            relatedInsightIds: ["insight-app-latency", "insight-dashboard-adoption"],
+            owners: [{ id: "user-alice", name: "Alice Martin", role: "Store Manager" }],
+            relatedInsightIds: ["insight-onboarding"],
+            children: [],
           },
         ],
       },
     ],
   };
 }
+

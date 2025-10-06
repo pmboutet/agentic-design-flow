@@ -1,17 +1,33 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Calendar,
+  ChevronRight,
+  Lightbulb,
+  Loader2,
+  Pencil,
+  Plus,
+  Save,
+  Sparkles,
+  Target,
+  Users,
+  X,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Calendar, ChevronRight, Lightbulb, Plus, Sparkles, Target, Users } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { cn } from "@/lib/utils";
 import { getMockProjectJourneyData } from "@/lib/mockProjectJourney";
 import {
-  ProjectAskOverview,
-  ProjectChallengeNode,
-  ProjectJourneyBoardData,
-  ProjectParticipantInsight,
-  ProjectParticipantSummary,
+  type ProjectAskOverview,
+  type ProjectChallengeNode,
+  type ProjectJourneyBoardData,
+  type ProjectParticipantInsight,
+  type ProjectParticipantSummary,
 } from "@/types";
 
 interface ProjectJourneyBoardProps {
@@ -28,11 +44,16 @@ interface AskInsightRow extends ProjectParticipantInsight {
   contributors: ProjectParticipantSummary[];
 }
 
+interface FeedbackState {
+  type: "success" | "error";
+  message: string;
+}
+
 const impactLabels: Record<ProjectChallengeNode["impact"], string> = {
-  low: "Impact faible",
-  medium: "Impact modéré",
-  high: "Fort impact",
-  critical: "Impact critique",
+  low: "Low impact",
+  medium: "Moderate impact",
+  high: "High impact",
+  critical: "Critical impact",
 };
 
 const impactClasses: Record<ProjectChallengeNode["impact"], string> = {
@@ -48,6 +69,8 @@ const insightTypeClasses: Record<ProjectParticipantInsight["type"], string> = {
   signal: "border-sky-400/40 bg-sky-500/10 text-sky-200",
   idea: "border-amber-400/40 bg-amber-500/10 text-amber-200",
 };
+
+const USE_MOCK_JOURNEY = process.env.NEXT_PUBLIC_USE_MOCK_PROJECT_JOURNEY === "true";
 
 function flattenChallenges(nodes: ProjectChallengeNode[]): ProjectChallengeNode[] {
   return nodes.flatMap(node => [node, ...(node.children ? flattenChallenges(node.children) : [])]);
@@ -80,15 +103,157 @@ function formatDate(value: string): string {
   if (Number.isNaN(date.getTime())) {
     return value;
   }
-  return new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "short", year: "numeric" }).format(date);
+  return new Intl.DateTimeFormat("en", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  }).format(date);
 }
 
-export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
-  const [boardData] = useState<ProjectJourneyBoardData>(() => getMockProjectJourneyData(projectId));
+function formatFullDate(value?: string | null): string | null {
+  if (!value) {
+    return null;
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+  return new Intl.DateTimeFormat("en", { dateStyle: "medium" }).format(date);
+}
 
-  const allChallenges = useMemo(() => flattenChallenges(boardData.challenges), [boardData.challenges]);
+function formatTimeframe(startDate?: string | null, endDate?: string | null): string | null {
+  if (!startDate && !endDate) {
+    return null;
+  }
+  const startLabel = formatFullDate(startDate);
+  const endLabel = formatFullDate(endDate);
+  if (startLabel && endLabel) {
+    return `${startLabel} – ${endLabel}`;
+  }
+  return startLabel ?? endLabel;
+}
+
+function toInputDate(value?: string | null): string {
+  if (!value) {
+    return "";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  const iso = date.toISOString();
+  return iso.slice(0, 16);
+}
+
+type ProjectEditState = {
+  name: string;
+  description: string;
+  status: string;
+  startDate: string;
+  endDate: string;
+  systemPrompt: string;
+};
+
+export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
+  const [boardData, setBoardData] = useState<ProjectJourneyBoardData | null>(
+    USE_MOCK_JOURNEY ? getMockProjectJourneyData(projectId) : null,
+  );
+  const [isLoading, setIsLoading] = useState(!USE_MOCK_JOURNEY);
+  const [error, setError] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<FeedbackState | null>(null);
+  const [isEditingProject, setIsEditingProject] = useState(false);
+  const [isSavingProject, setIsSavingProject] = useState(false);
+  const [editValues, setEditValues] = useState<ProjectEditState>({
+    name: "",
+    description: "",
+    status: "active",
+    startDate: "",
+    endDate: "",
+    systemPrompt: "",
+  });
+
+  useEffect(() => {
+    if (USE_MOCK_JOURNEY) {
+      return;
+    }
+
+    let isMounted = true;
+    const controller = new AbortController();
+
+    const load = async () => {
+      setIsLoading(true);
+      setError(null);
+      try {
+        const response = await fetch(`/api/admin/projects/${projectId}/journey`, {
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        const payload = await response.json();
+        if (!response.ok || !payload.success) {
+          throw new Error(payload.error || "Unable to load project data");
+        }
+        if (!isMounted) {
+          return;
+        }
+        setBoardData(payload.data as ProjectJourneyBoardData);
+      } catch (err) {
+        if (!isMounted || controller.signal.aborted) {
+          return;
+        }
+        console.error("Failed to load project journey data", err);
+        setBoardData(getMockProjectJourneyData(projectId));
+        setError(err instanceof Error ? err.message : "Unable to load project data");
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      }
+    };
+
+    load();
+
+    return () => {
+      isMounted = false;
+      controller.abort();
+    };
+  }, [projectId]);
+
+  useEffect(() => {
+    if (!boardData) {
+      return;
+    }
+    setEditValues({
+      name: boardData.projectName,
+      description: boardData.projectDescription ?? boardData.projectGoal ?? "",
+      status: boardData.projectStatus ?? "active",
+      startDate: toInputDate(boardData.projectStartDate),
+      endDate: toInputDate(boardData.projectEndDate),
+      systemPrompt: boardData.projectSystemPrompt ?? "",
+    });
+  }, [boardData]);
+
+  const [activeChallengeId, setActiveChallengeId] = useState<string | null>(null);
+  const rightColumnRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!boardData) {
+      setActiveChallengeId(null);
+      return;
+    }
+
+    if (activeChallengeId && boardData.challenges.some(challenge => challenge.id === activeChallengeId)) {
+      return;
+    }
+
+    setActiveChallengeId(boardData.challenges[0]?.id ?? null);
+  }, [boardData, activeChallengeId]);
+
+  const allChallenges = useMemo(() => (boardData ? flattenChallenges(boardData.challenges) : []), [boardData]);
 
   const challengeInsightMap = useMemo(() => {
+    if (!boardData) {
+      return new Map<string, ChallengeInsightRow[]>();
+    }
     const map = new Map<string, ChallengeInsightRow[]>();
     boardData.asks.forEach(ask => {
       ask.participants.forEach(participant => {
@@ -122,9 +287,12 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
       });
     });
     return map;
-  }, [boardData.asks]);
+  }, [boardData]);
 
   const asksByChallenge = useMemo(() => {
+    if (!boardData) {
+      return new Map<string, ProjectAskOverview[]>();
+    }
     const map = new Map<string, ProjectAskOverview[]>();
     boardData.asks.forEach(ask => {
       ask.originatingChallengeIds.forEach(challengeId => {
@@ -134,10 +302,7 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
       });
     });
     return map;
-  }, [boardData.asks]);
-
-  const [activeChallengeId, setActiveChallengeId] = useState<string | null>(() => allChallenges[0]?.id ?? null);
-  const rightColumnRef = useRef<HTMLDivElement | null>(null);
+  }, [boardData]);
 
   const activeChallenge = useMemo(
     () => (activeChallengeId ? allChallenges.find(challenge => challenge.id === activeChallengeId) ?? null : null),
@@ -162,7 +327,9 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
 
   const renderChallengeList = (nodes: ProjectChallengeNode[], depth = 0) => {
     return (
-      <div className={cn("space-y-3", depth > 0 && "border-l border-white/10 pl-4")}>
+      <div className={cn("space-y-3", depth > 0 && "border-l border-white/10 pl-4")}
+        data-depth={depth}
+      >
         {nodes.map(node => {
           const isActive = activeChallengeId === node.id;
           const insightCount = challengeInsightMap.get(node.id)?.length ?? 0;
@@ -179,7 +346,9 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
               )}
             >
               <button type="button" className="w-full text-left" onClick={() => setActiveChallengeId(node.id)}>
-                <div className={cn("flex flex-col gap-2", isActive ? "p-4" : "p-3")}>
+                <div className={cn("flex flex-col gap-2", isActive ? "p-4" : "p-3")}
+                  data-active={isActive}
+                >
                   {isActive ? (
                     <>
                       <div className="flex items-start justify-between gap-3">
@@ -205,7 +374,7 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
                         {subChallengeCount > 0 ? (
                           <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2.5 py-1 text-slate-200">
                             <ChevronRight className="h-3.5 w-3.5" />
-                            {subChallengeCount} sous-challenge{subChallengeCount > 1 ? "s" : ""}
+                            {subChallengeCount} sub-challenge{subChallengeCount > 1 ? "s" : ""}
                           </span>
                         ) : null}
                       </div>
@@ -239,7 +408,7 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
                         {ownerCount > 0 ? (
                           <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2 py-0.5 text-slate-200">
                             <Users className="h-3 w-3" />
-                            {ownerCount > 1 ? `${ownerCount} personnes` : owners[0]?.name}
+                            {ownerCount > 1 ? `${ownerCount} people` : owners[0]?.name}
                           </span>
                         ) : null}
                         {subChallengeCount > 0 ? (
@@ -294,7 +463,7 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
     if (rows.length === 0) {
       return (
         <div className="rounded-md border border-dashed border-white/10 bg-slate-900/60 px-4 py-3 text-sm text-slate-300">
-          Aucun insight n'a encore été publié pour cet ASK.
+          No insights have been published for this ASK yet.
         </div>
       );
     }
@@ -329,7 +498,7 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
             <p className="mt-1 text-sm text-slate-300">{row.description}</p>
             {row.relatedChallengeIds.length ? (
               <div className="mt-2 text-xs text-slate-400">
-                Lié à {row.relatedChallengeIds.length} challenge{row.relatedChallengeIds.length > 1 ? "s" : ""}
+                Linked to {row.relatedChallengeIds.length} challenge{row.relatedChallengeIds.length > 1 ? "s" : ""}
               </div>
             ) : null}
           </div>
@@ -338,42 +507,324 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
     );
   };
 
+  if (!boardData && isLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-3 py-16 text-slate-300">
+        <Loader2 className="h-6 w-6 animate-spin text-indigo-300" />
+        <p>Loading project journey…</p>
+      </div>
+    );
+  }
+
+  if (!boardData) {
+    return (
+      <div className="rounded-xl border border-white/10 bg-slate-900/70 p-6 text-center text-slate-200">
+        Unable to display project data.
+      </div>
+    );
+  }
+
+  const projectStart = formatFullDate(boardData.projectStartDate);
+  const projectEnd = formatFullDate(boardData.projectEndDate);
+
+  const handleEditToggle = () => {
+    setIsEditingProject(current => !current);
+    setFeedback(null);
+  };
+
+  const handleInputChange = (field: keyof ProjectEditState) => (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const { value } = event.target;
+    setEditValues(current => ({ ...current, [field]: value }));
+  };
+
+  const handleProjectSave = async () => {
+    if (!boardData) {
+      return;
+    }
+    const payload: Record<string, unknown> = {};
+    const trimmedName = editValues.name.trim();
+    if (trimmedName.length > 0 && trimmedName !== boardData.projectName) {
+      payload.name = trimmedName;
+    }
+
+    if (editValues.description.trim() !== (boardData.projectDescription ?? boardData.projectGoal ?? "").trim()) {
+      payload.description = editValues.description;
+    }
+
+    if (editValues.status !== (boardData.projectStatus ?? "")) {
+      payload.status = editValues.status;
+    }
+
+    if (editValues.startDate && editValues.startDate !== toInputDate(boardData.projectStartDate)) {
+      const startDate = new Date(editValues.startDate);
+      if (Number.isNaN(startDate.getTime())) {
+        setFeedback({ type: "error", message: "Please provide a valid project start date." });
+        return;
+      }
+      payload.startDate = startDate.toISOString();
+    }
+
+    if (editValues.endDate && editValues.endDate !== toInputDate(boardData.projectEndDate)) {
+      const endDate = new Date(editValues.endDate);
+      if (Number.isNaN(endDate.getTime())) {
+        setFeedback({ type: "error", message: "Please provide a valid project end date." });
+        return;
+      }
+      payload.endDate = endDate.toISOString();
+    }
+
+    if (editValues.systemPrompt !== (boardData.projectSystemPrompt ?? "")) {
+      payload.systemPrompt = editValues.systemPrompt;
+    }
+
+    if (Object.keys(payload).length === 0) {
+      setFeedback({ type: "error", message: "No changes detected." });
+      return;
+    }
+
+    try {
+      setIsSavingProject(true);
+      setFeedback(null);
+      const response = await fetch(`/api/admin/projects/${projectId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || "Unable to update project");
+      }
+      const updated = result.data as {
+        name: string;
+        description?: string | null;
+        status: string;
+        startDate: string;
+        endDate: string;
+        systemPrompt?: string | null;
+      };
+
+      setBoardData(current =>
+        current
+          ? {
+              ...current,
+              projectName: updated.name,
+              projectDescription: updated.description ?? null,
+              projectGoal: updated.description ?? null,
+              projectStatus: updated.status,
+              projectStartDate: updated.startDate,
+              projectEndDate: updated.endDate,
+              projectSystemPrompt: updated.systemPrompt ?? null,
+              timeframe: formatTimeframe(updated.startDate, updated.endDate),
+            }
+          : current,
+      );
+
+      setFeedback({ type: "success", message: "Project updated successfully." });
+      setIsEditingProject(false);
+    } catch (err) {
+      console.error("Failed to update project", err);
+      setFeedback({
+        type: "error",
+        message: err instanceof Error ? err.message : "Unable to update project.",
+      });
+    } finally {
+      setIsSavingProject(false);
+    }
+  };
+
   return (
     <div className="space-y-8 text-slate-100">
+      {error ? (
+        <Alert variant="destructive">
+          <AlertTitle>Live data unavailable</AlertTitle>
+          <AlertDescription>
+            {error}. Showing mock data so you can continue designing the experience.
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
+      {feedback ? (
+        <Alert variant={feedback.type === "success" ? "default" : "destructive"}>
+          <AlertDescription>{feedback.message}</AlertDescription>
+        </Alert>
+      ) : null}
+
       <header className="rounded-xl border border-white/10 bg-slate-900/70 p-6 shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <p className="text-sm uppercase tracking-wide text-indigo-200">Projet</p>
+            <p className="text-sm uppercase tracking-wide text-indigo-200">Project</p>
             <h1 className="text-2xl font-semibold text-white">{boardData.projectName}</h1>
-            <p className="mt-1 text-sm text-slate-300">Client : {boardData.clientName}</p>
+            {boardData.clientName ? (
+              <p className="mt-1 text-sm text-slate-300">Client: {boardData.clientName}</p>
+            ) : null}
           </div>
-          <div className="flex flex-col items-end gap-2 text-sm text-slate-300">
-            <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/10 px-3 py-1 font-medium text-slate-100">
-              <Target className="h-4 w-4 text-indigo-300" />
-              {boardData.projectGoal}
-            </span>
-            <span className="inline-flex items-center gap-2 text-slate-400">
-              <Calendar className="h-4 w-4 text-slate-300" /> {boardData.timeframe}
-            </span>
+          <div className="flex flex-wrap items-center gap-2">
+            {isEditingProject ? (
+              <>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={handleProjectSave}
+                  disabled={isSavingProject}
+                  className="gap-2"
+                >
+                  {isSavingProject ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                  Save changes
+                </Button>
+                <Button size="sm" variant="outline" onClick={handleEditToggle} disabled={isSavingProject} className="gap-2">
+                  <X className="h-4 w-4" />
+                  Cancel
+                </Button>
+              </>
+            ) : (
+              <Button size="sm" variant="outline" onClick={handleEditToggle} className="gap-2">
+                <Pencil className="h-4 w-4" />
+                Edit project
+              </Button>
+            )}
           </div>
         </div>
+
+        <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div>
+            <p className="text-xs uppercase tracking-wide text-slate-400">Status</p>
+            <p className="mt-1 text-sm font-medium text-slate-100 capitalize">
+              {boardData.projectStatus ?? "unknown"}
+            </p>
+          </div>
+          <div>
+            <p className="text-xs uppercase tracking-wide text-slate-400">Timeline</p>
+            <p className="mt-1 text-sm font-medium text-slate-100">
+              {boardData.timeframe ?? "Not specified"}
+            </p>
+          </div>
+          <div>
+            <p className="text-xs uppercase tracking-wide text-slate-400">Start date</p>
+            <p className="mt-1 text-sm font-medium text-slate-100">{projectStart ?? "—"}</p>
+          </div>
+          <div>
+            <p className="text-xs uppercase tracking-wide text-slate-400">End date</p>
+            <p className="mt-1 text-sm font-medium text-slate-100">{projectEnd ?? "—"}</p>
+          </div>
+        </div>
+
+        {boardData.projectDescription ? (
+          <p className="mt-4 text-sm text-slate-300">{boardData.projectDescription}</p>
+        ) : null}
+
+        {boardData.projectSystemPrompt && !isEditingProject ? (
+          <div className="mt-4 max-h-64 overflow-y-auto rounded-lg border border-white/10 bg-slate-900/60 p-4 text-sm text-slate-200">
+            <p className="mb-2 font-semibold text-slate-100">Project system prompt</p>
+            <pre className="whitespace-pre-wrap leading-relaxed text-slate-200">{boardData.projectSystemPrompt}</pre>
+          </div>
+        ) : null}
       </header>
+
+      {isEditingProject ? (
+        <Card className="border border-white/15 bg-slate-900/70">
+          <CardHeader>
+            <CardTitle>Edit project details</CardTitle>
+            <p className="text-sm text-slate-300">Adjust the information below, including the system prompt used by the AI.</p>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="project-name">Name</Label>
+                <Input
+                  id="project-name"
+                  value={editValues.name}
+                  onChange={handleInputChange("name")}
+                  placeholder="Project name"
+                />
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="project-status">Status</Label>
+                <Input
+                  id="project-status"
+                  value={editValues.status}
+                  onChange={handleInputChange("status")}
+                  placeholder="active"
+                />
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="project-start">Start date</Label>
+                <Input
+                  id="project-start"
+                  type="datetime-local"
+                  value={editValues.startDate}
+                  onChange={handleInputChange("startDate")}
+                />
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="project-end">End date</Label>
+                <Input
+                  id="project-end"
+                  type="datetime-local"
+                  value={editValues.endDate}
+                  onChange={handleInputChange("endDate")}
+                />
+              </div>
+              <div className="md:col-span-2 flex flex-col gap-2">
+                <Label htmlFor="project-description">Description</Label>
+                <Textarea
+                  id="project-description"
+                  rows={3}
+                  value={editValues.description}
+                  onChange={handleInputChange("description")}
+                  placeholder="What is the goal of this project?"
+                />
+              </div>
+              <div className="md:col-span-2 flex flex-col gap-2">
+                <Label htmlFor="project-prompt">System prompt</Label>
+                <Textarea
+                  id="project-prompt"
+                  rows={6}
+                  value={editValues.systemPrompt}
+                  onChange={handleInputChange("systemPrompt")}
+                  placeholder="Provide the system prompt used by the AI for this project"
+                />
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
+              <span>
+                Tip: keep the system prompt concise and use placeholders such as {{project_name}} or {{client_name}} to reuse across projects.
+              </span>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)] lg:items-start">
         <div className="lg:max-h-[70vh] lg:overflow-y-auto lg:pr-2">
           <section className="space-y-4">
-            <div>
-              <h2 className="text-lg font-semibold text-white">Challenges du projet</h2>
-              <p className="text-sm text-slate-300">
-                Sélectionnez un challenge pour explorer les insights qui l'ont fait émerger et les ASKs associés.
-              </p>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-semibold text-white">Project challenges</h2>
+                <p className="text-sm text-slate-300">
+                  Select a challenge to explore the insights that shaped it and the ASKs linked to its resolution.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="gap-2 border-indigo-300/40 bg-indigo-500/10 text-indigo-100 hover:bg-indigo-500/20"
+                >
+                  <Sparkles className="h-4 w-4" />
+                  Launch AI challenge builder
+                </Button>
+                <Button type="button" size="sm" className="gap-2 bg-indigo-500 text-white hover:bg-indigo-400">
+                  <Plus className="h-4 w-4" />
+                  New challenge
+                </Button>
+              </div>
             </div>
             {boardData.challenges.length ? (
               renderChallengeList(boardData.challenges)
             ) : (
               <Card className="border-dashed border-white/10 bg-slate-900/60">
                 <CardContent className="py-10 text-center text-sm text-slate-300">
-                  Aucun challenge n'est encore défini pour ce projet.
+                  No challenges have been defined for this project yet.
                 </CardContent>
               </Card>
             )}
@@ -385,15 +836,14 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
             {!activeChallenge ? (
               <>
                 <div>
-                  <h2 className="text-lg font-semibold text-white">Sélectionnez un challenge</h2>
+                  <h2 className="text-lg font-semibold text-white">Select a challenge</h2>
                   <p className="text-sm text-slate-300">
-                    Visualisez les sessions ASK planifiées pour instruire un challenge, les insights générés et leurs rattachements
-                    projets.
+                    Review the ASKs planned for a challenge, along with the insights and project relationships they generate.
                   </p>
                 </div>
                 <Card className="border-dashed border-white/10 bg-slate-900/60">
                   <CardContent className="py-10 text-center text-sm text-slate-300">
-                    Sélectionnez un challenge dans la colonne de gauche pour découvrir les ASKs correspondants.
+                    Choose a challenge from the list on the left to see its details.
                   </CardContent>
                 </Card>
               </>
@@ -402,10 +852,10 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
                 <Card className="border border-white/10 bg-slate-900/70">
                   <CardHeader className="pb-2">
                     <CardTitle className="text-lg font-semibold text-white">
-                      Insights fondateurs du challenge
+                      Foundational insights
                     </CardTitle>
                     <p className="text-sm text-slate-300">
-                      Ces insights ont permis de formuler le challenge « {activeChallenge.title} ».
+                      These insights contributed to framing the challenge "{activeChallenge.title}".
                     </p>
                   </CardHeader>
                   <CardContent>
@@ -439,7 +889,7 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
                               </span>
                               <span className="inline-flex items-center gap-1 text-slate-300">
                                 <Lightbulb className="h-3.5 w-3.5 text-indigo-300" />
-                                ASK : {insight.askTitle}
+                                ASK: {insight.askTitle}
                               </span>
                             </div>
                             <p className="mt-2 text-sm font-semibold text-white">{insight.title}</p>
@@ -449,7 +899,7 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
                       </div>
                     ) : (
                       <div className="rounded-md border border-dashed border-white/10 bg-slate-900/60 px-4 py-3 text-sm text-slate-300">
-                        Aucun insight ne référence encore ce challenge.
+                        No insights are linked to this challenge yet.
                       </div>
                     )}
                   </CardContent>
@@ -458,20 +908,20 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
                 <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-slate-900/70 px-4 py-3 shadow-sm">
                   <div>
                     <h2 className="text-lg font-semibold text-white">
-                      Asks liés à « {activeChallenge.title} »
+                      ASKs linked to "{activeChallenge.title}"
                     </h2>
                     <p className="text-sm text-slate-300">
-                      Visualisez les sessions ASK planifiées pour instruire ce challenge, les insights générés et leurs rattachements projets.
+                      Review the ASK sessions planned for this challenge, including the insights gathered and related projects.
                     </p>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
                     <Button size="sm" className="gap-2 bg-indigo-500 text-white hover:bg-indigo-400">
                       <Plus className="h-4 w-4" />
-                      Créer un ASK
+                      Create ASK
                     </Button>
                     <Button size="sm" variant="outline" className="gap-2 border-white/20 bg-white/10 text-white hover:bg-white/20">
                       <Sparkles className="h-4 w-4" />
-                      Générer des ASK via IA
+                      Generate ASKs with AI
                     </Button>
                   </div>
                 </div>
@@ -488,21 +938,21 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
                             </div>
                             <div className="flex flex-col items-end gap-1 text-xs text-slate-400">
                               <span className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/10 px-2.5 py-1 font-medium text-slate-100">
-                                <Calendar className="h-3.5 w-3.5 text-slate-200" /> Échéance {formatDate(ask.dueDate)}
+                                <Calendar className="h-3.5 w-3.5 text-slate-200" /> Due {formatDate(ask.dueDate)}
                               </span>
-                              <span className="text-slate-300">Statut : {ask.status}</span>
+                              <span className="text-slate-300">Status: {ask.status}</span>
                             </div>
                           </div>
                           <div className="flex flex-wrap items-center gap-2 text-xs text-slate-300">
                             <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2.5 py-1 text-slate-200">
-                              <Target className="h-3.5 w-3.5 text-indigo-300" /> {ask.theme}
+                              <Target className="h-3.5 w-3.5 text-indigo-300" /> General theme
                             </span>
                             <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2.5 py-1 text-slate-200">
                               <Users className="h-3.5 w-3.5 text-slate-200" /> {ask.participants.length} participant{ask.participants.length > 1 ? "s" : ""}
                             </span>
                           </div>
                           <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
-                            <span className="font-semibold text-slate-300">Projets liés :</span>
+                            <span className="font-semibold text-slate-300">Related projects:</span>
                             {ask.relatedProjects.length ? (
                               ask.relatedProjects.map(project => (
                                 <span
@@ -513,12 +963,12 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
                                 </span>
                               ))
                             ) : (
-                              <span className="text-slate-400">Projet courant uniquement</span>
+                              <span className="text-slate-400">Current project only</span>
                             )}
                           </div>
                         </CardHeader>
                         <CardContent className="space-y-3">
-                          <h3 className="text-sm font-semibold text-slate-200">Insights produits</h3>
+                          <h3 className="text-sm font-semibold text-slate-200">Collected insights</h3>
                           {renderAskInsights(ask)}
                         </CardContent>
                       </Card>
@@ -526,7 +976,7 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
                   ) : (
                     <Card className="border-dashed border-white/10 bg-slate-900/60">
                       <CardContent className="py-10 text-center text-sm text-slate-300">
-                        Aucun ASK n'est encore planifié pour ce challenge.
+                        No ASK sessions are linked to this challenge yet.
                       </CardContent>
                     </Card>
                   )}

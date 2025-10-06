@@ -15,7 +15,9 @@ const updateSchema = z.object({
   priority: z.enum(priorityValues).optional(),
   category: z.string().trim().max(100).optional().or(z.literal("")),
   assignedTo: z.string().uuid().optional().or(z.literal("")),
-  dueDate: z.string().trim().min(1).optional()
+  dueDate: z.string().trim().min(1).optional(),
+  parentChallengeId: z.string().uuid().optional().or(z.literal("")),
+  systemPrompt: z.string().trim().max(8000).optional().or(z.literal(""))
 });
 
 function mapChallenge(row: any): ChallengeRecord {
@@ -28,9 +30,11 @@ function mapChallenge(row: any): ChallengeRecord {
     category: row.category,
     projectId: row.project_id,
     projectName: row.projects?.name ?? null,
+    parentChallengeId: row.parent_challenge_id ?? null,
     assignedTo: row.assigned_to,
     dueDate: row.due_date,
-    updatedAt: row.updated_at
+    updatedAt: row.updated_at,
+    systemPrompt: row.system_prompt ?? null
   };
 }
 
@@ -51,6 +55,13 @@ export async function PATCH(
     if (payload.category !== undefined) updateData.category = sanitizeOptional(payload.category);
     if (payload.assignedTo !== undefined) {
       updateData.assigned_to = payload.assignedTo && payload.assignedTo !== "" ? payload.assignedTo : null;
+    }
+    if (payload.parentChallengeId !== undefined) {
+      updateData.parent_challenge_id =
+        payload.parentChallengeId && payload.parentChallengeId !== "" ? payload.parentChallengeId : null;
+    }
+    if (payload.systemPrompt !== undefined) {
+      updateData.system_prompt = sanitizeOptional(payload.systemPrompt || null);
     }
     if (payload.dueDate) {
       const dueDate = new Date(payload.dueDate);

@@ -317,6 +317,7 @@ export interface ProjectRecord {
   createdBy?: string | null;
   createdAt: string;
   updatedAt: string;
+  systemPrompt?: string | null;
 }
 
 export interface ChallengeRecord {
@@ -332,6 +333,7 @@ export interface ChallengeRecord {
   assignedTo?: string | null;
   dueDate?: string | null;
   updatedAt: string;
+  systemPrompt?: string | null;
 }
 
 export interface AskSessionRecord {
@@ -415,6 +417,7 @@ export interface ProjectParticipantInsight {
 
 export interface ProjectAskParticipant {
   id: string;
+  userId?: string | null;
   name: string;
   role: string;
   avatarInitials: string;
@@ -457,8 +460,13 @@ export interface ProjectJourneyBoardData {
   projectId: string;
   projectName: string;
   clientName: string;
-  projectGoal: string;
-  timeframe: string;
+  projectGoal?: string | null;
+  timeframe?: string | null;
+  projectDescription?: string | null;
+  projectStatus?: string | null;
+  projectStartDate?: string | null;
+  projectEndDate?: string | null;
+  projectSystemPrompt?: string | null;
   asks: ProjectAskOverview[];
   challenges: ProjectChallengeNode[];
   availableUsers: ProjectParticipantOption[];
