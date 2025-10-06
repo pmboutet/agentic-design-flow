@@ -9,7 +9,7 @@ const statusValues = ["active", "inactive", "draft", "closed"] as const;
 const deliveryModes = ["physical", "digital"] as const;
 const audienceScopes = ["individual", "group"] as const;
 const responseModes = ["collective", "simultaneous"] as const;
-const askSelect = "*, projects(name), ask_participants(id, user_id, role, participant_name, participant_email, is_spokesperson, users(id, full_name, first_name, last_name, email, role))";
+const askSelect = "*, projects(name), ask_participants(id, user_id, role, participant_name, participant_email, is_spokesperson)";
 
 const updateSchema = z.object({
   name: z.string().trim().min(1).max(255).optional(),
