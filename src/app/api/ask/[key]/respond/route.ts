@@ -593,11 +593,23 @@ function normaliseIncomingInsights(value: unknown): { types: Insight['type'][]; 
 function sanitiseJsonString(raw: string): string {
   let trimmed = raw.trim();
 
+  const fencedMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  if (fencedMatch && typeof fencedMatch[1] === 'string') {
+    const candidate = fencedMatch[1].trim();
+    const bracketed = extractBracketedJson(candidate);
+    return bracketed ?? candidate;
+  }
+
+  const bracketed = extractBracketedJson(trimmed);
+  if (bracketed) {
+    return bracketed;
+  }
+
   if (trimmed.startsWith('```')) {
     trimmed = trimmed.replace(/^```(?:json)?\s*/i, '');
-    if (trimmed.endsWith('```')) {
-      trimmed = trimmed.slice(0, -3);
-    }
+  }
+  if (trimmed.endsWith('```')) {
+    trimmed = trimmed.slice(0, -3);
   }
 
   return trimmed.trim();
