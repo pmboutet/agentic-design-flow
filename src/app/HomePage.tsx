@@ -35,6 +35,7 @@ export default function HomePage() {
   });
   const responseTimerRef = useRef<NodeJS.Timeout | null>(null);
   const insightDetectionTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const hasPostedMessageSinceRefreshRef = useRef(false);
   const [awaitingAiResponse, setAwaitingAiResponse] = useState(false);
   const [isDetectingInsights, setIsDetectingInsights] = useState(false);
   const participantFromUrl = searchParams.get('participant') || searchParams.get('participantName');
@@ -81,6 +82,10 @@ export default function HomePage() {
     }
   }, []);
 
+  const markMessagePosted = useCallback(() => {
+    hasPostedMessageSinceRefreshRef.current = true;
+  }, []);
+
   const triggerAiResponse = useCallback(async () => {
     if (!sessionData.askKey) {
       return;
@@ -108,6 +113,7 @@ export default function HomePage() {
           metadata: { senderName: 'Agent' },
         };
 
+        markMessagePosted();
         setSessionData(prev => ({
           ...prev,
           messages: [...prev.messages, simulatedAiMessage],
@@ -127,6 +133,7 @@ export default function HomePage() {
       }
 
       if (data.data?.message) {
+        markMessagePosted();
         setSessionData(prev => ({
           ...prev,
           messages: [
@@ -176,6 +183,10 @@ export default function HomePage() {
       return;
     }
 
+    if (!hasPostedMessageSinceRefreshRef.current) {
+      return;
+    }
+
     try {
       setIsDetectingInsights(true);
       
@@ -206,6 +217,10 @@ export default function HomePage() {
   }, [sessionData.askKey, sessionData.ask?.askSessionId]);
 
   const scheduleInsightDetection = useCallback(() => {
+    if (!hasPostedMessageSinceRefreshRef.current) {
+      return;
+    }
+
     cancelInsightDetectionTimer();
     insightDetectionTimerRef.current = setTimeout(() => {
       triggerInsightDetection();
@@ -286,6 +301,8 @@ export default function HomePage() {
       error: null
     }));
 
+    hasPostedMessageSinceRefreshRef.current = false;
+
     // Load session data from external backend or test endpoint
     loadSessionData(key);
   }, [searchParams]);
@@ -300,7 +317,9 @@ export default function HomePage() {
       } else {
         // Si l'utilisateur arrête de taper et qu'aucune réponse AI n'est en cours,
         // programmer la détection d'insights
-        scheduleInsightDetection();
+        if (hasPostedMessageSinceRefreshRef.current) {
+          scheduleInsightDetection();
+        }
       }
     }
   }, [awaitingAiResponse, cancelResponseTimer, scheduleResponseTimer, cancelInsightDetectionTimer, scheduleInsightDetection]);
@@ -326,6 +345,9 @@ export default function HomePage() {
       if (!data.success) {
         throw new Error(data.error || 'Failed to load session data from backend');
       }
+
+      const hasPersistedMessages = (data.data?.messages ?? []).length > 0;
+      hasPostedMessageSinceRefreshRef.current = hasPersistedMessages;
 
       setSessionData(prev => {
         const messagesWithClientIds = (data.data?.messages ?? []).map(message => {
@@ -419,6 +441,7 @@ export default function HomePage() {
 
       // Update the optimistic message with the real one
       if (data.data?.message) {
+        markMessagePosted();
         setSessionData(prev => ({
           ...prev,
           messages: prev.messages.map(message =>
@@ -538,6 +561,7 @@ export default function HomePage() {
                   }));
                 } else if (parsed.type === 'message' && parsed.message) {
                   // Replace the streaming message with the final one
+                  markMessagePosted();
                   setSessionData(prev => ({
                     ...prev,
                     messages: prev.messages.map(msg =>
