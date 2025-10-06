@@ -973,6 +973,8 @@ async function triggerInsightDetection(
             return JSON.parse(candidate);
           }
         }
+      } catch {
+        // Ignore parse errors and fall through to the shared failure path below
       }
 
       throw new Error('Le contenu retourné par l’agent insight n’est pas un JSON valide.');
