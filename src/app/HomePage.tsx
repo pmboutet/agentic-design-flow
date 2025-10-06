@@ -130,7 +130,7 @@ export default function HomePage() {
         body: JSON.stringify({ mode: 'insights-only' }),
       });
 
-      const data: ApiResponse<{ insights?: Insight[] }> = await response.json();
+      const data: ApiResponse<{ message?: Message; insights?: Insight[] }> = await response.json();
 
       if (!response.ok || !data.success) {
         throw new Error(data.error || `Unable to trigger insight detection (status ${response.status})`);
