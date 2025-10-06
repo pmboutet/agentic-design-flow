@@ -1153,14 +1153,20 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
       const { askKey: _askKey, ...updatePayload } = payload;
       await updateAsk(editingAskId, updatePayload);
     } else {
-      if (!selectedChallenge || !selectedProject) {
+      const projectId = selectedChallenge?.projectId ?? selectedProjectId;
+
+      if (!projectId) {
+        setFeedback({
+          type: "error",
+          message: "Select a project before creating an ASK."
+        });
         return;
       }
 
       await createAsk({
         ...payload,
-        projectId: selectedProject.id,
-        challengeId: selectedChallenge.id
+        projectId,
+        challengeId: selectedChallenge?.id ?? ""
       });
     }
 
