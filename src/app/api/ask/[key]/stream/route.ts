@@ -7,7 +7,7 @@ import { callModelProviderStream } from '@/lib/ai/providers';
 import { createAgentLog, markAgentLogProcessing, completeAgentLog, failAgentLog } from '@/lib/ai/logs';
 import { DEFAULT_MAX_OUTPUT_TOKENS } from '@/lib/ai/constants';
 import { getChatAgentConfig, DEFAULT_CHAT_AGENT_SLUG, type PromptVariables, type AgentConfigResult } from '@/lib/ai/agent-config';
-import type { AiAgentLog } from '@/types';
+import type { AiAgentLog, Insight } from '@/types';
 
 const CHAT_AGENT_SLUG = DEFAULT_CHAT_AGENT_SLUG;
 
@@ -526,6 +526,51 @@ export async function POST(
                     controller.enqueue(encoder.encode(`data: ${finalData}\n\n`));
                   }
                 }
+              }
+
+              // Trigger insight detection to capture KPI insights
+              try {
+                const respondUrl = new URL(request.url);
+                respondUrl.pathname = `/api/ask/${encodeURIComponent(key)}/respond`;
+                respondUrl.search = '';
+
+                const detectionResponse = await fetch(respondUrl.toString(), {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                  },
+                  body: JSON.stringify({
+                    detectInsights: true,
+                    askSessionId: askRow.id,
+                  }),
+                  cache: 'no-store',
+                });
+
+                if (detectionResponse.ok) {
+                  type DetectionPayload = {
+                    success: boolean;
+                    data?: { insights?: Insight[] };
+                    error?: string;
+                  };
+
+                  const detectionJson = (await detectionResponse.json()) as DetectionPayload;
+
+                  if (detectionJson.success) {
+                    const insights = detectionJson.data?.insights ?? [];
+
+                    const insightsEvent = JSON.stringify({
+                      type: 'insights',
+                      insights,
+                    });
+                    controller.enqueue(encoder.encode(`data: ${insightsEvent}\n\n`));
+                  } else if (detectionJson.error) {
+                    console.warn('Insight detection responded with error:', detectionJson.error);
+                  }
+                } else {
+                  console.error('Insight detection request failed:', detectionResponse.status, detectionResponse.statusText);
+                }
+              } catch (insightError) {
+                console.error('Unable to detect insights:', insightError);
               }
 
               // Send completion signal

@@ -460,10 +460,12 @@ export default function HomePage() {
 
       // Now trigger the streaming AI response
       setAwaitingAiResponse(true);
-      await handleStreamingResponse();
+      const insightsCapturedDuringStream = await handleStreamingResponse();
       
-      // Programmer la détection d'insights après la réponse AI
-      scheduleInsightDetection();
+      // Programmer la détection d'insights seulement si aucune donnée n'a été envoyée pendant le streaming
+      if (!insightsCapturedDuringStream) {
+        scheduleInsightDetection();
+      }
 
     } catch (error) {
       console.error('Error sending message:', error);
@@ -479,8 +481,8 @@ export default function HomePage() {
   };
 
   // Handle streaming AI response
-  const handleStreamingResponse = async () => {
-    if (!sessionData.askKey || awaitingAiResponse) return;
+  const handleStreamingResponse = async (): Promise<boolean> => {
+    if (!sessionData.askKey || awaitingAiResponse) return false;
 
     // Annuler la détection d'insights pendant le streaming
     cancelInsightDetectionTimer();
@@ -512,6 +514,7 @@ export default function HomePage() {
       const decoder = new TextDecoder();
       let buffer = '';
       let streamingMessage = '';
+      let insightsUpdatedDuringStream = false;
 
       // Add a temporary streaming message
       const streamingId = `streaming-${Date.now()}`;
@@ -570,17 +573,28 @@ export default function HomePage() {
                         : msg
                     ),
                   }));
+                } else if (parsed.type === 'insights') {
+                  insightsUpdatedDuringStream = true;
+                  const insights = Array.isArray(parsed.insights) ? parsed.insights : [];
+                  cancelInsightDetectionTimer();
+                  setIsDetectingInsights(false);
+                  setSessionData(prev => ({
+                    ...prev,
+                    insights,
+                  }));
                 } else if (parsed.type === 'done') {
                   setAwaitingAiResponse(false);
                   // Recharger les messages pour afficher le message persisté
                   await loadSessionData(sessionData.askKey);
-                  // Programmer la détection d'insights après la fin du streaming
-                  scheduleInsightDetection();
-                  return;
+                  if (insightsUpdatedDuringStream) {
+                    cancelInsightDetectionTimer();
+                    setIsDetectingInsights(false);
+                  }
+                  return insightsUpdatedDuringStream;
                 } else if (parsed.type === 'error') {
                   console.error('Streaming error:', parsed.error);
                   setAwaitingAiResponse(false);
-                  return;
+                  return false;
                 }
               } catch (error) {
                 console.error('Error parsing streaming data:', error);
@@ -589,9 +603,12 @@ export default function HomePage() {
           }
         }
       }
+
+      return insightsUpdatedDuringStream;
     } catch (error) {
       console.error('Streaming error:', error);
       setAwaitingAiResponse(false);
+      return false;
     }
   };
 
