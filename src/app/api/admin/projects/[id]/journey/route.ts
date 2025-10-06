@@ -329,17 +329,18 @@ export async function GET(
       }
     }
 
-    for (const [userId, summary] of ownerMap.entries()) {
-      if (!availableUsers.has(userId)) {
-        availableUsers.set(userId, {
-          id: userId,
-          name: summary.name,
-          role: summary.role ?? "owner",
-          avatarInitials: initialsFromName(summary.name),
-          avatarColor: undefined,
-        });
+    ownerMap.forEach((summary, userId) => {
+      if (availableUsers.has(userId)) {
+        return;
       }
-    }
+      availableUsers.set(userId, {
+        id: userId,
+        name: summary.name,
+        role: summary.role ?? "owner",
+        avatarInitials: initialsFromName(summary.name),
+        avatarColor: undefined,
+      });
+    });
 
     const insightsByAskId = new Map<string, ProjectParticipantInsight[]>();
 
@@ -363,21 +364,17 @@ export async function GET(
     }
 
     // Attach insights to participants
-    for (const [askId, participants] of participantsByAskId.entries()) {
+    participantsByAskId.forEach((participants, askId) => {
       const askInsights = insightsByAskId.get(askId) ?? [];
 
-      for (const participant of participants) {
+      participants.forEach(participant => {
         const matchingInsights = askInsights.filter(insight =>
           insight.contributors?.some(contributor => contributor.id === participant.id || contributor.name === participant.name),
         );
 
-        if (matchingInsights.length > 0) {
-          participant.insights = matchingInsights;
-        } else {
-          participant.insights = askInsights;
-        }
-      }
-    }
+        participant.insights = matchingInsights.length > 0 ? matchingInsights : askInsights;
+      });
+    });
 
     const challengeNodes = buildChallengeTree(challengeRows, relatedInsightMap, ownerMap);
 
@@ -406,10 +403,15 @@ export async function GET(
       };
     });
 
+    const clientRelation = (projectRow as { client?: any }).client;
+    const clientName = Array.isArray(clientRelation)
+      ? clientRelation[0]?.name ?? null
+      : clientRelation?.name ?? null;
+
     const journeyData: ProjectJourneyBoardData = {
       projectId,
       projectName: projectRow.name,
-      clientName: projectRow.client?.name ?? null,
+      clientName,
       projectGoal: projectRow.description ?? null,
       timeframe: formatTimeframe(projectRow.start_date, projectRow.end_date),
       projectDescription: projectRow.description ?? null,

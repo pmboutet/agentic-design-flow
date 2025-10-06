@@ -787,7 +787,7 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
             </div>
             <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
               <span>
-                Tip: keep the system prompt concise and use placeholders such as {{project_name}} or {{client_name}} to reuse across projects.
+                {'Tip: keep the system prompt concise and use placeholders such as {{project_name}} or {{client_name}} to reuse across projects.'}
               </span>
             </div>
           </CardContent>
