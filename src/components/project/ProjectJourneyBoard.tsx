@@ -1,6 +1,7 @@
 "use client";
 
 import { type ChangeEvent, type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import * as Dialog from "@radix-ui/react-dialog";
 import { useRouter } from "next/navigation";
 import {
   Calendar,
@@ -1810,7 +1811,7 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
                   size="sm"
                   className="gap-2 bg-indigo-500 text-white hover:bg-indigo-400"
                   onClick={() => handleChallengeStart()}
-                  disabled={isChallengeFormVisible || isSavingChallenge}
+                  disabled={isSavingChallenge}
                 >
                   <Plus className="h-4 w-4" />
                   New challenge
@@ -1823,145 +1824,6 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
               </Alert>
             ) : null}
 
-            {isChallengeFormVisible ? (
-              <Card className="border border-indigo-300/40 bg-slate-900/70">
-                <CardHeader>
-                  <CardTitle>{isEditingChallenge ? "Edit challenge" : "Create a new challenge"}</CardTitle>
-                  <p className="text-sm text-slate-300">
-                    {isEditingChallenge
-                      ? "Update the challenge status, impact or context without leaving the admin board."
-                      : "Provide a clear title, status and description so collaborators can respond effectively."}
-                  </p>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <div className="flex flex-col gap-2">
-                      <Label htmlFor="challenge-title">Title</Label>
-                      <Input
-                        id="challenge-title"
-                        value={challengeFormValues.title}
-                        onChange={handleChallengeFieldChange("title")}
-                        placeholder="What problem are you addressing?"
-                      />
-                    </div>
-                    <div className="flex flex-col gap-2">
-                      <Label htmlFor="challenge-status">Status</Label>
-                      <select
-                        id="challenge-status"
-                        value={challengeFormValues.status}
-                        onChange={handleChallengeFieldChange("status")}
-                        className="rounded-md border border-white/10 bg-slate-950/80 px-3 py-2 text-sm text-slate-100 focus:border-indigo-400 focus:outline-none focus:ring focus:ring-indigo-400/20"
-                      >
-                        {challengeStatusOptions.map(option => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="flex flex-col gap-2">
-                      <Label htmlFor="challenge-impact">Impact</Label>
-                      <select
-                        id="challenge-impact"
-                        value={challengeFormValues.impact}
-                        onChange={handleChallengeFieldChange("impact")}
-                        className="rounded-md border border-white/10 bg-slate-950/80 px-3 py-2 text-sm text-slate-100 focus:border-indigo-400 focus:outline-none focus:ring focus:ring-indigo-400/20"
-                      >
-                        {(Object.entries(impactLabels) as [ProjectChallengeNode["impact"], string][]).map(([value, label]) => (
-                          <option key={value} value={value}>
-                            {label}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    {(parentChallengeOptions.length > 0 || challengeFormValues.parentId) ? (
-                      <div className="md:col-span-2 flex flex-col gap-2">
-                        <Label htmlFor="challenge-parent">Parent challenge</Label>
-                        <select
-                          id="challenge-parent"
-                          value={challengeFormValues.parentId}
-                          onChange={handleChallengeParentChange}
-                          className="rounded-md border border-white/10 bg-slate-950/80 px-3 py-2 text-sm text-slate-100 focus:border-indigo-400 focus:outline-none focus:ring focus:ring-indigo-400/20"
-                        >
-                          <option value="">No parent (top-level)</option>
-                          {parentChallengeOptions
-                            .filter(option => !invalidParentIds.has(option.id))
-                            .map(option => (
-                              <option key={option.id} value={option.id}>
-                                {option.label}
-                              </option>
-                            ))}
-                        </select>
-                        <p className="text-xs text-slate-400">
-                          {challengeFormValues.parentId
-                            ? selectedParentChallenge
-                              ? `This challenge will be nested under "${selectedParentChallenge.title}".`
-                              : "This challenge will be nested under the selected parent."
-                            : "Leave empty to create a top-level challenge."}
-                        </p>
-                      </div>
-                    ) : null}
-                    <div className="md:col-span-2 flex flex-col gap-2">
-                      <Label htmlFor="challenge-description">Description</Label>
-                      <Textarea
-                        id="challenge-description"
-                        rows={3}
-                        value={challengeFormValues.description}
-                        onChange={handleChallengeFieldChange("description")}
-                        placeholder="Provide useful context so the team understands the challenge."
-                      />
-                    </div>
-                  </div>
-                  {boardData.availableUsers?.length ? (
-                    <div className="flex flex-col gap-2">
-                      <Label>Owners</Label>
-                      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                        {boardData.availableUsers.map(user => {
-                          const isSelected = challengeFormValues.ownerIds.includes(user.id);
-                          return (
-                            <label
-                              key={user.id}
-                              className={cn(
-                                "inline-flex cursor-pointer items-center gap-2 rounded-lg border bg-slate-950/60 px-3 py-2 text-sm transition",
-                                isSelected
-                                  ? "border-indigo-400/70 bg-indigo-500/10 text-indigo-100"
-                                  : "border-white/10 text-slate-200 hover:border-indigo-300/50",
-                              )}
-                            >
-                              <input
-                                type="checkbox"
-                                checked={isSelected}
-                                onChange={() => handleChallengeOwnerToggle(user.id)}
-                                className="h-4 w-4 rounded border-white/30 bg-slate-900 text-indigo-500 focus:ring-indigo-400"
-                              />
-                              <span className="flex flex-col leading-tight">
-                                <span className="font-medium text-white">{user.name}</span>
-                                {user.role ? <span className="text-xs text-slate-400">{user.role}</span> : null}
-                              </span>
-                            </label>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ) : null}
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Button
-                      type="button"
-                      className="gap-2 bg-indigo-500 text-white hover:bg-indigo-400"
-                      onClick={handleChallengeSave}
-                      disabled={isSavingChallenge || !challengeFormValues.title.trim()}
-                    >
-                      {isSavingChallenge ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                      {isSavingChallenge ? "Saving" : isEditingChallenge ? "Update challenge" : "Save challenge"}
-                    </Button>
-                    <Button type="button" variant="outline" onClick={handleChallengeCancel} disabled={isSavingChallenge} className="gap-2">
-                      <X className="h-4 w-4" />
-                      Cancel
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            ) : null}
             {boardData.challenges?.length ? (
               renderChallengeList(boardData.challenges)
             ) : (
@@ -2080,316 +1942,6 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
                     </Button>
                   </div>
                 </div>
-
-                {isAskFormOpen ? (
-                  <form
-                    onSubmit={handleAskFormSubmit}
-                    className="space-y-4 rounded-xl border border-indigo-400/40 bg-slate-950/60 p-4 shadow-lg"
-                  >
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <h3 className="text-base font-semibold text-white">
-                        {isEditingAsk ? "Edit ASK session" : "Create ASK session"}
-                      </h3>
-                      {isEditingAsk ? (
-                        <span className="text-xs font-medium text-indigo-200">Editing current session</span>
-                      ) : null}
-                    </div>
-
-                    {askFeedback ? (
-                      <Alert
-                        className={cn(
-                          "border px-3 py-3",
-                          askFeedback.type === "error"
-                            ? "border-destructive/40 bg-destructive/10 text-destructive-foreground"
-                            : "border-emerald-400/40 bg-emerald-500/10 text-emerald-200",
-                        )}
-                      >
-                        <AlertTitle className="text-sm font-semibold">
-                          {askFeedback.type === "error" ? "Something went wrong" : "Success"}
-                        </AlertTitle>
-                        <AlertDescription className="text-sm">{askFeedback.message}</AlertDescription>
-                      </Alert>
-                    ) : null}
-
-                    {isLoadingAskDetails ? (
-                      <div className="flex items-center gap-2 text-sm text-slate-300">
-                        <Loader2 className="h-4 w-4 animate-spin text-indigo-300" />
-                        Loading ASK details…
-                      </div>
-                    ) : null}
-
-                    <div className="grid gap-4 md:grid-cols-2">
-                      <div className="flex flex-col gap-2">
-                        <Label htmlFor="ask-challenge">Challenge</Label>
-                        <select
-                          id="ask-challenge"
-                          value={askFormValues.challengeId}
-                          onChange={handleAskChallengeChange}
-                          className="h-10 rounded-md border border-white/10 bg-slate-900/70 px-3 text-sm text-white focus:border-indigo-400 focus:outline-none focus:ring focus:ring-indigo-400/20"
-                          disabled={isSavingAsk || isLoadingAskDetails}
-                        >
-                          <option value="">Select a challenge</option>
-                          {allChallenges.map(challenge => (
-                            <option key={challenge.id} value={challenge.id}>
-                              {challenge.title}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      <div className="flex flex-col gap-2">
-                        <Label htmlFor="ask-key">ASK key</Label>
-                        <div className="flex gap-2">
-                          <Input
-                            id="ask-key"
-                            value={askFormValues.askKey}
-                            onChange={handleAskKeyChange}
-                            placeholder="session-team-001"
-                            disabled={isSavingAsk || isLoadingAskDetails || isEditingAsk}
-                          />
-                          <Button
-                            type="button"
-                            variant="outline"
-                            className="border-white/20 bg-white/10 text-white hover:bg-white/20"
-                            onClick={handleAskKeyRegenerate}
-                            disabled={isSavingAsk || isLoadingAskDetails || isEditingAsk}
-                          >
-                            Refresh
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="grid gap-4 md:grid-cols-2">
-                      <div className="flex flex-col gap-2">
-                        <Label htmlFor="ask-name">Name</Label>
-                        <Input
-                          id="ask-name"
-                          value={askFormValues.name}
-                          onChange={handleAskNameChange}
-                          placeholder="Session name"
-                          disabled={isSavingAsk || isLoadingAskDetails}
-                        />
-                      </div>
-                      <div className="flex flex-col gap-2">
-                        <Label htmlFor="ask-status">Status</Label>
-                        <select
-                          id="ask-status"
-                          value={askFormValues.status}
-                          onChange={handleAskStatusChange}
-                          className="h-10 rounded-md border border-white/10 bg-slate-900/70 px-3 text-sm text-white focus:border-indigo-400 focus:outline-none focus:ring focus:ring-indigo-400/20"
-                          disabled={isSavingAsk || isLoadingAskDetails}
-                        >
-                          {askStatusOptions.map(status => (
-                            <option key={status} value={status}>
-                              {status}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    </div>
-
-                    <div className="flex flex-col gap-2">
-                      <Label htmlFor="ask-question">Question</Label>
-                      <Textarea
-                        id="ask-question"
-                        rows={3}
-                        value={askFormValues.question}
-                        onChange={handleAskQuestionChange}
-                        placeholder="What do you want participants to reflect on?"
-                        disabled={isSavingAsk || isLoadingAskDetails}
-                      />
-                    </div>
-
-                    <div className="flex flex-col gap-2">
-                      <Label htmlFor="ask-description">Description</Label>
-                      <Textarea
-                        id="ask-description"
-                        rows={2}
-                        value={askFormValues.description}
-                        onChange={handleAskDescriptionChange}
-                        placeholder="Share additional context"
-                        disabled={isSavingAsk || isLoadingAskDetails}
-                      />
-                    </div>
-
-                    <div className="grid gap-4 md:grid-cols-2">
-                      <div className="flex flex-col gap-2">
-                        <Label htmlFor="ask-start">Start</Label>
-                        <Input
-                          id="ask-start"
-                          type="datetime-local"
-                          value={askFormValues.startDate}
-                          onChange={handleAskStartChange}
-                          disabled={isSavingAsk || isLoadingAskDetails}
-                        />
-                      </div>
-                      <div className="flex flex-col gap-2">
-                        <Label htmlFor="ask-end">End</Label>
-                        <Input
-                          id="ask-end"
-                          type="datetime-local"
-                          value={askFormValues.endDate}
-                          onChange={handleAskEndChange}
-                          disabled={isSavingAsk || isLoadingAskDetails}
-                        />
-                      </div>
-                    </div>
-
-                    <div className="grid gap-4 md:grid-cols-3">
-                      <div className="flex flex-col gap-2">
-                        <Label htmlFor="ask-delivery">Delivery mode</Label>
-                        <select
-                          id="ask-delivery"
-                          value={askFormValues.deliveryMode}
-                          onChange={handleAskDeliveryModeChange}
-                          className="h-10 rounded-md border border-white/10 bg-slate-900/70 px-3 text-sm text-white focus:border-indigo-400 focus:outline-none focus:ring focus:ring-indigo-400/20"
-                          disabled={isSavingAsk || isLoadingAskDetails}
-                        >
-                          {askDeliveryModes.map(mode => (
-                            <option key={mode} value={mode}>
-                              {mode === "physical" ? "In-person" : "Digital"}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      <div className="flex flex-col gap-2">
-                        <Label htmlFor="ask-audience">Audience</Label>
-                        <select
-                          id="ask-audience"
-                          value={askFormValues.audienceScope}
-                          onChange={handleAskAudienceScopeChange}
-                          className="h-10 rounded-md border border-white/10 bg-slate-900/70 px-3 text-sm text-white focus:border-indigo-400 focus:outline-none focus:ring focus:ring-indigo-400/20"
-                          disabled={isSavingAsk || isLoadingAskDetails}
-                        >
-                          {askAudienceScopes.map(scope => (
-                            <option key={scope} value={scope}>
-                              {scope === "individual" ? "Individual" : "Group"}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      <div className="flex flex-col gap-2">
-                        <Label htmlFor="ask-response">Response mode</Label>
-                        <select
-                          id="ask-response"
-                          value={askFormValues.responseMode}
-                          onChange={handleAskResponseModeChange}
-                          className="h-10 rounded-md border border-white/10 bg-slate-900/70 px-3 text-sm text-white focus:border-indigo-400 focus:outline-none focus:ring focus:ring-indigo-400/20"
-                          disabled={isSavingAsk || isLoadingAskDetails}
-                        >
-                          {askResponseModes.map(mode => (
-                            <option key={mode} value={mode}>
-                              {mode === "collective" ? "Collective" : "Simultaneous"}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    </div>
-
-                    <div className="grid gap-4 md:grid-cols-2">
-                      <div className="flex flex-col gap-2">
-                        <Label htmlFor="ask-max-participants">Maximum participants</Label>
-                        <Input
-                          id="ask-max-participants"
-                          value={askFormValues.maxParticipants}
-                          onChange={handleAskMaxParticipantsChange}
-                          placeholder="Optional limit"
-                          disabled={isSavingAsk || isLoadingAskDetails}
-                        />
-                      </div>
-                      <label className="flex items-center gap-2 self-end text-sm text-slate-300">
-                        <input
-                          type="checkbox"
-                          className="h-4 w-4 rounded border-white/20 bg-slate-900"
-                          checked={askFormValues.isAnonymous}
-                          onChange={handleAskAnonymousToggle}
-                          disabled={isSavingAsk || isLoadingAskDetails}
-                        />
-                        Allow anonymous participation
-                      </label>
-                    </div>
-
-                    <div className="flex flex-col gap-2">
-                      <Label>Participants</Label>
-                      {boardData.availableUsers?.length ? (
-                        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                          {boardData.availableUsers.map(user => {
-                            const isSelected = askFormValues.participantIds.includes(user.id);
-                            return (
-                              <label
-                                key={user.id}
-                                className={cn(
-                                  "inline-flex cursor-pointer items-center gap-2 rounded-lg border bg-slate-950/60 px-3 py-2 text-sm transition",
-                                  isSelected
-                                    ? "border-indigo-400/70 bg-indigo-500/10 text-indigo-100"
-                                    : "border-white/10 text-slate-200 hover:border-indigo-300/50",
-                                )}
-                              >
-                                <input
-                                  type="checkbox"
-                                  className="h-4 w-4 rounded border-white/30 bg-slate-900 text-indigo-500 focus:ring-indigo-400"
-                                  checked={isSelected}
-                                  onChange={() => handleAskParticipantToggle(user.id)}
-                                  disabled={isSavingAsk || isLoadingAskDetails}
-                                />
-                                <span className="flex flex-col leading-tight">
-                                  <span className="font-medium text-white">{user.name}</span>
-                                  {user.role ? <span className="text-xs text-slate-400">{user.role}</span> : null}
-                                </span>
-                              </label>
-                            );
-                          })}
-                        </div>
-                      ) : (
-                        <p className="text-sm text-slate-400">No collaborators are available for this project yet.</p>
-                      )}
-                    </div>
-
-                    {askFormValues.participantIds?.length ? (
-                      <div className="flex flex-col gap-2">
-                        <Label htmlFor="ask-spokesperson">Spokesperson</Label>
-                        <select
-                          id="ask-spokesperson"
-                          value={askFormValues.spokespersonId}
-                          onChange={handleAskSpokespersonChange}
-                          className="h-10 rounded-md border border-white/10 bg-slate-900/70 px-3 text-sm text-white focus:border-indigo-400 focus:outline-none focus:ring focus:ring-indigo-400/20"
-                          disabled={isSavingAsk || isLoadingAskDetails}
-                        >
-                          <option value="">No spokesperson</option>
-                          {askFormValues.participantIds
-                            .map(participantId => boardData.availableUsers.find(user => user.id === participantId))
-                            .filter((user): user is NonNullable<typeof user> => Boolean(user))
-                            .map(user => (
-                              <option key={user.id} value={user.id}>
-                                {user.name}
-                              </option>
-                            ))}
-                        </select>
-                      </div>
-                    ) : null}
-
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Button
-                        type="submit"
-                        className="gap-2 bg-indigo-500 text-white hover:bg-indigo-400"
-                        disabled={isSavingAsk || isLoadingAskDetails}
-                      >
-                        {isSavingAsk ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                        {isEditingAsk ? "Update ASK" : "Save ASK"}
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={handleAskCancel}
-                        disabled={isSavingAsk}
-                        className="gap-2 border-white/20 text-white hover:bg-white/10"
-                      >
-                        Cancel
-                      </Button>
-                    </div>
-                  </form>
-                ) : null}
-
                 <div className="space-y-4">
                   {activeChallengeAsks?.length ? (
                     activeChallengeAsks.map(ask => (
@@ -2469,6 +2021,528 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
           </section>
         </div>
       </div>
+
+      <Dialog.Root
+        open={isChallengeFormVisible}
+        onOpenChange={open => {
+          if (open) {
+            setIsChallengeFormVisible(true);
+          } else {
+            handleChallengeCancel();
+          }
+        }}
+      >
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm transition-opacity data-[state=closed]:opacity-0 data-[state=open]:opacity-100" />
+          <Dialog.Content className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <Card className="relative w-full max-w-3xl border border-indigo-300/40 bg-slate-900/80 shadow-xl">
+              <Dialog.Close asChild>
+                <button
+                  type="button"
+                  onClick={handleChallengeCancel}
+                  className="absolute right-4 top-4 rounded-full border border-white/10 bg-white/10 p-1 text-white transition hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-indigo-400/60"
+                  aria-label="Close challenge form"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </Dialog.Close>
+              <CardHeader className="pr-10">
+                <Dialog.Title asChild>
+                  <CardTitle>{isEditingChallenge ? "Edit challenge" : "Create a new challenge"}</CardTitle>
+                </Dialog.Title>
+                <Dialog.Description className="text-sm text-slate-300">
+                  {isEditingChallenge
+                    ? "Update the challenge status, impact or context without leaving the admin board."
+                    : "Provide a clear title, status and description so collaborators can respond effectively."}
+                </Dialog.Description>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {challengeFeedback?.type === "error" ? (
+                  <Alert variant="destructive">
+                    <AlertTitle>Something went wrong</AlertTitle>
+                    <AlertDescription>{challengeFeedback.message}</AlertDescription>
+                  </Alert>
+                ) : null}
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="flex flex-col gap-2">
+                    <Label htmlFor="challenge-title">Title</Label>
+                    <Input
+                      id="challenge-title"
+                      value={challengeFormValues.title}
+                      onChange={handleChallengeFieldChange("title")}
+                      placeholder="What problem are you addressing?"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <Label htmlFor="challenge-status">Status</Label>
+                    <select
+                      id="challenge-status"
+                      value={challengeFormValues.status}
+                      onChange={handleChallengeFieldChange("status")}
+                      className="rounded-md border border-white/10 bg-slate-950/80 px-3 py-2 text-sm text-slate-100 focus:border-indigo-400 focus:outline-none focus:ring focus:ring-indigo-400/20"
+                    >
+                      {challengeStatusOptions.map(option => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <Label htmlFor="challenge-impact">Impact</Label>
+                    <select
+                      id="challenge-impact"
+                      value={challengeFormValues.impact}
+                      onChange={handleChallengeFieldChange("impact")}
+                      className="rounded-md border border-white/10 bg-slate-950/80 px-3 py-2 text-sm text-slate-100 focus:border-indigo-400 focus:outline-none focus:ring focus:ring-indigo-400/20"
+                    >
+                      {(Object.entries(impactLabels) as [ProjectChallengeNode["impact"], string][]).map(([value, label]) => (
+                        <option key={value} value={value}>
+                          {label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  {(parentChallengeOptions.length > 0 || challengeFormValues.parentId) ? (
+                    <div className="md:col-span-2 flex flex-col gap-2">
+                      <Label htmlFor="challenge-parent">Parent challenge</Label>
+                      <select
+                        id="challenge-parent"
+                        value={challengeFormValues.parentId}
+                        onChange={handleChallengeParentChange}
+                        className="rounded-md border border-white/10 bg-slate-950/80 px-3 py-2 text-sm text-slate-100 focus:border-indigo-400 focus:outline-none focus:ring focus:ring-indigo-400/20"
+                      >
+                        <option value="">No parent (top-level)</option>
+                        {parentChallengeOptions
+                          .filter(option => !invalidParentIds.has(option.id))
+                          .map(option => (
+                            <option key={option.id} value={option.id}>
+                              {option.label}
+                            </option>
+                          ))}
+                      </select>
+                      <p className="text-xs text-slate-400">
+                        {challengeFormValues.parentId
+                          ? selectedParentChallenge
+                            ? `This challenge will be nested under "${selectedParentChallenge.title}".`
+                            : "This challenge will be nested under the selected parent."
+                          : "Leave empty to create a top-level challenge."}
+                      </p>
+                    </div>
+                  ) : null}
+                  <div className="md:col-span-2 flex flex-col gap-2">
+                    <Label htmlFor="challenge-description">Description</Label>
+                    <Textarea
+                      id="challenge-description"
+                      rows={3}
+                      value={challengeFormValues.description}
+                      onChange={handleChallengeFieldChange("description")}
+                      placeholder="Provide useful context so the team understands the challenge."
+                    />
+                  </div>
+                </div>
+                {boardData.availableUsers?.length ? (
+                  <div className="flex flex-col gap-2">
+                    <Label>Owners</Label>
+                    <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                      {boardData.availableUsers.map(user => {
+                        const isSelected = challengeFormValues.ownerIds.includes(user.id);
+                        return (
+                          <label
+                            key={user.id}
+                            className={cn(
+                              "inline-flex cursor-pointer items-center gap-2 rounded-lg border bg-slate-950/60 px-3 py-2 text-sm transition",
+                              isSelected
+                                ? "border-indigo-400/70 bg-indigo-500/10 text-indigo-100"
+                                : "border-white/10 text-slate-200 hover:border-indigo-300/50",
+                            )}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => handleChallengeOwnerToggle(user.id)}
+                              className="h-4 w-4 rounded border-white/30 bg-slate-900 text-indigo-500 focus:ring-indigo-400"
+                            />
+                            <span className="flex flex-col leading-tight">
+                              <span className="font-medium text-white">{user.name}</span>
+                              {user.role ? <span className="text-xs text-slate-400">{user.role}</span> : null}
+                            </span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : null}
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    type="button"
+                    className="gap-2 bg-indigo-500 text-white hover:bg-indigo-400"
+                    onClick={handleChallengeSave}
+                    disabled={isSavingChallenge || !challengeFormValues.title.trim()}
+                  >
+                    {isSavingChallenge ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                    {isSavingChallenge ? "Saving" : isEditingChallenge ? "Update challenge" : "Save challenge"}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handleChallengeCancel}
+                    disabled={isSavingChallenge}
+                    className="gap-2"
+                  >
+                    <X className="h-4 w-4" />
+                    Cancel
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+
+      <Dialog.Root
+        open={isAskFormOpen}
+        onOpenChange={open => {
+          if (open) {
+            setIsAskFormOpen(true);
+          } else {
+            handleAskCancel();
+          }
+        }}
+      >
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm transition-opacity data-[state=closed]:opacity-0 data-[state=open]:opacity-100" />
+          <Dialog.Content className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <Card className="relative w-full max-w-5xl border border-indigo-400/40 bg-slate-950/80 shadow-xl">
+              <Dialog.Close asChild>
+                <button
+                  type="button"
+                  onClick={handleAskCancel}
+                  className="absolute right-4 top-4 rounded-full border border-white/10 bg-white/10 p-1 text-white transition hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-indigo-400/60"
+                  aria-label="Close ASK form"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </Dialog.Close>
+              <CardHeader className="pr-10">
+                <Dialog.Title asChild>
+                  <CardTitle>{isEditingAsk ? "Edit ASK session" : "Create ASK session"}</CardTitle>
+                </Dialog.Title>
+                <Dialog.Description className="text-sm text-slate-300">
+                  {isEditingAsk
+                    ? "Adjust the ASK details, participants and schedule without leaving the journey board."
+                    : "Define the ASK session so collaborators know how to facilitate it and capture insights."}
+                </Dialog.Description>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <form onSubmit={handleAskFormSubmit} className="space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <h3 className="text-base font-semibold text-white">
+                      {isEditingAsk ? "Edit ASK session" : "Create ASK session"}
+                    </h3>
+                    {isEditingAsk ? (
+                      <span className="text-xs font-medium text-indigo-200">Editing current session</span>
+                    ) : null}
+                  </div>
+
+                  {askFeedback ? (
+                    <Alert
+                      className={cn(
+                        "border px-3 py-3",
+                        askFeedback.type === "error"
+                          ? "border-destructive/40 bg-destructive/10 text-destructive-foreground"
+                          : "border-emerald-400/40 bg-emerald-500/10 text-emerald-200",
+                      )}
+                    >
+                      <AlertTitle className="text-sm font-semibold">
+                        {askFeedback.type === "error" ? "Something went wrong" : "Success"}
+                      </AlertTitle>
+                      <AlertDescription className="text-sm">{askFeedback.message}</AlertDescription>
+                    </Alert>
+                  ) : null}
+
+                  {isLoadingAskDetails ? (
+                    <div className="flex items-center gap-2 text-sm text-slate-300">
+                      <Loader2 className="h-4 w-4 animate-spin text-indigo-300" />
+                      Loading ASK details…
+                    </div>
+                  ) : null}
+
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="flex flex-col gap-2">
+                      <Label htmlFor="ask-challenge">Challenge</Label>
+                      <select
+                        id="ask-challenge"
+                        value={askFormValues.challengeId}
+                        onChange={handleAskChallengeChange}
+                        className="h-10 rounded-md border border-white/10 bg-slate-900/70 px-3 text-sm text-white focus:border-indigo-400 focus:outline-none focus:ring focus:ring-indigo-400/20"
+                        disabled={isSavingAsk || isLoadingAskDetails}
+                      >
+                        <option value="">Select a challenge</option>
+                        {allChallenges.map(challenge => (
+                          <option key={challenge.id} value={challenge.id}>
+                            {challenge.title}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      <Label htmlFor="ask-key">ASK key</Label>
+                      <div className="flex gap-2">
+                        <Input
+                          id="ask-key"
+                          value={askFormValues.askKey}
+                          onChange={handleAskKeyChange}
+                          placeholder="session-team-001"
+                          disabled={isSavingAsk || isLoadingAskDetails || isEditingAsk}
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="border-white/20 bg-white/10 text-white hover:bg-white/20"
+                          onClick={handleAskKeyRegenerate}
+                          disabled={isSavingAsk || isLoadingAskDetails || isEditingAsk}
+                        >
+                          Refresh
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="flex flex-col gap-2">
+                      <Label htmlFor="ask-name">Name</Label>
+                      <Input
+                        id="ask-name"
+                        value={askFormValues.name}
+                        onChange={handleAskNameChange}
+                        placeholder="Session name"
+                        disabled={isSavingAsk || isLoadingAskDetails}
+                      />
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      <Label htmlFor="ask-status">Status</Label>
+                      <select
+                        id="ask-status"
+                        value={askFormValues.status}
+                        onChange={handleAskStatusChange}
+                        className="h-10 rounded-md border border-white/10 bg-slate-900/70 px-3 text-sm text-white focus:border-indigo-400 focus:outline-none focus:ring focus:ring-indigo-400/20"
+                        disabled={isSavingAsk || isLoadingAskDetails}
+                      >
+                        {askStatusOptions.map(status => (
+                          <option key={status} value={status}>
+                            {status}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-2">
+                    <Label htmlFor="ask-question">Question</Label>
+                    <Textarea
+                      id="ask-question"
+                      rows={3}
+                      value={askFormValues.question}
+                      onChange={handleAskQuestionChange}
+                      placeholder="What do you want participants to reflect on?"
+                      disabled={isSavingAsk || isLoadingAskDetails}
+                    />
+                  </div>
+
+                  <div className="flex flex-col gap-2">
+                    <Label htmlFor="ask-description">Description</Label>
+                    <Textarea
+                      id="ask-description"
+                      rows={2}
+                      value={askFormValues.description}
+                      onChange={handleAskDescriptionChange}
+                      placeholder="Share additional context"
+                      disabled={isSavingAsk || isLoadingAskDetails}
+                    />
+                  </div>
+
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="flex flex-col gap-2">
+                      <Label htmlFor="ask-start">Start</Label>
+                      <Input
+                        id="ask-start"
+                        type="datetime-local"
+                        value={askFormValues.startDate}
+                        onChange={handleAskStartChange}
+                        disabled={isSavingAsk || isLoadingAskDetails}
+                      />
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      <Label htmlFor="ask-end">End</Label>
+                      <Input
+                        id="ask-end"
+                        type="datetime-local"
+                        value={askFormValues.endDate}
+                        onChange={handleAskEndChange}
+                        disabled={isSavingAsk || isLoadingAskDetails}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid gap-4 md:grid-cols-3">
+                    <div className="flex flex-col gap-2">
+                      <Label htmlFor="ask-delivery">Delivery mode</Label>
+                      <select
+                        id="ask-delivery"
+                        value={askFormValues.deliveryMode}
+                        onChange={handleAskDeliveryModeChange}
+                        className="h-10 rounded-md border border-white/10 bg-slate-900/70 px-3 text-sm text-white focus:border-indigo-400 focus:outline-none focus:ring focus:ring-indigo-400/20"
+                        disabled={isSavingAsk || isLoadingAskDetails}
+                      >
+                        {askDeliveryModes.map(mode => (
+                          <option key={mode} value={mode}>
+                            {mode === "physical" ? "In-person" : "Digital"}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      <Label htmlFor="ask-audience">Audience</Label>
+                      <select
+                        id="ask-audience"
+                        value={askFormValues.audienceScope}
+                        onChange={handleAskAudienceScopeChange}
+                        className="h-10 rounded-md border border-white/10 bg-slate-900/70 px-3 text-sm text-white focus:border-indigo-400 focus:outline-none focus:ring focus:ring-indigo-400/20"
+                        disabled={isSavingAsk || isLoadingAskDetails}
+                      >
+                        {askAudienceScopes.map(scope => (
+                          <option key={scope} value={scope}>
+                            {scope === "individual" ? "Individual" : "Group"}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      <Label htmlFor="ask-response">Response mode</Label>
+                      <select
+                        id="ask-response"
+                        value={askFormValues.responseMode}
+                        onChange={handleAskResponseModeChange}
+                        className="h-10 rounded-md border border-white/10 bg-slate-900/70 px-3 text-sm text-white focus:border-indigo-400 focus:outline-none focus:ring focus:ring-indigo-400/20"
+                        disabled={isSavingAsk || isLoadingAskDetails}
+                      >
+                        {askResponseModes.map(mode => (
+                          <option key={mode} value={mode}>
+                            {mode === "collective" ? "Collective" : "Simultaneous"}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="flex flex-col gap-2">
+                      <Label htmlFor="ask-max-participants">Maximum participants</Label>
+                      <Input
+                        id="ask-max-participants"
+                        value={askFormValues.maxParticipants}
+                        onChange={handleAskMaxParticipantsChange}
+                        placeholder="Optional limit"
+                        disabled={isSavingAsk || isLoadingAskDetails}
+                      />
+                    </div>
+                    <label className="flex items-center gap-2 self-end text-sm text-slate-300">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 rounded border-white/20 bg-slate-900"
+                        checked={askFormValues.isAnonymous}
+                        onChange={handleAskAnonymousToggle}
+                        disabled={isSavingAsk || isLoadingAskDetails}
+                      />
+                      Allow anonymous participation
+                    </label>
+                  </div>
+
+                  <div className="flex flex-col gap-2">
+                    <Label>Participants</Label>
+                    {boardData.availableUsers?.length ? (
+                      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                        {boardData.availableUsers.map(user => {
+                          const isSelected = askFormValues.participantIds.includes(user.id);
+                          return (
+                            <label
+                              key={user.id}
+                              className={cn(
+                                "inline-flex cursor-pointer items-center gap-2 rounded-lg border bg-slate-950/60 px-3 py-2 text-sm transition",
+                                isSelected
+                                  ? "border-indigo-400/70 bg-indigo-500/10 text-indigo-100"
+                                  : "border-white/10 text-slate-200 hover:border-indigo-300/50",
+                              )}
+                            >
+                              <input
+                                type="checkbox"
+                                className="h-4 w-4 rounded border-white/30 bg-slate-900 text-indigo-500 focus:ring-indigo-400"
+                                checked={isSelected}
+                                onChange={() => handleAskParticipantToggle(user.id)}
+                                disabled={isSavingAsk || isLoadingAskDetails}
+                              />
+                              <span className="flex flex-col leading-tight">
+                                <span className="font-medium text-white">{user.name}</span>
+                                {user.role ? <span className="text-xs text-slate-400">{user.role}</span> : null}
+                              </span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-slate-400">No collaborators are available for this project yet.</p>
+                    )}
+                  </div>
+
+                  {askFormValues.participantIds?.length ? (
+                    <div className="flex flex-col gap-2">
+                      <Label htmlFor="ask-spokesperson">Spokesperson</Label>
+                      <select
+                        id="ask-spokesperson"
+                        value={askFormValues.spokespersonId}
+                        onChange={handleAskSpokespersonChange}
+                        className="h-10 rounded-md border border-white/10 bg-slate-900/70 px-3 text-sm text-white focus:border-indigo-400 focus:outline-none focus:ring focus:ring-indigo-400/20"
+                        disabled={isSavingAsk || isLoadingAskDetails}
+                      >
+                        <option value="">No spokesperson</option>
+                        {askFormValues.participantIds
+                          .map(participantId => boardData.availableUsers.find(user => user.id === participantId))
+                          .filter((user): user is NonNullable<typeof user> => Boolean(user))
+                          .map(user => (
+                            <option key={user.id} value={user.id}>
+                              {user.name}
+                            </option>
+                          ))}
+                      </select>
+                    </div>
+                  ) : null}
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      type="submit"
+                      className="gap-2 bg-indigo-500 text-white hover:bg-indigo-400"
+                      disabled={isSavingAsk || isLoadingAskDetails}
+                    >
+                      {isSavingAsk ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                      {isEditingAsk ? "Update ASK" : "Save ASK"}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={handleAskCancel}
+                      disabled={isSavingAsk}
+                      className="gap-2 border-white/20 text-white hover:bg-white/10"
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </form>
+              </CardContent>
+            </Card>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
     </div>
   );
 }
