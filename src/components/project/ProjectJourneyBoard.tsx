@@ -343,12 +343,16 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
 
       if (!options?.silent) {
         setIsLoading(true);
+        if (!USE_MOCK_JOURNEY) {
+          setBoardData(null);
+        }
       }
       setError(null);
 
       try {
         const response = await fetch(`/api/admin/projects/${projectId}/journey`, {
           cache: "no-store",
+          credentials: "include",
           signal: options?.signal,
         });
         const payload = await response.json();
@@ -366,7 +370,11 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
           return;
         }
         console.error("Failed to load project journey data", err);
-        setBoardData(getMockProjectJourneyData(projectId));
+        if (USE_MOCK_JOURNEY) {
+          setBoardData(getMockProjectJourneyData(projectId));
+        } else if (!options?.silent) {
+          setBoardData(null);
+        }
         setError(err instanceof Error ? err.message : "Unable to load project data");
       } finally {
         if (!options?.silent) {
@@ -395,6 +403,7 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
 
       const response = await fetch(`/api/admin/asks/${askId}`, {
         cache: "no-store",
+        credentials: "include",
       });
       const payload = await response.json();
 
@@ -1343,7 +1352,10 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
         <Alert variant="destructive">
           <AlertTitle>Live data unavailable</AlertTitle>
           <AlertDescription>
-            {error}. Showing mock data so you can continue designing the experience.
+            {error}.
+            {USE_MOCK_JOURNEY
+              ? " Showing mock data so you can continue designing the experience."
+              : " Please refresh or verify the project configuration."}
           </AlertDescription>
         </Alert>
       ) : null}
