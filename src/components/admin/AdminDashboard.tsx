@@ -2471,7 +2471,7 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                           <Button
                             type="button"
                             variant="outline"
-                            className="h-10 rounded-full border border-gray-300 bg-white px-4 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                            className="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-primary hover:bg-primary/90 h-10 px-4 py-2 bg-gradient-to-r from-pink-500 via-fuchsia-500 to-indigo-500 text-white shadow-lg hover:shadow-xl focus-visible:ring-white/70"
                             onClick={cancelProjectEdit}
                             disabled={isBusy}
                           >
@@ -2548,13 +2548,12 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                               <Button
                                 type="button"
                                 size="sm"
-                                variant="secondary"
-                                className="h-8 rounded-full border border-white/20 bg-white/10 px-3 text-[11px] font-semibold uppercase tracking-wide text-slate-200 hover:bg-white/20"
+                                className="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-primary hover:bg-primary/90 h-10 px-4 py-2 bg-gradient-to-r from-pink-500 via-fuchsia-500 to-indigo-500 text-white shadow-lg hover:shadow-xl focus-visible:ring-white/70"
                                 onClick={() => startProjectEdit(project.id)}
                                 disabled={isBusy}
                               >
-                                <div className="flex items-center gap-1">
-                                  <Pencil className="h-3.5 w-3.5" />
+                                <div className="flex items-center gap-2">
+                                  <Pencil className="h-4 w-4" />
                                   Edit project
                                 </div>
                               </Button>
