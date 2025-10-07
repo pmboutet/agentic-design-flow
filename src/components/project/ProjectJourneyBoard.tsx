@@ -1,6 +1,7 @@
 "use client";
 
 import { type ChangeEvent, type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   Calendar,
   ChevronRight,
@@ -298,6 +299,7 @@ function normalizeAskStatus(value?: string | null): AskFormState["status"] {
 }
 
 export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
+  const router = useRouter();
   const [boardData, setBoardData] = useState<ProjectJourneyBoardData | null>(
     USE_MOCK_JOURNEY ? getMockProjectJourneyData(projectId) : null,
   );
@@ -319,6 +321,8 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
   const [hasManualAskKey, setHasManualAskKey] = useState(false);
   const [askDetails, setAskDetails] = useState<Record<string, AskSessionRecord>>({});
   const [isLoadingAskDetails, setIsLoadingAskDetails] = useState(false);
+  const [activeChallengeId, setActiveChallengeId] = useState<string | null>(null);
+  const rightColumnRef = useRef<HTMLDivElement | null>(null);
   const [editValues, setEditValues] = useState<ProjectEditState>({
     name: "",
     description: "",
@@ -405,6 +409,19 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
     [askDetails],
   );
 
+  const handleLaunchAiChallengeBuilder = useCallback(
+    (targetChallengeId?: string | null) => {
+      const effectiveId = targetChallengeId ?? activeChallengeId;
+      const params = new URLSearchParams();
+      if (effectiveId) {
+        params.set("challengeId", effectiveId);
+      }
+      const href = params.size ? `/admin/ai?${params.toString()}` : "/admin/ai";
+      router.push(href);
+    },
+    [router, activeChallengeId],
+  );
+
   useEffect(() => {
     if (!boardData) {
       return;
@@ -418,9 +435,6 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
       systemPrompt: boardData.projectSystemPrompt ?? "",
     });
   }, [boardData]);
-
-  const [activeChallengeId, setActiveChallengeId] = useState<string | null>(null);
-  const rightColumnRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!boardData) {
@@ -544,6 +558,116 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
       rightColumnRef.current.scrollTo({ top: 0, behavior: "smooth" });
     }
   }, [activeChallengeId]);
+
+  const renderChallengeList = (nodes: ProjectChallengeNode[], depth = 0) => {
+    return (
+      <div className={cn("space-y-3", depth > 0 && "border-l border-white/10 pl-4")}
+        data-depth={depth}
+      >
+        {nodes.map(node => {
+          const isActive = activeChallengeId === node.id;
+          const insightCount = challengeInsightMap.get(node.id)?.length ?? 0;
+          const subChallengeCount = countSubChallenges(node);
+          const owners = node.owners ?? [];
+          const ownerCount = owners.length;
+
+          return (
+            <Card
+              key={node.id}
+              className={cn(
+                "border border-white/10 bg-slate-900/60 transition hover:border-indigo-400/70",
+                isActive && "border-indigo-400 bg-indigo-500/15 shadow-lg",
+              )}
+            >
+              <button type="button" className="w-full text-left" onClick={() => setActiveChallengeId(node.id)}>
+                <div className={cn("flex flex-col gap-2", isActive ? "p-4" : "p-3")}
+                  data-active={isActive}
+                >
+                  {isActive ? (
+                    <>
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex flex-col gap-2">
+                          <CardTitle className="text-lg font-semibold text-white">{node.title}</CardTitle>
+                          <p className="text-sm text-slate-300">{node.description}</p>
+                        </div>
+                        <ChevronRight
+                          className={cn(
+                            "h-5 w-5 text-slate-500 transition-transform",
+                            isActive && "rotate-90 text-indigo-300",
+                          )}
+                        />
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2 text-xs font-medium text-slate-200">
+                        <span className={cn("rounded-full border px-2.5 py-1", impactClasses[node.impact])}>
+                          {impactLabels[node.impact]}
+                        </span>
+                        <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2.5 py-1 text-slate-200">
+                          <Lightbulb className="h-3.5 w-3.5" />
+                          {insightCount} insight{insightCount > 1 ? "s" : ""}
+                        </span>
+                        {subChallengeCount > 0 ? (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2.5 py-1 text-slate-200">
+                            <ChevronRight className="h-3.5 w-3.5" />
+                            {subChallengeCount} sub-challenge{subChallengeCount > 1 ? "s" : ""}
+                          </span>
+                        ) : null}
+                      </div>
+                      {ownerCount > 0 ? (
+                        <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-300">
+                          <Users className="h-3.5 w-3.5 text-slate-400" />
+                          {owners.map(owner => (
+                            <span
+                              key={owner.id || owner.name}
+                              className="rounded-full bg-white/10 px-2.5 py-1 font-medium text-white"
+                            >
+                              {owner.name}
+                            </span>
+                          ))}
+                        </div>
+                      ) : null}
+                    </>
+                  ) : (
+                    <div className="flex w-full items-center gap-3">
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-semibold text-slate-100">{node.title}</p>
+                      </div>
+                      <div className="flex flex-wrap items-center justify-end gap-2 text-[11px] font-medium text-slate-400">
+                        <span className={cn("rounded-full border px-2 py-0.5", impactClasses[node.impact])}>
+                          {impactLabels[node.impact]}
+                        </span>
+                        <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2 py-0.5 text-slate-200">
+                          <Lightbulb className="h-3 w-3" />
+                          {insightCount}
+                        </span>
+                        {ownerCount > 0 ? (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2 py-0.5 text-slate-200">
+                            <Users className="h-3 w-3" />
+                            {ownerCount > 1 ? `${ownerCount} people` : owners[0]?.name}
+                          </span>
+                        ) : null}
+                        {subChallengeCount > 0 ? (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2 py-0.5 text-slate-200">
+                            <ChevronRight className="h-3 w-3" />
+                            {subChallengeCount}
+                          </span>
+                        ) : null}
+                      </div>
+                      <ChevronRight className="h-4 w-4 text-slate-500" />
+                    </div>
+                  )}
+                </div>
+              </button>
+              {node.children?.length ? (
+                <CardContent className="border-t border-white/5 bg-slate-900/70">
+                  {renderChallengeList(node.children, depth + 1)}
+                </CardContent>
+              ) : null}
+            </Card>
+          );
+        })}
+      </div>
+    );
+  };
 
   const renderAskInsights = (ask: ProjectAskOverview) => {
     const insightMap = new Map<string, AskInsightRow>();
@@ -1390,7 +1514,7 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
                   type="button"
                   variant="outline"
                   className="gap-2 border-indigo-300/40 bg-indigo-500/10 text-indigo-100 hover:bg-indigo-500/20"
-                  onClick={() => handleLaunchAiChallengeBuilder(null)}
+                  onClick={() => handleLaunchAiChallengeBuilder()}
                 >
                   <Sparkles className="h-4 w-4" />
                   Launch AI challenge builder
@@ -1399,7 +1523,7 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
                   type="button"
                   size="sm"
                   className="gap-2 bg-indigo-500 text-white hover:bg-indigo-400"
-                  onClick={() => handleChallengeStart(null)}
+                  onClick={() => handleChallengeStart()}
                   disabled={isCreatingChallenge || isSavingChallenge}
                 >
                   <Plus className="h-4 w-4" />
