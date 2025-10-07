@@ -536,6 +536,8 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
     });
   }, [boardData]);
 
+  const allChallenges = useMemo(() => (boardData ? flattenChallenges(boardData.challenges) : []), [boardData]);
+
   useEffect(() => {
     if (!boardData) {
       setActiveChallengeId(null);
@@ -548,8 +550,6 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
 
     setActiveChallengeId(boardData.challenges[0]?.id ?? null);
   }, [boardData, activeChallengeId, allChallenges]);
-
-  const allChallenges = useMemo(() => (boardData ? flattenChallenges(boardData.challenges) : []), [boardData]);
 
   const challengeParentMap = useMemo(
     () => (boardData ? buildChallengeParentMap(boardData.challenges) : new Map<string, string | null>()),
