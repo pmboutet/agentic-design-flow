@@ -149,6 +149,73 @@ function countSubChallenges(node: ProjectChallengeNode): number {
   return node.children.length + node.children.reduce((total, child) => total + countSubChallenges(child), 0);
 }
 
+function buildChallengeParentMap(nodes: ProjectChallengeNode[]): Map<string, string | null> {
+  const map = new Map<string, string | null>();
+
+  const traverse = (items: ProjectChallengeNode[], parentId: string | null) => {
+    items.forEach(item => {
+      map.set(item.id, parentId);
+      if (item.children?.length) {
+        traverse(item.children, item.id);
+      }
+    });
+  };
+
+  traverse(nodes, null);
+  return map;
+}
+
+function buildChallengeDescendantsMap(nodes: ProjectChallengeNode[]): Map<string, Set<string>> {
+  const map = new Map<string, Set<string>>();
+
+  const collect = (item: ProjectChallengeNode): Set<string> => {
+    const descendants = new Set<string>();
+
+    item.children?.forEach(child => {
+      descendants.add(child.id);
+      const childDescendants = collect(child);
+      childDescendants.forEach(id => descendants.add(id));
+    });
+
+    map.set(item.id, descendants);
+    return descendants;
+  };
+
+  nodes.forEach(node => {
+    collect(node);
+  });
+
+  return map;
+}
+
+function removeChallengeNode(
+  nodes: ProjectChallengeNode[],
+  targetId: string,
+): readonly [ProjectChallengeNode[], ProjectChallengeNode | null] {
+  let removed: ProjectChallengeNode | null = null;
+
+  const nextNodes = nodes
+    .map(node => {
+      if (node.id === targetId) {
+        removed = node;
+        return null;
+      }
+
+      if (node.children?.length) {
+        const [children, extracted] = removeChallengeNode(node.children, targetId);
+        if (extracted) {
+          removed = extracted;
+          return { ...node, children };
+        }
+      }
+
+      return node;
+    })
+    .filter((value): value is ProjectChallengeNode => value !== null);
+
+  return [nextNodes, removed] as const;
+}
+
 function mergeContributors(
   existing: ProjectParticipantSummary[],
   additions: ProjectParticipantSummary[],
@@ -308,10 +375,13 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
   const [feedback, setFeedback] = useState<FeedbackState | null>(null);
   const [isEditingProject, setIsEditingProject] = useState(false);
   const [isSavingProject, setIsSavingProject] = useState(false);
-  const [isCreatingChallenge, setIsCreatingChallenge] = useState(false);
+  const [isChallengeFormVisible, setIsChallengeFormVisible] = useState(false);
+  const [challengeFormMode, setChallengeFormMode] = useState<"create" | "edit">("create");
   const [isSavingChallenge, setIsSavingChallenge] = useState(false);
   const [challengeFeedback, setChallengeFeedback] = useState<FeedbackState | null>(null);
   const [challengeFormValues, setChallengeFormValues] = useState<ChallengeFormState>(() => createEmptyChallengeForm());
+  const [editingChallengeId, setEditingChallengeId] = useState<string | null>(null);
+  const isEditingChallenge = challengeFormMode === "edit" && Boolean(editingChallengeId);
   const [isAskFormOpen, setIsAskFormOpen] = useState(false);
   const [isEditingAsk, setIsEditingAsk] = useState(false);
   const [editingAskId, setEditingAskId] = useState<string | null>(null);
@@ -460,6 +530,27 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
 
   const allChallenges = useMemo(() => (boardData ? flattenChallenges(boardData.challenges) : []), [boardData]);
 
+  const challengeParentMap = useMemo(
+    () => (boardData ? buildChallengeParentMap(boardData.challenges) : new Map<string, string | null>()),
+    [boardData],
+  );
+
+  const challengeDescendantsMap = useMemo(
+    () => (boardData ? buildChallengeDescendantsMap(boardData.challenges) : new Map<string, Set<string>>()),
+    [boardData],
+  );
+
+  const invalidParentIds = useMemo(() => {
+    if (!isEditingChallenge || !editingChallengeId) {
+      return new Set<string>();
+    }
+
+    const ids = new Set<string>([editingChallengeId]);
+    const descendants = challengeDescendantsMap.get(editingChallengeId);
+    descendants?.forEach(id => ids.add(id));
+    return ids;
+  }, [isEditingChallenge, editingChallengeId, challengeDescendantsMap]);
+
   const parentChallengeOptions = useMemo(() => {
     if (!boardData) {
       return [] as { id: string; label: string }[];
@@ -588,10 +679,11 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
                 isActive && "border-indigo-400 bg-indigo-500/15 shadow-lg",
               )}
             >
-              <button type="button" className="w-full text-left" onClick={() => setActiveChallengeId(node.id)}>
-                <div className={cn("flex flex-col gap-2", isActive ? "p-4" : "p-3")}
-                  data-active={isActive}
-                >
+              <div className="flex items-stretch">
+                <button type="button" className="flex-1 text-left" onClick={() => setActiveChallengeId(node.id)}>
+                  <div className={cn("flex flex-col gap-2", isActive ? "p-4" : "p-3")}
+                    data-active={isActive}
+                  >
                   {isActive ? (
                     <>
                       <div className="flex items-start justify-between gap-3">
@@ -664,8 +756,26 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
                       <ChevronRight className="h-4 w-4 text-slate-500" />
                     </div>
                   )}
+                  </div>
+                </button>
+                <div className={cn("flex shrink-0 items-start gap-1", isActive ? "p-4" : "p-3")}>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    className="text-slate-200 hover:bg-white/10 hover:text-white"
+                    disabled={isSavingChallenge}
+                    onClick={event => {
+                      event.stopPropagation();
+                      event.preventDefault();
+                      handleChallengeEditStart(node.id);
+                    }}
+                  >
+                    <Pencil className="h-4 w-4" />
+                    <span className="sr-only">Edit challenge {node.title}</span>
+                  </Button>
                 </div>
-              </button>
+              </div>
               {node.children?.length ? (
                 <CardContent className="border-t border-white/5 bg-slate-900/70">
                   {renderChallengeList(node.children, depth + 1)}
@@ -788,7 +898,9 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
   };
 
   const handleChallengeStart = (parent?: ProjectChallengeNode | null) => {
-    setIsCreatingChallenge(true);
+    setChallengeFormMode("create");
+    setEditingChallengeId(null);
+    setIsChallengeFormVisible(true);
     setChallengeFeedback(null);
     resetChallengeFormValues({
       parentId: parent?.id ?? "",
@@ -797,7 +909,9 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
   };
 
   const handleChallengeCancel = () => {
-    setIsCreatingChallenge(false);
+    setIsChallengeFormVisible(false);
+    setChallengeFormMode("create");
+    setEditingChallengeId(null);
     setIsSavingChallenge(false);
     setChallengeFeedback(null);
     resetChallengeFormValues();
@@ -837,6 +951,42 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
     });
   };
 
+  const handleChallengeEditStart = (challengeId: string) => {
+    if (!boardData) {
+      return;
+    }
+
+    const node = allChallenges.find(challenge => challenge.id === challengeId);
+    if (!node) {
+      return;
+    }
+
+    const statusValues = challengeStatusOptions.map(option => option.value);
+    const normalizedStatus = statusValues.includes(node.status as ChallengeStatus)
+      ? (node.status as ChallengeStatus)
+      : "open";
+
+    const ownerIds = (node.owners ?? [])
+      .map(owner => owner.id)
+      .filter((value): value is string => typeof value === "string" && value.length > 0);
+
+    const parentId = challengeParentMap.get(challengeId);
+
+    setChallengeFormMode("edit");
+    setEditingChallengeId(challengeId);
+    setIsChallengeFormVisible(true);
+    setChallengeFeedback(null);
+    setIsSavingChallenge(false);
+    setChallengeFormValues({
+      title: node.title,
+      description: node.description ?? "",
+      status: normalizedStatus,
+      impact: node.impact,
+      ownerIds,
+      parentId: parentId ?? "",
+    });
+  };
+
   const handleChallengeSave = async () => {
     if (!boardData) {
       return;
@@ -863,6 +1013,20 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
       ? allChallenges.find(challenge => challenge.id === normalizedParentId) ?? null
       : null;
 
+    if (isEditingChallenge && editingChallengeId) {
+      const invalidParentIds = new Set<string>([editingChallengeId]);
+      const descendants = challengeDescendantsMap.get(editingChallengeId);
+      descendants?.forEach(id => invalidParentIds.add(id));
+
+      if (normalizedParentId && invalidParentIds.has(normalizedParentId)) {
+        setChallengeFeedback({
+          type: "error",
+          message: "A challenge cannot be nested under one of its own sub-challenges.",
+        });
+        return;
+      }
+    }
+
     const resolvedParentId = normalizedParentId || "";
 
     const buildChallengeNode = (id: string, overrides?: Partial<ProjectChallengeNode>): ProjectChallengeNode => ({
@@ -881,86 +1045,154 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
 
     try {
       if (USE_MOCK_JOURNEY) {
-        const localChallenge = buildChallengeNode(fallbackId);
+        if (isEditingChallenge && editingChallengeId) {
+          setBoardData(current => {
+            if (!current) {
+              return current;
+            }
+
+            const [remaining, extracted] = removeChallengeNode(current.challenges, editingChallengeId);
+            if (!extracted) {
+              return current;
+            }
+
+            const updatedChallenge: ProjectChallengeNode = {
+              ...extracted,
+              title: trimmedTitle,
+              description: trimmedDescription,
+              status: normalizedStatus,
+              impact: challengeFormValues.impact,
+              owners,
+            };
+
+            const nextChallenges = insertChallengeNode(remaining, updatedChallenge, resolvedParentId || null);
+
+            return {
+              ...current,
+              challenges: nextChallenges,
+            };
+          });
+          setActiveChallengeId(editingChallengeId);
+          setChallengeFeedback({ type: "success", message: "Challenge updated successfully." });
+        } else {
+          const localChallenge = buildChallengeNode(fallbackId);
+          setBoardData(current =>
+            current
+              ? {
+                  ...current,
+                  challenges: insertChallengeNode(current.challenges, localChallenge, resolvedParentId || null),
+                }
+              : current,
+          );
+          setActiveChallengeId(localChallenge.id);
+          setChallengeFeedback({
+            type: "success",
+            message: parentChallenge
+              ? `Sub-challenge added under "${parentChallenge.title}".`
+              : "Challenge added to the journey.",
+          });
+        }
+
+        setIsChallengeFormVisible(false);
+        setChallengeFormMode("create");
+        setEditingChallengeId(null);
+        resetChallengeFormValues();
+        return;
+      }
+
+      if (isEditingChallenge && editingChallengeId) {
+        const payload = {
+          name: trimmedTitle,
+          description: trimmedDescription,
+          status: normalizedStatus,
+          priority: challengeFormValues.impact,
+          assignedTo: owners[0]?.id ?? "",
+          parentChallengeId: resolvedParentId,
+        };
+
+        const response = await fetch(`/api/admin/challenges/${editingChallengeId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+
+        const result = await response.json();
+        if (!response.ok || !result.success) {
+          throw new Error(result.error || "Unable to update challenge.");
+        }
+
+        await loadJourneyData({ silent: true });
+        setActiveChallengeId(editingChallengeId);
+        setChallengeFeedback({ type: "success", message: "Challenge updated successfully." });
+      } else {
+        const payload = {
+          name: trimmedTitle,
+          description: trimmedDescription,
+          status: normalizedStatus,
+          priority: challengeFormValues.impact,
+          projectId: boardData.projectId,
+          assignedTo: owners[0]?.id ?? "",
+          parentChallengeId: resolvedParentId,
+        };
+
+        const response = await fetch("/api/admin/challenges", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+
+        const result = await response.json();
+        if (!response.ok || !result.success) {
+          throw new Error(result.error || "Unable to create challenge.");
+        }
+
+        const created = result.data as ChallengeRecord;
+        const challengeId = created?.id ?? fallbackId;
+        const serverImpact = created?.priority && validImpacts.includes(created.priority as ProjectChallengeNode["impact"])
+          ? (created.priority as ProjectChallengeNode["impact"])
+          : challengeFormValues.impact;
+        const serverStatus = created?.status && validStatuses.includes(created.status as ChallengeStatus)
+          ? (created.status as ChallengeStatus)
+          : normalizedStatus;
+
+        const challengeNode = buildChallengeNode(challengeId, {
+          title: created?.name ?? trimmedTitle,
+          description: created?.description ?? trimmedDescription,
+          status: serverStatus,
+          impact: serverImpact,
+        });
+
         setBoardData(current =>
           current
             ? {
                 ...current,
-                challenges: insertChallengeNode(current.challenges, localChallenge, resolvedParentId || null),
+                challenges: insertChallengeNode(current.challenges, challengeNode, resolvedParentId || null),
               }
             : current,
         );
-        setActiveChallengeId(localChallenge.id);
-        setIsCreatingChallenge(false);
-        resetChallengeFormValues();
+        setActiveChallengeId(challengeNode.id);
         setChallengeFeedback({
           type: "success",
           message: parentChallenge
-            ? `Sub-challenge added under "${parentChallenge.title}".`
-            : "Challenge added to the journey.",
+            ? `Sub-challenge created under "${parentChallenge.title}".`
+            : "Challenge created successfully.",
         });
-        return;
       }
 
-      const payload = {
-        name: trimmedTitle,
-        description: trimmedDescription,
-        status: normalizedStatus,
-        priority: challengeFormValues.impact,
-        projectId: boardData.projectId,
-        assignedTo: owners[0]?.id ?? "",
-        parentChallengeId: resolvedParentId,
-      };
-
-      const response = await fetch("/api/admin/challenges", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
-      const result = await response.json();
-      if (!response.ok || !result.success) {
-        throw new Error(result.error || "Unable to create challenge.");
-      }
-
-      const created = result.data as ChallengeRecord;
-      const challengeId = created?.id ?? fallbackId;
-      const serverImpact = created?.priority && validImpacts.includes(created.priority as ProjectChallengeNode["impact"])
-        ? (created.priority as ProjectChallengeNode["impact"])
-        : challengeFormValues.impact;
-      const serverStatus = created?.status && validStatuses.includes(created.status as ChallengeStatus)
-        ? (created.status as ChallengeStatus)
-        : normalizedStatus;
-
-      const challengeNode = buildChallengeNode(challengeId, {
-        title: created?.name ?? trimmedTitle,
-        description: created?.description ?? trimmedDescription,
-        status: serverStatus,
-        impact: serverImpact,
-      });
-
-      setBoardData(current =>
-        current
-          ? {
-              ...current,
-              challenges: insertChallengeNode(current.challenges, challengeNode, resolvedParentId || null),
-            }
-          : current,
-      );
-      setActiveChallengeId(challengeNode.id);
-      setIsCreatingChallenge(false);
+      setIsChallengeFormVisible(false);
+      setChallengeFormMode("create");
+      setEditingChallengeId(null);
       resetChallengeFormValues();
-      setChallengeFeedback({
-        type: "success",
-        message: parentChallenge
-          ? `Sub-challenge created under "${parentChallenge.title}".`
-          : "Challenge created successfully.",
-      });
     } catch (error) {
-      console.error("Failed to create challenge", error);
+      console.error(isEditingChallenge ? "Failed to update challenge" : "Failed to create challenge", error);
       setChallengeFeedback({
         type: "error",
-        message: error instanceof Error ? error.message : "Unable to create challenge.",
+        message:
+          error instanceof Error
+            ? error.message
+            : isEditingChallenge
+              ? "Unable to update challenge."
+              : "Unable to create challenge.",
       });
     } finally {
       setIsSavingChallenge(false);
@@ -1536,7 +1768,7 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
                   size="sm"
                   className="gap-2 bg-indigo-500 text-white hover:bg-indigo-400"
                   onClick={() => handleChallengeStart()}
-                  disabled={isCreatingChallenge || isSavingChallenge}
+                  disabled={isChallengeFormVisible || isSavingChallenge}
                 >
                   <Plus className="h-4 w-4" />
                   New challenge
@@ -1549,12 +1781,14 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
               </Alert>
             ) : null}
 
-            {isCreatingChallenge ? (
+            {isChallengeFormVisible ? (
               <Card className="border border-indigo-300/40 bg-slate-900/70">
                 <CardHeader>
-                  <CardTitle>Create a new challenge</CardTitle>
+                  <CardTitle>{isEditingChallenge ? "Edit challenge" : "Create a new challenge"}</CardTitle>
                   <p className="text-sm text-slate-300">
-                    Provide a clear title, status and description so collaborators can respond effectively.
+                    {isEditingChallenge
+                      ? "Update the challenge status, impact or context without leaving the admin board."
+                      : "Provide a clear title, status and description so collaborators can respond effectively."}
                   </p>
                 </CardHeader>
                 <CardContent className="space-y-4">
@@ -1608,11 +1842,13 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
                           className="rounded-md border border-white/10 bg-slate-950/80 px-3 py-2 text-sm text-slate-100 focus:border-indigo-400 focus:outline-none focus:ring focus:ring-indigo-400/20"
                         >
                           <option value="">No parent (top-level)</option>
-                          {parentChallengeOptions.map(option => (
-                            <option key={option.id} value={option.id}>
-                              {option.label}
-                            </option>
-                          ))}
+                          {parentChallengeOptions
+                            .filter(option => !invalidParentIds.has(option.id))
+                            .map(option => (
+                              <option key={option.id} value={option.id}>
+                                {option.label}
+                              </option>
+                            ))}
                         </select>
                         <p className="text-xs text-slate-400">
                           {challengeFormValues.parentId
@@ -1674,7 +1910,7 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
                       disabled={isSavingChallenge || !challengeFormValues.title.trim()}
                     >
                       {isSavingChallenge ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                      Save challenge
+                      {isSavingChallenge ? "Saving" : isEditingChallenge ? "Update challenge" : "Save challenge"}
                     </Button>
                     <Button type="button" variant="outline" onClick={handleChallengeCancel} disabled={isSavingChallenge} className="gap-2">
                       <X className="h-4 w-4" />
