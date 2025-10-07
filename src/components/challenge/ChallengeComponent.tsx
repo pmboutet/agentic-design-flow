@@ -353,19 +353,23 @@ function ChallengeCard({
       <CardHeader>
         <div className="flex items-center justify-between">
           {isEditingChallenge ? (
-            <div className="flex items-center gap-2 flex-1">
+            <div className="flex w-full flex-col gap-3 md:flex-row md:items-center md:justify-between">
               <Input
                 value={editingValue?.name || ''}
                 onChange={(e) => onEditValueChange({ ...editingValue, name: e.target.value })}
-                className="text-xl font-bold"
+                className="text-xl font-bold md:flex-1"
                 placeholder="Challenge name"
               />
-              <Button size="sm" onClick={onSaveEdit}>
-                <Save className="h-4 w-4" />
-              </Button>
-              <Button size="sm" variant="ghost" onClick={onCancelEdit}>
-                <X className="h-4 w-4" />
-              </Button>
+              <div className="flex flex-wrap items-center gap-2 md:flex-shrink-0">
+                <Button size="sm" className="gap-2 bg-indigo-500 text-white hover:bg-indigo-400" onClick={onSaveEdit}>
+                  <Save className="h-4 w-4" />
+                  Save
+                </Button>
+                <Button size="sm" variant="outline" className="gap-2" onClick={onCancelEdit}>
+                  <X className="h-4 w-4" />
+                  Cancel
+                </Button>
+              </div>
             </div>
           ) : (
             <>
@@ -396,9 +400,10 @@ function ChallengeCard({
             <Button 
               size="sm" 
               variant="outline"
+              className="gap-2"
               onClick={() => onAddPain(challenge.id)}
             >
-              <Plus className="h-4 w-4 mr-1" />
+              <Plus className="h-4 w-4" />
               Add Pain
             </Button>
           </div>
@@ -438,9 +443,10 @@ function ChallengeCard({
             <Button 
               size="sm" 
               variant="outline"
+              className="gap-2"
               onClick={() => onAddGain(challenge.id)}
             >
-              <Plus className="h-4 w-4 mr-1" />
+              <Plus className="h-4 w-4" />
               Add Gain
             </Button>
           </div>
@@ -513,19 +519,23 @@ function PainGainItem({
         <div className="mb-4">
           {isEditing ? (
             <div className="space-y-3">
-              <div className="flex items-center gap-2">
+              <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                 <Input
                   value={editingValue?.name || ''}
                   onChange={(e) => onEditValueChange({ ...editingValue, name: e.target.value })}
                   placeholder={`${type} name`}
-                  className="font-semibold"
+                  className="font-semibold md:flex-1"
                 />
-                <Button size="sm" onClick={onSaveEdit}>
-                  <Save className="h-4 w-4" />
-                </Button>
-                <Button size="sm" variant="ghost" onClick={onCancelEdit}>
-                  <X className="h-4 w-4" />
-                </Button>
+                <div className="flex flex-wrap items-center gap-2 md:flex-shrink-0">
+                  <Button size="sm" className="gap-2 bg-indigo-500 text-white hover:bg-indigo-400" onClick={onSaveEdit}>
+                    <Save className="h-4 w-4" />
+                    Save
+                  </Button>
+                  <Button size="sm" variant="outline" className="gap-2" onClick={onCancelEdit}>
+                    <X className="h-4 w-4" />
+                    Cancel
+                  </Button>
+                </div>
               </div>
               <Textarea
                 value={editingValue?.description || ''}
@@ -576,9 +586,10 @@ function PainGainItem({
             <Button 
               size="sm" 
               variant="outline"
+              className="gap-2"
               onClick={() => onAddKpi(challengeId, item.id)}
             >
-              <Plus className="h-3 w-3 mr-1" />
+              <Plus className="h-3 w-3" />
               Add KPI
             </Button>
           </div>
@@ -647,25 +658,29 @@ function KpiItem({
     <div className="border rounded-lg p-3 bg-background">
       {isEditing ? (
         <div className="space-y-3">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
             <Input
               value={editingValue?.description || ''}
               onChange={(e) => onEditValueChange({ ...editingValue, description: e.target.value })}
               placeholder="KPI description"
-              className="flex-1"
+              className="md:flex-1"
             />
-            <Button size="sm" onClick={onSaveEdit}>
-              <Save className="h-4 w-4" />
-            </Button>
-            <Button size="sm" variant="ghost" onClick={onCancelEdit}>
-              <X className="h-4 w-4" />
-            </Button>
+            <div className="flex flex-wrap items-center gap-2 md:flex-shrink-0">
+              <Button size="sm" className="gap-2 bg-indigo-500 text-white hover:bg-indigo-400" onClick={onSaveEdit}>
+                <Save className="h-4 w-4" />
+                Save
+              </Button>
+              <Button size="sm" variant="outline" className="gap-2" onClick={onCancelEdit}>
+                <X className="h-4 w-4" />
+                Cancel
+              </Button>
+            </div>
           </div>
           <Textarea
             value={editingValue?.value || ''}
             onChange={(e) => onEditValueChange({ ...editingValue, value: e.target.value })}
             placeholder='{"metric": "value", "unit": "units"}'
-            className="font-mono text-sm min-h-[80px]"
+            className="min-h-[80px] font-mono text-sm"
           />
         </div>
       ) : (

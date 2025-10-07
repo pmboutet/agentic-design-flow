@@ -115,36 +115,46 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
+    console.log('🔧 ASK creation request:', body);
+    
     const payload = askSchema.parse(body);
+    console.log('✅ Parsed ASK payload:', payload);
 
     const supabase = getAdminSupabaseClient();
     const startDate = new Date(payload.startDate).toISOString();
     const endDate = new Date(payload.endDate).toISOString();
 
+    const insertData = {
+      ask_key: sanitizeText(payload.askKey),
+      name: sanitizeText(payload.name),
+      question: sanitizeText(payload.question),
+      description: sanitizeOptional(payload.description || null),
+      status: payload.status,
+      project_id: payload.projectId,
+      challenge_id: payload.challengeId && payload.challengeId !== "" ? payload.challengeId : null,
+      start_date: startDate,
+      end_date: endDate,
+      is_anonymous: payload.isAnonymous,
+      max_participants: payload.maxParticipants ?? null,
+      delivery_mode: payload.deliveryMode,
+      audience_scope: payload.audienceScope,
+      response_mode: payload.responseMode
+    };
+
+    console.log('📝 ASK insert data to be sent to DB:', insertData);
+
     const { data, error } = await supabase
       .from("ask_sessions")
-      .insert({
-        ask_key: sanitizeText(payload.askKey),
-        name: sanitizeText(payload.name),
-        question: sanitizeText(payload.question),
-        description: sanitizeOptional(payload.description || null),
-        status: payload.status,
-        project_id: payload.projectId,
-        challenge_id: payload.challengeId && payload.challengeId !== "" ? payload.challengeId : null,
-        start_date: startDate,
-        end_date: endDate,
-        is_anonymous: payload.isAnonymous,
-        max_participants: payload.maxParticipants ?? null,
-        delivery_mode: payload.deliveryMode,
-        audience_scope: payload.audienceScope,
-        response_mode: payload.responseMode
-      })
+      .insert(insertData)
       .select(askSelect)
       .single();
 
     if (error) {
+      console.error('❌ ASK creation database error:', error);
       throw error;
     }
+
+    console.log('✅ ASK created successfully:', data);
 
     if (payload.participantIds.length > 0) {
       const spokespersonId = payload.spokespersonId && payload.spokespersonId !== "" ? payload.spokespersonId : null;

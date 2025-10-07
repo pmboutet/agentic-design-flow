@@ -45,7 +45,10 @@ export async function PATCH(
   try {
     const challengeId = z.string().uuid().parse(params.id);
     const body = await request.json();
+    console.log('🔧 Challenge update request:', { challengeId, body });
+    
     const payload = updateSchema.parse(body);
+    console.log('✅ Parsed payload:', payload);
 
     const updateData: Record<string, any> = {};
     if (payload.name) updateData.name = sanitizeText(payload.name);
@@ -71,7 +74,10 @@ export async function PATCH(
       updateData.due_date = dueDate.toISOString();
     }
 
+    console.log('📝 Update data to be sent to DB:', updateData);
+
     if (Object.keys(updateData).length === 0) {
+      console.log('❌ No valid fields provided');
       return NextResponse.json<ApiResponse>({
         success: false,
         error: "No valid fields provided"
@@ -87,14 +93,17 @@ export async function PATCH(
       .single();
 
     if (error) {
+      console.error('❌ Database error:', error);
       throw error;
     }
 
+    console.log('✅ Challenge updated successfully:', data);
     return NextResponse.json<ApiResponse<ChallengeRecord>>({
       success: true,
       data: mapChallenge(data)
     });
   } catch (error) {
+    console.error('❌ Challenge update error:', error);
     const status = error instanceof z.ZodError ? 400 : 500;
     return NextResponse.json<ApiResponse>({
       success: false,

@@ -13,6 +13,10 @@ import {
   type ProjectParticipantSummary,
 } from "@/types";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+export const fetchCache = "force-no-store";
+
 const IMPACT_LEVELS: ProjectChallengeNode["impact"][] = ["low", "medium", "high", "critical"];
 
 const COMPLETED_INSIGHT_STATUSES = new Set(["implemented", "archived", "resolved", "closed"]);
@@ -71,10 +75,13 @@ function formatTimeframe(startDate?: string | null, endDate?: string | null): st
 }
 
 function initialsFromName(name: string): string {
-  if (!name) {
+  if (!name || typeof name !== 'string') {
     return "??";
   }
   const parts = name.trim().split(/\s+/);
+  if (!parts || parts.length === 0) {
+    return "??";
+  }
   if (parts.length === 1) {
     return parts[0].slice(0, 2).toUpperCase();
   }
@@ -232,6 +239,7 @@ export async function GET(
 ) {
   try {
     const projectId = z.string().uuid().parse(params.id);
+    console.log('🔧 Journey API: Loading data for project:', projectId);
 
     const supabase = getAdminSupabaseClient();
 
@@ -274,14 +282,26 @@ export async function GET(
     }
 
     if (challengeResult.error) {
+      console.error('❌ Journey API: Challenge query error:', challengeResult.error);
       throw challengeResult.error;
     }
     if (askResult.error) {
+      console.error('❌ Journey API: ASK query error:', askResult.error);
       throw askResult.error;
     }
 
+    console.log('📊 Journey API: Raw query results:', {
+      challengeResult: challengeResult,
+      askResult: askResult
+    });
+
     const challengeRows = challengeResult.data ?? [];
     const askRows = askResult.data ?? [];
+
+    console.log('📊 Journey API: Processed data:', {
+      challengeRowsCount: challengeRows.length,
+      askRowsCount: askRows.length
+    });
 
     const askIds = askRows.map(row => row.id);
     const challengeIds = challengeRows.map(row => row.id);
@@ -323,16 +343,27 @@ export async function GET(
         : Promise.resolve({ data: [], error: null }),
     ]);
 
+    console.log('📊 Journey API: Secondary query results:', {
+      participantResult: participantResult,
+      insightResult: insightResult,
+      challengeInsightResult: challengeInsightResult,
+      ownerResult: ownerResult
+    });
+
     if (participantResult.error) {
+      console.error('❌ Journey API: Participant query error:', participantResult.error);
       throw participantResult.error;
     }
     if (insightResult.error) {
+      console.error('❌ Journey API: Insight query error:', insightResult.error);
       throw insightResult.error;
     }
     if (challengeInsightResult.error) {
+      console.error('❌ Journey API: Challenge insight query error:', challengeInsightResult.error);
       throw challengeInsightResult.error;
     }
     if (ownerResult.error) {
+      console.error('❌ Journey API: Owner query error:', ownerResult.error);
       throw ownerResult.error;
     }
 
@@ -340,6 +371,13 @@ export async function GET(
     const insightRows = insightResult.data ?? [];
     const challengeInsightRows = challengeInsightResult.data ?? [];
     const ownerRows = ownerResult.data ?? [];
+
+    console.log('📊 Journey API: Processed secondary data:', {
+      participantRowsCount: participantRows.length,
+      insightRowsCount: insightRows.length,
+      challengeInsightRowsCount: challengeInsightRows.length,
+      ownerRowsCount: ownerRows.length
+    });
 
     const ownerMap = new Map<string, ProjectParticipantSummary>();
     for (const row of ownerRows) {
@@ -478,11 +516,21 @@ export async function GET(
       availableUsers: Array.from(availableUsers.values()),
     };
 
+    console.log('✅ Journey API: Data loaded successfully:', {
+      projectId: journeyData.projectId,
+      projectName: journeyData.projectName,
+      challengesCount: journeyData.challenges.length,
+      asksCount: journeyData.asks.length,
+      availableUsersCount: journeyData.availableUsers.length,
+    });
+
     return NextResponse.json<ApiResponse<ProjectJourneyBoardData>>({
       success: true,
       data: journeyData,
     });
   } catch (error) {
+    console.error('❌ Journey API: Unexpected error:', error);
+    
     if (error instanceof z.ZodError) {
       return NextResponse.json<ApiResponse>({
         success: false,

@@ -420,6 +420,7 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
       setError(null);
 
       try {
+        console.log('🔄 Frontend: Reloading journey data for project:', projectId);
         const response = await fetch(`/api/admin/projects/${projectId}/journey`, {
           cache: "no-store",
           credentials: "include",
@@ -427,10 +428,29 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
         });
         const payload = await response.json();
 
+        console.log('📡 Frontend: Journey data response:', { status: response.status, success: payload.success });
+
         if (!response.ok || !payload.success) {
           throw new Error(payload.error || "Unable to load project data");
         }
 
+        console.log('✅ Frontend: Journey data loaded successfully:', payload.data);
+        
+        // Debug: Check the structure of the data
+        if (payload.data && typeof payload.data === 'object') {
+          console.log('🔍 Frontend: Data structure check:', {
+            hasProject: !!payload.data.project,
+            hasChallenges: !!payload.data.challenges,
+            hasAsks: !!payload.data.asks,
+            hasParticipants: !!payload.data.participants,
+            challengesLength: payload.data.challenges?.length,
+            asksLength: payload.data.asks?.length,
+            participantsLength: payload.data.participants?.length
+          });
+        } else {
+          console.log('❌ Frontend: Invalid data structure:', payload.data);
+        }
+        
         setBoardData(payload.data as ProjectJourneyBoardData);
       } catch (err) {
         if (options?.signal?.aborted) {
@@ -1115,6 +1135,8 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
           parentChallengeId: resolvedParentId,
         };
 
+        console.log('🔧 Frontend: Updating challenge with payload:', payload);
+
         const response = await fetch(`/api/admin/challenges/${editingChallengeId}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
@@ -1122,10 +1144,13 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
         });
 
         const result = await response.json();
+        console.log('📡 Frontend: API response:', { status: response.status, result });
+        
         if (!response.ok || !result.success) {
           throw new Error(result.error || "Unable to update challenge.");
         }
 
+        console.log('✅ Frontend: Challenge updated, reloading data...');
         await loadJourneyData({ silent: true });
         setActiveChallengeId(editingChallengeId);
         setChallengeFeedback({ type: "success", message: "Challenge updated successfully." });
@@ -1420,20 +1445,32 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
         setAskFormValues(createEmptyAskForm(getDefaultChallengeId()));
       } else {
         const askKey = (askFormValues.askKey || "").trim() || generateAskKey(trimmedName || "ask");
+        const payload = { ...basePayload, askKey, projectId: boardData.projectId };
+        
+        console.log('🔧 Frontend: Creating ASK with payload:', payload);
+
         const response = await fetch("/api/admin/asks", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...basePayload, askKey, projectId: boardData.projectId }),
+          body: JSON.stringify(payload),
         });
-        const payload = await response.json();
-        if (!response.ok || !payload.success) {
-          throw new Error(payload.error || "Unable to create ASK");
+        
+        const result = await response.json();
+        console.log('📡 Frontend: ASK creation response:', { status: response.status, result });
+        
+        if (!response.ok || !result.success) {
+          throw new Error(result.error || "Unable to create ASK");
         }
-        const record = payload.data as AskSessionRecord;
+        
+        const record = result.data as AskSessionRecord;
+        console.log('✅ Frontend: ASK created successfully:', record);
+        
         setAskDetails(current => ({ ...current, [record.id]: record }));
         setAskFeedback({ type: "success", message: "ASK created successfully." });
         setAskFormValues(current => ({ ...createEmptyAskForm(challengeId), challengeId }));
         setHasManualAskKey(false);
+        
+        console.log('✅ Frontend: ASK created, reloading data...');
         await loadJourneyData({ silent: true });
       }
     } catch (error) {
@@ -1875,7 +1912,7 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
                       />
                     </div>
                   </div>
-                  {boardData.availableUsers.length ? (
+                  {boardData.availableUsers?.length ? (
                     <div className="flex flex-col gap-2">
                       <Label>Owners</Label>
                       <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
@@ -1925,7 +1962,7 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
                 </CardContent>
               </Card>
             ) : null}
-            {boardData.challenges.length ? (
+            {boardData.challenges?.length ? (
               renderChallengeList(boardData.challenges)
             ) : (
               <Card className="border-dashed border-white/10 bg-slate-900/60">
@@ -1965,7 +2002,7 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
                     </p>
                   </CardHeader>
                   <CardContent>
-                    {activeChallengeInsights.length ? (
+                    {activeChallengeInsights?.length ? (
                       <div className="space-y-3">
                         {activeChallengeInsights.map(insight => (
                           <div
@@ -2274,7 +2311,7 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
 
                     <div className="flex flex-col gap-2">
                       <Label>Participants</Label>
-                      {boardData.availableUsers.length ? (
+                      {boardData.availableUsers?.length ? (
                         <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                           {boardData.availableUsers.map(user => {
                             const isSelected = askFormValues.participantIds.includes(user.id);
@@ -2308,7 +2345,7 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
                       )}
                     </div>
 
-                    {askFormValues.participantIds.length ? (
+                    {askFormValues.participantIds?.length ? (
                       <div className="flex flex-col gap-2">
                         <Label htmlFor="ask-spokesperson">Spokesperson</Label>
                         <select
@@ -2354,7 +2391,7 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
                 ) : null}
 
                 <div className="space-y-4">
-                  {activeChallengeAsks.length ? (
+                  {activeChallengeAsks?.length ? (
                     activeChallengeAsks.map(ask => (
                       <Card key={ask.id} className="border border-white/10 bg-slate-900/70 shadow-sm">
                         <CardHeader className="space-y-3 pb-3">
@@ -2394,12 +2431,12 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
                               <Target className="h-3.5 w-3.5 text-indigo-300" /> General theme
                             </span>
                             <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2.5 py-1 text-slate-200">
-                              <Users className="h-3.5 w-3.5 text-slate-200" /> {ask.participants.length} participant{ask.participants.length > 1 ? "s" : ""}
+                              <Users className="h-3.5 w-3.5 text-slate-200" /> {ask.participants?.length} participant{ask.participants?.length > 1 ? "s" : ""}
                             </span>
                           </div>
                           <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
                             <span className="font-semibold text-slate-300">Related projects:</span>
-                            {ask.relatedProjects.length ? (
+                            {ask.relatedProjects?.length ? (
                               ask.relatedProjects.map(project => (
                                 <span
                                   key={project.id}
