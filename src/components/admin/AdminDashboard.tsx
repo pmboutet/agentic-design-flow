@@ -2471,11 +2471,14 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                           <Button
                             type="button"
                             variant="outline"
-                            className="border-white/20 bg-transparent text-white hover:bg-white/10"
+                            className="h-10 rounded-full border border-gray-300 bg-white px-4 text-sm font-medium text-gray-700 hover:bg-gray-50"
                             onClick={cancelProjectEdit}
                             disabled={isBusy}
                           >
-                            Cancel
+                            <div className="flex items-center gap-2">
+                              <X className="h-4 w-4" />
+                              Cancel
+                            </div>
                           </Button>
                         )}
                         <Button type="submit" className={`${gradientButtonClasses} px-4`} disabled={isBusy}>
@@ -2542,14 +2545,19 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                               >
                                 Ouvrir
                               </Button>
-                              <button
+                              <Button
                                 type="button"
+                                size="sm"
+                                variant="secondary"
+                                className="h-8 rounded-full border border-white/20 bg-white/10 px-3 text-[11px] font-semibold uppercase tracking-wide text-slate-200 hover:bg-white/20"
                                 onClick={() => startProjectEdit(project.id)}
-                                className="text-slate-200 hover:text-white"
                                 disabled={isBusy}
                               >
-                                Edit
-                              </button>
+                                <div className="flex items-center gap-1">
+                                  <Pencil className="h-3.5 w-3.5" />
+                                  Edit project
+                                </div>
+                              </Button>
                               <button
                                 type="button"
                                 onClick={() => handleDeleteProject(project.id)}
