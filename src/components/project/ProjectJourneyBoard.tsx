@@ -1,6 +1,6 @@
 "use client";
 
-import { type ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
+import { type ChangeEvent, type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Calendar,
   ChevronRight,
@@ -23,6 +23,10 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { cn } from "@/lib/utils";
 import { getMockProjectJourneyData } from "@/lib/mockProjectJourney";
 import {
+  type AskAudienceScope,
+  type AskDeliveryMode,
+  type AskGroupResponseMode,
+  type AskSessionRecord,
   type ChallengeRecord,
   type ProjectAskOverview,
   type ProjectChallengeNode,
@@ -80,6 +84,11 @@ const challengeStatusOptions: { value: ChallengeStatus; label: string }[] = [
   { value: "closed", label: "Closed" },
   { value: "archived", label: "Archived" },
 ];
+
+const askStatusOptions = ["active", "inactive", "draft", "closed"] as const;
+const askDeliveryModes: AskDeliveryMode[] = ["physical", "digital"];
+const askAudienceScopes: AskAudienceScope[] = ["individual", "group"];
+const askResponseModes: AskGroupResponseMode[] = ["collective", "simultaneous"];
 
 const USE_MOCK_JOURNEY = process.env.NEXT_PUBLIC_USE_MOCK_PROJECT_JOURNEY === "true";
 
@@ -183,6 +192,65 @@ function createEmptyChallengeForm(): ChallengeFormState {
   };
 }
 
+type AskFormState = {
+  challengeId: string;
+  askKey: string;
+  name: string;
+  question: string;
+  description: string;
+  status: (typeof askStatusOptions)[number];
+  startDate: string;
+  endDate: string;
+  isAnonymous: boolean;
+  maxParticipants: string;
+  participantIds: string[];
+  spokespersonId: string;
+  deliveryMode: AskDeliveryMode;
+  audienceScope: AskAudienceScope;
+  responseMode: AskGroupResponseMode;
+};
+
+function generateAskKey(base: string) {
+  const slug = base
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)+/g, "");
+  const randomSuffix = Math.random().toString(36).slice(2, 6);
+  return `${slug || "ask"}-${randomSuffix}`;
+}
+
+function createEmptyAskForm(challengeId?: string): AskFormState {
+  const now = new Date();
+  const defaultStart = now.toISOString().slice(0, 16);
+  const defaultEnd = new Date(now.getTime() + 60 * 60 * 1000).toISOString().slice(0, 16);
+
+  return {
+    challengeId: challengeId ?? "",
+    askKey: generateAskKey("ask"),
+    name: "",
+    question: "",
+    description: "",
+    status: "active",
+    startDate: defaultStart,
+    endDate: defaultEnd,
+    isAnonymous: false,
+    maxParticipants: "",
+    participantIds: [],
+    spokespersonId: "",
+    deliveryMode: "digital",
+    audienceScope: "individual",
+    responseMode: "collective",
+  };
+}
+
+function normalizeAskStatus(value?: string | null): AskFormState["status"] {
+  if (!value) {
+    return "active";
+  }
+  const normalized = value as (typeof askStatusOptions)[number];
+  return askStatusOptions.includes(normalized) ? normalized : "active";
+}
+
 export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
   const [boardData, setBoardData] = useState<ProjectJourneyBoardData | null>(
     USE_MOCK_JOURNEY ? getMockProjectJourneyData(projectId) : null,
@@ -196,6 +264,15 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
   const [isSavingChallenge, setIsSavingChallenge] = useState(false);
   const [challengeFeedback, setChallengeFeedback] = useState<FeedbackState | null>(null);
   const [challengeFormValues, setChallengeFormValues] = useState<ChallengeFormState>(() => createEmptyChallengeForm());
+  const [isAskFormOpen, setIsAskFormOpen] = useState(false);
+  const [isEditingAsk, setIsEditingAsk] = useState(false);
+  const [editingAskId, setEditingAskId] = useState<string | null>(null);
+  const [askFeedback, setAskFeedback] = useState<FeedbackState | null>(null);
+  const [askFormValues, setAskFormValues] = useState<AskFormState>(() => createEmptyAskForm());
+  const [isSavingAsk, setIsSavingAsk] = useState(false);
+  const [hasManualAskKey, setHasManualAskKey] = useState(false);
+  const [askDetails, setAskDetails] = useState<Record<string, AskSessionRecord>>({});
+  const [isLoadingAskDetails, setIsLoadingAskDetails] = useState(false);
   const [editValues, setEditValues] = useState<ProjectEditState>({
     name: "",
     description: "",
@@ -205,51 +282,82 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
     systemPrompt: "",
   });
 
-  useEffect(() => {
-    if (USE_MOCK_JOURNEY) {
-      return;
-    }
+  const loadJourneyData = useCallback(
+    async (options?: { signal?: AbortSignal; silent?: boolean }) => {
+      if (USE_MOCK_JOURNEY) {
+        setBoardData(getMockProjectJourneyData(projectId));
+        setError(null);
+        setIsLoading(false);
+        return;
+      }
 
-    let isMounted = true;
-    const controller = new AbortController();
-
-    const load = async () => {
-      setIsLoading(true);
+      if (!options?.silent) {
+        setIsLoading(true);
+      }
       setError(null);
+
       try {
         const response = await fetch(`/api/admin/projects/${projectId}/journey`, {
           cache: "no-store",
-          signal: controller.signal,
+          signal: options?.signal,
         });
         const payload = await response.json();
+
         if (!response.ok || !payload.success) {
           throw new Error(payload.error || "Unable to load project data");
         }
-        if (!isMounted) {
-          return;
-        }
+
         setBoardData(payload.data as ProjectJourneyBoardData);
       } catch (err) {
-        if (!isMounted || controller.signal.aborted) {
+        if (options?.signal?.aborted) {
+          return;
+        }
+        if ((err as { name?: string }).name === "AbortError") {
           return;
         }
         console.error("Failed to load project journey data", err);
         setBoardData(getMockProjectJourneyData(projectId));
         setError(err instanceof Error ? err.message : "Unable to load project data");
       } finally {
-        if (isMounted) {
+        if (!options?.silent) {
           setIsLoading(false);
         }
       }
-    };
+    },
+    [projectId],
+  );
 
-    load();
+  useEffect(() => {
+    const controller = new AbortController();
+    void loadJourneyData({ signal: controller.signal });
 
     return () => {
-      isMounted = false;
       controller.abort();
     };
-  }, [projectId]);
+  }, [loadJourneyData]);
+
+  const ensureAskDetails = useCallback(
+    async (askId: string): Promise<AskSessionRecord> => {
+      const existing = askDetails[askId];
+      if (existing) {
+        return existing;
+      }
+
+      const response = await fetch(`/api/admin/asks/${askId}`, {
+        cache: "no-store",
+      });
+      const payload = await response.json();
+
+      if (!response.ok || !payload.success) {
+        throw new Error(payload.error || "Unable to load ASK details");
+      }
+
+      const record = payload.data as AskSessionRecord;
+      setAskDetails(current => ({ ...current, [record.id]: record }));
+      return record;
+    },
+    [askDetails],
+  );
 
   useEffect(() => {
     if (!boardData) {
@@ -723,6 +831,290 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
       });
     } finally {
       setIsSavingChallenge(false);
+    }
+  };
+
+  const getDefaultChallengeId = () => activeChallengeId ?? allChallenges[0]?.id ?? "";
+
+  const handleAskCreateStart = () => {
+    const defaultChallengeId = getDefaultChallengeId();
+    setAskFormValues(createEmptyAskForm(defaultChallengeId));
+    setHasManualAskKey(false);
+    setIsAskFormOpen(true);
+    setIsEditingAsk(false);
+    setEditingAskId(null);
+    setAskFeedback(null);
+    setIsLoadingAskDetails(false);
+  };
+
+  const handleAskCancel = () => {
+    setIsAskFormOpen(false);
+    setIsEditingAsk(false);
+    setEditingAskId(null);
+    setAskFeedback(null);
+    setIsSavingAsk(false);
+    setHasManualAskKey(false);
+    setAskFormValues(createEmptyAskForm(getDefaultChallengeId()));
+  };
+
+  const handleAskNameChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const { value } = event.target;
+    setAskFormValues(current => {
+      const next: AskFormState = { ...current, name: value };
+      if (!isEditingAsk && !hasManualAskKey) {
+        next.askKey = generateAskKey(value || "ask");
+      }
+      return next;
+    });
+  };
+
+  const handleAskKeyChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const { value } = event.target;
+    setAskFormValues(current => ({ ...current, askKey: value }));
+    setHasManualAskKey(true);
+  };
+
+  const handleAskKeyRegenerate = () => {
+    if (isEditingAsk) {
+      return;
+    }
+    const base = askFormValues.name || "ask";
+    const nextKey = generateAskKey(base);
+    setAskFormValues(current => ({ ...current, askKey: nextKey }));
+    setHasManualAskKey(false);
+  };
+
+  const handleAskQuestionChange = (event: ChangeEvent<HTMLTextAreaElement>) => {
+    const { value } = event.target;
+    setAskFormValues(current => ({ ...current, question: value }));
+  };
+
+  const handleAskDescriptionChange = (event: ChangeEvent<HTMLTextAreaElement>) => {
+    const { value } = event.target;
+    setAskFormValues(current => ({ ...current, description: value }));
+  };
+
+  const handleAskStartChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const { value } = event.target;
+    setAskFormValues(current => ({ ...current, startDate: value }));
+  };
+
+  const handleAskEndChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const { value } = event.target;
+    setAskFormValues(current => ({ ...current, endDate: value }));
+  };
+
+  const handleAskStatusChange = (event: ChangeEvent<HTMLSelectElement>) => {
+    const { value } = event.target;
+    setAskFormValues(current => ({ ...current, status: value as AskFormState["status"] }));
+  };
+
+  const handleAskDeliveryModeChange = (event: ChangeEvent<HTMLSelectElement>) => {
+    const { value } = event.target;
+    setAskFormValues(current => ({ ...current, deliveryMode: value as AskDeliveryMode }));
+  };
+
+  const handleAskAudienceScopeChange = (event: ChangeEvent<HTMLSelectElement>) => {
+    const { value } = event.target;
+    setAskFormValues(current => ({ ...current, audienceScope: value as AskAudienceScope }));
+  };
+
+  const handleAskResponseModeChange = (event: ChangeEvent<HTMLSelectElement>) => {
+    const { value } = event.target;
+    setAskFormValues(current => ({ ...current, responseMode: value as AskGroupResponseMode }));
+  };
+
+  const handleAskChallengeChange = (event: ChangeEvent<HTMLSelectElement>) => {
+    const { value } = event.target;
+    setAskFormValues(current => ({ ...current, challengeId: value }));
+  };
+
+  const handleAskMaxParticipantsChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const { value } = event.target;
+    if (value === "" || /^[0-9]+$/.test(value)) {
+      setAskFormValues(current => ({ ...current, maxParticipants: value }));
+    }
+  };
+
+  const handleAskAnonymousToggle = (event: ChangeEvent<HTMLInputElement>) => {
+    setAskFormValues(current => ({ ...current, isAnonymous: event.target.checked }));
+  };
+
+  const handleAskParticipantToggle = (userId: string) => {
+    setAskFormValues(current => {
+      const hasParticipant = current.participantIds.includes(userId);
+      const participantIds = hasParticipant
+        ? current.participantIds.filter(id => id !== userId)
+        : [...current.participantIds, userId];
+      const spokespersonId = participantIds.includes(current.spokespersonId)
+        ? current.spokespersonId
+        : "";
+      return {
+        ...current,
+        participantIds,
+        spokespersonId,
+      };
+    });
+  };
+
+  const handleAskSpokespersonChange = (event: ChangeEvent<HTMLSelectElement>) => {
+    const { value } = event.target;
+    setAskFormValues(current => ({ ...current, spokespersonId: value }));
+  };
+
+  const handleAskFormSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!boardData) {
+      return;
+    }
+
+    const challengeId = askFormValues.challengeId;
+    const trimmedName = askFormValues.name.trim();
+    const trimmedQuestion = askFormValues.question.trim();
+    const trimmedDescription = askFormValues.description.trim();
+    const startDate = askFormValues.startDate;
+    const endDate = askFormValues.endDate;
+    const maxParticipantsValue = askFormValues.maxParticipants.trim();
+    const numericMaxParticipants = maxParticipantsValue ? Number(maxParticipantsValue) : undefined;
+
+    if (!challengeId) {
+      setAskFeedback({ type: "error", message: "Select a challenge to attach this ASK to." });
+      return;
+    }
+    if (!trimmedName) {
+      setAskFeedback({ type: "error", message: "Provide a name for this ASK." });
+      return;
+    }
+    if (trimmedQuestion.length < 5) {
+      setAskFeedback({ type: "error", message: "The question is too short." });
+      return;
+    }
+    if (!startDate) {
+      setAskFeedback({ type: "error", message: "Set a start date for the session." });
+      return;
+    }
+    if (!endDate) {
+      setAskFeedback({ type: "error", message: "Set an end date for the session." });
+      return;
+    }
+    if (maxParticipantsValue && Number.isNaN(numericMaxParticipants)) {
+      setAskFeedback({ type: "error", message: "Maximum participants must be a number." });
+      return;
+    }
+
+    const participantIds = askFormValues.participantIds;
+    const spokespersonId =
+      askFormValues.spokespersonId && participantIds.includes(askFormValues.spokespersonId)
+        ? askFormValues.spokespersonId
+        : "";
+
+    const basePayload = {
+      name: trimmedName,
+      question: trimmedQuestion,
+      description: trimmedDescription,
+      startDate,
+      endDate,
+      status: askFormValues.status,
+      isAnonymous: askFormValues.isAnonymous,
+      maxParticipants: numericMaxParticipants,
+      deliveryMode: askFormValues.deliveryMode,
+      audienceScope: askFormValues.audienceScope,
+      responseMode: askFormValues.responseMode,
+      participantIds,
+      spokespersonId,
+      challengeId,
+    };
+
+    setIsSavingAsk(true);
+    setAskFeedback(null);
+
+    try {
+      if (isEditingAsk && editingAskId) {
+        const response = await fetch(`/api/admin/asks/${editingAskId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(basePayload),
+        });
+        const payload = await response.json();
+        if (!response.ok || !payload.success) {
+          throw new Error(payload.error || "Unable to update ASK");
+        }
+        const record = payload.data as AskSessionRecord;
+        setAskDetails(current => ({ ...current, [record.id]: record }));
+        setAskFeedback({ type: "success", message: "ASK updated successfully." });
+        await loadJourneyData({ silent: true });
+        setIsAskFormOpen(false);
+        setIsEditingAsk(false);
+        setEditingAskId(null);
+        setHasManualAskKey(false);
+        setAskFormValues(createEmptyAskForm(getDefaultChallengeId()));
+      } else {
+        const askKey = (askFormValues.askKey || "").trim() || generateAskKey(trimmedName || "ask");
+        const response = await fetch("/api/admin/asks", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...basePayload, askKey, projectId: boardData.projectId }),
+        });
+        const payload = await response.json();
+        if (!response.ok || !payload.success) {
+          throw new Error(payload.error || "Unable to create ASK");
+        }
+        const record = payload.data as AskSessionRecord;
+        setAskDetails(current => ({ ...current, [record.id]: record }));
+        setAskFeedback({ type: "success", message: "ASK created successfully." });
+        setAskFormValues(current => ({ ...createEmptyAskForm(challengeId), challengeId }));
+        setHasManualAskKey(false);
+        await loadJourneyData({ silent: true });
+      }
+    } catch (error) {
+      console.error("Failed to save ASK", error);
+      setAskFeedback({ type: "error", message: error instanceof Error ? error.message : "Unable to save ASK" });
+    } finally {
+      setIsSavingAsk(false);
+    }
+  };
+
+  const handleAskEditStart = async (askId: string) => {
+    setIsAskFormOpen(true);
+    setIsEditingAsk(true);
+    setEditingAskId(askId);
+    setHasManualAskKey(true);
+    setAskFeedback(null);
+    setIsLoadingAskDetails(true);
+
+    try {
+      const record = await ensureAskDetails(askId);
+      const participants = record.participants?.map(participant => participant.id) ?? [];
+      const spokesperson = record.participants?.find(participant => participant.isSpokesperson)?.id ?? "";
+
+      setAskFormValues({
+        challengeId: record.challengeId ?? getDefaultChallengeId(),
+        askKey: record.askKey,
+        name: record.name ?? "",
+        question: record.question ?? "",
+        description: record.description ?? "",
+        status: normalizeAskStatus(record.status),
+        startDate: toInputDate(record.startDate),
+        endDate: toInputDate(record.endDate),
+        isAnonymous: Boolean(record.isAnonymous),
+        maxParticipants: record.maxParticipants ? String(record.maxParticipants) : "",
+        participantIds: participants,
+        spokespersonId: spokesperson && participants.includes(spokesperson) ? spokesperson : "",
+        deliveryMode: record.deliveryMode ?? "digital",
+        audienceScope: record.audienceScope ?? (participants.length > 1 ? "group" : "individual"),
+        responseMode: record.responseMode ?? "collective",
+      });
+    } catch (error) {
+      console.error("Failed to load ASK details", error);
+      setAskFeedback({
+        type: "error",
+        message: error instanceof Error ? error.message : "Unable to load ASK details.",
+      });
+      setIsAskFormOpen(false);
+      setIsEditingAsk(false);
+      setEditingAskId(null);
+    } finally {
+      setIsLoadingAskDetails(false);
     }
   };
 
@@ -1226,9 +1618,21 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
                     </p>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
-                    <Button size="sm" className="gap-2 bg-indigo-500 text-white hover:bg-indigo-400">
-                      <Plus className="h-4 w-4" />
-                      Create ASK
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="gap-2 bg-indigo-500 text-white hover:bg-indigo-400"
+                      onClick={() => {
+                        if (isAskFormOpen) {
+                          handleAskCancel();
+                        } else {
+                          handleAskCreateStart();
+                        }
+                      }}
+                      disabled={isSavingAsk || isLoadingAskDetails}
+                    >
+                      {isAskFormOpen ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+                      {isAskFormOpen ? "Close form" : "Create ASK"}
                     </Button>
                     <Button size="sm" variant="outline" className="gap-2 border-white/20 bg-white/10 text-white hover:bg-white/20">
                       <Sparkles className="h-4 w-4" />
@@ -1236,6 +1640,315 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
                     </Button>
                   </div>
                 </div>
+
+                {isAskFormOpen ? (
+                  <form
+                    onSubmit={handleAskFormSubmit}
+                    className="space-y-4 rounded-xl border border-indigo-400/40 bg-slate-950/60 p-4 shadow-lg"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <h3 className="text-base font-semibold text-white">
+                        {isEditingAsk ? "Edit ASK session" : "Create ASK session"}
+                      </h3>
+                      {isEditingAsk ? (
+                        <span className="text-xs font-medium text-indigo-200">Editing current session</span>
+                      ) : null}
+                    </div>
+
+                    {askFeedback ? (
+                      <Alert
+                        className={cn(
+                          "border px-3 py-3",
+                          askFeedback.type === "error"
+                            ? "border-destructive/40 bg-destructive/10 text-destructive-foreground"
+                            : "border-emerald-400/40 bg-emerald-500/10 text-emerald-200",
+                        )}
+                      >
+                        <AlertTitle className="text-sm font-semibold">
+                          {askFeedback.type === "error" ? "Something went wrong" : "Success"}
+                        </AlertTitle>
+                        <AlertDescription className="text-sm">{askFeedback.message}</AlertDescription>
+                      </Alert>
+                    ) : null}
+
+                    {isLoadingAskDetails ? (
+                      <div className="flex items-center gap-2 text-sm text-slate-300">
+                        <Loader2 className="h-4 w-4 animate-spin text-indigo-300" />
+                        Loading ASK details…
+                      </div>
+                    ) : null}
+
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="flex flex-col gap-2">
+                        <Label htmlFor="ask-challenge">Challenge</Label>
+                        <select
+                          id="ask-challenge"
+                          value={askFormValues.challengeId}
+                          onChange={handleAskChallengeChange}
+                          className="h-10 rounded-md border border-white/10 bg-slate-900/70 px-3 text-sm text-white focus:border-indigo-400 focus:outline-none focus:ring focus:ring-indigo-400/20"
+                          disabled={isSavingAsk || isLoadingAskDetails}
+                        >
+                          <option value="">Select a challenge</option>
+                          {allChallenges.map(challenge => (
+                            <option key={challenge.id} value={challenge.id}>
+                              {challenge.title}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="flex flex-col gap-2">
+                        <Label htmlFor="ask-key">ASK key</Label>
+                        <div className="flex gap-2">
+                          <Input
+                            id="ask-key"
+                            value={askFormValues.askKey}
+                            onChange={handleAskKeyChange}
+                            placeholder="session-team-001"
+                            disabled={isSavingAsk || isLoadingAskDetails || isEditingAsk}
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="border-white/20 bg-white/10 text-white hover:bg-white/20"
+                            onClick={handleAskKeyRegenerate}
+                            disabled={isSavingAsk || isLoadingAskDetails || isEditingAsk}
+                          >
+                            Refresh
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="flex flex-col gap-2">
+                        <Label htmlFor="ask-name">Name</Label>
+                        <Input
+                          id="ask-name"
+                          value={askFormValues.name}
+                          onChange={handleAskNameChange}
+                          placeholder="Session name"
+                          disabled={isSavingAsk || isLoadingAskDetails}
+                        />
+                      </div>
+                      <div className="flex flex-col gap-2">
+                        <Label htmlFor="ask-status">Status</Label>
+                        <select
+                          id="ask-status"
+                          value={askFormValues.status}
+                          onChange={handleAskStatusChange}
+                          className="h-10 rounded-md border border-white/10 bg-slate-900/70 px-3 text-sm text-white focus:border-indigo-400 focus:outline-none focus:ring focus:ring-indigo-400/20"
+                          disabled={isSavingAsk || isLoadingAskDetails}
+                        >
+                          {askStatusOptions.map(status => (
+                            <option key={status} value={status}>
+                              {status}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col gap-2">
+                      <Label htmlFor="ask-question">Question</Label>
+                      <Textarea
+                        id="ask-question"
+                        rows={3}
+                        value={askFormValues.question}
+                        onChange={handleAskQuestionChange}
+                        placeholder="What do you want participants to reflect on?"
+                        disabled={isSavingAsk || isLoadingAskDetails}
+                      />
+                    </div>
+
+                    <div className="flex flex-col gap-2">
+                      <Label htmlFor="ask-description">Description</Label>
+                      <Textarea
+                        id="ask-description"
+                        rows={2}
+                        value={askFormValues.description}
+                        onChange={handleAskDescriptionChange}
+                        placeholder="Share additional context"
+                        disabled={isSavingAsk || isLoadingAskDetails}
+                      />
+                    </div>
+
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="flex flex-col gap-2">
+                        <Label htmlFor="ask-start">Start</Label>
+                        <Input
+                          id="ask-start"
+                          type="datetime-local"
+                          value={askFormValues.startDate}
+                          onChange={handleAskStartChange}
+                          disabled={isSavingAsk || isLoadingAskDetails}
+                        />
+                      </div>
+                      <div className="flex flex-col gap-2">
+                        <Label htmlFor="ask-end">End</Label>
+                        <Input
+                          id="ask-end"
+                          type="datetime-local"
+                          value={askFormValues.endDate}
+                          onChange={handleAskEndChange}
+                          disabled={isSavingAsk || isLoadingAskDetails}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid gap-4 md:grid-cols-3">
+                      <div className="flex flex-col gap-2">
+                        <Label htmlFor="ask-delivery">Delivery mode</Label>
+                        <select
+                          id="ask-delivery"
+                          value={askFormValues.deliveryMode}
+                          onChange={handleAskDeliveryModeChange}
+                          className="h-10 rounded-md border border-white/10 bg-slate-900/70 px-3 text-sm text-white focus:border-indigo-400 focus:outline-none focus:ring focus:ring-indigo-400/20"
+                          disabled={isSavingAsk || isLoadingAskDetails}
+                        >
+                          {askDeliveryModes.map(mode => (
+                            <option key={mode} value={mode}>
+                              {mode === "physical" ? "In-person" : "Digital"}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="flex flex-col gap-2">
+                        <Label htmlFor="ask-audience">Audience</Label>
+                        <select
+                          id="ask-audience"
+                          value={askFormValues.audienceScope}
+                          onChange={handleAskAudienceScopeChange}
+                          className="h-10 rounded-md border border-white/10 bg-slate-900/70 px-3 text-sm text-white focus:border-indigo-400 focus:outline-none focus:ring focus:ring-indigo-400/20"
+                          disabled={isSavingAsk || isLoadingAskDetails}
+                        >
+                          {askAudienceScopes.map(scope => (
+                            <option key={scope} value={scope}>
+                              {scope === "individual" ? "Individual" : "Group"}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="flex flex-col gap-2">
+                        <Label htmlFor="ask-response">Response mode</Label>
+                        <select
+                          id="ask-response"
+                          value={askFormValues.responseMode}
+                          onChange={handleAskResponseModeChange}
+                          className="h-10 rounded-md border border-white/10 bg-slate-900/70 px-3 text-sm text-white focus:border-indigo-400 focus:outline-none focus:ring focus:ring-indigo-400/20"
+                          disabled={isSavingAsk || isLoadingAskDetails}
+                        >
+                          {askResponseModes.map(mode => (
+                            <option key={mode} value={mode}>
+                              {mode === "collective" ? "Collective" : "Simultaneous"}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="flex flex-col gap-2">
+                        <Label htmlFor="ask-max-participants">Maximum participants</Label>
+                        <Input
+                          id="ask-max-participants"
+                          value={askFormValues.maxParticipants}
+                          onChange={handleAskMaxParticipantsChange}
+                          placeholder="Optional limit"
+                          disabled={isSavingAsk || isLoadingAskDetails}
+                        />
+                      </div>
+                      <label className="flex items-center gap-2 self-end text-sm text-slate-300">
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 rounded border-white/20 bg-slate-900"
+                          checked={askFormValues.isAnonymous}
+                          onChange={handleAskAnonymousToggle}
+                          disabled={isSavingAsk || isLoadingAskDetails}
+                        />
+                        Allow anonymous participation
+                      </label>
+                    </div>
+
+                    <div className="flex flex-col gap-2">
+                      <Label>Participants</Label>
+                      {boardData.availableUsers.length ? (
+                        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                          {boardData.availableUsers.map(user => {
+                            const isSelected = askFormValues.participantIds.includes(user.id);
+                            return (
+                              <label
+                                key={user.id}
+                                className={cn(
+                                  "inline-flex cursor-pointer items-center gap-2 rounded-lg border bg-slate-950/60 px-3 py-2 text-sm transition",
+                                  isSelected
+                                    ? "border-indigo-400/70 bg-indigo-500/10 text-indigo-100"
+                                    : "border-white/10 text-slate-200 hover:border-indigo-300/50",
+                                )}
+                              >
+                                <input
+                                  type="checkbox"
+                                  className="h-4 w-4 rounded border-white/30 bg-slate-900 text-indigo-500 focus:ring-indigo-400"
+                                  checked={isSelected}
+                                  onChange={() => handleAskParticipantToggle(user.id)}
+                                  disabled={isSavingAsk || isLoadingAskDetails}
+                                />
+                                <span className="flex flex-col leading-tight">
+                                  <span className="font-medium text-white">{user.name}</span>
+                                  {user.role ? <span className="text-xs text-slate-400">{user.role}</span> : null}
+                                </span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <p className="text-sm text-slate-400">No collaborators are available for this project yet.</p>
+                      )}
+                    </div>
+
+                    {askFormValues.participantIds.length ? (
+                      <div className="flex flex-col gap-2">
+                        <Label htmlFor="ask-spokesperson">Spokesperson</Label>
+                        <select
+                          id="ask-spokesperson"
+                          value={askFormValues.spokespersonId}
+                          onChange={handleAskSpokespersonChange}
+                          className="h-10 rounded-md border border-white/10 bg-slate-900/70 px-3 text-sm text-white focus:border-indigo-400 focus:outline-none focus:ring focus:ring-indigo-400/20"
+                          disabled={isSavingAsk || isLoadingAskDetails}
+                        >
+                          <option value="">No spokesperson</option>
+                          {askFormValues.participantIds
+                            .map(participantId => boardData.availableUsers.find(user => user.id === participantId))
+                            .filter((user): user is NonNullable<typeof user> => Boolean(user))
+                            .map(user => (
+                              <option key={user.id} value={user.id}>
+                                {user.name}
+                              </option>
+                            ))}
+                        </select>
+                      </div>
+                    ) : null}
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        type="submit"
+                        className="gap-2 bg-indigo-500 text-white hover:bg-indigo-400"
+                        disabled={isSavingAsk || isLoadingAskDetails}
+                      >
+                        {isSavingAsk ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                        {isEditingAsk ? "Update ASK" : "Save ASK"}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={handleAskCancel}
+                        disabled={isSavingAsk}
+                        className="gap-2 border-white/20 text-white hover:bg-white/10"
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  </form>
+                ) : null}
 
                 <div className="space-y-4">
                   {activeChallengeAsks.length ? (
@@ -1247,11 +1960,30 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
                               <CardTitle className="text-base font-semibold text-white">{ask.title}</CardTitle>
                               <p className="mt-1 text-sm text-slate-300">{ask.summary}</p>
                             </div>
-                            <div className="flex flex-col items-end gap-1 text-xs text-slate-400">
-                              <span className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/10 px-2.5 py-1 font-medium text-slate-100">
-                                <Calendar className="h-3.5 w-3.5 text-slate-200" /> Due {formatDate(ask.dueDate)}
-                              </span>
-                              <span className="text-slate-300">Status: {ask.status}</span>
+                            <div className="flex items-start gap-2">
+                              <div className="flex flex-col items-end gap-1 text-xs text-slate-400">
+                                <span className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/10 px-2.5 py-1 font-medium text-slate-100">
+                                  <Calendar className="h-3.5 w-3.5 text-slate-200" /> Due {formatDate(ask.dueDate)}
+                                </span>
+                                <span className="text-slate-300">Status: {ask.status}</span>
+                              </div>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                className="gap-1 border-white/20 bg-white/10 text-white hover:bg-white/20"
+                                onClick={() => {
+                                  void handleAskEditStart(ask.id);
+                                }}
+                                disabled={isSavingAsk || isLoadingAskDetails}
+                              >
+                                {isLoadingAskDetails && editingAskId === ask.id ? (
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                ) : (
+                                  <Pencil className="h-3.5 w-3.5" />
+                                )}
+                                Edit
+                              </Button>
                             </div>
                           </div>
                           <div className="flex flex-wrap items-center gap-2 text-xs text-slate-300">

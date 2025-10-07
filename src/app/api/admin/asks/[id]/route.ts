@@ -68,6 +68,54 @@ function mapAsk(row: any): AskSessionRecord {
   };
 }
 
+export async function GET(
+  _request: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const askId = z.string().uuid().parse(params.id);
+
+    const supabase = getAdminSupabaseClient();
+    const { data, error, status } = await supabase
+      .from("ask_sessions")
+      .select(askSelect)
+      .eq("id", askId)
+      .single();
+
+    if (error) {
+      if (error.code === "PGRST116" || status === 406) {
+        return NextResponse.json<ApiResponse>({
+          success: false,
+          error: "ASK session not found",
+        }, { status: 404 });
+      }
+      throw error;
+    }
+
+    if (!data) {
+      return NextResponse.json<ApiResponse>({
+        success: false,
+        error: "ASK session not found",
+      }, { status: 404 });
+    }
+
+    return NextResponse.json<ApiResponse<AskSessionRecord>>({
+      success: true,
+      data: mapAsk(data),
+    });
+  } catch (error) {
+    const status = error instanceof z.ZodError ? 400 : 500;
+    const message = error instanceof z.ZodError
+      ? error.errors[0]?.message || "Invalid ASK id"
+      : parseErrorMessage(error);
+
+    return NextResponse.json<ApiResponse>({
+      success: false,
+      error: message,
+    }, { status });
+  }
+}
+
 export async function PATCH(
   request: NextRequest,
   { params }: { params: { id: string } }
