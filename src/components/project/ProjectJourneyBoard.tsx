@@ -871,8 +871,13 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
 
   if (!boardData) {
     return (
-      <div className="rounded-xl border border-white/10 bg-slate-900/70 p-6 text-center text-slate-200">
-        Unable to display project data.
+      <div className="space-y-3 rounded-xl border border-white/10 bg-slate-900/70 p-6 text-center text-slate-200">
+        <p>Unable to display project data.</p>
+        {error ? (
+          <p className="text-sm text-red-300">{error}</p>
+        ) : (
+          <p className="text-sm text-slate-400">Please refresh the page or verify the project configuration.</p>
+        )}
       </div>
     );
   }
