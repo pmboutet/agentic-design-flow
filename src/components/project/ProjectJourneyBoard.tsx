@@ -96,6 +96,50 @@ function flattenChallenges(nodes: ProjectChallengeNode[]): ProjectChallengeNode[
   return nodes.flatMap(node => [node, ...(node.children ? flattenChallenges(node.children) : [])]);
 }
 
+function insertChallengeNode(
+  nodes: ProjectChallengeNode[],
+  newNode: ProjectChallengeNode,
+  parentId?: string | null,
+): ProjectChallengeNode[] {
+  const [, updated] = insertChallengeNodeInternal(nodes, newNode, parentId ?? null);
+  return updated;
+}
+
+function insertChallengeNodeInternal(
+  nodes: ProjectChallengeNode[],
+  newNode: ProjectChallengeNode,
+  parentId: string | null,
+): readonly [boolean, ProjectChallengeNode[]] {
+  if (!parentId) {
+    return [true, [newNode, ...nodes]] as const;
+  }
+
+  let inserted = false;
+  const updatedNodes = nodes.map(node => {
+    if (node.id === parentId) {
+      inserted = true;
+      const children = node.children ? [newNode, ...node.children] : [newNode];
+      return { ...node, children };
+    }
+
+    if (node.children?.length) {
+      const [childInserted, childNodes] = insertChallengeNodeInternal(node.children, newNode, parentId);
+      if (childInserted) {
+        inserted = true;
+        return { ...node, children: childNodes };
+      }
+    }
+
+    return node;
+  });
+
+  if (inserted) {
+    return [true, updatedNodes] as const;
+  }
+
+  return [false, [newNode, ...updatedNodes]] as const;
+}
+
 function countSubChallenges(node: ProjectChallengeNode): number {
   if (!node.children?.length) {
     return 0;
@@ -180,6 +224,7 @@ type ChallengeFormState = {
   status: ChallengeStatus;
   impact: ProjectChallengeNode["impact"];
   ownerIds: string[];
+  parentId: string;
 };
 
 function createEmptyChallengeForm(): ChallengeFormState {
@@ -189,6 +234,7 @@ function createEmptyChallengeForm(): ChallengeFormState {
     status: "open",
     impact: "medium",
     ownerIds: [],
+    parentId: "",
   };
 }
 
@@ -391,6 +437,39 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
 
   const allChallenges = useMemo(() => (boardData ? flattenChallenges(boardData.challenges) : []), [boardData]);
 
+  const parentChallengeOptions = useMemo(() => {
+    if (!boardData) {
+      return [] as { id: string; label: string }[];
+    }
+
+    const options: { id: string; label: string }[] = [];
+
+    const traverse = (nodes: ProjectChallengeNode[], depth: number) => {
+      nodes.forEach(node => {
+        const indent = depth > 0 ? `${"\u00A0".repeat(depth * 2)}↳ ` : "";
+        options.push({
+          id: node.id,
+          label: `${indent}${node.title}`,
+        });
+
+        if (node.children?.length) {
+          traverse(node.children, depth + 1);
+        }
+      });
+    };
+
+    traverse(boardData.challenges, 0);
+    return options;
+  }, [boardData]);
+
+  const selectedParentChallenge = useMemo(() => {
+    if (!challengeFormValues.parentId) {
+      return null;
+    }
+
+    return allChallenges.find(challenge => challenge.id === challengeFormValues.parentId) ?? null;
+  }, [allChallenges, challengeFormValues.parentId]);
+
   const challengeInsightMap = useMemo(() => {
     if (!boardData) {
       return new Map<string, ChallengeInsightRow[]>();
@@ -465,116 +544,6 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
       rightColumnRef.current.scrollTo({ top: 0, behavior: "smooth" });
     }
   }, [activeChallengeId]);
-
-  const renderChallengeList = (nodes: ProjectChallengeNode[], depth = 0) => {
-    return (
-      <div className={cn("space-y-3", depth > 0 && "border-l border-white/10 pl-4")}
-        data-depth={depth}
-      >
-        {nodes.map(node => {
-          const isActive = activeChallengeId === node.id;
-          const insightCount = challengeInsightMap.get(node.id)?.length ?? 0;
-          const subChallengeCount = countSubChallenges(node);
-          const owners = node.owners ?? [];
-          const ownerCount = owners.length;
-
-          return (
-            <Card
-              key={node.id}
-              className={cn(
-                "border border-white/10 bg-slate-900/60 transition hover:border-indigo-400/70",
-                isActive && "border-indigo-400 bg-indigo-500/15 shadow-lg",
-              )}
-            >
-              <button type="button" className="w-full text-left" onClick={() => setActiveChallengeId(node.id)}>
-                <div className={cn("flex flex-col gap-2", isActive ? "p-4" : "p-3")}
-                  data-active={isActive}
-                >
-                  {isActive ? (
-                    <>
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="flex flex-col gap-2">
-                          <CardTitle className="text-lg font-semibold text-white">{node.title}</CardTitle>
-                          <p className="text-sm text-slate-300">{node.description}</p>
-                        </div>
-                        <ChevronRight
-                          className={cn(
-                            "h-5 w-5 text-slate-500 transition-transform",
-                            isActive && "rotate-90 text-indigo-300",
-                          )}
-                        />
-                      </div>
-                      <div className="flex flex-wrap items-center gap-2 text-xs font-medium text-slate-200">
-                        <span className={cn("rounded-full border px-2.5 py-1", impactClasses[node.impact])}>
-                          {impactLabels[node.impact]}
-                        </span>
-                        <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2.5 py-1 text-slate-200">
-                          <Lightbulb className="h-3.5 w-3.5" />
-                          {insightCount} insight{insightCount > 1 ? "s" : ""}
-                        </span>
-                        {subChallengeCount > 0 ? (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2.5 py-1 text-slate-200">
-                            <ChevronRight className="h-3.5 w-3.5" />
-                            {subChallengeCount} sub-challenge{subChallengeCount > 1 ? "s" : ""}
-                          </span>
-                        ) : null}
-                      </div>
-                      {ownerCount > 0 ? (
-                        <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-300">
-                          <Users className="h-3.5 w-3.5 text-slate-400" />
-                          {owners.map(owner => (
-                            <span
-                              key={owner.id || owner.name}
-                              className="rounded-full bg-white/10 px-2.5 py-1 font-medium text-white"
-                            >
-                              {owner.name}
-                            </span>
-                          ))}
-                        </div>
-                      ) : null}
-                    </>
-                  ) : (
-                    <div className="flex w-full items-center gap-3">
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-semibold text-slate-100">{node.title}</p>
-                      </div>
-                      <div className="flex flex-wrap items-center justify-end gap-2 text-[11px] font-medium text-slate-400">
-                        <span className={cn("rounded-full border px-2 py-0.5", impactClasses[node.impact])}>
-                          {impactLabels[node.impact]}
-                        </span>
-                        <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2 py-0.5 text-slate-200">
-                          <Lightbulb className="h-3 w-3" />
-                          {insightCount}
-                        </span>
-                        {ownerCount > 0 ? (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2 py-0.5 text-slate-200">
-                            <Users className="h-3 w-3" />
-                            {ownerCount > 1 ? `${ownerCount} people` : owners[0]?.name}
-                          </span>
-                        ) : null}
-                        {subChallengeCount > 0 ? (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2 py-0.5 text-slate-200">
-                            <ChevronRight className="h-3 w-3" />
-                            {subChallengeCount}
-                          </span>
-                        ) : null}
-                      </div>
-                      <ChevronRight className="h-4 w-4 text-slate-500" />
-                    </div>
-                  )}
-                </div>
-              </button>
-              {node.children?.length ? (
-                <CardContent className="border-t border-white/5 bg-slate-900/70">
-                  {renderChallengeList(node.children, depth + 1)}
-                </CardContent>
-              ) : null}
-            </Card>
-          );
-        })}
-      </div>
-    );
-  };
 
   const renderAskInsights = (ask: ProjectAskOverview) => {
     const insightMap = new Map<string, AskInsightRow>();
@@ -678,14 +647,20 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
     setEditValues(current => ({ ...current, [field]: value }));
   };
 
-  const resetChallengeFormValues = () => {
-    setChallengeFormValues(createEmptyChallengeForm());
+  const resetChallengeFormValues = (overrides?: Partial<ChallengeFormState>) => {
+    setChallengeFormValues({
+      ...createEmptyChallengeForm(),
+      ...overrides,
+    });
   };
 
-  const handleChallengeStart = () => {
+  const handleChallengeStart = (parent?: ProjectChallengeNode | null) => {
     setIsCreatingChallenge(true);
     setChallengeFeedback(null);
-    resetChallengeFormValues();
+    resetChallengeFormValues({
+      parentId: parent?.id ?? "",
+      impact: parent?.impact ?? "medium",
+    });
   };
 
   const handleChallengeCancel = () => {
@@ -710,6 +685,14 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
               : value,
       }));
     };
+
+  const handleChallengeParentChange = (event: ChangeEvent<HTMLSelectElement>) => {
+    const { value } = event.target;
+    setChallengeFormValues(current => ({
+      ...current,
+      parentId: value,
+    }));
+  };
 
   const handleChallengeOwnerToggle = (ownerId: string) => {
     setChallengeFormValues(current => {
@@ -742,6 +725,12 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
       : `challenge-${Date.now()}`;
     const validImpacts = Object.keys(impactLabels) as ProjectChallengeNode["impact"][];
     const validStatuses = challengeStatusOptions.map(option => option.value) as ChallengeStatus[];
+    const normalizedParentId = challengeFormValues.parentId.trim();
+    const parentChallenge = normalizedParentId
+      ? allChallenges.find(challenge => challenge.id === normalizedParentId) ?? null
+      : null;
+
+    const resolvedParentId = normalizedParentId || "";
 
     const buildChallengeNode = (id: string, overrides?: Partial<ProjectChallengeNode>): ProjectChallengeNode => ({
       id,
@@ -764,14 +753,19 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
           current
             ? {
                 ...current,
-                challenges: [localChallenge, ...current.challenges],
+                challenges: insertChallengeNode(current.challenges, localChallenge, resolvedParentId || null),
               }
             : current,
         );
         setActiveChallengeId(localChallenge.id);
         setIsCreatingChallenge(false);
         resetChallengeFormValues();
-        setChallengeFeedback({ type: "success", message: "Challenge added to the journey." });
+        setChallengeFeedback({
+          type: "success",
+          message: parentChallenge
+            ? `Sub-challenge added under "${parentChallenge.title}".`
+            : "Challenge added to the journey.",
+        });
         return;
       }
 
@@ -782,6 +776,7 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
         priority: challengeFormValues.impact,
         projectId: boardData.projectId,
         assignedTo: owners[0]?.id ?? "",
+        parentChallengeId: resolvedParentId,
       };
 
       const response = await fetch("/api/admin/challenges", {
@@ -815,14 +810,19 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
         current
           ? {
               ...current,
-              challenges: [challengeNode, ...current.challenges],
+              challenges: insertChallengeNode(current.challenges, challengeNode, resolvedParentId || null),
             }
           : current,
       );
       setActiveChallengeId(challengeNode.id);
       setIsCreatingChallenge(false);
       resetChallengeFormValues();
-      setChallengeFeedback({ type: "success", message: "Challenge created successfully." });
+      setChallengeFeedback({
+        type: "success",
+        message: parentChallenge
+          ? `Sub-challenge created under "${parentChallenge.title}".`
+          : "Challenge created successfully.",
+      });
     } catch (error) {
       console.error("Failed to create challenge", error);
       setChallengeFeedback({
@@ -1390,6 +1390,7 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
                   type="button"
                   variant="outline"
                   className="gap-2 border-indigo-300/40 bg-indigo-500/10 text-indigo-100 hover:bg-indigo-500/20"
+                  onClick={() => handleLaunchAiChallengeBuilder(null)}
                 >
                   <Sparkles className="h-4 w-4" />
                   Launch AI challenge builder
@@ -1398,7 +1399,7 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
                   type="button"
                   size="sm"
                   className="gap-2 bg-indigo-500 text-white hover:bg-indigo-400"
-                  onClick={handleChallengeStart}
+                  onClick={() => handleChallengeStart(null)}
                   disabled={isCreatingChallenge || isSavingChallenge}
                 >
                   <Plus className="h-4 w-4" />
@@ -1461,6 +1462,31 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
                         ))}
                       </select>
                     </div>
+                    {(parentChallengeOptions.length > 0 || challengeFormValues.parentId) ? (
+                      <div className="md:col-span-2 flex flex-col gap-2">
+                        <Label htmlFor="challenge-parent">Parent challenge</Label>
+                        <select
+                          id="challenge-parent"
+                          value={challengeFormValues.parentId}
+                          onChange={handleChallengeParentChange}
+                          className="rounded-md border border-white/10 bg-slate-950/80 px-3 py-2 text-sm text-slate-100 focus:border-indigo-400 focus:outline-none focus:ring focus:ring-indigo-400/20"
+                        >
+                          <option value="">No parent (top-level)</option>
+                          {parentChallengeOptions.map(option => (
+                            <option key={option.id} value={option.id}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                        <p className="text-xs text-slate-400">
+                          {challengeFormValues.parentId
+                            ? selectedParentChallenge
+                              ? `This challenge will be nested under "${selectedParentChallenge.title}".`
+                              : "This challenge will be nested under the selected parent."
+                            : "Leave empty to create a top-level challenge."}
+                        </p>
+                      </div>
+                    ) : null}
                     <div className="md:col-span-2 flex flex-col gap-2">
                       <Label htmlFor="challenge-description">Description</Label>
                       <Textarea
