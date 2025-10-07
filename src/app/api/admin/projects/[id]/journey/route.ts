@@ -81,13 +81,42 @@ function initialsFromName(name: string): string {
   return `${parts[0][0] ?? ""}${parts[parts.length - 1][0] ?? ""}`.toUpperCase();
 }
 
+function wouldCreateCycle(
+  childId: string,
+  candidateParentId: string,
+  actualParentMap: Map<string, string | null>,
+): boolean {
+  if (childId === candidateParentId) {
+    return true;
+  }
+
+  let currentId: string | null | undefined = candidateParentId;
+
+  while (currentId) {
+    if (currentId === childId) {
+      return true;
+    }
+
+    const nextParentId = actualParentMap.get(currentId) ?? null;
+    if (!nextParentId) {
+      break;
+    }
+
+    currentId = nextParentId;
+  }
+
+  return false;
+}
+
 function buildChallengeTree(
   rows: any[],
   relatedInsightMap: Map<string, string[]>,
   ownerMap: Map<string, ProjectParticipantSummary>,
 ): ProjectChallengeNode[] {
   const nodeMap = new Map<string, ProjectChallengeNode & { children: ProjectChallengeNode[] }>();
-  const roots: ProjectChallengeNode[] = [];
+  const requestedParentMap = new Map<string, string | null>();
+  const actualParentMap = new Map<string, string | null>();
+  const skippedCircularParents: string[] = [];
 
   for (const row of rows) {
     const owners: ProjectParticipantSummary[] = [];
@@ -111,6 +140,8 @@ function buildChallengeTree(
     };
 
     nodeMap.set(node.id, node);
+    requestedParentMap.set(node.id, row.parent_challenge_id ?? null);
+    actualParentMap.set(node.id, null);
   }
 
   for (const row of rows) {
@@ -119,14 +150,37 @@ function buildChallengeTree(
       continue;
     }
 
-    const parentId = row.parent_challenge_id;
-    if (parentId && nodeMap.has(parentId)) {
-      const parent = nodeMap.get(parentId)!;
-      parent.children = parent.children ? [...parent.children, node] : [node];
-    } else {
+    const parentId = requestedParentMap.get(row.id);
+    if (!parentId) {
+      continue;
+    }
+
+    const parentNode = nodeMap.get(parentId);
+    if (!parentNode) {
+      continue;
+    }
+
+    if (wouldCreateCycle(node.id, parentId, actualParentMap)) {
+      skippedCircularParents.push(row.id);
+      continue;
+    }
+
+    parentNode.children = parentNode.children ? [...parentNode.children, node] : [node];
+    actualParentMap.set(node.id, parentId);
+  }
+
+  if (skippedCircularParents.length > 0) {
+    console.warn(
+      `Detected circular challenge hierarchy while building journey data. Rendering the affected challenges as roots: ${skippedCircularParents.join(", ")}`,
+    );
+  }
+
+  const roots: ProjectChallengeNode[] = [];
+  nodeMap.forEach(node => {
+    if (!actualParentMap.get(node.id)) {
       roots.push(node);
     }
-  }
+  });
 
   return roots;
 }
