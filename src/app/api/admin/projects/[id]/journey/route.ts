@@ -216,7 +216,7 @@ function buildInsight(
   return {
     id: row.id,
     title,
-    type: normalizeInsightType(row.insight_type),
+    type: normalizeInsightType(row.insight_types?.name || row.insight_type_id),
     description: row.content ?? row.summary ?? "",
     updatedAt: row.updated_at ?? row.created_at ?? new Date().toISOString(),
     isCompleted: COMPLETED_INSIGHT_STATUSES.has((row.status ?? "").toLowerCase()),
@@ -306,7 +306,7 @@ export async function GET(
       askIds.length
         ? supabase
             .from("insights")
-            .select("id, ask_session_id, user_id, content, summary, insight_type, status, updated_at, created_at, challenge_id")
+            .select("id, ask_session_id, user_id, content, summary, insight_type_id, status, updated_at, created_at, challenge_id, insight_types(name)")
             .in("ask_session_id", askIds)
         : Promise.resolve({ data: [], error: null }),
       challengeIds.length
