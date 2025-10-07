@@ -90,14 +90,14 @@ function wouldCreateCycle(
     return true;
   }
 
-  let currentId: string | null | undefined = candidateParentId;
+  let currentId: string | null = candidateParentId;
 
   while (currentId) {
     if (currentId === childId) {
       return true;
     }
 
-    const nextParentId = actualParentMap.get(currentId) ?? null;
+    const nextParentId: string | null = actualParentMap.get(currentId) ?? null;
     if (!nextParentId) {
       break;
     }
