@@ -298,6 +298,11 @@ a.neumorphic-raised:active {
   @apply ring-2 ring-primary/50 ring-offset-2 ring-offset-background outline-none;
 }
 
+/* Gradient button styles */
+.btn-gradient {
+  @apply bg-gradient-to-r from-pink-500 via-fuchsia-500 to-indigo-500 text-white shadow-lg hover:shadow-xl focus-visible:ring-white/70;
+}
+
 /* Smooth enter/exit animations */
 .slide-in-right {
   animation: slideInRight 0.3s ease-out;

@@ -399,8 +399,7 @@ function ChallengeCard({
             </h4>
             <Button 
               size="sm" 
-              variant="outline"
-              className="gap-2"
+              className="btn-gradient gap-2"
               onClick={() => onAddPain(challenge.id)}
             >
               <Plus className="h-4 w-4" />
@@ -442,8 +441,7 @@ function ChallengeCard({
             </h4>
             <Button 
               size="sm" 
-              variant="outline"
-              className="gap-2"
+              className="btn-gradient gap-2"
               onClick={() => onAddGain(challenge.id)}
             >
               <Plus className="h-4 w-4" />

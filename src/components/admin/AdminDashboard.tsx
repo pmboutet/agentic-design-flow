@@ -118,8 +118,7 @@ type ChallengeFormInput = z.infer<typeof challengeFormSchema>;
 type AskFormInput = z.infer<typeof askFormSchema>;
 type UserFormInput = z.infer<typeof userFormSchema>;
 
-const gradientButtonClasses =
-  "bg-gradient-to-r from-pink-500 via-fuchsia-500 to-indigo-500 text-white shadow-lg hover:shadow-xl focus-visible:ring-white/70";
+const gradientButtonClasses = "btn-gradient";
 
 type ColumnWidths = [number, number, number];
 
@@ -2471,14 +2470,11 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                           <Button
                             type="button"
                             variant="outline"
-                            className="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-primary hover:bg-primary/90 h-10 px-4 py-2 bg-gradient-to-r from-pink-500 via-fuchsia-500 to-indigo-500 text-white shadow-lg hover:shadow-xl focus-visible:ring-white/70"
+                            className="border-white/20 bg-transparent text-white hover:bg-white/10"
                             onClick={cancelProjectEdit}
                             disabled={isBusy}
                           >
-                            <div className="flex items-center gap-2">
-                              <X className="h-4 w-4" />
-                              Cancel
-                            </div>
+                            Cancel
                           </Button>
                         )}
                         <Button type="submit" className={`${gradientButtonClasses} px-4`} disabled={isBusy}>
@@ -2545,18 +2541,14 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                               >
                                 Ouvrir
                               </Button>
-                              <Button
+                              <button
                                 type="button"
-                                size="sm"
-                                className="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-primary hover:bg-primary/90 h-10 px-4 py-2 bg-gradient-to-r from-pink-500 via-fuchsia-500 to-indigo-500 text-white shadow-lg hover:shadow-xl focus-visible:ring-white/70"
                                 onClick={() => startProjectEdit(project.id)}
+                                className="text-slate-200 hover:text-white"
                                 disabled={isBusy}
                               >
-                                <div className="flex items-center gap-2">
-                                  <Pencil className="h-4 w-4" />
-                                  Edit project
-                                </div>
-                              </Button>
+                                Edit
+                              </button>
                               <button
                                 type="button"
                                 onClick={() => handleDeleteProject(project.id)}
