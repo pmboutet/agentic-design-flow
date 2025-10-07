@@ -244,9 +244,9 @@ function ChallengeDetailDialog({ challenge, projectName, askCount, onClose }: Ch
     <Dialog.Root open={Boolean(challenge)} onOpenChange={open => { if (!open) onClose(); }}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm transition-opacity data-[state=closed]:opacity-0 data-[state=open]:opacity-100" />
-        <Dialog.Content className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <Dialog.Content className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto">
           {challenge && (
-            <div className="w-full max-w-xl rounded-3xl border border-white/10 bg-slate-950/90 p-6 shadow-2xl">
+            <div className="w-full max-w-xl rounded-3xl border border-white/10 bg-slate-950/90 p-6 shadow-2xl my-4">
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <Dialog.Title className="text-lg font-semibold text-white">{challenge.name}</Dialog.Title>
@@ -320,9 +320,9 @@ function AskDetailDialog({ ask, projectName, challengeName, onClose }: AskDetail
     <Dialog.Root open={Boolean(ask)} onOpenChange={open => { if (!open) onClose(); }}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm transition-opacity data-[state=closed]:opacity-0 data-[state=open]:opacity-100" />
-        <Dialog.Content className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <Dialog.Content className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto">
           {ask && (
-            <div className="w-full max-w-2xl rounded-3xl border border-white/10 bg-slate-950/90 p-6 shadow-2xl">
+            <div className="w-full max-w-2xl rounded-3xl border border-white/10 bg-slate-950/90 p-6 shadow-2xl my-4">
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <Dialog.Title className="text-lg font-semibold text-white">{ask.name}</Dialog.Title>

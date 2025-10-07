@@ -542,12 +542,12 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
       return;
     }
 
-    if (activeChallengeId && boardData.challenges.some(challenge => challenge.id === activeChallengeId)) {
+    if (activeChallengeId && allChallenges.some(challenge => challenge.id === activeChallengeId)) {
       return;
     }
 
     setActiveChallengeId(boardData.challenges[0]?.id ?? null);
-  }, [boardData, activeChallengeId]);
+  }, [boardData, activeChallengeId, allChallenges]);
 
   const allChallenges = useMemo(() => (boardData ? flattenChallenges(boardData.challenges) : []), [boardData]);
 
@@ -2034,8 +2034,8 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
       >
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm transition-opacity data-[state=closed]:opacity-0 data-[state=open]:opacity-100" />
-          <Dialog.Content className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <Card className="relative w-full max-w-3xl border border-indigo-300/40 bg-slate-900/80 shadow-xl">
+          <Dialog.Content className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto">
+            <Card className="relative w-full max-w-3xl border border-indigo-300/40 bg-slate-900/80 shadow-xl my-4">
               <Dialog.Close asChild>
                 <button
                   type="button"
@@ -2212,8 +2212,8 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
       >
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm transition-opacity data-[state=closed]:opacity-0 data-[state=open]:opacity-100" />
-          <Dialog.Content className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <Card className="relative w-full max-w-5xl border border-indigo-400/40 bg-slate-950/80 shadow-xl">
+          <Dialog.Content className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto">
+            <Card className="relative w-full max-w-5xl border border-indigo-400/40 bg-slate-950/80 shadow-xl my-4">
               <Dialog.Close asChild>
                 <button
                   type="button"
