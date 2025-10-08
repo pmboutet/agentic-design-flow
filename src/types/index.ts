@@ -268,6 +268,7 @@ export interface ChatComponentProps {
 export interface ChallengeComponentProps {
   challenges: Challenge[];
   onUpdateChallenge: (challenge: Challenge) => void;
+  onDeleteChallenge?: (challengeId: string) => void;
   askKey: string;
 }
 
