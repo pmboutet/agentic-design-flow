@@ -471,3 +471,53 @@ export interface ProjectJourneyBoardData {
   challenges: ProjectChallengeNode[];
   availableUsers: ProjectParticipantOption[];
 }
+
+export interface AiChallengeAgentMetadata {
+  logId: string;
+  agentId?: string | null;
+  modelConfigId?: string | null;
+}
+
+export interface AiSubChallengeUpdateSuggestion {
+  id: string;
+  title?: string | null;
+  description?: string | null;
+  status?: string | null;
+  impact?: ProjectChallengeNode["impact"] | null;
+  summary?: string | null;
+}
+
+export interface AiNewChallengeSuggestion {
+  referenceId?: string | null;
+  parentId?: string | null;
+  title: string;
+  description?: string | null;
+  status?: string | null;
+  impact?: ProjectChallengeNode["impact"] | null;
+  owners?: ProjectParticipantSummary[];
+  summary?: string | null;
+}
+
+export interface AiChallengeUpdateSuggestion {
+  challengeId: string;
+  challengeTitle: string;
+  summary?: string | null;
+  updates?: {
+    title?: string | null;
+    description?: string | null;
+    status?: string | null;
+    impact?: ProjectChallengeNode["impact"] | null;
+    owners?: ProjectParticipantSummary[];
+  } | null;
+  subChallengeUpdates?: AiSubChallengeUpdateSuggestion[];
+  newSubChallenges?: AiNewChallengeSuggestion[];
+  agentMetadata?: AiChallengeAgentMetadata;
+  rawResponse?: string | null;
+  errors?: string[];
+}
+
+export interface AiChallengeBuilderResponse {
+  challengeSuggestions: AiChallengeUpdateSuggestion[];
+  newChallengeSuggestions: AiNewChallengeSuggestion[];
+  errors?: Array<{ challengeId: string | null; message: string }>;
+}

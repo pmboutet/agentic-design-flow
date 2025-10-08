@@ -2,7 +2,6 @@
 
 import { type ChangeEvent, type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { useRouter } from "next/navigation";
 import {
   Calendar,
   ChevronRight,
@@ -25,6 +24,9 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { cn } from "@/lib/utils";
 import { getMockProjectJourneyData } from "@/lib/mockProjectJourney";
 import {
+  type AiChallengeBuilderResponse,
+  type AiChallengeUpdateSuggestion,
+  type AiNewChallengeSuggestion,
   type AskAudienceScope,
   type AskDeliveryMode,
   type AskGroupResponseMode,
@@ -36,6 +38,7 @@ import {
   type ProjectParticipantInsight,
   type ProjectParticipantSummary,
 } from "@/types";
+import { AiChallengeBuilderPanel } from "@/components/project/AiChallengeBuilderPanel";
 
 interface ProjectJourneyBoardProps {
   projectId: string;
@@ -367,7 +370,6 @@ function normalizeAskStatus(value?: string | null): AskFormState["status"] {
 }
 
 export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
-  const router = useRouter();
   const [boardData, setBoardData] = useState<ProjectJourneyBoardData | null>(
     USE_MOCK_JOURNEY ? getMockProjectJourneyData(projectId) : null,
   );
@@ -402,6 +404,32 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
     endDate: "",
     systemPrompt: "",
   });
+  const [aiSuggestions, setAiSuggestions] = useState<AiChallengeUpdateSuggestion[]>([]);
+  const [aiNewChallenges, setAiNewChallenges] = useState<AiNewChallengeSuggestion[]>([]);
+  const [aiBuilderErrors, setAiBuilderErrors] = useState<Array<{ challengeId: string | null; message: string }> | null>(null);
+  const [aiBuilderFeedback, setAiBuilderFeedback] = useState<FeedbackState | null>(null);
+  const [isAiBuilderRunning, setIsAiBuilderRunning] = useState(false);
+  const [isAiPanelOpen, setIsAiPanelOpen] = useState(false);
+  const [applyingChallengeIds, setApplyingChallengeIds] = useState<Set<string>>(() => new Set());
+  const [applyingNewChallengeIndices, setApplyingNewChallengeIndices] = useState<Set<number>>(() => new Set());
+
+  useEffect(() => {
+    if (challengeFeedback?.type !== "success") {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => setChallengeFeedback(null), 3500);
+    return () => window.clearTimeout(timeoutId);
+  }, [challengeFeedback]);
+
+  useEffect(() => {
+    if (!aiBuilderFeedback) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => setAiBuilderFeedback(null), 3500);
+    return () => window.clearTimeout(timeoutId);
+  }, [aiBuilderFeedback]);
 
   const loadJourneyData = useCallback(
     async (options?: { signal?: AbortSignal; silent?: boolean }) => {
@@ -509,17 +537,307 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
     [askDetails],
   );
 
-  const handleLaunchAiChallengeBuilder = useCallback(
-    (targetChallengeId?: string | null) => {
-      const effectiveId = targetChallengeId ?? activeChallengeId;
-      const params = new URLSearchParams();
-      if (effectiveId) {
-        params.set("challengeId", effectiveId);
+  const allChallenges = useMemo(() => (boardData ? flattenChallenges(boardData.challenges) : []), [boardData]);
+
+  const challengeById = useMemo(() => {
+    const map = new Map<string, ProjectChallengeNode>();
+    allChallenges.forEach(challenge => {
+      map.set(challenge.id, challenge);
+    });
+    return map;
+  }, [allChallenges]);
+
+  const resolveOwnerId = useCallback(
+    (owners?: ProjectParticipantSummary[] | null) => {
+      if (!boardData || !owners?.length) {
+        return "";
       }
-      const href = params.size ? `/admin/ai?${params.toString()}` : "/admin/ai";
-      router.push(href);
+
+      for (const owner of owners) {
+        if (owner.id && boardData.availableUsers.some(user => user.id === owner.id)) {
+          return owner.id;
+        }
+
+        if (owner.name) {
+          const match = boardData.availableUsers.find(user => user.name.toLowerCase() === owner.name.toLowerCase());
+          if (match) {
+            return match.id;
+          }
+        }
+      }
+
+      return "";
     },
-    [router, activeChallengeId],
+    [boardData],
+  );
+
+  const handleLaunchAiChallengeBuilder = useCallback(async () => {
+    if (isAiBuilderRunning) {
+      return;
+    }
+
+    setIsAiPanelOpen(true);
+    setAiBuilderFeedback(null);
+    setAiBuilderErrors(null);
+    setAiSuggestions([]);
+    setAiNewChallenges([]);
+    setIsAiBuilderRunning(true);
+
+    try {
+      const response = await fetch(`/api/admin/projects/${projectId}/ai/challenge-builder`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      const payload = await response.json();
+
+      if (!response.ok || !payload.success) {
+        throw new Error(payload.error || "Unable to run AI challenge builder.");
+      }
+
+      const data = payload.data as AiChallengeBuilderResponse | undefined;
+
+      setAiSuggestions(data?.challengeSuggestions ?? []);
+      setAiNewChallenges(data?.newChallengeSuggestions ?? []);
+      setAiBuilderErrors(data?.errors ?? null);
+
+      const totalSuggestions = (data?.challengeSuggestions?.length ?? 0) + (data?.newChallengeSuggestions?.length ?? 0);
+      if (totalSuggestions === 0) {
+        setAiBuilderFeedback({
+          type: "error",
+          message: "L'agent n'a proposé aucune modification pour ce projet.",
+        });
+      } else {
+        setAiBuilderFeedback({
+          type: "success",
+          message: "Analyse terminée. Passez en revue les recommandations de l'IA.",
+        });
+      }
+    } catch (error) {
+      setAiBuilderFeedback({
+        type: "error",
+        message: error instanceof Error ? error.message : "Erreur inattendue lors de l'analyse IA.",
+      });
+      setAiBuilderErrors([{ challengeId: null, message: error instanceof Error ? error.message : String(error) }]);
+    } finally {
+      setIsAiBuilderRunning(false);
+    }
+  }, [isAiBuilderRunning, projectId]);
+
+  const handleDismissChallengeSuggestion = useCallback((challengeId: string) => {
+    setAiSuggestions(current => current.filter(item => item.challengeId !== challengeId));
+  }, []);
+
+  const handleDismissNewChallengeSuggestion = useCallback((index: number) => {
+    setAiNewChallenges(current => current.filter((_, candidateIndex) => candidateIndex !== index));
+  }, []);
+
+  const handleApplyChallengeSuggestion = useCallback(
+    async (suggestion: AiChallengeUpdateSuggestion) => {
+      if (!boardData) {
+        return;
+      }
+
+      setApplyingChallengeIds(current => {
+        const next = new Set(current);
+        next.add(suggestion.challengeId);
+        return next;
+      });
+      setAiBuilderFeedback(null);
+
+      try {
+        const pending: Array<Promise<void>> = [];
+        const baseChallenge = challengeById.get(suggestion.challengeId);
+
+        if (suggestion.updates) {
+          const payload: Record<string, unknown> = {};
+          if (suggestion.updates.title && suggestion.updates.title !== baseChallenge?.title) {
+            payload.name = suggestion.updates.title;
+          }
+          if (suggestion.updates.description && suggestion.updates.description !== baseChallenge?.description) {
+            payload.description = suggestion.updates.description;
+          }
+          if (suggestion.updates.status && suggestion.updates.status !== baseChallenge?.status) {
+            payload.status = suggestion.updates.status;
+          }
+          if (suggestion.updates.impact && suggestion.updates.impact !== baseChallenge?.impact) {
+            payload.priority = suggestion.updates.impact;
+          }
+          const ownerId = resolveOwnerId(suggestion.updates.owners ?? null);
+          if (ownerId) {
+            payload.assignedTo = ownerId;
+          }
+
+          if (Object.keys(payload).length > 0) {
+            pending.push(
+              fetch(`/api/admin/challenges/${suggestion.challengeId}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload),
+              }).then(async response => {
+                const result = await response.json().catch(() => ({}));
+                if (!response.ok || !result.success) {
+                  throw new Error(result.error || `Échec de la mise à jour du challenge ${suggestion.challengeTitle}.`);
+                }
+              }),
+            );
+          }
+        }
+
+        if (suggestion.subChallengeUpdates?.length) {
+          suggestion.subChallengeUpdates.forEach(update => {
+            const currentChallenge = challengeById.get(update.id);
+            if (!currentChallenge) {
+              return;
+            }
+
+            const payload: Record<string, unknown> = {};
+            if (update.title && update.title !== currentChallenge.title) {
+              payload.name = update.title;
+            }
+            if (update.description && update.description !== currentChallenge.description) {
+              payload.description = update.description;
+            }
+            if (update.status && update.status !== currentChallenge.status) {
+              payload.status = update.status;
+            }
+            if (update.impact && update.impact !== currentChallenge.impact) {
+              payload.priority = update.impact;
+            }
+
+            if (Object.keys(payload).length > 0) {
+              pending.push(
+                fetch(`/api/admin/challenges/${update.id}`, {
+                  method: "PATCH",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify(payload),
+                }).then(async response => {
+                  const result = await response.json().catch(() => ({}));
+                  if (!response.ok || !result.success) {
+                    throw new Error(result.error || `Échec de la mise à jour du sous-challenge ${update.id}.`);
+                  }
+                }),
+              );
+            }
+          });
+        }
+
+        if (suggestion.newSubChallenges?.length) {
+          suggestion.newSubChallenges.forEach(newChallenge => {
+            const parentId = newChallenge.parentId ?? suggestion.challengeId;
+            const parent = challengeById.get(parentId) ?? baseChallenge;
+            const payload: Record<string, unknown> = {
+              name: newChallenge.title,
+              description: newChallenge.description ?? "",
+              status: newChallenge.status ?? parent?.status ?? "open",
+              priority: newChallenge.impact ?? parent?.impact ?? "medium",
+              projectId: boardData.projectId,
+              parentChallengeId: parentId || "",
+            };
+            const ownerId = resolveOwnerId(newChallenge.owners ?? null);
+            if (ownerId) {
+              payload.assignedTo = ownerId;
+            }
+
+            pending.push(
+              fetch("/api/admin/challenges", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload),
+              }).then(async response => {
+                const result = await response.json().catch(() => ({}));
+                if (!response.ok || !result.success) {
+                  throw new Error(result.error || `Échec de la création du sous-challenge ${newChallenge.title}.`);
+                }
+              }),
+            );
+          });
+        }
+
+        if (pending.length > 0) {
+          await Promise.all(pending);
+          await loadJourneyData({ silent: true });
+        }
+
+        setAiSuggestions(current => current.filter(item => item.challengeId !== suggestion.challengeId));
+        setAiBuilderFeedback({
+          type: "success",
+          message: `Recommandations appliquées à « ${suggestion.challengeTitle} ».`,
+        });
+      } catch (error) {
+        setAiBuilderFeedback({
+          type: "error",
+          message: error instanceof Error ? error.message : "Impossible d'appliquer les recommandations IA.",
+        });
+      } finally {
+        setApplyingChallengeIds(current => {
+          const next = new Set(current);
+          next.delete(suggestion.challengeId);
+          return next;
+        });
+      }
+    },
+    [boardData, challengeById, loadJourneyData, resolveOwnerId],
+  );
+
+  const handleApplyNewChallengeSuggestion = useCallback(
+    async (suggestion: AiNewChallengeSuggestion, index: number) => {
+      if (!boardData) {
+        return;
+      }
+
+      setApplyingNewChallengeIndices(current => {
+        const next = new Set(current);
+        next.add(index);
+        return next;
+      });
+      setAiBuilderFeedback(null);
+
+      try {
+        const parentId = suggestion.parentId ?? "";
+        const parent = parentId ? challengeById.get(parentId) ?? null : null;
+        const payload: Record<string, unknown> = {
+          name: suggestion.title,
+          description: suggestion.description ?? "",
+          status: suggestion.status ?? parent?.status ?? "open",
+          priority: suggestion.impact ?? parent?.impact ?? "medium",
+          projectId: boardData.projectId,
+          parentChallengeId: parentId,
+        };
+        const ownerId = resolveOwnerId(suggestion.owners ?? null);
+        if (ownerId) {
+          payload.assignedTo = ownerId;
+        }
+
+        const response = await fetch("/api/admin/challenges", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok || !result.success) {
+          throw new Error(result.error || `Échec de la création du challenge ${suggestion.title}.`);
+        }
+
+        await loadJourneyData({ silent: true });
+        setAiNewChallenges(current => current.filter((_, candidateIndex) => candidateIndex !== index));
+        setAiBuilderFeedback({
+          type: "success",
+          message: `Challenge « ${suggestion.title} » créé à partir des recommandations IA.`,
+        });
+      } catch (error) {
+        setAiBuilderFeedback({
+          type: "error",
+          message: error instanceof Error ? error.message : "Impossible de créer le challenge proposé.",
+        });
+      } finally {
+        setApplyingNewChallengeIndices(current => {
+          const next = new Set(current);
+          next.delete(index);
+          return next;
+        });
+      }
+    },
+    [boardData, challengeById, loadJourneyData, resolveOwnerId],
   );
 
   useEffect(() => {
@@ -536,7 +854,6 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
     });
   }, [boardData]);
 
-  const allChallenges = useMemo(() => (boardData ? flattenChallenges(boardData.challenges) : []), [boardData]);
 
   useEffect(() => {
     if (!boardData) {
@@ -1622,7 +1939,28 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
   };
 
   return (
-    <div className="space-y-8 text-slate-100">
+    <>
+      {boardData ? (
+        <AiChallengeBuilderPanel
+          open={isAiPanelOpen}
+          onOpenChange={setIsAiPanelOpen}
+          projectName={boardData.projectName}
+          isRunning={isAiBuilderRunning}
+          onRunAgain={handleLaunchAiChallengeBuilder}
+          suggestions={aiSuggestions}
+          newChallenges={aiNewChallenges}
+          errors={aiBuilderErrors}
+          challengeLookup={challengeById}
+          onApplySuggestion={handleApplyChallengeSuggestion}
+          onDismissSuggestion={handleDismissChallengeSuggestion}
+          applyingChallengeIds={applyingChallengeIds}
+          onApplyNewChallenge={handleApplyNewChallengeSuggestion}
+          onDismissNewChallenge={handleDismissNewChallengeSuggestion}
+          applyingNewChallengeIndices={applyingNewChallengeIndices}
+        />
+      ) : null}
+
+      <div className="space-y-8 text-slate-100">
       {error ? (
         <Alert variant="destructive">
           <AlertTitle>Live data unavailable</AlertTitle>
@@ -1669,7 +2007,10 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
                 </Button>
               </>
             ) : (
-              <Button size="sm" variant="outline" onClick={handleEditToggle} className="gap-2">
+              <Button
+                onClick={handleEditToggle}
+                className="gap-2 btn-gradient bg-primary hover:bg-primary/90 h-10 px-4 py-2"
+              >
                 <Pencil className="h-4 w-4" />
                 Edit project
               </Button>
@@ -1801,15 +2142,15 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
                   type="button"
                   variant="outline"
                   className="gap-2 border-indigo-300/40 bg-indigo-500/10 text-indigo-100 hover:bg-indigo-500/20"
-                  onClick={() => handleLaunchAiChallengeBuilder()}
+                  onClick={handleLaunchAiChallengeBuilder}
+                  disabled={isAiBuilderRunning}
                 >
-                  <Sparkles className="h-4 w-4" />
-                  Launch AI challenge builder
+                  {isAiBuilderRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                  {isAiBuilderRunning ? "Analyzing with AI" : "Launch AI challenge builder"}
                 </Button>
                 <Button
                   type="button"
-                  size="sm"
-                  className="gap-2 bg-indigo-500 text-white hover:bg-indigo-400"
+                  className="gap-2 btn-gradient bg-primary hover:bg-primary/90 h-10 px-4 py-2"
                   onClick={() => handleChallengeStart()}
                   disabled={isSavingChallenge}
                 >
@@ -1818,9 +2159,35 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
                 </Button>
               </div>
             </div>
+            {aiBuilderFeedback ? (
+              <Alert
+                variant={aiBuilderFeedback.type === "success" ? "default" : "destructive"}
+                className={cn(
+                  aiBuilderFeedback.type === "success" &&
+                    "border-emerald-400/30 bg-emerald-500/10 text-emerald-100 backdrop-blur-sm"
+                )}
+              >
+                <AlertDescription
+                  className={cn(aiBuilderFeedback.type === "success" && "text-emerald-50/80")}
+                >
+                  {aiBuilderFeedback.message}
+                </AlertDescription>
+              </Alert>
+            ) : null}
+
             {challengeFeedback ? (
-              <Alert variant={challengeFeedback.type === "success" ? "default" : "destructive"}>
-                <AlertDescription>{challengeFeedback.message}</AlertDescription>
+              <Alert
+                variant={challengeFeedback.type === "success" ? "default" : "destructive"}
+                className={cn(
+                  challengeFeedback.type === "success" &&
+                    "border-emerald-400/30 bg-emerald-500/10 text-emerald-100 backdrop-blur-sm"
+                )}
+              >
+                <AlertDescription
+                  className={cn(challengeFeedback.type === "success" && "text-emerald-50/80")}
+                >
+                  {challengeFeedback.message}
+                </AlertDescription>
               </Alert>
             ) : null}
 
@@ -1854,7 +2221,7 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
               </>
             ) : (
               <>
-                <Card className="border border-white/10 bg-slate-900/70">
+                <Card className="border border-emerald-400/40 bg-emerald-500/10">
                   <CardHeader className="pb-2">
                     <CardTitle className="text-lg font-semibold text-white">
                       Foundational insights
@@ -1869,7 +2236,7 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
                         {activeChallengeInsights.map(insight => (
                           <div
                             key={`${insight.id}-${insight.askId}`}
-                            className="rounded-lg border border-white/10 bg-slate-900/70 p-4"
+                            className="rounded-lg border border-emerald-400/40 bg-emerald-500/10 p-4"
                           >
                             <div className="flex flex-wrap items-center gap-2 text-xs font-medium text-slate-200">
                               <span className={cn("rounded-full border px-2 py-0.5", insightTypeClasses[insight.type])}>
@@ -2543,6 +2910,7 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>
-    </div>
+      </div>
+    </>
   );
 }
