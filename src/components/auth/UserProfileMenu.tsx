@@ -6,14 +6,25 @@ import { Loader2, LogIn, LogOut, Settings, UserCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "./AuthProvider";
 
-function getInitials(name: string) {
-  const [first = "", second = ""] = name.trim().split(" ");
-  return (first.charAt(0) + second.charAt(0)).toUpperCase();
+function getInitials(name?: string | null) {
+  if (!name) return "";
+  const parts = name
+    .trim()
+    .split(" ")
+    .filter(Boolean);
+  if (parts.length === 0) return "";
+  const [first, second] = parts;
+  const firstInitial = first?.charAt(0) ?? "";
+  const secondInitial = second?.charAt(0) ?? "";
+  return (firstInitial + secondInitial).toUpperCase();
 }
 
 export function UserProfileMenu() {
   const { status, user, signIn, signOut, isProcessing } = useAuth();
   const isSignedIn = status === "signed-in" && Boolean(user);
+  const fullName = user?.fullName ?? "";
+  const email = user?.email ?? "";
+  const role = user?.role ?? undefined;
 
   return (
     <DropdownMenu.Root>
@@ -25,7 +36,7 @@ export function UserProfileMenu() {
         >
           <div className="relative flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-primary to-accent text-white">
             {isSignedIn ? (
-              <span className="text-sm font-semibold">{getInitials(user.fullName)}</span>
+              <span className="text-sm font-semibold">{getInitials(fullName)}</span>
             ) : (
               <UserCircle2 className="h-5 w-5" />
             )}
@@ -35,7 +46,7 @@ export function UserProfileMenu() {
               {isSignedIn ? "Connecté" : status === "loading" ? "Chargement" : "Invité"}
             </span>
             <span className="text-sm font-semibold text-foreground">
-              {isSignedIn ? user.fullName : "Accéder"}
+              {isSignedIn ? fullName : "Accéder"}
             </span>
           </div>
         </Button>
@@ -47,11 +58,11 @@ export function UserProfileMenu() {
         <div className="rounded-xl bg-white/70 p-3 shadow-inner">
           {isSignedIn ? (
             <div className="space-y-1">
-              <p className="text-sm font-semibold text-foreground">{user.fullName}</p>
-              <p className="text-xs text-muted-foreground">{user.email}</p>
-              {user.role && (
+              <p className="text-sm font-semibold text-foreground">{fullName}</p>
+              <p className="text-xs text-muted-foreground">{email}</p>
+              {role && (
                 <span className="inline-flex items-center rounded-full bg-primary/10 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
-                  {user.role}
+                  {role}
                 </span>
               )}
             </div>
