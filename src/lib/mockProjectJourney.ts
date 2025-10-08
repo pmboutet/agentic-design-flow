@@ -30,6 +30,7 @@ export function getMockProjectJourneyData(projectId: string): ProjectJourneyBoar
     asks: [
       {
         id: "ask-field-observation",
+        askKey: "ask-field-observation",
         title: "ASK #1 · Store field observations",
         summary:
           "Capture the top operational blockers observed during peak hours to understand where store and digital workflows conflict.",
@@ -136,9 +137,87 @@ export function getMockProjectJourneyData(projectId: string): ProjectJourneyBoar
             ],
           },
         ],
+        insights: [
+          {
+            id: "insight-stock-visibility",
+            title: "Limited visibility on online inventory",
+            type: "pain",
+            description:
+              "Store teams cannot confirm online stock availability in real time, leading to broken promises for in-store pickup.",
+            updatedAt: "2024-04-12T09:00:00Z",
+            isCompleted: true,
+            relatedChallengeIds: ["challenge-stock-visibility", "challenge-inventory-sync"],
+            contributors: [
+              { id: "user-alice", name: "Alice Martin", role: "Store Manager" },
+              { id: "user-marc", name: "Marc Petit", role: "Logistics Lead" },
+            ],
+            kpis: [
+              {
+                id: "kpi-stockout",
+                label: "Pickup failures per week",
+                current: "14 incidents",
+                target: "5 incidents",
+                delta: "-64%",
+              },
+            ],
+          },
+          {
+            id: "insight-pickup-waiting",
+            title: "Customer waiting time at pickup counter",
+            type: "signal",
+            description:
+              "Customers wait an average of 12 minutes to collect orders during the evening peaks, generating negative NPS comments about the pickup promise.",
+            updatedAt: "2024-04-14T10:30:00Z",
+            isCompleted: true,
+            relatedChallengeIds: ["challenge-omnichannel-delivery"],
+            contributors: [
+              { id: "user-alice", name: "Alice Martin", role: "Store Manager" },
+              { id: "user-julia", name: "Julia Costa", role: "Customer Care" },
+            ],
+            kpis: [
+              {
+                id: "kpi-waiting",
+                label: "Average pickup waiting time",
+                current: "12 min",
+                target: "6 min",
+                delta: "-50%",
+              },
+            ],
+          },
+          {
+            id: "insight-inventory-sync",
+            title: "Inventory synchronisation still batch based",
+            type: "pain",
+            description:
+              "The warehouse management system only synchronises with the e-commerce platform every three hours, creating inventory mismatches during peak demand.",
+            updatedAt: "2024-04-15T08:45:00Z",
+            isCompleted: false,
+            relatedChallengeIds: ["challenge-inventory-sync"],
+            contributors: [
+              { id: "user-marc", name: "Marc Petit", role: "Logistics Lead" },
+              { id: "user-samir", name: "Samir Cohen", role: "Operations Analyst" },
+            ],
+            kpis: [
+              {
+                id: "kpi-sync",
+                label: "Refresh frequency",
+                current: "Every 3h",
+                target: "Real time",
+              },
+              {
+                id: "kpi-orders",
+                label: "Cancelled pickup orders",
+                current: "7%",
+                target: "2%",
+                delta: "-5 pts",
+              },
+            ],
+          },
+        ],
       },
       {
         id: "ask-journey-reassurance",
+        askKey: "ask-journey-reassurance",
         title: "ASK #2 · Phygital journey reassurance",
         summary:
           "Identify the reassurance moments needed through the hybrid journey to reduce anxiety and improve loyalty for first-time customers.",
@@ -206,6 +285,46 @@ export function getMockProjectJourneyData(projectId: string): ProjectJourneyBoar
                 kpis: [],
               },
             ],
+          },
+        ],
+        insights: [
+          {
+            id: "insight-app-latency",
+            title: "Associate app latency at the counter",
+            type: "pain",
+            description:
+              "Associates wait up to 45 seconds when searching for an order in the store app while the customer is in front of them, causing visible frustration.",
+            updatedAt: "2024-05-05T16:20:00Z",
+            isCompleted: false,
+            relatedChallengeIds: ["challenge-omnichannel-delivery"],
+            contributors: [
+              { id: "user-julia", name: "Julia Costa", role: "Customer Care" },
+              { id: "user-leo", name: "Leo Dupont", role: "Digital Product Owner" },
+            ],
+            kpis: [
+              {
+                id: "kpi-latency",
+                label: "Search latency",
+                current: "45 s",
+                target: "15 s",
+                delta: "-30 s",
+              },
+            ],
+          },
+          {
+            id: "insight-onboarding",
+            title: "Associates lack guidance on hybrid promises",
+            type: "idea",
+            description:
+              "Teams asked for a simple one-pager summarising the hybrid promise and escalation rules for out-of-stock scenarios.",
+            updatedAt: "2024-05-08T13:00:00Z",
+            isCompleted: false,
+            relatedChallengeIds: ["challenge-change-adoption"],
+            contributors: [
+              { id: "user-fatou", name: "Fatou Ndiaye", role: "Experience Designer" },
+              { id: "user-alice", name: "Alice Martin", role: "Store Manager" },
+            ],
+            kpis: [],
           },
         ],
       },
@@ -277,4 +396,3 @@ export function getMockProjectJourneyData(projectId: string): ProjectJourneyBoar
     ],
   };
 }
-

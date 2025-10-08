@@ -427,6 +427,7 @@ export interface ProjectAskParticipant {
 
 export interface ProjectAskOverview {
   id: string;
+  askKey: string;
   title: string;
   summary: string;
   status: string;
@@ -435,6 +436,7 @@ export interface ProjectAskOverview {
   participants: ProjectAskParticipant[];
   originatingChallengeIds: string[];
   relatedProjects: { id: string; name: string }[];
+  insights: ProjectParticipantInsight[];
 }
 
 export interface ProjectParticipantOption {

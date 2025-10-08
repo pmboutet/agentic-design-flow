@@ -455,6 +455,7 @@ export async function fetchProjectJourneyContext(
 
     return {
       id: row.id,
+      askKey: row.ask_key ?? row.id,
       title: row.name || row.ask_key,
       summary: row.description ?? row.question ?? "",
       status: row.status ?? "active",
@@ -463,6 +464,7 @@ export async function fetchProjectJourneyContext(
       originatingChallengeIds: Array.from(originatingChallengeIds),
       relatedProjects: [{ id: projectId, name: projectRow.name }],
       participants,
+      insights: askInsights,
     };
   });
 

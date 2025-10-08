@@ -1,10 +1,12 @@
 "use client";
 
 import { type ChangeEvent, type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import * as Dialog from "@radix-ui/react-dialog";
 import {
   Calendar,
   ChevronRight,
+  MessageSquare,
   Lightbulb,
   Loader2,
   Pencil,
@@ -1129,23 +1131,36 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
   const renderAskInsights = (ask: ProjectAskOverview) => {
     const insightMap = new Map<string, AskInsightRow>();
 
-    ask.participants.forEach(participant => {
-      participant.insights.forEach(insight => {
-        const fallbackContributors = [{ id: participant.id, name: participant.name, role: participant.role }];
-        const contributors = insight.contributors?.length ? insight.contributors : fallbackContributors;
-        const existing = insightMap.get(insight.id);
+    const registerInsight = (insight: ProjectParticipantInsight, fallback?: ProjectParticipantSummary) => {
+      const fallbackContributors = fallback ? [fallback] : [];
+      const contributors = insight.contributors?.length ? insight.contributors : fallbackContributors;
+      const existing = insightMap.get(insight.id);
 
-        if (existing) {
-          insightMap.set(insight.id, {
-            ...existing,
-            contributors: mergeContributors(existing.contributors, contributors),
-          });
-        } else {
-          insightMap.set(insight.id, {
-            ...insight,
-            contributors,
-          });
-        }
+      if (existing) {
+        insightMap.set(insight.id, {
+          ...existing,
+          contributors: mergeContributors(existing.contributors, contributors),
+        });
+      } else {
+        insightMap.set(insight.id, {
+          ...insight,
+          contributors,
+        });
+      }
+    };
+
+    ask.insights.forEach(insight => {
+      registerInsight(insight);
+    });
+
+    ask.participants.forEach(participant => {
+      const fallbackContributor: ProjectParticipantSummary = {
+        id: participant.id,
+        name: participant.name,
+        role: participant.role,
+      };
+      participant.insights.forEach(insight => {
+        registerInsight(insight, fallbackContributor);
       });
     });
 
@@ -2326,23 +2341,35 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
                                 </span>
                                 <span className="text-slate-300">Status: {ask.status}</span>
                               </div>
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="outline"
-                                className="gap-1 border-white/20 bg-white/10 text-white hover:bg-white/20"
-                                onClick={() => {
-                                  void handleAskEditStart(ask.id);
-                                }}
-                                disabled={isSavingAsk || isLoadingAskDetails}
-                              >
-                                {isLoadingAskDetails && editingAskId === ask.id ? (
-                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                ) : (
-                                  <Pencil className="h-3.5 w-3.5" />
-                                )}
-                                Edit
-                              </Button>
+                              <div className="flex flex-col items-end gap-2 sm:flex-row sm:items-center sm:justify-end">
+                                <Button
+                                  asChild
+                                  size="sm"
+                                  className="gap-1 bg-emerald-500 text-white hover:bg-emerald-400"
+                                >
+                                  <Link href={`/?key=${encodeURIComponent(ask.askKey)}`} target="_blank" rel="noopener noreferrer">
+                                    <MessageSquare className="h-3.5 w-3.5" />
+                                    Answer ASK
+                                  </Link>
+                                </Button>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  className="gap-1 border-white/20 bg-white/10 text-white hover:bg-white/20"
+                                  onClick={() => {
+                                    void handleAskEditStart(ask.id);
+                                  }}
+                                  disabled={isSavingAsk || isLoadingAskDetails}
+                                >
+                                  {isLoadingAskDetails && editingAskId === ask.id ? (
+                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                  ) : (
+                                    <Pencil className="h-3.5 w-3.5" />
+                                  )}
+                                  Edit
+                                </Button>
+                              </div>
                             </div>
                           </div>
                           <div className="flex flex-wrap items-center gap-2 text-xs text-slate-300">
