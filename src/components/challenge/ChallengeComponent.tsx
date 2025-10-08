@@ -15,10 +15,11 @@ import { cn, generateId, deepClone } from "@/lib/utils";
  * Displays and allows editing of challenges, pains, gains, and KPI estimations
  * Includes visual feedback for updates from external webhooks
  */
-export function ChallengeComponent({ 
-  challenges, 
-  onUpdateChallenge, 
-  askKey 
+export function ChallengeComponent({
+  challenges,
+  onUpdateChallenge,
+  onDeleteChallenge,
+  askKey
 }: ChallengeComponentProps) {
   const [editingItem, setEditingItem] = useState<{
     type: 'challenge' | 'pain' | 'gain' | 'kpi';
@@ -264,6 +265,37 @@ export function ChallengeComponent({
     onUpdateChallenge(updatedChallenge);
   };
 
+  const handleDeleteChallenge = (challengeId: string) => {
+    const challenge = challenges.find(c => c.id === challengeId);
+    if (!challenge) return;
+
+    const linkedSummaries = [
+      challenge.pains.length > 0
+        ? `${challenge.pains.length} pain${challenge.pains.length > 1 ? "s" : ""}`
+        : null,
+      challenge.gains.length > 0
+        ? `${challenge.gains.length} gain${challenge.gains.length > 1 ? "s" : ""}`
+        : null
+    ].filter((value): value is string => Boolean(value));
+
+    const confirmMessage = linkedSummaries.length > 0
+      ? `Delete the challenge "${challenge.name}"? This will also remove ${linkedSummaries.join(" and ")}.`
+      : `Delete the challenge "${challenge.name}"? This action cannot be undone.`;
+
+    if (typeof window !== "undefined") {
+      const isConfirmed = window.confirm(confirmMessage);
+      if (!isConfirmed) {
+        return;
+      }
+    }
+
+    if (onDeleteChallenge) {
+      onDeleteChallenge(challengeId);
+    } else {
+      console.warn("Delete challenge handler is not provided.");
+    }
+  };
+
   if (challenges.length === 0) {
     return (
       <Card className="h-full flex items-center justify-center">
@@ -306,6 +338,7 @@ export function ChallengeComponent({
               onDeletePain={deletePain}
               onDeleteGain={deleteGain}
               onDeleteKpi={deleteKpi}
+              onDeleteChallenge={handleDeleteChallenge}
             />
           </motion.div>
         ))}
@@ -331,6 +364,7 @@ function ChallengeCard({
   onDeletePain,
   onDeleteGain,
   onDeleteKpi,
+  onDeleteChallenge,
 }: {
   challenge: Challenge;
   editingItem: any;
@@ -345,6 +379,7 @@ function ChallengeCard({
   onDeletePain: (challengeId: string, painId: string) => void;
   onDeleteGain: (challengeId: string, gainId: string) => void;
   onDeleteKpi: (challengeId: string, itemId: string, kpiIndex: number) => void;
+  onDeleteChallenge?: (challengeId: string) => void;
 }) {
   const isEditingChallenge = editingItem?.type === 'challenge' && editingItem?.challengeId === challenge.id;
 
@@ -377,13 +412,27 @@ function ChallengeCard({
                 <Target className="h-5 w-5" />
                 {challenge.name}
               </CardTitle>
-              <Button 
-                size="sm" 
-                variant="ghost"
-                onClick={() => onStartEdit('challenge', challenge.id)}
-              >
-                <Edit className="h-4 w-4" />
-              </Button>
+              <div className="flex items-center gap-1">
+                {onDeleteChallenge && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="text-destructive"
+                    onClick={() => onDeleteChallenge(challenge.id)}
+                    aria-label={`Delete challenge ${challenge.name}`}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                )}
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => onStartEdit('challenge', challenge.id)}
+                  aria-label={`Edit challenge ${challenge.name}`}
+                >
+                  <Edit className="h-4 w-4" />
+                </Button>
+              </div>
             </>
           )}
         </div>
