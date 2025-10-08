@@ -5,7 +5,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { motion } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import { useRouter } from "next/navigation";
 import {
   Bell,
@@ -25,6 +25,7 @@ import {
   Users,
   X
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -33,7 +34,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { ProjectJourneyBoard } from "@/components/project/ProjectJourneyBoard";
 import { AskRelationshipCanvas } from "./AskRelationshipCanvas";
 import { useAdminResources } from "./useAdminResources";
-import type { AskSessionRecord, ChallengeRecord } from "@/types";
+import type { AskSessionRecord, ChallengeRecord, ClientRecord, ProjectRecord } from "@/types";
 
 interface AdminDashboardProps {
   initialProjectId?: string | null;
@@ -182,6 +183,26 @@ const navigationItems = [
 
 type SectionId = (typeof navigationItems)[number]["targetId"];
 type SectionLabel = (typeof navigationItems)[number]["label"];
+
+type SearchResultType = "client" | "project" | "challenge" | "ask" | "user";
+
+interface SearchResultItem {
+  id: string;
+  type: SearchResultType;
+  title: string;
+  subtitle?: string;
+  clientId?: string | null;
+  projectId?: string | null;
+  challengeId?: string | null;
+}
+
+const searchResultTypeConfig: Record<SearchResultType, { label: string; icon: LucideIcon }> = {
+  client: { label: "Client", icon: Building2 },
+  project: { label: "Project", icon: FolderKanban },
+  challenge: { label: "Challenge", icon: Target },
+  ask: { label: "ASK Session", icon: MessageSquare },
+  user: { label: "User", icon: Users }
+};
 
 function formatDateTime(value: string | null | undefined) {
   if (!value) {
@@ -488,6 +509,11 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
   const [isLargeScreen, setIsLargeScreen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(true);
 
+  const [searchQuery, setSearchQuery] = useState("");
+  const [isSearchFocused, setIsSearchFocused] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const searchBlurTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
 
   const [editingClientId, setEditingClientId] = useState<string | null>(null);
   const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
@@ -497,6 +523,8 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
   const [askDetailId, setAskDetailId] = useState<string | null>(null);
 
   const showOnlyChallengeWorkspace = mode === "project-relationships";
+
+  const normalizedSearchQuery = searchQuery.trim().toLowerCase();
 
   const dashboardRef = useRef<HTMLDivElement>(null);
   const clientsRef = useRef<HTMLDivElement>(null);
@@ -520,6 +548,14 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
     }),
     []
   );
+
+  useEffect(() => {
+    return () => {
+      if (searchBlurTimeoutRef.current) {
+        clearTimeout(searchBlurTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const navigationMenu = useMemo(() => {
     if (showOnlyChallengeWorkspace) {
@@ -650,6 +686,330 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
       setSelectedClientId(clients[0].id);
     }
   }, [clients, selectedClientId]);
+
+  const clientById = useMemo(() => {
+    const map = new Map<string, ClientRecord>();
+    clients.forEach(client => {
+      map.set(client.id, client);
+    });
+    return map;
+  }, [clients]);
+
+  const projectById = useMemo(() => {
+    const map = new Map<string, ProjectRecord>();
+    projects.forEach(project => {
+      map.set(project.id, project);
+    });
+    return map;
+  }, [projects]);
+
+  const challengeById = useMemo(() => {
+    const map = new Map<string, ChallengeRecord>();
+    challenges.forEach(challenge => {
+      map.set(challenge.id, challenge);
+    });
+    return map;
+  }, [challenges]);
+
+  const searchResults = useMemo<SearchResultItem[]>(() => {
+    if (!normalizedSearchQuery) {
+      return [];
+    }
+
+    const results: SearchResultItem[] = [];
+    const seen = new Set<string>();
+
+    const addResult = (result: SearchResultItem) => {
+      const key = `${result.type}-${result.id}`;
+      if (seen.has(key)) {
+        return;
+      }
+      seen.add(key);
+      results.push(result);
+    };
+
+    const matchesText = (value?: string | null | number) => {
+      if (value === null || value === undefined) {
+        return false;
+      }
+      const text = typeof value === "number" ? value.toString() : value;
+      return text.toLowerCase().includes(normalizedSearchQuery);
+    };
+
+    clients.forEach(client => {
+      if (
+        matchesText(client.name) ||
+        matchesText(client.email) ||
+        matchesText(client.company) ||
+        matchesText(client.industry)
+      ) {
+        addResult({
+          id: client.id,
+          type: "client",
+          title: client.name,
+          subtitle: client.company || client.industry || client.email || undefined,
+          clientId: client.id
+        });
+      }
+    });
+
+    projects.forEach(project => {
+      if (
+        matchesText(project.name) ||
+        matchesText(project.description) ||
+        matchesText(project.status) ||
+        matchesText(project.createdBy)
+      ) {
+        const parentClient = clientById.get(project.clientId);
+        addResult({
+          id: project.id,
+          type: "project",
+          title: project.name,
+          subtitle:
+            [parentClient?.name, project.status].filter(Boolean).join(" • ") || undefined,
+          clientId: project.clientId,
+          projectId: project.id
+        });
+      }
+    });
+
+    challenges.forEach(challenge => {
+      if (
+        matchesText(challenge.name) ||
+        matchesText(challenge.description) ||
+        matchesText(challenge.status) ||
+        matchesText(challenge.priority) ||
+        matchesText(challenge.category) ||
+        matchesText(challenge.assignedTo)
+      ) {
+        const parentProject = challenge.projectId ? projectById.get(challenge.projectId) : undefined;
+        const parentClient = parentProject ? clientById.get(parentProject.clientId) : undefined;
+        const statusParts = [challenge.status, challenge.priority].filter(Boolean);
+
+        addResult({
+          id: challenge.id,
+          type: "challenge",
+          title: challenge.name,
+          subtitle:
+            [
+              parentProject?.name,
+              parentClient?.name,
+              statusParts.length > 0 ? statusParts.join(" • ") : null
+            ]
+              .filter(Boolean)
+              .join(" • ") || undefined,
+          clientId: parentClient?.id ?? parentProject?.clientId ?? null,
+          projectId: challenge.projectId ?? null,
+          challengeId: challenge.id
+        });
+      }
+    });
+
+    asks.forEach(ask => {
+      if (
+        matchesText(ask.name) ||
+        matchesText(ask.question) ||
+        matchesText(ask.description) ||
+        matchesText(ask.askKey) ||
+        matchesText(ask.status)
+      ) {
+        const parentProject = projectById.get(ask.projectId);
+        const parentClient = parentProject ? clientById.get(parentProject.clientId) : undefined;
+        const parentChallenge = ask.challengeId ? challengeById.get(ask.challengeId) : undefined;
+        const subtitleParts = [parentProject?.name, parentChallenge?.name, ask.askKey].filter(Boolean);
+
+        addResult({
+          id: ask.id,
+          type: "ask",
+          title: ask.name,
+          subtitle: subtitleParts.join(" • ") || undefined,
+          clientId: parentClient?.id ?? parentProject?.clientId ?? null,
+          projectId: ask.projectId,
+          challengeId: ask.challengeId ?? null
+        });
+      }
+    });
+
+    users.forEach(user => {
+      const displayName = (
+        user.fullName ||
+        `${user.firstName ?? ""} ${user.lastName ?? ""}` ||
+        ""
+      ).trim();
+      const nameValue = displayName.length > 0 ? displayName : null;
+
+      if (
+        matchesText(nameValue) ||
+        matchesText(user.email) ||
+        matchesText(user.role) ||
+        matchesText(user.clientName)
+      ) {
+        const clientName = user.clientName || (user.clientId ? clientById.get(user.clientId)?.name : undefined);
+        addResult({
+          id: user.id,
+          type: "user",
+          title: nameValue || user.email,
+          subtitle: [user.role, clientName].filter(Boolean).join(" • ") || undefined,
+          clientId: user.clientId ?? null
+        });
+      }
+    });
+
+    return results.slice(0, 20);
+  }, [
+    normalizedSearchQuery,
+    clients,
+    projects,
+    challenges,
+    asks,
+    users,
+    clientById,
+    projectById,
+    challengeById
+  ]);
+
+  const hasSearchResults = searchResults.length > 0;
+  const showSearchDropdown = isSearchFocused && normalizedSearchQuery.length > 0;
+
+  const scrollToSection = useCallback(
+    (targetId: SectionId) => {
+      const navItem = navigationItems.find(item => item.targetId === targetId);
+      if (navItem) {
+        setActiveSection(navItem.label);
+      }
+      const ref = sectionRefMap[targetId];
+      if (ref?.current) {
+        ref.current.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    },
+    [sectionRefMap]
+  );
+
+  const handleSearchSelect = useCallback(
+    (result: SearchResultItem) => {
+      if (searchBlurTimeoutRef.current) {
+        clearTimeout(searchBlurTimeoutRef.current);
+        searchBlurTimeoutRef.current = null;
+      }
+
+      if (result.clientId) {
+        setSelectedClientId(result.clientId);
+      } else if (result.type === "client") {
+        setSelectedClientId(result.id);
+      }
+
+      if (result.projectId) {
+        setSelectedProjectId(result.projectId);
+      } else if (result.type === "project") {
+        setSelectedProjectId(result.id);
+      }
+
+      if (result.challengeId) {
+        setSelectedChallengeId(result.challengeId);
+      } else if (result.type === "challenge") {
+        setSelectedChallengeId(result.id);
+      }
+
+      if (result.type === "ask") {
+        setAskDetailId(result.id);
+        if (result.challengeId) {
+          setSelectedChallengeId(result.challengeId);
+        }
+      } else {
+        setAskDetailId(null);
+      }
+
+      if (result.type === "challenge") {
+        setChallengeDetailId(result.id);
+      } else {
+        setChallengeDetailId(null);
+      }
+
+      setShowClientForm(false);
+      setShowProjectForm(false);
+      setShowAskForm(false);
+      setShowUserForm(false);
+
+      switch (result.type) {
+        case "client":
+          scrollToSection("section-clients");
+          break;
+        case "project":
+          scrollToSection("section-projects");
+          break;
+        case "challenge":
+          scrollToSection("section-challenges");
+          break;
+        case "ask":
+          scrollToSection("section-asks");
+          break;
+        case "user":
+          scrollToSection("section-users");
+          break;
+      }
+
+      setSearchQuery("");
+      setIsSearchFocused(false);
+      searchInputRef.current?.blur();
+    },
+    [
+      scrollToSection,
+      setSelectedClientId,
+      setSelectedProjectId,
+      setSelectedChallengeId,
+      setAskDetailId,
+      setChallengeDetailId,
+      setShowClientForm,
+      setShowProjectForm,
+      setShowAskForm,
+      setShowUserForm
+    ]
+  );
+
+  const handleSearchChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    setSearchQuery(event.target.value);
+  }, []);
+
+  const handleSearchFocus = useCallback(() => {
+    if (searchBlurTimeoutRef.current) {
+      clearTimeout(searchBlurTimeoutRef.current);
+      searchBlurTimeoutRef.current = null;
+    }
+    setIsSearchFocused(true);
+  }, []);
+
+  const handleSearchBlur = useCallback(() => {
+    searchBlurTimeoutRef.current = setTimeout(() => {
+      setIsSearchFocused(false);
+    }, 150);
+  }, []);
+
+  const handleSearchKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLInputElement>) => {
+      if (event.key === "Enter") {
+        if (searchResults[0]) {
+          event.preventDefault();
+          handleSearchSelect(searchResults[0]);
+        }
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        setSearchQuery("");
+        setIsSearchFocused(false);
+        searchInputRef.current?.blur();
+      }
+    },
+    [handleSearchSelect, searchResults]
+  );
+
+  const handleClearSearch = useCallback(() => {
+    if (searchBlurTimeoutRef.current) {
+      clearTimeout(searchBlurTimeoutRef.current);
+      searchBlurTimeoutRef.current = null;
+    }
+    setSearchQuery("");
+    setIsSearchFocused(true);
+    searchInputRef.current?.focus();
+  }, []);
 
   const projectsForClient = useMemo(
     () => projects.filter(project => project.clientId === selectedClientId),
@@ -2037,9 +2397,87 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                   <div className="relative w-full">
                     <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
                     <Input
+                      ref={searchInputRef}
+                      value={searchQuery}
+                      onChange={handleSearchChange}
+                      onFocus={handleSearchFocus}
+                      onBlur={handleSearchBlur}
+                      onKeyDown={handleSearchKeyDown}
                       placeholder="Search across clients, projects, sessions..."
-                      className="w-full rounded-xl border-white/10 bg-white/5 pl-9 text-sm text-white placeholder:text-slate-300"
+                      className="w-full rounded-xl border-white/10 bg-white/5 pl-9 pr-10 text-sm text-white placeholder:text-slate-300 focus-visible:ring-0 focus-visible:ring-offset-0"
+                      aria-label="Search across clients, projects, sessions"
+                      aria-expanded={showSearchDropdown && hasSearchResults}
+                      aria-haspopup="listbox"
+                      aria-controls="admin-search-results"
+                      role="combobox"
+                      autoComplete="off"
                     />
+                    {searchQuery && (
+                      <button
+                        type="button"
+                        onMouseDown={event => event.preventDefault()}
+                        onClick={handleClearSearch}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full p-1 text-slate-300 transition hover:text-white"
+                        aria-label="Clear search"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    )}
+                    <AnimatePresence>
+                      {showSearchDropdown && (
+                        <motion.div
+                          id="admin-search-results"
+                          initial={{ opacity: 0, y: -4 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -4 }}
+                          transition={{ duration: 0.15 }}
+                          className="absolute left-0 right-0 top-12 z-50 rounded-2xl border border-white/10 bg-slate-950/90 p-3 shadow-2xl backdrop-blur"
+                          role="listbox"
+                        >
+                          <div className="mb-2 flex items-center justify-between text-xs uppercase tracking-wide text-slate-400">
+                            <span>Results</span>
+                            <span>
+                              {hasSearchResults
+                                ? `${searchResults.length} match${searchResults.length > 1 ? "es" : ""}`
+                                : "No results"}
+                            </span>
+                          </div>
+                          <div className="space-y-1">
+                            {hasSearchResults ? (
+                              searchResults.map(result => {
+                                const config = searchResultTypeConfig[result.type];
+                                const Icon = config.icon;
+                                return (
+                                  <button
+                                    key={`${result.type}-${result.id}`}
+                                    type="button"
+                                    className="flex w-full items-start gap-3 rounded-xl px-3 py-2 text-left text-sm text-slate-200 transition hover:bg-white/10 focus:bg-white/10 focus:outline-none"
+                                    onMouseDown={event => event.preventDefault()}
+                                    onClick={() => handleSearchSelect(result)}
+                                    role="option"
+                                  >
+                                    <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-white/10 text-white">
+                                      <Icon className="h-4 w-4" />
+                                    </div>
+                                    <div className="flex-1">
+                                      <p className="font-medium text-white">{result.title}</p>
+                                      <p className="text-xs text-slate-300">
+                                        {config.label}
+                                        {result.subtitle ? ` • ${result.subtitle}` : ""}
+                                      </p>
+                                    </div>
+                                  </button>
+                                );
+                              })
+                            ) : (
+                              <div className="px-3 py-4 text-sm text-slate-300">
+                                No matches for &ldquo;{searchQuery}&rdquo;
+                              </div>
+                            )}
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
                   </div>
                 </div>
               </div>
