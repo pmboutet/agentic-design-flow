@@ -16,6 +16,7 @@ import {
   getAudienceDescription,
   getDeliveryModeLabel,
 } from "@/lib/utils";
+import { UserProfileMenu } from "@/components/auth/UserProfileMenu";
 
 /**
  * Main application page with beautiful glassmorphic design
@@ -779,8 +780,8 @@ export default function HomePage() {
         animate={{ opacity: 1, y: 0 }}
         className="app-header border-0 sticky top-0 z-50"
       >
-        <div className="container mx-auto px-4 sm:px-6 py-3 space-y-3 sm:space-y-4">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="container mx-auto px-4 sm:px-6 py-3 space-y-4">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <motion.div
               className="flex items-center gap-2.5"
               whileHover={{ scale: 1.05 }}
@@ -798,45 +799,47 @@ export default function HomePage() {
                 )}
               </div>
             </motion.div>
-            {askDetails && (
-              <motion.div
-                initial={{ opacity: 0, y: -10 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="w-full rounded-xl border border-white/50 bg-white/80 backdrop-blur px-4 py-4 shadow-sm sm:max-w-[75vw] md:max-w-3xl"
-              >
-                <div className="flex flex-col gap-3">
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="space-y-1 sm:pr-4">
-                      <h3 className="font-semibold tracking-tight text-xs sm:text-sm leading-snug text-foreground">
-                        {askDetails.question}
-                      </h3>
-                      {askDetails.description && !isDetailsCollapsed && (
-                        <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed">
-                          {askDetails.description}
-                        </p>
-                      )}
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setIsDetailsCollapsed(prev => !prev)}
-                      className="inline-flex items-center gap-1.5 whitespace-nowrap self-start sm:self-start"
-                      aria-expanded={!isDetailsCollapsed}
-                    >
-                      {isDetailsCollapsed ? (
-                        <>
-                          <ChevronDown className="h-4 w-4" />
-                          Infos
-                        </>
-                      ) : (
-                        <>
-                          <ChevronUp className="h-4 w-4" />
-                          Masquer
-                        </>
-                      )}
-                    </Button>
+            <div className="flex justify-end">
+              <UserProfileMenu />
+            </div>
+          </div>
+          {askDetails && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="w-full rounded-xl border border-white/50 bg-white/80 backdrop-blur px-4 py-4 shadow-sm sm:max-w-[75vw] md:max-w-3xl"
+            >
+              <div className="flex flex-col gap-3">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="space-y-1 sm:pr-4">
+                    <h3 className="font-semibold tracking-tight text-xs sm:text-sm leading-snug text-foreground">
+                      {askDetails.question}
+                    </h3>
+                    {askDetails.description && !isDetailsCollapsed && (
+                      <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed">
+                        {askDetails.description}
+                      </p>
+                    )}
                   </div>
-
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setIsDetailsCollapsed(prev => !prev)}
+                    className="inline-flex items-center gap-1.5 whitespace-nowrap self-start sm:self-start"
+                    aria-expanded={!isDetailsCollapsed}
+                  >
+                    {isDetailsCollapsed ? (
+                      <>
+                        <ChevronDown className="h-4 w-4" />
+                        Infos
+                      </>
+                    ) : (
+                      <>
+                        <ChevronUp className="h-4 w-4" />
+                        Masquer
+                      </>
+                    )}
+                  </Button>
                 </div>
 
                 <AnimatePresence initial={false}>
@@ -848,27 +851,27 @@ export default function HomePage() {
                       exit={{ height: 0, opacity: 0 }}
                       className="mt-3 overflow-hidden"
                     >
-                    <div className="grid gap-3 sm:gap-4 text-sm text-muted-foreground sm:grid-cols-3">
-                      <div className="space-y-1.5">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground/80">Session</p>
-                        <div className="flex flex-wrap items-center gap-2">
-                          {sessionData.askKey && (
-                            <span className="inline-flex items-center rounded-full bg-white/80 px-3 py-1 text-xs font-medium text-foreground shadow-sm">
-                              Session:
-                              <span className="font-mono text-foreground ml-1">{sessionData.askKey}</span>
-                            </span>
-                          )}
-                          {sessionData.ask && (
-                            <span className={sessionData.ask.isActive ? 'session-active' : 'session-closed'}>
-                              {sessionData.ask.isActive ? 'Active' : 'Closed'}
-                            </span>
-                          )}
+                      <div className="grid gap-3 sm:gap-4 text-sm text-muted-foreground sm:grid-cols-3">
+                        <div className="space-y-1.5">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground/80">Session</p>
+                          <div className="flex flex-wrap items-center gap-2">
+                            {sessionData.askKey && (
+                              <span className="inline-flex items-center rounded-full bg-white/80 px-3 py-1 text-xs font-medium text-foreground shadow-sm">
+                                Session:
+                                <span className="font-mono text-foreground ml-1">{sessionData.askKey}</span>
+                              </span>
+                            )}
+                            {sessionData.ask && (
+                              <span className={sessionData.ask.isActive ? 'session-active' : 'session-closed'}>
+                                {sessionData.ask.isActive ? 'Active' : 'Closed'}
+                              </span>
+                            )}
+                          </div>
                         </div>
-                      </div>
 
-                      <div className="space-y-1.5">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground/80">Statut</p>
-                        <div className="flex flex-wrap items-center gap-2">
+                        <div className="space-y-1.5">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground/80">Statut</p>
+                          <div className="flex flex-wrap items-center gap-2">
                             <span className="inline-flex items-center rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
                               {statusLabel}
                             </span>
@@ -888,41 +891,41 @@ export default function HomePage() {
                             <p className="font-medium">
                               {getDeliveryModeLabel(askDetails.deliveryMode)}
                             </p>
-                          <p className="text-muted-foreground">
-                            {getAudienceDescription(askDetails.audienceScope, askDetails.responseMode)}
-                          </p>
+                            <p className="text-muted-foreground">
+                              {getAudienceDescription(askDetails.audienceScope, askDetails.responseMode)}
+                            </p>
+                          </div>
                         </div>
-                      </div>
 
-                      <div className="space-y-1.5">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground/80">
-                          Participants ({participants.length})
-                        </p>
-                        <div className="flex flex-wrap gap-2">
-                          {participants.length > 0 ? (
-                            participants.map(participant => (
-                              <span
-                                key={participant.id}
-                                className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-3 py-1 text-xs text-primary"
-                              >
-                                <span className="font-medium text-primary/90">{participant.name}</span>
-                                {participant.isSpokesperson && (
-                                  <span className="text-[10px] uppercase tracking-wide text-primary/70">porte-parole</span>
-                                )}
-                              </span>
-                            ))
-                          ) : (
-                            <span className="text-muted-foreground">Aucun participant pour le moment</span>
-                          )}
+                        <div className="space-y-1.5">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground/80">
+                            Participants ({participants.length})
+                          </p>
+                          <div className="flex flex-wrap gap-2">
+                            {participants.length > 0 ? (
+                              participants.map(participant => (
+                                <span
+                                  key={participant.id}
+                                  className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-3 py-1 text-xs text-primary"
+                                >
+                                  <span className="font-medium text-primary/90">{participant.name}</span>
+                                  {participant.isSpokesperson && (
+                                    <span className="text-[10px] uppercase tracking-wide text-primary/70">porte-parole</span>
+                                  )}
+                                </span>
+                              ))
+                            ) : (
+                              <span className="text-muted-foreground">Aucun participant pour le moment</span>
+                            )}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
             </motion.div>
           )}
-        </div>
         </div>
       </motion.header>
 
