@@ -17,7 +17,8 @@ const updateSchema = z.object({
   startDate: dateSchema.optional(),
   endDate: dateSchema.optional(),
   status: z.enum(statusValues).optional(),
-  createdBy: z.string().uuid().optional().or(z.literal(""))
+  createdBy: z.string().uuid().optional().or(z.literal("")),
+  systemPrompt: z.string().trim().max(8000).optional().or(z.literal(""))
 });
 
 function mapProject(row: any): ProjectRecord {
@@ -32,7 +33,8 @@ function mapProject(row: any): ProjectRecord {
     endDate: row.end_date,
     createdBy: row.created_by,
     createdAt: row.created_at,
-    updatedAt: row.updated_at
+    updatedAt: row.updated_at,
+    systemPrompt: row.system_prompt ?? null
   };
 }
 
@@ -75,6 +77,9 @@ export async function PATCH(
     if (payload.clientId !== undefined) updateData.client_id = payload.clientId;
     if (payload.createdBy !== undefined) {
       updateData.created_by = payload.createdBy && payload.createdBy !== "" ? payload.createdBy : null;
+    }
+    if (payload.systemPrompt !== undefined) {
+      updateData.system_prompt = sanitizeOptional(payload.systemPrompt || null);
     }
     if (payload.startDate !== undefined) {
       const startDate = new Date(payload.startDate);

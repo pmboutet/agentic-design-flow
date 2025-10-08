@@ -15,7 +15,9 @@ const updateSchema = z.object({
   priority: z.enum(priorityValues).optional(),
   category: z.string().trim().max(100).optional().or(z.literal("")),
   assignedTo: z.string().uuid().optional().or(z.literal("")),
-  dueDate: z.string().trim().min(1).optional()
+  dueDate: z.string().trim().min(1).optional(),
+  parentChallengeId: z.string().uuid().optional().or(z.literal("")),
+  systemPrompt: z.string().trim().max(8000).optional().or(z.literal(""))
 });
 
 function mapChallenge(row: any): ChallengeRecord {
@@ -28,9 +30,11 @@ function mapChallenge(row: any): ChallengeRecord {
     category: row.category,
     projectId: row.project_id,
     projectName: row.projects?.name ?? null,
+    parentChallengeId: row.parent_challenge_id ?? null,
     assignedTo: row.assigned_to,
     dueDate: row.due_date,
-    updatedAt: row.updated_at
+    updatedAt: row.updated_at,
+    systemPrompt: row.system_prompt ?? null
   };
 }
 
@@ -41,7 +45,10 @@ export async function PATCH(
   try {
     const challengeId = z.string().uuid().parse(params.id);
     const body = await request.json();
+    console.log('🔧 Challenge update request:', { challengeId, body });
+    
     const payload = updateSchema.parse(body);
+    console.log('✅ Parsed payload:', payload);
 
     const updateData: Record<string, any> = {};
     if (payload.name) updateData.name = sanitizeText(payload.name);
@@ -52,6 +59,13 @@ export async function PATCH(
     if (payload.assignedTo !== undefined) {
       updateData.assigned_to = payload.assignedTo && payload.assignedTo !== "" ? payload.assignedTo : null;
     }
+    if (payload.parentChallengeId !== undefined) {
+      updateData.parent_challenge_id =
+        payload.parentChallengeId && payload.parentChallengeId !== "" ? payload.parentChallengeId : null;
+    }
+    if (payload.systemPrompt !== undefined) {
+      updateData.system_prompt = sanitizeOptional(payload.systemPrompt || null);
+    }
     if (payload.dueDate) {
       const dueDate = new Date(payload.dueDate);
       if (Number.isNaN(dueDate.getTime())) {
@@ -60,7 +74,10 @@ export async function PATCH(
       updateData.due_date = dueDate.toISOString();
     }
 
+    console.log('📝 Update data to be sent to DB:', updateData);
+
     if (Object.keys(updateData).length === 0) {
+      console.log('❌ No valid fields provided');
       return NextResponse.json<ApiResponse>({
         success: false,
         error: "No valid fields provided"
@@ -76,14 +93,17 @@ export async function PATCH(
       .single();
 
     if (error) {
+      console.error('❌ Database error:', error);
       throw error;
     }
 
+    console.log('✅ Challenge updated successfully:', data);
     return NextResponse.json<ApiResponse<ChallengeRecord>>({
       success: true,
       data: mapChallenge(data)
     });
   } catch (error) {
+    console.error('❌ Challenge update error:', error);
     const status = error instanceof z.ZodError ? 400 : 500;
     return NextResponse.json<ApiResponse>({
       success: false,

@@ -317,6 +317,7 @@ export interface ProjectRecord {
   createdBy?: string | null;
   createdAt: string;
   updatedAt: string;
+  systemPrompt?: string | null;
 }
 
 export interface ChallengeRecord {
@@ -332,6 +333,7 @@ export interface ChallengeRecord {
   assignedTo?: string | null;
   dueDate?: string | null;
   updatedAt: string;
+  systemPrompt?: string | null;
 }
 
 export interface AskSessionRecord {
@@ -415,6 +417,7 @@ export interface ProjectParticipantInsight {
 
 export interface ProjectAskParticipant {
   id: string;
+  userId?: string | null;
   name: string;
   role: string;
   avatarInitials: string;
@@ -424,6 +427,7 @@ export interface ProjectAskParticipant {
 
 export interface ProjectAskOverview {
   id: string;
+  askKey: string;
   title: string;
   summary: string;
   status: string;
@@ -432,6 +436,7 @@ export interface ProjectAskOverview {
   participants: ProjectAskParticipant[];
   originatingChallengeIds: string[];
   relatedProjects: { id: string; name: string }[];
+  insights: ProjectParticipantInsight[];
 }
 
 export interface ProjectParticipantOption {
@@ -457,9 +462,64 @@ export interface ProjectJourneyBoardData {
   projectId: string;
   projectName: string;
   clientName: string;
-  projectGoal: string;
-  timeframe: string;
+  projectGoal?: string | null;
+  timeframe?: string | null;
+  projectDescription?: string | null;
+  projectStatus?: string | null;
+  projectStartDate?: string | null;
+  projectEndDate?: string | null;
+  projectSystemPrompt?: string | null;
   asks: ProjectAskOverview[];
   challenges: ProjectChallengeNode[];
   availableUsers: ProjectParticipantOption[];
+}
+
+export interface AiChallengeAgentMetadata {
+  logId: string;
+  agentId?: string | null;
+  modelConfigId?: string | null;
+}
+
+export interface AiSubChallengeUpdateSuggestion {
+  id: string;
+  title?: string | null;
+  description?: string | null;
+  status?: string | null;
+  impact?: ProjectChallengeNode["impact"] | null;
+  summary?: string | null;
+}
+
+export interface AiNewChallengeSuggestion {
+  referenceId?: string | null;
+  parentId?: string | null;
+  title: string;
+  description?: string | null;
+  status?: string | null;
+  impact?: ProjectChallengeNode["impact"] | null;
+  owners?: ProjectParticipantSummary[];
+  summary?: string | null;
+}
+
+export interface AiChallengeUpdateSuggestion {
+  challengeId: string;
+  challengeTitle: string;
+  summary?: string | null;
+  updates?: {
+    title?: string | null;
+    description?: string | null;
+    status?: string | null;
+    impact?: ProjectChallengeNode["impact"] | null;
+    owners?: ProjectParticipantSummary[];
+  } | null;
+  subChallengeUpdates?: AiSubChallengeUpdateSuggestion[];
+  newSubChallenges?: AiNewChallengeSuggestion[];
+  agentMetadata?: AiChallengeAgentMetadata;
+  rawResponse?: string | null;
+  errors?: string[];
+}
+
+export interface AiChallengeBuilderResponse {
+  challengeSuggestions: AiChallengeUpdateSuggestion[];
+  newChallengeSuggestions: AiNewChallengeSuggestion[];
+  errors?: Array<{ challengeId: string | null; message: string }>;
 }

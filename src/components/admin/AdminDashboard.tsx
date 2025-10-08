@@ -118,8 +118,7 @@ type ChallengeFormInput = z.infer<typeof challengeFormSchema>;
 type AskFormInput = z.infer<typeof askFormSchema>;
 type UserFormInput = z.infer<typeof userFormSchema>;
 
-const gradientButtonClasses =
-  "bg-gradient-to-r from-pink-500 via-fuchsia-500 to-indigo-500 text-white shadow-lg hover:shadow-xl focus-visible:ring-white/70";
+const gradientButtonClasses = "btn-gradient";
 
 type ColumnWidths = [number, number, number];
 
@@ -244,9 +243,9 @@ function ChallengeDetailDialog({ challenge, projectName, askCount, onClose }: Ch
     <Dialog.Root open={Boolean(challenge)} onOpenChange={open => { if (!open) onClose(); }}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm transition-opacity data-[state=closed]:opacity-0 data-[state=open]:opacity-100" />
-        <Dialog.Content className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <Dialog.Content className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto">
           {challenge && (
-            <div className="w-full max-w-xl rounded-3xl border border-white/10 bg-slate-950/90 p-6 shadow-2xl">
+            <div className="w-full max-w-xl rounded-3xl border border-white/10 bg-slate-950/90 p-6 shadow-2xl my-4">
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <Dialog.Title className="text-lg font-semibold text-white">{challenge.name}</Dialog.Title>
@@ -320,9 +319,9 @@ function AskDetailDialog({ ask, projectName, challengeName, onClose }: AskDetail
     <Dialog.Root open={Boolean(ask)} onOpenChange={open => { if (!open) onClose(); }}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm transition-opacity data-[state=closed]:opacity-0 data-[state=open]:opacity-100" />
-        <Dialog.Content className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <Dialog.Content className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto">
           {ask && (
-            <div className="w-full max-w-2xl rounded-3xl border border-white/10 bg-slate-950/90 p-6 shadow-2xl">
+            <div className="w-full max-w-2xl rounded-3xl border border-white/10 bg-slate-950/90 p-6 shadow-2xl my-4">
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <Dialog.Title className="text-lg font-semibold text-white">{ask.name}</Dialog.Title>
@@ -1153,14 +1152,20 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
       const { askKey: _askKey, ...updatePayload } = payload;
       await updateAsk(editingAskId, updatePayload);
     } else {
-      if (!selectedChallenge || !selectedProject) {
+      const projectId = selectedChallenge?.projectId ?? selectedProjectId;
+
+      if (!projectId) {
+        setFeedback({
+          type: "error",
+          message: "Select a project before creating an ASK."
+        });
         return;
       }
 
       await createAsk({
         ...payload,
-        projectId: selectedProject.id,
-        challengeId: selectedChallenge.id
+        projectId,
+        challengeId: selectedChallenge?.id ?? ""
       });
     }
 

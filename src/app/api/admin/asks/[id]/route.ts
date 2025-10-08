@@ -9,7 +9,7 @@ const statusValues = ["active", "inactive", "draft", "closed"] as const;
 const deliveryModes = ["physical", "digital"] as const;
 const audienceScopes = ["individual", "group"] as const;
 const responseModes = ["collective", "simultaneous"] as const;
-const askSelect = "*, projects(name), ask_participants(id, user_id, role, participant_name, participant_email, is_spokesperson, users(id, full_name, first_name, last_name, email, role))";
+const askSelect = "*, projects(name), ask_participants(id, user_id, role, participant_name, participant_email, is_spokesperson)";
 
 const updateSchema = z.object({
   name: z.string().trim().min(1).max(255).optional(),
@@ -66,6 +66,54 @@ function mapAsk(row: any): AskSessionRecord {
     updatedAt: row.updated_at,
     participants,
   };
+}
+
+export async function GET(
+  _request: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const askId = z.string().uuid().parse(params.id);
+
+    const supabase = getAdminSupabaseClient();
+    const { data, error, status } = await supabase
+      .from("ask_sessions")
+      .select(askSelect)
+      .eq("id", askId)
+      .single();
+
+    if (error) {
+      if (error.code === "PGRST116" || status === 406) {
+        return NextResponse.json<ApiResponse>({
+          success: false,
+          error: "ASK session not found",
+        }, { status: 404 });
+      }
+      throw error;
+    }
+
+    if (!data) {
+      return NextResponse.json<ApiResponse>({
+        success: false,
+        error: "ASK session not found",
+      }, { status: 404 });
+    }
+
+    return NextResponse.json<ApiResponse<AskSessionRecord>>({
+      success: true,
+      data: mapAsk(data),
+    });
+  } catch (error) {
+    const status = error instanceof z.ZodError ? 400 : 500;
+    const message = error instanceof z.ZodError
+      ? error.errors[0]?.message || "Invalid ASK id"
+      : parseErrorMessage(error);
+
+    return NextResponse.json<ApiResponse>({
+      success: false,
+      error: message,
+    }, { status });
+  }
 }
 
 export async function PATCH(
