@@ -49,6 +49,13 @@ const challengeUpdateBlockSchema = z
   })
   .partial();
 
+const foundationInsightSchema = z.object({
+  insightId: z.string().trim().min(1),
+  title: z.string().trim().min(1),
+  reason: z.string().trim().min(1),
+  priority: z.enum(["low", "medium", "high", "critical"]),
+});
+
 const subChallengeUpdateSchema = z.object({
   id: z.string().trim().min(1),
   title: z.string().trim().min(1).optional(),
@@ -68,13 +75,6 @@ const subChallengeCreateSchema = z.object({
   owners: z.array(ownerSuggestionSchema).optional(),
   summary: z.string().trim().optional(),
   foundationInsights: z.array(foundationInsightSchema).optional(),
-});
-
-const foundationInsightSchema = z.object({
-  insightId: z.string().trim().min(1),
-  title: z.string().trim().min(1),
-  reason: z.string().trim().min(1),
-  priority: z.enum(["low", "medium", "high", "critical"]),
 });
 
 const challengeSuggestionSchema = z.object({
@@ -379,13 +379,7 @@ function parseNewChallengeSuggestions(content: string) {
 
   // Handle the new response format with summary and newChallenges
   if (parsed && typeof parsed === "object" && "newChallenges" in parsed) {
-    const newChallenges = parsed.newChallenges;
-    if (Array.isArray(newChallenges)) {
-      return newChallenges.map(challenge => newChallengePayloadSchema.parse({
-        newChallenges: [challenge]
-      }));
-    }
-    return [];
+    return [newChallengePayloadSchema.parse(parsed)];
   }
 
   // Handle legacy array format
