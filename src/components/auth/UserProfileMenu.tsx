@@ -1,10 +1,11 @@
 "use client";
 
-import React from "react";
+import React, { useCallback } from "react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { Loader2, LogIn, LogOut, Settings, UserCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "./AuthProvider";
+import { useRouter } from "next/navigation";
 
 function getInitials(name?: string | null) {
   if (!name) return "";
@@ -21,10 +22,15 @@ function getInitials(name?: string | null) {
 
 export function UserProfileMenu() {
   const { status, user, signIn, signOut, isProcessing } = useAuth();
+  const router = useRouter();
   const isSignedIn = status === "signed-in" && Boolean(user);
   const fullName = user?.fullName ?? "";
   const email = user?.email ?? "";
   const role = user?.role ?? undefined;
+
+  const handleAccountSettings = useCallback(() => {
+    router.push("/account");
+  }, [router]);
 
   return (
     <DropdownMenu.Root>
@@ -74,6 +80,7 @@ export function UserProfileMenu() {
         {isSignedIn ? (
           <DropdownMenu.Item
             className="flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-foreground outline-none transition hover:bg-primary/10"
+            onSelect={handleAccountSettings}
           >
             <Settings className="h-4 w-4 text-primary" />
             Paramètres du compte
