@@ -6,6 +6,14 @@ import { createAgentLog, markAgentLogProcessing, completeAgentLog, failAgentLog 
 import { DEFAULT_MAX_OUTPUT_TOKENS } from "./constants";
 import type { AiAgentRecord, AiModelConfig } from "@/types";
 
+type PromptOverride =
+  | string
+  | {
+      template: string;
+      render?: boolean;
+      variables?: Record<string, string | null | undefined>;
+    };
+
 export interface ExecuteAgentOptions {
   supabase: SupabaseClient;
   agentSlug: string;
@@ -15,6 +23,10 @@ export interface ExecuteAgentOptions {
   variables: Record<string, string | null | undefined>;
   maxOutputTokens?: number;
   temperature?: number;
+  overridePrompts?: {
+    system?: PromptOverride;
+    user?: PromptOverride;
+  };
 }
 
 export interface AgentExecutionResult {
@@ -75,9 +87,28 @@ export async function executeAgent(options: ExecuteAgentOptions): Promise<AgentE
 
   await ensureAgentHasModel(agent);
 
+  const resolvePrompt = (override: PromptOverride | undefined, fallback: string): string => {
+    if (!override) {
+      return renderTemplate(fallback, options.variables);
+    }
+
+    if (typeof override === 'string') {
+      return renderTemplate(override, options.variables);
+    }
+
+    const template = override.template;
+    const vars = override.variables ?? options.variables;
+
+    if (override.render === false) {
+      return template;
+    }
+
+    return renderTemplate(template, vars);
+  };
+
   const prompts = {
-    system: renderTemplate(agent.systemPrompt, options.variables),
-    user: renderTemplate(agent.userPrompt, options.variables),
+    system: resolvePrompt(options.overridePrompts?.system, agent.systemPrompt),
+    user: resolvePrompt(options.overridePrompts?.user, agent.userPrompt),
   };
 
   const log = await createAgentLog(options.supabase, {

@@ -4,7 +4,7 @@ import { getAdminSupabaseClient } from "@/lib/supabaseAdmin";
 import { parseErrorMessage } from "@/lib/utils";
 import { fetchProjectJourneyContext } from "@/lib/projectJourneyLoader";
 import { executeAgent } from "@/lib/ai/service";
-import { createChallengeFoundationInsights } from "@/lib/foundationInsights";
+import { CHALLENGE_INSIGHTS_DETECTOR_SYSTEM_PROMPT, CHALLENGE_INSIGHTS_DETECTOR_USER_PROMPT } from "@/lib/ai/prompts/challengeDetector";
 import {
   type AiChallengeBuilderResponse,
   type AiChallengeUpdateSuggestion,
@@ -144,6 +144,24 @@ interface ChallengeContextPayload {
     summary: string;
     status: string;
     dueDate: string | null;
+  }>;
+  availableOwners: Array<{ id: string; name: string; role: string }>;
+}
+
+interface ChallengeDetectorProjectContext {
+  project: ChallengeContextPayload["project"];
+  challenge: ChallengeContextPayload["challenge"] | null;
+  subChallenges: ChallengeContextPayload["subChallenges"];
+  insights: ChallengeContextPayload["insights"];
+  relatedAsks: ChallengeContextPayload["relatedAsks"];
+  availableOwners: ChallengeContextPayload["availableOwners"];
+  existingChallenges: Array<{
+    id: string;
+    title: string;
+    description: string;
+    status: string;
+    impact: ProjectChallengeNode["impact"];
+    parentId: string | null;
   }>;
 }
 
@@ -289,7 +307,13 @@ function parseChallengeSuggestion(
   challenge: ProjectChallengeNode,
 ): z.infer<typeof challengeSuggestionSchema> {
   const candidate = extractJsonCandidate(content);
-  const parsed = JSON.parse(candidate);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(candidate);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    throw new Error(`Invalid JSON response from agent: ${message}`);
+  }
 
   if (Array.isArray(parsed)) {
     for (const item of parsed) {
@@ -434,7 +458,43 @@ function buildChallengeContext(
     })),
     insights,
     relatedAsks,
+    availableOwners: buildAvailableOwnerOptions(boardData),
   } satisfies ChallengeContextPayload;
+}
+
+function buildAvailableOwnerOptions(boardData: ProjectJourneyBoardData) {
+  return boardData.availableUsers.map(user => ({ id: user.id, name: user.name, role: user.role }));
+}
+
+function buildProjectChallengeContext(
+  boardData: ProjectJourneyBoardData,
+  parentMap: Map<string, string | null>,
+  challengeList: ProjectChallengeNode[],
+  insightLookup: Map<string, InsightSummary>,
+  asksById: Map<string, { id: string; title: string; summary: string; status: string; dueDate: string | null }>,
+): ChallengeDetectorProjectContext {
+  return {
+    project: {
+      id: boardData.projectId,
+      name: boardData.projectName,
+      goal: boardData.projectGoal,
+      status: boardData.projectStatus,
+      timeframe: boardData.timeframe,
+    },
+    challenge: null,
+    subChallenges: [],
+    insights: Array.from(insightLookup.values()),
+    relatedAsks: Array.from(asksById.values()),
+    availableOwners: buildAvailableOwnerOptions(boardData),
+    existingChallenges: challengeList.map(item => ({
+      id: item.id,
+      title: item.title,
+      description: item.description,
+      status: item.status,
+      impact: item.impact,
+      parentId: parentMap.get(item.id) ?? null,
+    })),
+  } satisfies ChallengeDetectorProjectContext;
 }
 
 function aggregateInsightLookup(
@@ -652,6 +712,7 @@ export async function POST(
 
     const challengeSuggestions: AiChallengeUpdateSuggestion[] = [];
     const errors: Array<{ challengeId: string | null; message: string }> = [];
+    const availableOwnerOptionsJson = JSON.stringify(buildAvailableOwnerOptions(boardData));
 
     for (const challenge of challengeList) {
       const challengeContext = buildChallengeContext(boardData, challenge, parentMap, insightLookup, asksById);
@@ -671,9 +732,14 @@ export async function POST(
             challenge_status: challenge.status,
             challenge_impact: challenge.impact,
             challenge_context_json: contextJson,
+            available_owner_options_json: availableOwnerOptionsJson,
           },
           maxOutputTokens: options.maxOutputTokens,
           temperature: options.temperature,
+          overridePrompts: {
+            system: { template: CHALLENGE_INSIGHTS_DETECTOR_SYSTEM_PROMPT, render: false },
+            user: CHALLENGE_INSIGHTS_DETECTOR_USER_PROMPT,
+          },
         });
 
         const parsedSuggestion = parseChallengeSuggestion(result.content, challenge);
@@ -696,23 +762,7 @@ export async function POST(
 
     try {
       const projectContext = {
-        project: {
-          id: boardData.projectId,
-          name: boardData.projectName,
-          goal: boardData.projectGoal,
-          status: boardData.projectStatus,
-          timeframe: boardData.timeframe,
-        },
-        challenges: challengeList.map(challenge => ({
-          id: challenge.id,
-          title: challenge.title,
-          description: challenge.description,
-          status: challenge.status,
-          impact: challenge.impact,
-          parentId: parentMap.get(challenge.id) ?? null,
-        })),
-        insights: Array.from(insightLookup.values()),
-        asks: Array.from(asksById.values()),
+        ...buildProjectChallengeContext(boardData, parentMap, challengeList, insightLookup, asksById),
       } satisfies Record<string, unknown>;
 
       const result = await executeAgent({
@@ -723,10 +773,19 @@ export async function POST(
           project_name: boardData.projectName,
           project_goal: boardData.projectGoal ?? "",
           project_status: boardData.projectStatus ?? "",
-          project_context_json: JSON.stringify(projectContext),
+          challenge_id: "",
+          challenge_title: "",
+          challenge_status: "",
+          challenge_impact: "",
+          challenge_context_json: JSON.stringify(projectContext),
+          available_owner_options_json: availableOwnerOptionsJson,
         },
         maxOutputTokens: options.maxOutputTokens,
         temperature: options.temperature,
+        overridePrompts: {
+          system: { template: CHALLENGE_INSIGHTS_DETECTOR_SYSTEM_PROMPT, render: false },
+          user: CHALLENGE_INSIGHTS_DETECTOR_USER_PROMPT,
+        },
       });
 
       const parsedPayloads = parseNewChallengeSuggestions(result.content);
