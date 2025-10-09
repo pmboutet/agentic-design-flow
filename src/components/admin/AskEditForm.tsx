@@ -380,7 +380,7 @@ export function AskEditForm({ asks, availableUsers, onSubmit, isLoading }: AskEd
         />
       </div>
 
-      <Button type="submit" className="neumorphic-raised" disabled={isLoading}>
+      <Button type="submit" disabled={isLoading}>
         Update session
       </Button>
     </form>

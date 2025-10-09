@@ -281,7 +281,16 @@ a.neumorphic-raised:active {
 }
 
 .btn-secondary {
-  @apply neumorphic-shadow bg-secondary hover:bg-secondary/80 active:scale-95 transition-all duration-200;
+  @apply neumorphic-shadow bg-secondary text-secondary-foreground hover:bg-secondary/80 active:scale-95 transition-all duration-200;
+}
+
+/* Glass button styles for better contrast */
+.btn-glass {
+  @apply border border-white/20 bg-white/10 text-foreground hover:bg-white/20 hover:text-foreground backdrop-blur-sm transition-all duration-200;
+}
+
+.btn-glass-dark {
+  @apply border border-white/20 bg-white/5 text-white hover:bg-white/10 hover:text-white backdrop-blur-sm transition-all duration-200;
 }
 
 /* Session status indicator */

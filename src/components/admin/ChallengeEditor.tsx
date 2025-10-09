@@ -193,7 +193,7 @@ export function ChallengeEditor({ challenges, users, onSave, isLoading }: Challe
             </div>
 
             <div className="md:col-span-2 flex justify-end">
-              <Button type="submit" className="neumorphic-raised" disabled={isLoading}>
+              <Button type="submit" disabled={isLoading}>
                 Update challenge
               </Button>
             </div>

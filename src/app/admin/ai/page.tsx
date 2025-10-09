@@ -7,7 +7,6 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import type { AiAgentRecord, AiModelConfig, PromptVariableDefinition } from "@/types";
-import { AdminPageLayout } from "@/components/admin/AdminPageLayout";
 
 interface AgentsResponse {
   success: boolean;
@@ -366,8 +365,7 @@ export default function AiConfigurationPage() {
     newAgent.userPrompt.trim().length === 0;
 
   return (
-    <AdminPageLayout>
-      <div className="space-y-8">
+    <div className="space-y-8">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold tracking-tight">Configuration des agents IA</h1>
@@ -675,6 +673,5 @@ export default function AiConfigurationPage() {
         )}
       </div>
       </div>
-    </AdminPageLayout>
   );
 }

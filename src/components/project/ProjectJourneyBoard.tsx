@@ -14,6 +14,7 @@ import {
   Save,
   Sparkles,
   Target,
+  Trash2,
   Users,
   X,
 } from "lucide-react";
@@ -1953,6 +1954,88 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
     }
   };
 
+  const handleChallengeDelete = async () => {
+    if (!editingChallengeId) {
+      return;
+    }
+
+    if (!window.confirm("Êtes-vous sûr de vouloir supprimer ce challenge ? Cette action est irréversible.")) {
+      return;
+    }
+
+    try {
+      setIsSavingChallenge(true);
+      setFeedback(null);
+      
+      const response = await fetch(`/api/admin/challenges/${editingChallengeId}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+      });
+      
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || "Impossible de supprimer le challenge");
+      }
+
+      // Recharger les données du projet
+      await loadJourneyData();
+      
+      setFeedback({ type: "success", message: "Challenge supprimé avec succès." });
+      setIsChallengeFormVisible(false);
+      setEditingChallengeId(null);
+      setChallengeFormMode("create");
+    } catch (err) {
+      console.error("Erreur lors de la suppression du challenge", err);
+      setFeedback({
+        type: "error",
+        message: err instanceof Error ? err.message : "Impossible de supprimer le challenge.",
+      });
+    } finally {
+      setIsSavingChallenge(false);
+    }
+  };
+
+  const handleAskDelete = async () => {
+    if (!editingAskId) {
+      return;
+    }
+
+    if (!window.confirm("Êtes-vous sûr de vouloir supprimer cette session ASK ? Cette action est irréversible.")) {
+      return;
+    }
+
+    try {
+      setIsSavingAsk(true);
+      setFeedback(null);
+      
+      const response = await fetch(`/api/admin/asks/${editingAskId}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+      });
+      
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || "Impossible de supprimer la session ASK");
+      }
+
+      // Recharger les données du projet
+      await loadJourneyData();
+      
+      setFeedback({ type: "success", message: "Session ASK supprimée avec succès." });
+      setIsAskFormOpen(false);
+      setEditingAskId(null);
+      setIsEditingAsk(false);
+    } catch (err) {
+      console.error("Erreur lors de la suppression de la session ASK", err);
+      setFeedback({
+        type: "error",
+        message: err instanceof Error ? err.message : "Impossible de supprimer la session ASK.",
+      });
+    } finally {
+      setIsSavingAsk(false);
+    }
+  };
+
   return (
     <>
       {boardData ? (
@@ -2318,7 +2401,7 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
                       {isAskFormOpen ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
                       {isAskFormOpen ? "Close form" : "Create ASK"}
                     </Button>
-                    <Button size="sm" variant="outline" className="gap-2 border-white/20 bg-white/10 text-white hover:bg-white/20">
+                    <Button size="sm" variant="glassDark" className="gap-2">
                       <Sparkles className="h-4 w-4" />
                       Generate ASKs with AI
                     </Button>
@@ -2355,8 +2438,8 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
                                 <Button
                                   type="button"
                                   size="sm"
-                                  variant="outline"
-                                  className="gap-1 border-white/20 bg-white/10 text-white hover:bg-white/20"
+                                  variant="glassDark"
+                                  className="gap-1"
                                   onClick={() => {
                                     void handleAskEditStart(ask.id);
                                   }}
@@ -2570,16 +2653,28 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
                 <div className="flex flex-wrap items-center gap-2">
                   <Button
                     type="button"
-                    className="gap-2 bg-indigo-500 text-white hover:bg-indigo-400"
+                    className="gap-2"
                     onClick={handleChallengeSave}
                     disabled={isSavingChallenge || !challengeFormValues.title.trim()}
                   >
                     {isSavingChallenge ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                     {isSavingChallenge ? "Saving" : isEditingChallenge ? "Update challenge" : "Save challenge"}
                   </Button>
+                  {isEditingChallenge && (
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      onClick={handleChallengeDelete}
+                      disabled={isSavingChallenge}
+                      className="gap-2"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      Delete
+                    </Button>
+                  )}
                   <Button
                     type="button"
-                    variant="outline"
+                    variant="glassDark"
                     onClick={handleChallengeCancel}
                     disabled={isSavingChallenge}
                     className="gap-2"
@@ -2915,18 +3010,30 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
                   <div className="flex flex-wrap items-center gap-2">
                     <Button
                       type="submit"
-                      className="gap-2 bg-indigo-500 text-white hover:bg-indigo-400"
+                      className="gap-2"
                       disabled={isSavingAsk || isLoadingAskDetails}
                     >
                       {isSavingAsk ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                       {isEditingAsk ? "Update ASK" : "Save ASK"}
                     </Button>
+                    {isEditingAsk && (
+                      <Button
+                        type="button"
+                        variant="destructive"
+                        onClick={handleAskDelete}
+                        disabled={isSavingAsk}
+                        className="gap-2"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                        Delete
+                      </Button>
+                    )}
                     <Button
                       type="button"
-                      variant="outline"
+                      variant="glassDark"
                       onClick={handleAskCancel}
                       disabled={isSavingAsk}
-                      className="gap-2 border-white/20 text-white hover:bg-white/10"
+                      className="gap-2"
                     >
                       Cancel
                     </Button>

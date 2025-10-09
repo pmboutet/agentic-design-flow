@@ -1,4 +1,3 @@
-import { AdminPageLayout } from "@/components/admin/AdminPageLayout";
 import { ProjectsAdminView } from "@/components/admin/ProjectsAdminView";
 
 export const metadata = {
@@ -6,10 +5,6 @@ export const metadata = {
 };
 
 export default function AdminProjectsPage() {
-  return (
-    <AdminPageLayout>
-      <ProjectsAdminView />
-    </AdminPageLayout>
-  );
+  return <ProjectsAdminView />;
 }
 

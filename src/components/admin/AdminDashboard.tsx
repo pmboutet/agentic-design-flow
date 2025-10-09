@@ -11,12 +11,9 @@ import {
   Bell,
   Building2,
   ClipboardList,
-  ChevronLeft,
-  ChevronRight,
   Compass,
   FolderKanban,
   LayoutDashboard,
-  Menu,
   Pencil,
   MessageSquare,
   Search,
@@ -507,7 +504,6 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
   const [activeSection, setActiveSection] = useState<SectionLabel>(navigationItems[0].label);
   const [columnWidths, setColumnWidths] = useState<ColumnWidths>(defaultColumnWidths);
   const [isLargeScreen, setIsLargeScreen] = useState(false);
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(true);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearchFocused, setIsSearchFocused] = useState(false);
@@ -1368,16 +1364,6 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
     };
   }, [sectionRefMap, selectedProjectId, selectedChallengeId, navigationMenu]);
 
-  const handleNavigationClick = useCallback(
-    (item: (typeof navigationItems)[number]) => {
-      setActiveSection(item.label);
-      const ref = sectionRefMap[item.targetId];
-      if (ref?.current) {
-        ref.current.scrollIntoView({ behavior: "smooth", block: "start" });
-      }
-    },
-    [sectionRefMap]
-  );
 
   const resetClientForm = () => {
     clientForm.reset(defaultClientFormValues);
@@ -1904,7 +1890,7 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                     />
                   </div>
                   <div className="md:col-span-2 flex justify-end">
-                    <Button type="submit" className={`${gradientButtonClasses} px-4`} disabled={isBusy}>
+                    <Button type="submit" className="px-4" disabled={isBusy}>
                       Update challenge
                     </Button>
                   </div>
@@ -1962,8 +1948,7 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                           />
                           <Button
                             type="button"
-                            variant="outline"
-                            className="border-white/20 bg-white/10 text-white hover:bg-white/20"
+                            variant="glassDark"
                             onClick={() => {
                               const name = askForm.getValues("name");
                               askForm.setValue("askKey", generateAskKey(name || "ask"));
@@ -2185,15 +2170,14 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                         {isEditingAsk && (
                           <Button
                             type="button"
-                            variant="outline"
-                            className="border-white/20 bg-transparent text-white hover:bg-white/10"
+                            variant="glassDark"
                             onClick={cancelAskEdit}
                             disabled={isBusy}
                           >
                             Cancel
                           </Button>
                         )}
-                        <Button type="submit" className={`${gradientButtonClasses} px-4`} disabled={isBusy}>
+                        <Button type="submit" className="px-4" disabled={isBusy}>
                           {isEditingAsk ? "Update ASK" : "Launch ASK"}
                         </Button>
                       </div>
@@ -2318,65 +2302,6 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
       />
       <div className="min-h-screen bg-slate-950 text-slate-100">
       <div className="flex h-full min-h-screen">
-        <aside
-          className={`hidden flex-col border-r border-white/10 bg-white/5 backdrop-blur transition-all duration-200 lg:flex ${
-            isSidebarCollapsed ? "w-20 px-3" : "w-64 px-6"
-          }`}
-        >
-          <div
-            className={`mb-8 flex items-center ${
-              isSidebarCollapsed ? "justify-center" : "justify-between"
-            }`}
-          >
-            {isSidebarCollapsed ? (
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 text-sm font-semibold">
-                AD
-              </div>
-            ) : (
-              <div>
-                <div className="text-xl font-semibold">Agentic Admin</div>
-                <p className="text-sm text-slate-400">Operate the entire flow</p>
-              </div>
-            )}
-            <button
-              type="button"
-              onClick={() => setIsSidebarCollapsed(value => !value)}
-              className="ml-2 rounded-xl border border-white/10 bg-white/10 p-2 text-slate-200 transition hover:bg-white/20"
-              aria-label={isSidebarCollapsed ? "Expand navigation" : "Collapse navigation"}
-            >
-              {isSidebarCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
-            </button>
-          </div>
-          <nav className="flex flex-1 flex-col gap-2">
-            {navigationMenu.map(item => {
-              const Icon = item.icon;
-              const isActive = activeSection === item.label;
-              return (
-                <button
-                  key={item.label}
-                  type="button"
-                  className={`flex items-center gap-3 rounded-xl py-2 text-sm transition ${
-                    isActive
-                      ? "bg-white/10 text-white shadow-lg"
-                      : "text-slate-400 hover:bg-white/5 hover:text-white"
-                  } ${isSidebarCollapsed ? "justify-center px-2" : "justify-start px-3"}`}
-                  onClick={() => handleNavigationClick(item)}
-                  aria-current={isActive ? "page" : undefined}
-                >
-                  <Icon className="h-4 w-4" />
-                  <span className={isSidebarCollapsed ? "sr-only" : ""}>{item.label}</span>
-                </button>
-              );
-            })}
-          </nav>
-          {!isSidebarCollapsed && (
-            <div className="mt-6 rounded-2xl bg-white/5 p-4 text-sm text-slate-300">
-              <p className="font-medium text-white">Need help?</p>
-              <p className="mt-1">Review the playbook or contact the product team.</p>
-            </div>
-          )}
-        </aside>
-
         <div className="flex flex-1 flex-col">
           <motion.header
             initial={{ opacity: 0, y: -20 }}
@@ -2385,14 +2310,6 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
           >
             <div className="flex items-center justify-between px-6 py-4">
               <div className="flex flex-1 items-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => setIsSidebarCollapsed(value => !value)}
-                  className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-white transition hover:bg-white/10"
-                  aria-label={isSidebarCollapsed ? "Expand navigation" : "Collapse navigation"}
-                >
-                  {isSidebarCollapsed ? <Menu className="h-5 w-5" /> : <ChevronLeft className="h-5 w-5" />}
-                </button>
                 <div className="hidden md:flex md:max-w-md md:flex-1">
                   <div className="relative w-full">
                     <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
@@ -2505,7 +2422,7 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
             {feedback && (
               <Alert
                 variant={feedback.type === "error" ? "destructive" : "default"}
-                className="border-white/10 bg-white/5 text-white"
+                className="border-white/10 bg-white/5 text-foreground"
               >
                 <div className="flex w-full items-start justify-between gap-4">
                   <AlertDescription>{feedback.message}</AlertDescription>
@@ -2538,7 +2455,7 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                       <Button
                         type="button"
                         variant="secondary"
-                        className="border-white/20 bg-white/10 text-white hover:bg-white/20"
+                        variant="glassDark"
                         onClick={() => setShowJourneyBoard(false)}
                       >
                         Fermer
@@ -2565,7 +2482,7 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                         >
                           Create client
                         </Button>
-                        <Button variant="outline" className="border-white/20 bg-white/10 text-white hover:bg-white/20">
+                        <Button variant="glassDark">
                           Export data
                         </Button>
                       </div>
@@ -2601,7 +2518,7 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
             {!showOnlyChallengeWorkspace && (
               <section className="space-y-6">
                 <div className="flex items-center justify-between">
-                  <h2 className="text-2xl font-semibold">Clients → Projects → Challenges → ASK</h2>
+                  <h2 className="text-2xl font-semibold">Clients → Projects → Users</h2>
                   <p className="text-sm text-slate-400">Drill down to manage everything from one place.</p>
                 </div>
 
@@ -2705,7 +2622,7 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                           <Button
                             type="button"
                             variant="outline"
-                            className="border-white/20 bg-transparent text-white hover:bg-white/10"
+                            variant="glassDark"
                             onClick={cancelClientEdit}
                             disabled={isBusy}
                           >
@@ -2908,7 +2825,7 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                           <Button
                             type="button"
                             variant="outline"
-                            className="border-white/20 bg-transparent text-white hover:bg-white/10"
+                            variant="glassDark"
                             onClick={cancelProjectEdit}
                             disabled={isBusy}
                           >
@@ -3013,205 +2930,177 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                     </div>
                   )}
                 </div>
-                {renderChallengeWorkspace()}
+
+                <div
+                  ref={usersRef}
+                  id="section-users"
+                  className="relative flex flex-col gap-4 rounded-3xl border border-white/10 bg-white/5 p-5 backdrop-blur"
+                >
+                  <header className="flex items-center justify-between">
+                    <div>
+                      <h3 className="text-lg font-semibold text-white">Users</h3>
+                      <p className="text-xs text-slate-400">Directory scoped to the selected client when one is active.</p>
+                    </div>
+                    <Button
+                      type="button"
+                      className={`${gradientButtonClasses} h-9 px-4 text-xs`}
+                      onClick={() => {
+                        if (showUserForm) {
+                          cancelUserEdit();
+                        } else {
+                          resetUserForm();
+                          setShowUserForm(true);
+                        }
+                      }}
+                      disabled={isBusy}
+                    >
+                      {showUserForm ? "Close" : "Add user"}
+                    </Button>
+                  </header>
+
+                  {showUserForm && (
+                    <form
+                      onSubmit={userForm.handleSubmit(handleSubmitUser)}
+                      className="space-y-3 rounded-2xl border border-white/10 bg-slate-900/40 p-4"
+                    >
+                      {isEditingUser && (
+                        <p className="text-xs font-medium text-amber-300">
+                          Editing {users.find(user => user.id === editingUserId)?.fullName || users.find(user => user.id === editingUserId)?.email}
+                        </p>
+                      )}
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <div className="flex flex-col gap-2">
+                          <Label htmlFor="user-email-admin">Email</Label>
+                          <Input
+                            id="user-email-admin"
+                            type="email"
+                            placeholder="user@company.com"
+                            {...userForm.register("email")}
+                            disabled={isBusy}
+                          />
+                          {userForm.formState.errors.email && (
+                            <p className="text-xs text-red-400">{userForm.formState.errors.email.message}</p>
+                          )}
+                        </div>
+                        <div className="flex flex-col gap-2">
+                          <Label htmlFor="user-fullname-admin">Full name</Label>
+                          <Input
+                            id="user-fullname-admin"
+                            placeholder="John Doe"
+                            {...userForm.register("fullName")}
+                            disabled={isBusy}
+                          />
+                          {userForm.formState.errors.fullName && (
+                            <p className="text-xs text-red-400">{userForm.formState.errors.fullName.message}</p>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex flex-col gap-2">
+                        <Label htmlFor="user-role-admin">Role</Label>
+                        <select
+                          id="user-role-admin"
+                          className="h-10 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm text-white"
+                          {...userForm.register("role")}
+                          disabled={isBusy}
+                        >
+                          <option value="facilitator">Facilitator</option>
+                          <option value="participant">Participant</option>
+                          <option value="admin">Admin</option>
+                        </select>
+                      </div>
+                      <div className="flex justify-end gap-2">
+                        {isEditingUser && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            variant="glassDark"
+                            onClick={cancelUserEdit}
+                            disabled={isBusy}
+                          >
+                            Cancel
+                          </Button>
+                        )}
+                        <Button type="submit" className={`${gradientButtonClasses} px-4`} disabled={isBusy}>
+                          {isEditingUser ? "Update user" : "Save user"}
+                        </Button>
+                      </div>
+                    </form>
+                  )}
+
+                  <div className="space-y-3 overflow-y-auto pr-2">
+                    {isLoading && filteredUsers.length === 0 ? (
+                      <p className="text-sm text-slate-400">Loading users...</p>
+                    ) : filteredUsers.length === 0 ? (
+                      <p className="text-sm text-slate-400">No users found for the selected client.</p>
+                    ) : (
+                      filteredUsers.map(user => (
+                        <article
+                          key={user.id}
+                          className={`rounded-2xl border px-4 py-3 transition hover:border-indigo-400 ${
+                            user.id === editingUserId
+                              ? "border-indigo-400 bg-indigo-500/10"
+                              : "border-white/10 bg-slate-900/40"
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="text-left">
+                              <h4 className="text-sm font-semibold text-white">{user.fullName || user.email}</h4>
+                              <p className="text-xs text-slate-400">{user.email}</p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="rounded-full bg-white/10 px-2 py-1 text-[10px] uppercase tracking-wide text-slate-200">
+                                {user.role}
+                              </span>
+                              <span className={`rounded-full px-2 py-1 text-[10px] uppercase tracking-wide ${
+                                user.isActive ? "bg-green-500/20 text-green-300" : "bg-slate-500/20 text-slate-300"
+                              }`}>
+                                {user.isActive ? "Active" : "Inactive"}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="mt-2 flex items-center justify-between text-xs text-slate-500">
+                            <span>Joined {formatDateTime(user.createdAt)}</span>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => startUserEdit(user.id)}
+                                className="text-slate-200 hover:text-white"
+                                disabled={isBusy}
+                              >
+                                Edit
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteUser(user.id)}
+                                className="text-red-300 hover:text-red-200"
+                                disabled={isBusy}
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          </div>
+                        </article>
+                      ))
+                    )}
+                  </div>
+                  {isLargeScreen && (
+                    <div
+                      role="separator"
+                      aria-label="Resize users column"
+                      aria-orientation="vertical"
+                      className="absolute inset-y-0 right-[-8px] hidden w-4 cursor-col-resize items-center justify-center lg:flex"
+                      onMouseDown={event => handleResizeStart(event, 2)}
+                    >
+                      <span className="pointer-events-none h-12 w-px rounded-full bg-white/20" />
+                    </div>
+                  )}
+                </div>
                 </div>
               </section>
             )}
             {showOnlyChallengeWorkspace && renderChallengeWorkspace()}
 
-            {!showOnlyChallengeWorkspace && (
-              <section
-                ref={usersRef}
-                id="section-users"
-                className="space-y-6 rounded-3xl border border-white/10 bg-white/5 p-6 backdrop-blur"
-              >
-              <div className="flex flex-wrap items-center justify-between gap-4">
-                <div>
-                  <h2 className="text-2xl font-semibold">Users</h2>
-                  <p className="text-sm text-slate-400">
-                    Directory scoped to the selected client when one is active.
-                  </p>
-                </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="border-white/20 bg-white/10 text-white hover:bg-white/20"
-                  onClick={() => {
-                    if (showUserForm) {
-                      cancelUserEdit();
-                    } else {
-                      resetUserForm();
-                      setShowUserForm(true);
-                    }
-                  }}
-                  disabled={isBusy}
-                >
-                  {showUserForm ? "Close form" : "Invite user"}
-                </Button>
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-3">
-                <div className="rounded-2xl border border-white/10 bg-slate-900/40 p-4">
-                  <p className="text-xs uppercase tracking-wide text-slate-400">Active</p>
-                  <p className="mt-2 text-2xl font-semibold text-white">{activeUserCount}</p>
-                  <p className="mt-1 text-xs text-slate-500">Within the current context.</p>
-                </div>
-                <div className="rounded-2xl border border-white/10 bg-slate-900/40 p-4">
-                  <p className="text-xs uppercase tracking-wide text-slate-400">Inactive</p>
-                  <p className="mt-2 text-2xl font-semibold text-white">{inactiveUserCount}</p>
-                  <p className="mt-1 text-xs text-slate-500">Awaiting activation or archive.</p>
-                </div>
-                <div className="rounded-2xl border border-white/10 bg-slate-900/40 p-4">
-                  <p className="text-xs uppercase tracking-wide text-slate-400">Total users</p>
-                  <p className="mt-2 text-2xl font-semibold text-white">{filteredUsers.length}</p>
-                  <p className="mt-1 text-xs text-slate-500">Filtered by the selected client.</p>
-                </div>
-              </div>
-
-              {showUserForm && (
-                <form
-                  onSubmit={userForm.handleSubmit(handleSubmitUser)}
-                  className="space-y-3 rounded-2xl border border-white/10 bg-slate-900/40 p-4"
-                >
-                  {isEditingUser && (
-                    <p className="text-xs font-medium text-amber-300">
-                      Editing {users.find(user => user.id === editingUserId)?.fullName || users.find(user => user.id === editingUserId)?.email}
-                    </p>
-                  )}
-                  <div className="grid gap-3 md:grid-cols-2">
-                    <div className="flex flex-col gap-2">
-                      <Label htmlFor="user-email-admin">Email</Label>
-                      <Input
-                        id="user-email-admin"
-                        type="email"
-                        placeholder="user@client.com"
-                        {...userForm.register("email")}
-                        disabled={isBusy || isEditingUser}
-                      />
-                      {userForm.formState.errors.email && (
-                        <p className="text-xs text-red-400">{userForm.formState.errors.email.message}</p>
-                      )}
-                    </div>
-                    <div className="flex flex-col gap-2">
-                      <Label htmlFor="user-role-admin">Role</Label>
-                      <select
-                        id="user-role-admin"
-                        className="h-10 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm text-white"
-                        {...userForm.register("role")}
-                        disabled={isBusy}
-                      >
-                        {userRoles.map(role => (
-                          <option key={role} value={role}>
-                            {role}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-                  <div className="grid gap-3 md:grid-cols-2">
-                    <div className="flex flex-col gap-2">
-                      <Label htmlFor="user-first-admin">First name</Label>
-                      <Input
-                        id="user-first-admin"
-                        placeholder="First name"
-                        {...userForm.register("firstName")}
-                        disabled={isBusy}
-                      />
-                    </div>
-                    <div className="flex flex-col gap-2">
-                      <Label htmlFor="user-last-admin">Last name</Label>
-                      <Input
-                        id="user-last-admin"
-                        placeholder="Last name"
-                        {...userForm.register("lastName")}
-                        disabled={isBusy}
-                      />
-                    </div>
-                  </div>
-                  <div className="grid gap-3 md:grid-cols-2">
-                    <div className="flex flex-col gap-2">
-                      <Label htmlFor="user-client-admin">Client</Label>
-                      <select
-                        id="user-client-admin"
-                        className="h-10 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm text-white"
-                        {...userForm.register("clientId")}
-                        disabled={isBusy}
-                      >
-                        <option value="">No client</option>
-                        {clients.map(client => (
-                          <option key={client.id} value={client.id}>
-                            {client.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <label className="flex items-center gap-2 text-sm text-slate-300">
-                      <input
-                        type="checkbox"
-                        className="h-4 w-4 rounded border-white/20 bg-slate-900"
-                        {...userForm.register("isActive")}
-                        disabled={isBusy}
-                      />
-                      Active
-                    </label>
-                  </div>
-                  <div className="flex justify-end gap-2">
-                    {isEditingUser && (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className="border-white/20 bg-transparent text-white hover:bg-white/10"
-                        onClick={cancelUserEdit}
-                        disabled={isBusy}
-                      >
-                        Cancel
-                      </Button>
-                    )}
-                    <Button type="submit" className={`${gradientButtonClasses} px-4`} disabled={isBusy}>
-                      {isEditingUser ? "Update user" : "Send invite"}
-                    </Button>
-                  </div>
-                </form>
-              )}
-
-              <div className="space-y-2">
-                {filteredUsers.length === 0 ? (
-                  <p className="text-sm text-slate-400">No users linked to the current selection.</p>
-                ) : (
-                  filteredUsers.map(user => (
-                    <div
-                      key={user.id}
-                      className="flex items-center justify-between rounded-2xl border border-white/10 bg-slate-900/40 p-3 text-sm text-slate-200"
-                    >
-                      <div>
-                        <p className="font-semibold text-white">{user.fullName || user.email}</p>
-                        <p className="text-xs text-slate-400">{user.email}</p>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <span
-                          className={`text-xs uppercase tracking-wide ${
-                            user.isActive ? "text-emerald-300" : "text-slate-500"
-                          }`}
-                        >
-                          {user.role.replace(/_/g, " ")} • {user.isActive ? "Active" : "Inactive"}
-                        </span>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          className="border-white/20 bg-transparent text-white hover:bg-white/10"
-                          onClick={() => startUserEdit(user.id)}
-                          disabled={isBusy}
-                        >
-                          Edit
-                        </Button>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-              </section>
-            )}
+            {!showOnlyChallengeWorkspace && renderChallengeWorkspace()}
 
             {!showOnlyChallengeWorkspace && (
               <section
@@ -3227,7 +3116,7 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                 <Button
                   type="button"
                   variant="outline"
-                  className="border-white/20 bg-white/10 text-white hover:bg-white/20"
+                  variant="glassDark"
                 >
                   Export snapshot
                 </Button>
@@ -3294,8 +3183,8 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                   </p>
                   <Button
                     type="button"
-                    variant="outline"
-                    className="mt-4 border-white/20 bg-white/10 text-white hover:bg-white/20"
+                    variant="glassDark"
+                    className="mt-4"
                   >
                     Open advanced settings
                   </Button>

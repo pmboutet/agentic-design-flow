@@ -490,6 +490,13 @@ export interface AiSubChallengeUpdateSuggestion {
   summary?: string | null;
 }
 
+export interface AiFoundationInsight {
+  insightId: string;
+  title: string;
+  reason: string;
+  priority: "low" | "medium" | "high" | "critical";
+}
+
 export interface AiNewChallengeSuggestion {
   referenceId?: string | null;
   parentId?: string | null;
@@ -505,6 +512,7 @@ export interface AiChallengeUpdateSuggestion {
   challengeId: string;
   challengeTitle: string;
   summary?: string | null;
+  foundationInsights?: AiFoundationInsight[];
   updates?: {
     title?: string | null;
     description?: string | null;

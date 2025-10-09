@@ -16,7 +16,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { AiAgentLog } from "@/types";
-import { AdminPageLayout } from "@/components/admin/AdminPageLayout";
 
 interface LogsResponse {
   success: boolean;
@@ -146,8 +145,7 @@ export default function AiLogsPage() {
   };
 
   return (
-    <AdminPageLayout>
-      <div className="space-y-8">
+    <div className="space-y-8">
         <div className="space-y-2">
           <h1 className="text-3xl font-bold text-white">AI Logs</h1>
           <p className="text-sm text-slate-300">
@@ -398,6 +396,5 @@ export default function AiLogsPage() {
           </div>
         </div>
       </div>
-    </AdminPageLayout>
   );
 }

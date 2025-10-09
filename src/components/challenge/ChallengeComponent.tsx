@@ -396,11 +396,11 @@ function ChallengeCard({
                 placeholder="Challenge name"
               />
               <div className="flex flex-wrap items-center gap-2 md:flex-shrink-0">
-                <Button size="sm" className="gap-2 bg-indigo-500 text-white hover:bg-indigo-400" onClick={onSaveEdit}>
+                <Button size="sm" className="gap-2" onClick={onSaveEdit}>
                   <Save className="h-4 w-4" />
                   Save
                 </Button>
-                <Button size="sm" variant="outline" className="gap-2" onClick={onCancelEdit}>
+                <Button size="sm" variant="glassDark" className="gap-2" onClick={onCancelEdit}>
                   <X className="h-4 w-4" />
                   Cancel
                 </Button>

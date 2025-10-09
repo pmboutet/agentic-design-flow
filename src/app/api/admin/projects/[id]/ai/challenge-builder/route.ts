@@ -4,6 +4,7 @@ import { getAdminSupabaseClient } from "@/lib/supabaseAdmin";
 import { parseErrorMessage } from "@/lib/utils";
 import { fetchProjectJourneyContext } from "@/lib/projectJourneyLoader";
 import { executeAgent } from "@/lib/ai/service";
+import { createChallengeFoundationInsights } from "@/lib/foundationInsights";
 import {
   type AiChallengeBuilderResponse,
   type AiChallengeUpdateSuggestion,
@@ -14,8 +15,8 @@ import {
   type ProjectParticipantSummary,
 } from "@/types";
 
-const DEFAULT_CHALLENGE_AGENT_SLUG = process.env.CHALLENGE_BUILDER_AGENT_SLUG ?? "project-challenge-builder";
-const DEFAULT_CREATION_AGENT_SLUG = process.env.NEW_CHALLENGE_BUILDER_AGENT_SLUG ?? DEFAULT_CHALLENGE_AGENT_SLUG;
+const DEFAULT_CHALLENGE_AGENT_SLUG = process.env.CHALLENGE_BUILDER_AGENT_SLUG ?? "challenge-builder";
+const DEFAULT_CREATION_AGENT_SLUG = process.env.NEW_CHALLENGE_BUILDER_AGENT_SLUG ?? "project-new-challenge-generator";
 
 const CHALLENGE_INTERACTION_TYPE = "project_challenge_revision";
 const CREATION_INTERACTION_TYPE = "project_new_challenge_generation";
@@ -68,9 +69,17 @@ const subChallengeCreateSchema = z.object({
   summary: z.string().trim().optional(),
 });
 
+const foundationInsightSchema = z.object({
+  insightId: z.string().trim().min(1),
+  title: z.string().trim().min(1),
+  reason: z.string().trim().min(1),
+  priority: z.enum(["low", "medium", "high", "critical"]),
+});
+
 const challengeSuggestionSchema = z.object({
   challengeId: z.string().trim().min(1).optional(),
   summary: z.string().trim().optional(),
+  foundationInsights: z.array(foundationInsightSchema).optional(),
   updates: challengeUpdateBlockSchema.optional(),
   subChallenges: z
     .object({
@@ -249,6 +258,18 @@ function parseNewChallengeSuggestions(content: string) {
   const candidate = extractJsonCandidate(content);
   const parsed = JSON.parse(candidate);
 
+  // Handle the new response format with summary and newChallenges
+  if (parsed && typeof parsed === "object" && "newChallenges" in parsed) {
+    const newChallenges = parsed.newChallenges;
+    if (Array.isArray(newChallenges)) {
+      return newChallenges.map(challenge => newChallengePayloadSchema.parse({
+        newChallenges: [challenge]
+      }));
+    }
+    return [];
+  }
+
+  // Handle legacy array format
   if (Array.isArray(parsed)) {
     return parsed.map(item => newChallengePayloadSchema.parse(item));
   }
@@ -418,6 +439,7 @@ function mapChallengeSuggestion(
   const updates = suggestion.updates ?? null;
   const subUpdateBlock = suggestion.subChallenges ?? {};
   const newSubBlock = suggestion.newSubChallenges ?? [];
+  const foundationInsights = suggestion.foundationInsights ?? [];
 
   const normalisedUpdates = updates
     ? {
@@ -444,6 +466,14 @@ function mapChallengeSuggestion(
     challengeId: challenge.id,
     challengeTitle: challenge.title,
     summary: suggestion.summary ?? null,
+    foundationInsights: foundationInsights.length
+      ? foundationInsights.map(insight => ({
+          insightId: insight.insightId,
+          title: insight.title,
+          reason: insight.reason,
+          priority: insight.priority,
+        }))
+      : undefined,
     updates: normalisedUpdates,
     subChallengeUpdates: subUpdates.length
       ? subUpdates.map(item => ({
@@ -608,8 +638,26 @@ export async function POST(
       });
     }
 
+    // Filter out empty suggestions that don't have any meaningful updates
+    const filteredChallengeSuggestions = challengeSuggestions.filter(suggestion => {
+      // Check if the suggestion has any meaningful updates
+      const hasUpdates = suggestion.updates && (
+        suggestion.updates.title ||
+        suggestion.updates.description ||
+        suggestion.updates.status ||
+        suggestion.updates.impact ||
+        suggestion.updates.owners?.length
+      );
+      
+      const hasSubUpdates = suggestion.subChallengeUpdates?.length;
+      const hasNewSubs = suggestion.newSubChallenges?.length;
+      
+      // Only include suggestions that have actual changes to propose
+      return hasUpdates || hasSubUpdates || hasNewSubs;
+    });
+
     const payload: AiChallengeBuilderResponse = {
-      challengeSuggestions,
+      challengeSuggestions: filteredChallengeSuggestions,
       newChallengeSuggestions,
       errors: errors.length ? errors : undefined,
     };

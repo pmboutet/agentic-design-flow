@@ -31,24 +31,20 @@ export function UserProfileMenu() {
       <DropdownMenu.Trigger asChild>
         <Button
           variant="ghost"
-          className="flex items-center gap-3 rounded-full border border-white/40 bg-white/70 px-3 py-1.5 text-sm font-medium text-foreground shadow-sm transition hover:bg-white"
+          className={`flex items-center justify-center text-white transition-all duration-200 hover:bg-white/10 hover:scale-110 ${
+            isSignedIn 
+              ? "h-10 w-10 rounded-full" 
+              : "h-12 w-12 rounded-xl"
+          }`}
           disabled={status === "loading"}
         >
-          <div className="relative flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-primary to-accent text-white">
-            {isSignedIn ? (
-              <span className="text-sm font-semibold">{getInitials(fullName)}</span>
-            ) : (
-              <UserCircle2 className="h-5 w-5" />
-            )}
-          </div>
-          <div className="flex flex-col items-start leading-tight">
-            <span className="text-xs uppercase tracking-wide text-muted-foreground/80">
-              {isSignedIn ? "Connecté" : status === "loading" ? "Chargement" : "Invité"}
-            </span>
-            <span className="text-sm font-semibold text-foreground">
-              {isSignedIn ? fullName : "Accéder"}
-            </span>
-          </div>
+          {isSignedIn ? (
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-purple-500 via-pink-500 to-orange-500 text-sm font-bold text-white">
+              {getInitials(fullName)}
+            </div>
+          ) : (
+            <UserCircle2 className="h-8 w-8" />
+          )}
         </Button>
       </DropdownMenu.Trigger>
       <DropdownMenu.Content className="z-50 mt-2 w-64 rounded-2xl border border-white/60 bg-white/90 p-3 text-sm shadow-xl backdrop-blur">
@@ -97,8 +93,8 @@ export function UserProfileMenu() {
           {isSignedIn ? (
             <Button
               onClick={() => signOut()}
-              variant="ghost"
-              className="flex w-full items-center justify-center gap-2 rounded-full bg-white/10 text-white hover:bg-white/20"
+              variant="glassDark"
+              className="flex w-full items-center justify-center gap-2 rounded-full"
               disabled={isProcessing}
             >
               {isProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogOut className="h-4 w-4" />}
