@@ -485,6 +485,37 @@ function NewChallengeCard({
           </Button>
         </div>
       </div>
+      <div className="mt-3 space-y-4 text-sm text-slate-200">
+        {draft.foundationInsights?.length ? (
+          <div className="space-y-3">
+            <SectionTitle>Foundation Insights</SectionTitle>
+            <div className="space-y-2">
+              {draft.foundationInsights.map((insight, index) => (
+                <div
+                  key={`${insight.insightId}-${index}`}
+                  className="rounded-md border border-blue-400/30 bg-blue-500/10 px-3 py-2"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex-1">
+                      <h5 className="text-sm font-medium text-blue-100">{insight.title}</h5>
+                      <p className="text-xs text-blue-200/80 mt-1">{insight.reason}</p>
+                    </div>
+                    <span className={`inline-flex items-center rounded-full px-2 py-1 text-[10px] font-medium ${
+                      insight.priority === 'critical' ? 'bg-red-500/20 text-red-200 border border-red-400/30' :
+                      insight.priority === 'high' ? 'bg-orange-500/20 text-orange-200 border border-orange-400/30' :
+                      insight.priority === 'medium' ? 'bg-yellow-500/20 text-yellow-200 border border-yellow-400/30' :
+                      'bg-green-500/20 text-green-200 border border-green-400/30'
+                    }`}>
+                      {insight.priority}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+      </div>
+
       <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-slate-300">
         {draft.status ? (
           <span className="rounded-full border border-slate-700 px-2 py-0.5">Status: {draft.status}</span>

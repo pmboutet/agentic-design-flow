@@ -506,6 +506,7 @@ export interface AiNewChallengeSuggestion {
   impact?: ProjectChallengeNode["impact"] | null;
   owners?: ProjectParticipantSummary[];
   summary?: string | null;
+  foundationInsights?: AiFoundationInsight[];
 }
 
 export interface AiChallengeUpdateSuggestion {

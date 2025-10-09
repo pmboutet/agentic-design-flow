@@ -16,7 +16,7 @@ import {
 } from "@/types";
 
 const DEFAULT_CHALLENGE_AGENT_SLUG = process.env.CHALLENGE_BUILDER_AGENT_SLUG ?? "challenge-builder";
-const DEFAULT_CREATION_AGENT_SLUG = process.env.NEW_CHALLENGE_BUILDER_AGENT_SLUG ?? "project-new-challenge-generator";
+const DEFAULT_CREATION_AGENT_SLUG = process.env.NEW_CHALLENGE_BUILDER_AGENT_SLUG ?? "challenge-builder";
 
 const CHALLENGE_INTERACTION_TYPE = "project_challenge_revision";
 const CREATION_INTERACTION_TYPE = "project_new_challenge_generation";
@@ -67,6 +67,7 @@ const subChallengeCreateSchema = z.object({
   impact: z.string().trim().min(1).optional(),
   owners: z.array(ownerSuggestionSchema).optional(),
   summary: z.string().trim().optional(),
+  foundationInsights: z.array(foundationInsightSchema).optional(),
 });
 
 const foundationInsightSchema = z.object({
@@ -186,6 +187,42 @@ function normaliseStatus(value?: string | null): string | null {
   return CHALLENGE_STATUS_VALUES.has(normalized) ? normalized : null;
 }
 
+function sanitizeJsonString(jsonString: string): string {
+  // Remove any potential BOM or invisible characters
+  let cleaned = jsonString.replace(/^\uFEFF/, '').trim();
+  
+  // Fix common JSON issues
+  cleaned = cleaned
+    // Fix property names that are not properly quoted
+    .replace(/([{,]\s*)([a-zA-Z_$][a-zA-Z0-9_$]*)\s*:/g, '$1"$2":')
+    // Fix property names with special characters or spaces
+    .replace(/([{,]\s*)([^"{\[\s][^:]*?)\s*:/g, '$1"$2":')
+    // Fix unescaped quotes in string values
+    .replace(/([^\\])"([^"]*)"([^,}\]]*)"([^,}\]]*)"([^,}\]]*)/g, '$1"$2\\"$3\\"$4\\"$5')
+    // Remove trailing commas before closing brackets/braces
+    .replace(/,(\s*[}\]])/g, '$1')
+    // Fix missing commas between array elements
+    .replace(/}(\s*){/g, '},$1{')
+    .replace(/](\s*)\[/g, '],$1[')
+    .replace(/"(\s*){/g, '",$1{')
+    .replace(/"(\s*)\[/g, '",$1[')
+    // Fix single quotes to double quotes
+    .replace(/'/g, '"')
+    // Fix common French character issues in JSON
+    .replace(/é/g, '\\u00e9')
+    .replace(/è/g, '\\u00e8')
+    .replace(/à/g, '\\u00e0')
+    .replace(/ç/g, '\\u00e7')
+    .replace(/ù/g, '\\u00f9')
+    .replace(/â/g, '\\u00e2')
+    .replace(/ê/g, '\\u00ea')
+    .replace(/î/g, '\\u00ee')
+    .replace(/ô/g, '\\u00f4')
+    .replace(/û/g, '\\u00fb');
+  
+  return cleaned;
+}
+
 function extractJsonCandidate(raw: string): string {
   const trimmed = raw.trim();
   if (!trimmed) {
@@ -207,11 +244,41 @@ function extractJsonCandidate(raw: string): string {
     }
   }
 
+  // Find JSON boundaries more carefully - look for complete JSON object
   const firstBrace = trimmed.indexOf("{");
-  const lastBrace = trimmed.lastIndexOf("}");
+  if (firstBrace === -1) {
+    return trimmed;
+  }
 
-  if (firstBrace >= 0 && lastBrace >= firstBrace) {
-    return trimmed.slice(firstBrace, lastBrace + 1);
+  // Count braces to find the complete JSON object
+  let braceCount = 0;
+  let lastBrace = -1;
+  
+  for (let i = firstBrace; i < trimmed.length; i++) {
+    if (trimmed[i] === '{') {
+      braceCount++;
+    } else if (trimmed[i] === '}') {
+      braceCount--;
+      if (braceCount === 0) {
+        lastBrace = i;
+        break;
+      }
+    }
+  }
+
+  if (lastBrace > firstBrace) {
+    const candidate = trimmed.slice(firstBrace, lastBrace + 1);
+    
+    // Basic validation: check if it looks like valid JSON
+    if (candidate.includes('"') && candidate.includes('{')) {
+      return candidate;
+    }
+  }
+
+  // Fallback: try to find any JSON-like structure
+  const fallbackMatch = trimmed.match(/\{[\s\S]*\}/);
+  if (fallbackMatch) {
+    return fallbackMatch[0];
   }
 
   return trimmed;
@@ -256,7 +323,35 @@ function parseChallengeSuggestion(
 
 function parseNewChallengeSuggestions(content: string) {
   const candidate = extractJsonCandidate(content);
-  const parsed = JSON.parse(candidate);
+  
+  // Try multiple sanitization strategies
+  const sanitizationAttempts = [
+    sanitizeJsonString(candidate),
+    candidate.replace(/[\u0000-\u001F\u007F-\u009F]/g, ''), // Remove control characters
+    candidate.replace(/\n/g, ' ').replace(/\s+/g, ' '), // Normalize whitespace
+    candidate.replace(/[^\x20-\x7E\u00A0-\uFFFF]/g, ''), // Keep only printable chars and unicode
+  ];
+  
+  // Add robust JSON parsing with error handling
+  let parsed;
+  let lastError: Error | null = null;
+  
+  for (let i = 0; i < sanitizationAttempts.length; i++) {
+    try {
+      parsed = JSON.parse(sanitizationAttempts[i]);
+      break; // Success!
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error('Unknown parsing error');
+      if (i === sanitizationAttempts.length - 1) {
+        // Last attempt failed
+        console.error('JSON parsing error after all attempts:', lastError);
+        console.error('Raw content:', content);
+        console.error('Extracted candidate:', candidate);
+        console.error('Sanitization attempts:', sanitizationAttempts);
+        throw new Error(`Invalid JSON response from agent: ${lastError.message}`);
+      }
+    }
+  }
 
   // Handle the new response format with summary and newChallenges
   if (parsed && typeof parsed === "object" && "newChallenges" in parsed) {
@@ -513,6 +608,12 @@ function mapNewChallengeSuggestion(item: z.infer<typeof subChallengeCreateSchema
     impact: normaliseImpact(item.impact),
     owners: normaliseOwnerSuggestions(item.owners),
     summary: item.summary ?? null,
+    foundationInsights: item.foundationInsights?.map(insight => ({
+      insightId: insight.insightId,
+      title: insight.title,
+      reason: insight.reason,
+      priority: insight.priority,
+    })) ?? undefined,
   } satisfies AiNewChallengeSuggestion;
 }
 
