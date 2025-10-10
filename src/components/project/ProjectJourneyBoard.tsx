@@ -41,6 +41,7 @@ import {
   type ProjectChallengeNode,
   type ProjectJourneyBoardData,
   type ProjectParticipantInsight,
+  type ProjectParticipantOption,
   type ProjectParticipantSummary,
 } from "@/types";
 import { AiChallengeBuilderPanel } from "@/components/project/AiChallengeBuilderPanel";
@@ -102,6 +103,54 @@ const askAudienceScopes: AskAudienceScope[] = ["individual", "group"];
 const askResponseModes: AskGroupResponseMode[] = ["collective", "simultaneous"];
 
 const USE_MOCK_JOURNEY = process.env.NEXT_PUBLIC_USE_MOCK_PROJECT_JOURNEY === "true";
+
+function sanitizeAvailableUsers(input: unknown): ProjectParticipantOption[] {
+  if (!Array.isArray(input)) {
+    return [];
+  }
+
+  const uniqueUsers = new Map<string, ProjectParticipantOption>();
+
+  input.forEach(entry => {
+    if (!entry || typeof entry !== "object") {
+      return;
+    }
+
+    const candidate = entry as Partial<ProjectParticipantOption> & Record<string, unknown>;
+    const rawId = typeof candidate.id === "string" ? candidate.id.trim() : "";
+    const rawName = typeof candidate.name === "string" ? candidate.name.trim() : "";
+
+    if (!rawId || !rawName) {
+      return;
+    }
+
+    const role = typeof candidate.role === "string" ? candidate.role : "";
+
+    const providedInitials =
+      typeof candidate.avatarInitials === "string" ? candidate.avatarInitials.trim().slice(0, 2) : "";
+    const inferredInitials = rawName
+      .split(/\s+/)
+      .filter(Boolean)
+      .map(part => part[0]?.toUpperCase() ?? "")
+      .join("")
+      .slice(0, 2);
+    const avatarInitials = providedInitials || inferredInitials || rawName.slice(0, 2).toUpperCase();
+
+    const avatarColor = typeof candidate.avatarColor === "string" ? candidate.avatarColor : undefined;
+
+    if (!uniqueUsers.has(rawId)) {
+      uniqueUsers.set(rawId, {
+        id: rawId,
+        name: rawName,
+        role,
+        avatarInitials,
+        avatarColor,
+      });
+    }
+  });
+
+  return Array.from(uniqueUsers.values());
+}
 
 function flattenChallenges(nodes: ProjectChallengeNode[]): ProjectChallengeNode[] {
   return nodes.flatMap(node => [node, ...(node.children ? flattenChallenges(node.children) : [])]);
@@ -559,6 +608,11 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
 
   const allChallenges = useMemo(() => (boardData ? flattenChallenges(boardData.challenges) : []), [boardData]);
 
+  const availableUsers = useMemo<ProjectParticipantOption[]>(
+    () => sanitizeAvailableUsers(boardData?.availableUsers),
+    [boardData],
+  );
+
   const challengeById = useMemo(() => {
     const map = new Map<string, ProjectChallengeNode>();
     allChallenges.forEach(challenge => {
@@ -569,17 +623,18 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
 
   const resolveOwnerId = useCallback(
     (owners?: ProjectParticipantSummary[] | null) => {
-      if (!boardData || !owners?.length) {
+      if (!owners?.length || !availableUsers.length) {
         return "";
       }
 
       for (const owner of owners) {
-        if (owner.id && boardData.availableUsers.some(user => user.id === owner.id)) {
+        if (owner.id && availableUsers.some(user => user.id === owner.id)) {
           return owner.id;
         }
 
-        if (owner.name) {
-          const match = boardData.availableUsers.find(user => user.name.toLowerCase() === owner.name.toLowerCase());
+        const normalizedName = owner.name?.trim().toLowerCase();
+        if (normalizedName) {
+          const match = availableUsers.find(user => user.name.toLowerCase() === normalizedName);
           if (match) {
             return match.id;
           }
@@ -588,7 +643,7 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
 
       return "";
     },
-    [boardData],
+    [availableUsers],
   );
 
   const handleLaunchAiChallengeBuilder = useCallback(async () => {
@@ -1436,7 +1491,7 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
 
     const trimmedDescription = challengeFormValues.description.trim();
     const normalizedStatus = challengeFormValues.status;
-    const owners = boardData.availableUsers
+    const owners = availableUsers
       .filter(user => challengeFormValues.ownerIds.includes(user.id))
       .map(user => ({ id: user.id, name: user.name, role: user.role }));
     const fallbackId = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
@@ -1689,13 +1744,13 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
       const matchedParticipants: string[] = [];
       let spokespersonId = "";
 
-      if (suggestion.recommendedParticipants?.length) {
+      if (suggestion.recommendedParticipants?.length && availableUsers.length) {
         suggestion.recommendedParticipants.forEach(participant => {
           const normalizedName = participant.name?.trim().toLowerCase();
           const matched = participant.id
-            ? boardData.availableUsers.find(user => user.id === participant.id)
+            ? availableUsers.find(user => user.id === participant.id)
             : normalizedName
-              ? boardData.availableUsers.find(user => user.name.toLowerCase() === normalizedName)
+              ? availableUsers.find(user => user.name.toLowerCase() === normalizedName)
               : undefined;
 
           if (matched && !matchedParticipants.includes(matched.id)) {
@@ -1791,7 +1846,7 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
         message: "La suggestion IA a été appliquée au formulaire ASK. Vérifiez et complétez avant de sauvegarder.",
       });
     },
-    [activeChallengeId, allChallenges, boardData],
+    [activeChallengeId, allChallenges, availableUsers, boardData],
   );
 
   const handleAskNameChange = (event: ChangeEvent<HTMLInputElement>) => {
@@ -2854,11 +2909,11 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
                     />
                   </div>
                 </div>
-                {boardData.availableUsers?.length ? (
+                {availableUsers.length ? (
                   <div className="flex flex-col gap-2">
                     <Label>Owners</Label>
                     <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                      {boardData.availableUsers.map(user => {
+                      {availableUsers.map(user => {
                         const isSelected = challengeFormValues.ownerIds.includes(user.id);
                         return (
                           <label
@@ -3186,9 +3241,9 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
 
                   <div className="flex flex-col gap-2">
                     <Label>Participants</Label>
-                    {boardData.availableUsers?.length ? (
+                    {availableUsers.length ? (
                       <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                        {boardData.availableUsers.map(user => {
+                        {availableUsers.map(user => {
                           const isSelected = askFormValues.participantIds.includes(user.id);
                           return (
                             <label
@@ -3232,7 +3287,7 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
                       >
                         <option value="">No spokesperson</option>
                         {askFormValues.participantIds
-                          .map(participantId => boardData.availableUsers.find(user => user.id === participantId))
+                          .map(participantId => availableUsers.find(user => user.id === participantId))
                           .filter((user): user is NonNullable<typeof user> => Boolean(user))
                           .map(user => (
                             <option key={user.id} value={user.id}>
