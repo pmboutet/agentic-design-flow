@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
+import { jsonrepair } from "jsonrepair";
 import { z } from "zod";
 import { getAdminSupabaseClient } from "@/lib/supabaseAdmin";
 import { parseErrorMessage } from "@/lib/utils";
 import { fetchProjectJourneyContext } from "@/lib/projectJourneyLoader";
 import { executeAgent } from "@/lib/ai/service";
-import { createChallengeFoundationInsights } from "@/lib/foundationInsights";
+import { CHALLENGE_INSIGHTS_DETECTOR_SYSTEM_PROMPT, CHALLENGE_INSIGHTS_DETECTOR_USER_PROMPT } from "@/lib/ai/prompts/challengeDetector";
 import {
   type AiChallengeBuilderResponse,
   type AiChallengeUpdateSuggestion,
@@ -49,6 +50,13 @@ const challengeUpdateBlockSchema = z
   })
   .partial();
 
+const foundationInsightSchema = z.object({
+  insightId: z.string().trim().min(1),
+  title: z.string().trim().min(1),
+  reason: z.string().trim().min(1),
+  priority: z.enum(["low", "medium", "high", "critical"]),
+});
+
 const subChallengeUpdateSchema = z.object({
   id: z.string().trim().min(1),
   title: z.string().trim().min(1).optional(),
@@ -68,13 +76,6 @@ const subChallengeCreateSchema = z.object({
   owners: z.array(ownerSuggestionSchema).optional(),
   summary: z.string().trim().optional(),
   foundationInsights: z.array(foundationInsightSchema).optional(),
-});
-
-const foundationInsightSchema = z.object({
-  insightId: z.string().trim().min(1),
-  title: z.string().trim().min(1),
-  reason: z.string().trim().min(1),
-  priority: z.enum(["low", "medium", "high", "critical"]),
 });
 
 const challengeSuggestionSchema = z.object({
@@ -145,6 +146,24 @@ interface ChallengeContextPayload {
     status: string;
     dueDate: string | null;
   }>;
+  availableOwners: Array<{ id: string; name: string; role: string }>;
+}
+
+interface ChallengeDetectorProjectContext {
+  project: ChallengeContextPayload["project"];
+  challenge: ChallengeContextPayload["challenge"] | null;
+  subChallenges: ChallengeContextPayload["subChallenges"];
+  insights: ChallengeContextPayload["insights"];
+  relatedAsks: ChallengeContextPayload["relatedAsks"];
+  availableOwners: ChallengeContextPayload["availableOwners"];
+  existingChallenges: Array<{
+    id: string;
+    title: string;
+    description: string;
+    status: string;
+    impact: ProjectChallengeNode["impact"];
+    parentId: string | null;
+  }>;
 }
 
 function flattenChallengeTree(nodes: ProjectChallengeNode[]): ProjectChallengeNode[] {
@@ -188,39 +207,66 @@ function normaliseStatus(value?: string | null): string | null {
 }
 
 function sanitizeJsonString(jsonString: string): string {
-  // Remove any potential BOM or invisible characters
-  let cleaned = jsonString.replace(/^\uFEFF/, '').trim();
-  
-  // Fix common JSON issues
+  let cleaned = jsonString.replace(/^\uFEFF/, "").trim();
+
   cleaned = cleaned
-    // Fix property names that are not properly quoted
-    .replace(/([{,]\s*)([a-zA-Z_$][a-zA-Z0-9_$]*)\s*:/g, '$1"$2":')
-    // Fix property names with special characters or spaces
-    .replace(/([{,]\s*)([^"{\[\s][^:]*?)\s*:/g, '$1"$2":')
-    // Fix unescaped quotes in string values
-    .replace(/([^\\])"([^"]*)"([^,}\]]*)"([^,}\]]*)"([^,}\]]*)/g, '$1"$2\\"$3\\"$4\\"$5')
-    // Remove trailing commas before closing brackets/braces
+    .replace(/[“”]/g, '"')
+    .replace(/[‘’]/g, "'")
+    // Quote property names that aren't already quoted
+    .replace(/([{,]\s*)'([^']*?)'\s*:/g, '$1"$2":')
+    .replace(/([{,]\s*)([A-Za-z_$][A-Za-z0-9_$]*)\s*:/g, '$1"$2":')
+    .replace(/([{,]\s*)([^"'\[{\s][^:]*?)\s*:/g, '$1"$2":')
+    // Normalise single-quoted string values to double quotes
+    .replace(/:\s*'([^']*?)'(\s*[},])/g, (_, value: string, suffix: string) => `: "${value.replace(/"/g, '\\"')}"${suffix}`)
+    // Remove trailing commas before closing braces or brackets
     .replace(/,(\s*[}\]])/g, '$1')
-    // Fix missing commas between array elements
-    .replace(/}(\s*){/g, '},$1{')
-    .replace(/](\s*)\[/g, '],$1[')
-    .replace(/"(\s*){/g, '",$1{')
-    .replace(/"(\s*)\[/g, '",$1[')
-    // Fix single quotes to double quotes
-    .replace(/'/g, '"')
-    // Fix common French character issues in JSON
-    .replace(/é/g, '\\u00e9')
-    .replace(/è/g, '\\u00e8')
-    .replace(/à/g, '\\u00e0')
-    .replace(/ç/g, '\\u00e7')
-    .replace(/ù/g, '\\u00f9')
-    .replace(/â/g, '\\u00e2')
-    .replace(/ê/g, '\\u00ea')
-    .replace(/î/g, '\\u00ee')
-    .replace(/ô/g, '\\u00f4')
-    .replace(/û/g, '\\u00fb');
-  
+    // Add missing commas between object/array literals
+    .replace(/([}\]])(\s*)([{\[])/g, '$1,$2$3');
+
   return cleaned;
+}
+
+function buildJsonParseAttempts(raw: string): string[] {
+  const attempts: string[] = [];
+  const seen = new Set<string>();
+
+  const pushAttempt = (value?: string | null) => {
+    if (!value) {
+      return;
+    }
+    const normalised = value.replace(/^\uFEFF/, "").trim();
+    if (!normalised || seen.has(normalised)) {
+      return;
+    }
+    seen.add(normalised);
+    attempts.push(normalised);
+  };
+
+  pushAttempt(raw);
+
+  pushAttempt(raw.replace(/[\u0000-\u001F\u007F-\u009F]/g, ""));
+  pushAttempt(raw.replace(/\n/g, " ").replace(/\s+/g, " "));
+  pushAttempt(raw.replace(/[^\x20-\x7E\u00A0-\uFFFF]/g, ""));
+
+  const sanitised = sanitizeJsonString(raw);
+  pushAttempt(sanitised);
+
+  try {
+    pushAttempt(jsonrepair(raw));
+  } catch (error) {
+    console.debug("jsonrepair failed on raw payload", { error });
+  }
+
+  try {
+    pushAttempt(jsonrepair(sanitised));
+  } catch (error) {
+    console.debug("jsonrepair failed on sanitised payload", { error });
+  }
+
+  const sanitisedAgain = sanitizeJsonString(sanitised);
+  pushAttempt(sanitisedAgain);
+
+  return attempts;
 }
 
 function extractJsonCandidate(raw: string): string {
@@ -289,7 +335,24 @@ function parseChallengeSuggestion(
   challenge: ProjectChallengeNode,
 ): z.infer<typeof challengeSuggestionSchema> {
   const candidate = extractJsonCandidate(content);
-  const parsed = JSON.parse(candidate);
+  const attempts = buildJsonParseAttempts(candidate);
+
+  let parsed: unknown | undefined;
+  let lastError: unknown = null;
+
+  for (const attempt of attempts) {
+    try {
+      parsed = JSON.parse(attempt);
+      break;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  if (parsed === undefined) {
+    const message = lastError instanceof Error ? lastError.message : "Unknown error";
+    throw new Error(`Invalid JSON response from agent: ${message}`);
+  }
 
   if (Array.isArray(parsed)) {
     for (const item of parsed) {
@@ -323,45 +386,34 @@ function parseChallengeSuggestion(
 
 function parseNewChallengeSuggestions(content: string) {
   const candidate = extractJsonCandidate(content);
-  
-  // Try multiple sanitization strategies
-  const sanitizationAttempts = [
-    sanitizeJsonString(candidate),
-    candidate.replace(/[\u0000-\u001F\u007F-\u009F]/g, ''), // Remove control characters
-    candidate.replace(/\n/g, ' ').replace(/\s+/g, ' '), // Normalize whitespace
-    candidate.replace(/[^\x20-\x7E\u00A0-\uFFFF]/g, ''), // Keep only printable chars and unicode
-  ];
-  
-  // Add robust JSON parsing with error handling
-  let parsed;
-  let lastError: Error | null = null;
-  
-  for (let i = 0; i < sanitizationAttempts.length; i++) {
+  const attempts = buildJsonParseAttempts(candidate);
+
+  let parsed: unknown | undefined;
+  let lastError: unknown = null;
+
+  for (const attempt of attempts) {
     try {
-      parsed = JSON.parse(sanitizationAttempts[i]);
-      break; // Success!
+      parsed = JSON.parse(attempt);
+      break;
     } catch (error) {
-      lastError = error instanceof Error ? error : new Error('Unknown parsing error');
-      if (i === sanitizationAttempts.length - 1) {
-        // Last attempt failed
-        console.error('JSON parsing error after all attempts:', lastError);
-        console.error('Raw content:', content);
-        console.error('Extracted candidate:', candidate);
-        console.error('Sanitization attempts:', sanitizationAttempts);
-        throw new Error(`Invalid JSON response from agent: ${lastError.message}`);
-      }
+      lastError = error;
     }
+  }
+
+  if (parsed === undefined) {
+    const message = lastError instanceof Error ? lastError.message : "Unknown error";
+    console.error("JSON parsing error after all attempts", {
+      error: lastError,
+      rawContent: content,
+      candidate,
+      attempts,
+    });
+    throw new Error(`Invalid JSON response from agent: ${message}`);
   }
 
   // Handle the new response format with summary and newChallenges
   if (parsed && typeof parsed === "object" && "newChallenges" in parsed) {
-    const newChallenges = parsed.newChallenges;
-    if (Array.isArray(newChallenges)) {
-      return newChallenges.map(challenge => newChallengePayloadSchema.parse({
-        newChallenges: [challenge]
-      }));
-    }
-    return [];
+    return [newChallengePayloadSchema.parse(parsed)];
   }
 
   // Handle legacy array format
@@ -434,7 +486,43 @@ function buildChallengeContext(
     })),
     insights,
     relatedAsks,
+    availableOwners: buildAvailableOwnerOptions(boardData),
   } satisfies ChallengeContextPayload;
+}
+
+function buildAvailableOwnerOptions(boardData: ProjectJourneyBoardData) {
+  return boardData.availableUsers.map(user => ({ id: user.id, name: user.name, role: user.role }));
+}
+
+function buildProjectChallengeContext(
+  boardData: ProjectJourneyBoardData,
+  parentMap: Map<string, string | null>,
+  challengeList: ProjectChallengeNode[],
+  insightLookup: Map<string, InsightSummary>,
+  asksById: Map<string, { id: string; title: string; summary: string; status: string; dueDate: string | null }>,
+): ChallengeDetectorProjectContext {
+  return {
+    project: {
+      id: boardData.projectId,
+      name: boardData.projectName,
+      goal: boardData.projectGoal,
+      status: boardData.projectStatus,
+      timeframe: boardData.timeframe,
+    },
+    challenge: null,
+    subChallenges: [],
+    insights: Array.from(insightLookup.values()),
+    relatedAsks: Array.from(asksById.values()),
+    availableOwners: buildAvailableOwnerOptions(boardData),
+    existingChallenges: challengeList.map(item => ({
+      id: item.id,
+      title: item.title,
+      description: item.description,
+      status: item.status,
+      impact: item.impact,
+      parentId: parentMap.get(item.id) ?? null,
+    })),
+  } satisfies ChallengeDetectorProjectContext;
 }
 
 function aggregateInsightLookup(
@@ -652,6 +740,7 @@ export async function POST(
 
     const challengeSuggestions: AiChallengeUpdateSuggestion[] = [];
     const errors: Array<{ challengeId: string | null; message: string }> = [];
+    const availableOwnerOptionsJson = JSON.stringify(buildAvailableOwnerOptions(boardData));
 
     for (const challenge of challengeList) {
       const challengeContext = buildChallengeContext(boardData, challenge, parentMap, insightLookup, asksById);
@@ -671,9 +760,14 @@ export async function POST(
             challenge_status: challenge.status,
             challenge_impact: challenge.impact,
             challenge_context_json: contextJson,
+            available_owner_options_json: availableOwnerOptionsJson,
           },
           maxOutputTokens: options.maxOutputTokens,
           temperature: options.temperature,
+          overridePrompts: {
+            system: { template: CHALLENGE_INSIGHTS_DETECTOR_SYSTEM_PROMPT, render: false },
+            user: CHALLENGE_INSIGHTS_DETECTOR_USER_PROMPT,
+          },
         });
 
         const parsedSuggestion = parseChallengeSuggestion(result.content, challenge);
@@ -696,23 +790,7 @@ export async function POST(
 
     try {
       const projectContext = {
-        project: {
-          id: boardData.projectId,
-          name: boardData.projectName,
-          goal: boardData.projectGoal,
-          status: boardData.projectStatus,
-          timeframe: boardData.timeframe,
-        },
-        challenges: challengeList.map(challenge => ({
-          id: challenge.id,
-          title: challenge.title,
-          description: challenge.description,
-          status: challenge.status,
-          impact: challenge.impact,
-          parentId: parentMap.get(challenge.id) ?? null,
-        })),
-        insights: Array.from(insightLookup.values()),
-        asks: Array.from(asksById.values()),
+        ...buildProjectChallengeContext(boardData, parentMap, challengeList, insightLookup, asksById),
       } satisfies Record<string, unknown>;
 
       const result = await executeAgent({
@@ -723,10 +801,19 @@ export async function POST(
           project_name: boardData.projectName,
           project_goal: boardData.projectGoal ?? "",
           project_status: boardData.projectStatus ?? "",
-          project_context_json: JSON.stringify(projectContext),
+          challenge_id: "",
+          challenge_title: "",
+          challenge_status: "",
+          challenge_impact: "",
+          challenge_context_json: JSON.stringify(projectContext),
+          available_owner_options_json: availableOwnerOptionsJson,
         },
         maxOutputTokens: options.maxOutputTokens,
         temperature: options.temperature,
+        overridePrompts: {
+          system: { template: CHALLENGE_INSIGHTS_DETECTOR_SYSTEM_PROMPT, render: false },
+          user: CHALLENGE_INSIGHTS_DETECTOR_USER_PROMPT,
+        },
       });
 
       const parsedPayloads = parseNewChallengeSuggestions(result.content);

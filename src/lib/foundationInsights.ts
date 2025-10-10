@@ -19,6 +19,61 @@ export interface ChallengeFoundationInsight {
   };
 }
 
+interface ChallengeFoundationInsightRow {
+  id: string;
+  challenge_id: string;
+  insight_id: string;
+  priority: "low" | "medium" | "high" | "critical";
+  reason: string | null;
+  created_at: string;
+  updated_at: string;
+  insight?:
+    | {
+        id: string;
+        content: string;
+        summary: string | null;
+        insight_type: string;
+        category: string | null;
+        status: string;
+      }
+    | Array<{
+        id: string;
+        content: string;
+        summary: string | null;
+        insight_type: string;
+        category: string | null;
+        status: string;
+      }>
+    | null;
+}
+
+function mapChallengeFoundationInsight(row: ChallengeFoundationInsightRow): ChallengeFoundationInsight {
+  const base: ChallengeFoundationInsight = {
+    id: row.id,
+    challengeId: row.challenge_id,
+    insightId: row.insight_id,
+    priority: row.priority,
+    reason: row.reason ?? null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+
+  const relatedInsight = Array.isArray(row.insight) ? row.insight[0] : row.insight;
+
+  if (relatedInsight) {
+    base.insight = {
+      id: relatedInsight.id,
+      content: relatedInsight.content,
+      summary: relatedInsight.summary ?? null,
+      type: relatedInsight.insight_type,
+      category: relatedInsight.category ?? null,
+      status: relatedInsight.status,
+    };
+  }
+
+  return base;
+}
+
 /**
  * Create foundation insights links for a challenge
  */
@@ -64,7 +119,7 @@ export async function createChallengeFoundationInsights(
     throw new Error(`Failed to create foundation insights: ${error.message}`);
   }
 
-  return data || [];
+  return (data ?? []).map(mapChallengeFoundationInsight);
 }
 
 /**
@@ -102,7 +157,7 @@ export async function getChallengeFoundationInsights(
     throw new Error(`Failed to fetch foundation insights: ${error.message}`);
   }
 
-  return data || [];
+  return (data ?? []).map(mapChallengeFoundationInsight);
 }
 
 /**
