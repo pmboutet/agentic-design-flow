@@ -103,6 +103,7 @@ const userRoles = ["full_admin", "project_admin", "facilitator", "manager", "par
 
 const userFormSchema = z.object({
   email: z.string().trim().email("Invalid email").max(255),
+  fullName: z.string().trim().max(200).optional().or(z.literal("")),
   firstName: z.string().trim().max(100).optional().or(z.literal("")),
   lastName: z.string().trim().max(100).optional().or(z.literal("")),
   role: z.enum(userRoles).default("user"),
@@ -160,6 +161,7 @@ const defaultAskFormValues: AskFormInput = {
 
 const defaultUserFormValues: UserFormInput = {
   email: "",
+  fullName: "",
   firstName: "",
   lastName: "",
   role: "user",
@@ -485,6 +487,7 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
     updateChallenge,
     createAsk,
     updateAsk,
+    deleteUser,
     deleteClient,
     deleteProject,
     deleteChallenge,
@@ -1618,6 +1621,7 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
     setEditingUserId(user.id);
     userForm.reset({
       email: user.email,
+      fullName: user.fullName ?? "",
       firstName: user.firstName ?? "",
       lastName: user.lastName ?? "",
       role: (user.role as UserFormInput["role"]) || "user",
@@ -1669,6 +1673,13 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
       return;
     }
     await deleteAsk(askId);
+  };
+
+  const handleDeleteUser = async (userId: string) => {
+    if (!window.confirm("Delete this user?")) {
+      return;
+    }
+    await deleteUser(userId);
   };
 
   const filteredUsers = useMemo(() => {
@@ -2454,7 +2465,6 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                       )}
                       <Button
                         type="button"
-                        variant="secondary"
                         variant="glassDark"
                         onClick={() => setShowJourneyBoard(false)}
                       >
@@ -2621,7 +2631,6 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                         {isEditingClient && (
                           <Button
                             type="button"
-                            variant="outline"
                             variant="glassDark"
                             onClick={cancelClientEdit}
                             disabled={isBusy}
@@ -2824,7 +2833,6 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                         {isEditingProject && (
                           <Button
                             type="button"
-                            variant="outline"
                             variant="glassDark"
                             onClick={cancelProjectEdit}
                             disabled={isBusy}
@@ -3012,7 +3020,6 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                         {isEditingUser && (
                           <Button
                             type="button"
-                            variant="outline"
                             variant="glassDark"
                             onClick={cancelUserEdit}
                             disabled={isBusy}
@@ -3115,7 +3122,6 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                 </div>
                 <Button
                   type="button"
-                  variant="outline"
                   variant="glassDark"
                 >
                   Export snapshot

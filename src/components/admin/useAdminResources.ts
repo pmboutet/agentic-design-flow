@@ -196,6 +196,13 @@ export function useAdminResources() {
       setUsers(data ?? []);
     }, "User updated");
 
+  const deleteUser = (userId: string) =>
+    handleAction(async () => {
+      await request(`/api/admin/users/${userId}`, { method: "DELETE" });
+      const data = await request<ManagedUser[]>("/api/admin/users");
+      setUsers(data ?? []);
+    }, "User removed");
+
   const createProject = (values: ProjectFormValues) =>
     handleAction(async () => {
       await request("/api/admin/projects", { method: "POST", body: JSON.stringify(values) });
@@ -270,6 +277,7 @@ export function useAdminResources() {
     updateChallenge,
     createAsk,
     updateAsk,
+    deleteUser,
     deleteClient,
     deleteProject,
     deleteChallenge,

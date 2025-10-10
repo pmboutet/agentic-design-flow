@@ -19,6 +19,28 @@ export interface ChallengeFoundationInsight {
   };
 }
 
+function mapChallengeFoundationInsight(record: any): ChallengeFoundationInsight {
+  return {
+    id: record.id,
+    challengeId: record.challenge_id,
+    insightId: record.insight_id,
+    priority: record.priority,
+    reason: record.reason ?? null,
+    createdAt: record.created_at,
+    updatedAt: record.updated_at,
+    insight: record.insight
+      ? {
+          id: record.insight.id,
+          content: record.insight.content,
+          summary: record.insight.summary ?? null,
+          type: record.insight.insight_type,
+          category: record.insight.category ?? null,
+          status: record.insight.status,
+        }
+      : undefined,
+  };
+}
+
 /**
  * Create foundation insights links for a challenge
  */
@@ -64,7 +86,7 @@ export async function createChallengeFoundationInsights(
     throw new Error(`Failed to create foundation insights: ${error.message}`);
   }
 
-  return data || [];
+  return (data ?? []).map(mapChallengeFoundationInsight);
 }
 
 /**
@@ -102,7 +124,7 @@ export async function getChallengeFoundationInsights(
     throw new Error(`Failed to fetch foundation insights: ${error.message}`);
   }
 
-  return data || [];
+  return (data ?? []).map(mapChallengeFoundationInsight);
 }
 
 /**

@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminSupabaseClient } from "@/lib/supabaseAdmin";
-import { listAgentLogs } from "@/lib/ai/logs";
 import type { ApiResponse, AiAgentLog } from "@/types";
+
+export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
   try {
