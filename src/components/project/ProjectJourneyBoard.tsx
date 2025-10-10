@@ -573,13 +573,16 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
         return "";
       }
 
+      const availableUsers = boardData.availableUsers ?? [];
+
       for (const owner of owners) {
-        if (owner.id && boardData.availableUsers.some(user => user.id === owner.id)) {
+        if (owner.id && availableUsers.some(user => user.id === owner.id)) {
           return owner.id;
         }
 
-        if (owner.name) {
-          const match = boardData.availableUsers.find(user => user.name.toLowerCase() === owner.name.toLowerCase());
+        const normalizedName = owner.name?.toLowerCase();
+        if (normalizedName) {
+          const match = availableUsers.find(user => user.name.toLowerCase() === normalizedName);
           if (match) {
             return match.id;
           }
@@ -1313,6 +1316,7 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
     );
   }
 
+  const availableUsers = boardData.availableUsers ?? [];
   const projectStart = formatFullDate(boardData.projectStartDate);
   const projectEnd = formatFullDate(boardData.projectEndDate);
 
@@ -1436,7 +1440,7 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
 
     const trimmedDescription = challengeFormValues.description.trim();
     const normalizedStatus = challengeFormValues.status;
-    const owners = boardData.availableUsers
+    const owners = availableUsers
       .filter(user => challengeFormValues.ownerIds.includes(user.id))
       .map(user => ({ id: user.id, name: user.name, role: user.role }));
     const fallbackId = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
@@ -1689,13 +1693,15 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
       const matchedParticipants: string[] = [];
       let spokespersonId = "";
 
+      const availableUsers = boardData.availableUsers ?? [];
+
       if (suggestion.recommendedParticipants?.length) {
         suggestion.recommendedParticipants.forEach(participant => {
           const normalizedName = participant.name?.trim().toLowerCase();
           const matched = participant.id
-            ? boardData.availableUsers.find(user => user.id === participant.id)
+            ? availableUsers.find(user => user.id === participant.id)
             : normalizedName
-              ? boardData.availableUsers.find(user => user.name.toLowerCase() === normalizedName)
+              ? availableUsers.find(user => user.name.toLowerCase() === normalizedName)
               : undefined;
 
           if (matched && !matchedParticipants.includes(matched.id)) {
@@ -2854,11 +2860,11 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
                     />
                   </div>
                 </div>
-                {boardData.availableUsers?.length ? (
+                {availableUsers.length ? (
                   <div className="flex flex-col gap-2">
                     <Label>Owners</Label>
                     <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                      {boardData.availableUsers.map(user => {
+                      {availableUsers.map(user => {
                         const isSelected = challengeFormValues.ownerIds.includes(user.id);
                         return (
                           <label
@@ -3186,9 +3192,9 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
 
                   <div className="flex flex-col gap-2">
                     <Label>Participants</Label>
-                    {boardData.availableUsers?.length ? (
+                    {availableUsers.length ? (
                       <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                        {boardData.availableUsers.map(user => {
+                        {availableUsers.map(user => {
                           const isSelected = askFormValues.participantIds.includes(user.id);
                           return (
                             <label
@@ -3232,7 +3238,7 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
                       >
                         <option value="">No spokesperson</option>
                         {askFormValues.participantIds
-                          .map(participantId => boardData.availableUsers.find(user => user.id === participantId))
+                          .map(participantId => availableUsers.find(user => user.id === participantId))
                           .filter((user): user is NonNullable<typeof user> => Boolean(user))
                           .map(user => (
                             <option key={user.id} value={user.id}>
