@@ -50,13 +50,6 @@ const challengeUpdateBlockSchema = z
   })
   .partial();
 
-const foundationInsightSchema = z.object({
-  insightId: z.string().trim().min(1),
-  title: z.string().trim().min(1),
-  reason: z.string().trim().min(1),
-  priority: z.enum(["low", "medium", "high", "critical"]),
-});
-
 const subChallengeUpdateSchema = z.object({
   id: z.string().trim().min(1),
   title: z.string().trim().min(1).optional(),

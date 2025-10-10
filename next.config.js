@@ -2,7 +2,7 @@
 const nextConfig = {
   // Enable experimental features for better performance
   experimental: {
-    serverComponentsExternalPackages: [],
+    serverComponentsExternalPackages: ["jsonrepair"],
   },
   // Configure image domains if needed
   images: {
