@@ -482,6 +482,7 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
     updateClient,
     createUser,
     updateUser,
+    deleteUser,
     createProject,
     updateProject,
     updateChallenge,
@@ -1633,6 +1634,13 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
   const cancelUserEdit = () => {
     resetUserForm();
     setShowUserForm(false);
+  };
+
+  const handleDeleteUser = async (userId: string) => {
+    if (!window.confirm("Delete this user?")) {
+      return;
+    }
+    await deleteUser(userId);
   };
 
   const handleDeleteClient = async (clientId: string) => {
@@ -2991,30 +2999,42 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                           )}
                         </div>
                         <div className="flex flex-col gap-2">
-                          <Label htmlFor="user-fullname-admin">Full name</Label>
+                          <Label htmlFor="user-firstname-admin">First name</Label>
                           <Input
-                            id="user-fullname-admin"
-                            placeholder="John Doe"
-                            {...userForm.register("fullName")}
+                            id="user-firstname-admin"
+                            placeholder="John"
+                            {...userForm.register("firstName")}
                             disabled={isBusy}
                           />
-                          {userForm.formState.errors.fullName && (
-                            <p className="text-xs text-red-400">{userForm.formState.errors.fullName.message}</p>
+                          {userForm.formState.errors.firstName && (
+                            <p className="text-xs text-red-400">{userForm.formState.errors.firstName.message}</p>
                           )}
                         </div>
-                      </div>
-                      <div className="flex flex-col gap-2">
-                        <Label htmlFor="user-role-admin">Role</Label>
-                        <select
-                          id="user-role-admin"
-                          className="h-10 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm text-white"
-                          {...userForm.register("role")}
-                          disabled={isBusy}
-                        >
-                          <option value="facilitator">Facilitator</option>
-                          <option value="participant">Participant</option>
-                          <option value="admin">Admin</option>
-                        </select>
+                        <div className="flex flex-col gap-2">
+                          <Label htmlFor="user-lastname-admin">Last name</Label>
+                          <Input
+                            id="user-lastname-admin"
+                            placeholder="Doe"
+                            {...userForm.register("lastName")}
+                            disabled={isBusy}
+                          />
+                          {userForm.formState.errors.lastName && (
+                            <p className="text-xs text-red-400">{userForm.formState.errors.lastName.message}</p>
+                          )}
+                        </div>
+                        <div className="flex flex-col gap-2">
+                          <Label htmlFor="user-role-admin">Role</Label>
+                          <select
+                            id="user-role-admin"
+                            className="h-10 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm text-white"
+                            {...userForm.register("role")}
+                            disabled={isBusy}
+                          >
+                            <option value="facilitator">Facilitator</option>
+                            <option value="participant">Participant</option>
+                            <option value="admin">Admin</option>
+                          </select>
+                        </div>
                       </div>
                       <div className="flex justify-end gap-2">
                         {isEditingUser && (
