@@ -278,6 +278,7 @@ export function useAdminResources() {
     updateChallenge,
     createAsk,
     updateAsk,
+    deleteUser,
     deleteClient,
     deleteProject,
     deleteChallenge,

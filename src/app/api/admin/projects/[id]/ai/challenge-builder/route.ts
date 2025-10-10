@@ -66,6 +66,13 @@ const subChallengeUpdateSchema = z.object({
   summary: z.string().trim().optional(),
 });
 
+const foundationInsightSchema = z.object({
+  insightId: z.string().trim().min(1),
+  title: z.string().trim().min(1),
+  reason: z.string().trim().min(1),
+  priority: z.enum(["low", "medium", "high", "critical"]),
+});
+
 const subChallengeCreateSchema = z.object({
   referenceId: z.string().trim().min(1).optional(),
   parentId: z.string().trim().min(1).optional().nullable(),

@@ -19,59 +19,26 @@ export interface ChallengeFoundationInsight {
   };
 }
 
-interface ChallengeFoundationInsightRow {
-  id: string;
-  challenge_id: string;
-  insight_id: string;
-  priority: "low" | "medium" | "high" | "critical";
-  reason: string | null;
-  created_at: string;
-  updated_at: string;
-  insight?:
-    | {
-        id: string;
-        content: string;
-        summary: string | null;
-        insight_type: string;
-        category: string | null;
-        status: string;
-      }
-    | Array<{
-        id: string;
-        content: string;
-        summary: string | null;
-        insight_type: string;
-        category: string | null;
-        status: string;
-      }>
-    | null;
-}
-
-function mapChallengeFoundationInsight(row: ChallengeFoundationInsightRow): ChallengeFoundationInsight {
-  const base: ChallengeFoundationInsight = {
-    id: row.id,
-    challengeId: row.challenge_id,
-    insightId: row.insight_id,
-    priority: row.priority,
-    reason: row.reason ?? null,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
+function mapChallengeFoundationInsight(record: any): ChallengeFoundationInsight {
+  return {
+    id: record.id,
+    challengeId: record.challenge_id,
+    insightId: record.insight_id,
+    priority: record.priority,
+    reason: record.reason ?? null,
+    createdAt: record.created_at,
+    updatedAt: record.updated_at,
+    insight: record.insight
+      ? {
+          id: record.insight.id,
+          content: record.insight.content,
+          summary: record.insight.summary ?? null,
+          type: record.insight.insight_type,
+          category: record.insight.category ?? null,
+          status: record.insight.status,
+        }
+      : undefined,
   };
-
-  const relatedInsight = Array.isArray(row.insight) ? row.insight[0] : row.insight;
-
-  if (relatedInsight) {
-    base.insight = {
-      id: relatedInsight.id,
-      content: relatedInsight.content,
-      summary: relatedInsight.summary ?? null,
-      type: relatedInsight.insight_type,
-      category: relatedInsight.category ?? null,
-      status: relatedInsight.status,
-    };
-  }
-
-  return base;
 }
 
 /**

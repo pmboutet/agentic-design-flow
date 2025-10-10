@@ -533,3 +533,45 @@ export interface AiChallengeBuilderResponse {
   newChallengeSuggestions: AiNewChallengeSuggestion[];
   errors?: Array<{ challengeId: string | null; message: string }>;
 }
+
+export interface AiAskParticipantSuggestion {
+  id?: string | null;
+  name: string;
+  role?: string | null;
+  isSpokesperson?: boolean | null;
+}
+
+export interface AiAskInsightReference {
+  insightId: string;
+  title?: string | null;
+  reason?: string | null;
+  priority?: ProjectChallengeNode["impact"] | null;
+}
+
+export interface AiAskSuggestion {
+  referenceId?: string | null;
+  title: string;
+  askKey?: string | null;
+  question: string;
+  summary?: string | null;
+  description?: string | null;
+  objective?: string | null;
+  recommendedParticipants?: AiAskParticipantSuggestion[];
+  relatedInsights?: AiAskInsightReference[];
+  followUpActions?: string[];
+  confidence?: "low" | "medium" | "high" | null;
+  urgency?: ProjectChallengeNode["impact"] | null;
+  maxParticipants?: number | null;
+  isAnonymous?: boolean | null;
+  deliveryMode?: AskDeliveryMode | null;
+  audienceScope?: AskAudienceScope | null;
+  responseMode?: AskGroupResponseMode | null;
+  startDate?: string | null;
+  endDate?: string | null;
+}
+
+export interface AiAskGeneratorResponse {
+  suggestions: AiAskSuggestion[];
+  errors?: string[];
+  rawResponse?: string | null;
+}

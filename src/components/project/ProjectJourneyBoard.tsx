@@ -27,6 +27,8 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { cn } from "@/lib/utils";
 import { getMockProjectJourneyData } from "@/lib/mockProjectJourney";
 import {
+  type AiAskGeneratorResponse,
+  type AiAskSuggestion,
   type AiChallengeBuilderResponse,
   type AiChallengeUpdateSuggestion,
   type AiNewChallengeSuggestion,
@@ -42,6 +44,7 @@ import {
   type ProjectParticipantSummary,
 } from "@/types";
 import { AiChallengeBuilderPanel } from "@/components/project/AiChallengeBuilderPanel";
+import { AiAskGeneratorPanel } from "@/components/project/AiAskGeneratorPanel";
 
 interface ProjectJourneyBoardProps {
   projectId: string;
@@ -415,6 +418,11 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
   const [isAiPanelOpen, setIsAiPanelOpen] = useState(false);
   const [applyingChallengeIds, setApplyingChallengeIds] = useState<Set<string>>(() => new Set());
   const [applyingNewChallengeIndices, setApplyingNewChallengeIndices] = useState<Set<number>>(() => new Set());
+  const [isAskAiPanelOpen, setIsAskAiPanelOpen] = useState(false);
+  const [isAskAiRunning, setIsAskAiRunning] = useState(false);
+  const [askAiSuggestions, setAskAiSuggestions] = useState<AiAskSuggestion[]>([]);
+  const [askAiFeedback, setAskAiFeedback] = useState<FeedbackState | null>(null);
+  const [askAiErrors, setAskAiErrors] = useState<string[] | null>(null);
 
   useEffect(() => {
     if (challengeFeedback?.type !== "success") {
@@ -433,6 +441,15 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
     const timeoutId = window.setTimeout(() => setAiBuilderFeedback(null), 3500);
     return () => window.clearTimeout(timeoutId);
   }, [aiBuilderFeedback]);
+
+  useEffect(() => {
+    if (!askAiFeedback) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => setAskAiFeedback(null), 3500);
+    return () => window.clearTimeout(timeoutId);
+  }, [askAiFeedback]);
 
   const loadJourneyData = useCallback(
     async (options?: { signal?: AbortSignal; silent?: boolean }) => {
@@ -626,12 +643,72 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
     }
   }, [isAiBuilderRunning, projectId]);
 
+  const handleLaunchAskAiGenerator = useCallback(async () => {
+    if (isAskAiRunning) {
+      return;
+    }
+
+    if (!activeChallengeId) {
+      setAskAiFeedback({
+        type: "error",
+        message: "Select a challenge before generating ASKs with AI.",
+      });
+      return;
+    }
+
+    setIsAskAiPanelOpen(true);
+    setAskAiFeedback(null);
+    setAskAiErrors(null);
+    setAskAiSuggestions([]);
+    setIsAskAiRunning(true);
+
+    try {
+      const response = await fetch(`/api/admin/challenges/${activeChallengeId}/ai/ask-generator`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      const payload = await response.json();
+
+      if (!response.ok || !payload.success) {
+        throw new Error(payload.error || "Unable to generate ASKs with AI.");
+      }
+
+      const data = (payload.data ?? null) as AiAskGeneratorResponse | null;
+      const suggestions = data?.suggestions ?? [];
+
+      setAskAiSuggestions(suggestions);
+      setAskAiErrors(data?.errors ?? null);
+
+      if (suggestions.length === 0) {
+        setAskAiFeedback({
+          type: "error",
+          message: "L'agent n'a proposé aucune nouvelle ASK pour ce challenge.",
+        });
+      } else {
+        setAskAiFeedback({
+          type: "success",
+          message: "ASKs générées. Passez en revue les propositions et appliquez celles qui conviennent.",
+        });
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Erreur inattendue lors de la génération des ASKs.";
+      setAskAiFeedback({ type: "error", message });
+      setAskAiErrors([message]);
+    } finally {
+      setIsAskAiRunning(false);
+    }
+  }, [activeChallengeId, isAskAiRunning]);
+
   const handleDismissChallengeSuggestion = useCallback((challengeId: string) => {
     setAiSuggestions(current => current.filter(item => item.challengeId !== challengeId));
   }, []);
 
   const handleDismissNewChallengeSuggestion = useCallback((index: number) => {
     setAiNewChallenges(current => current.filter((_, candidateIndex) => candidateIndex !== index));
+  }, []);
+
+  const handleDismissAskSuggestion = useCallback((index: number) => {
+    setAskAiSuggestions(current => current.filter((_, candidateIndex) => candidateIndex !== index));
   }, []);
 
   const handleApplyChallengeSuggestion = useCallback(
@@ -1586,6 +1663,137 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
     setAskFormValues(createEmptyAskForm(getDefaultChallengeId()));
   };
 
+  const handleApplyAiAskSuggestion = useCallback(
+    (suggestion: AiAskSuggestion) => {
+      if (!boardData) {
+        return;
+      }
+
+      const challengeId = activeChallengeId ?? allChallenges[0]?.id ?? "";
+      if (!challengeId) {
+        setAskAiFeedback({ type: "error", message: "Sélectionnez un challenge pour appliquer la suggestion IA." });
+        return;
+      }
+
+      const trimmedQuestion = suggestion.question?.trim();
+      if (!trimmedQuestion) {
+        setAskAiFeedback({ type: "error", message: "La suggestion sélectionnée ne contient pas de question valide." });
+        return;
+      }
+
+      const trimmedTitle = suggestion.title?.trim() || trimmedQuestion.slice(0, 80) || "ASK";
+      const candidateKey = suggestion.askKey?.trim();
+      const isValidAskKey = Boolean(candidateKey && /^[a-zA-Z0-9._-]{3,255}$/.test(candidateKey));
+      const askKey = isValidAskKey ? (candidateKey as string) : generateAskKey(trimmedTitle || trimmedQuestion);
+
+      const matchedParticipants: string[] = [];
+      let spokespersonId = "";
+
+      if (suggestion.recommendedParticipants?.length) {
+        suggestion.recommendedParticipants.forEach(participant => {
+          const normalizedName = participant.name?.trim().toLowerCase();
+          const matched = participant.id
+            ? boardData.availableUsers.find(user => user.id === participant.id)
+            : normalizedName
+              ? boardData.availableUsers.find(user => user.name.toLowerCase() === normalizedName)
+              : undefined;
+
+          if (matched && !matchedParticipants.includes(matched.id)) {
+            matchedParticipants.push(matched.id);
+            if (participant.isSpokesperson) {
+              spokespersonId = matched.id;
+            }
+          }
+        });
+      }
+
+      const descriptionParts: string[] = [];
+      const registerDescription = (value?: string | null) => {
+        if (!value) {
+          return;
+        }
+        const trimmed = value.trim();
+        if (!trimmed) {
+          return;
+        }
+        if (!descriptionParts.includes(trimmed)) {
+          descriptionParts.push(trimmed);
+        }
+      };
+
+      registerDescription(suggestion.summary);
+      if (suggestion.objective && suggestion.objective !== suggestion.summary) {
+        registerDescription(suggestion.objective);
+      }
+      registerDescription(suggestion.description);
+
+      if (suggestion.followUpActions?.length) {
+        const actions = suggestion.followUpActions.map(action => `- ${action}`).join("\n");
+        registerDescription(`Actions recommandées :\n${actions}`);
+      }
+
+      if (suggestion.relatedInsights?.length) {
+        const insightsSummary = suggestion.relatedInsights
+          .map(reference => {
+            const labelParts = [`Insight ${reference.insightId}`];
+            if (reference.title) {
+              labelParts.push(reference.title);
+            }
+            const base = labelParts.join(" – ");
+            return reference.reason ? `${base} : ${reference.reason}` : base;
+          })
+          .join("\n");
+        registerDescription(`Insights mobilisés :\n${insightsSummary}`);
+      }
+
+      const normaliseDateInput = (value?: string | null): string | null => {
+        if (!value) {
+          return null;
+        }
+        const parsed = new Date(value);
+        if (Number.isNaN(parsed.getTime())) {
+          return null;
+        }
+        return parsed.toISOString().slice(0, 16);
+      };
+
+      const baseForm = createEmptyAskForm(challengeId);
+      const startDate = normaliseDateInput(suggestion.startDate) ?? baseForm.startDate;
+      const endDate = normaliseDateInput(suggestion.endDate) ?? baseForm.endDate;
+      const maxParticipants = suggestion.maxParticipants ? String(suggestion.maxParticipants) : baseForm.maxParticipants;
+
+      setAskFormValues({
+        ...baseForm,
+        challengeId,
+        askKey,
+        name: trimmedTitle,
+        question: trimmedQuestion,
+        description: descriptionParts.length ? descriptionParts.join("\n\n") : baseForm.description,
+        participantIds: matchedParticipants.length ? matchedParticipants : baseForm.participantIds,
+        spokespersonId: spokespersonId || baseForm.spokespersonId,
+        maxParticipants,
+        isAnonymous:
+          typeof suggestion.isAnonymous === "boolean" ? suggestion.isAnonymous : baseForm.isAnonymous,
+        deliveryMode: suggestion.deliveryMode ?? baseForm.deliveryMode,
+        audienceScope: suggestion.audienceScope ?? baseForm.audienceScope,
+        responseMode: suggestion.responseMode ?? baseForm.responseMode,
+        startDate,
+        endDate,
+      });
+
+      setHasManualAskKey(isValidAskKey);
+      setIsAskFormOpen(true);
+      setIsEditingAsk(false);
+      setEditingAskId(null);
+      setAskFeedback(null);
+      setAskAiFeedback({
+        type: "success",
+        message: "La suggestion IA a été appliquée au formulaire ASK. Vérifiez et complétez avant de sauvegarder.",
+      });
+    },
+    [activeChallengeId, allChallenges, boardData],
+  );
+
   const handleAskNameChange = (event: ChangeEvent<HTMLInputElement>) => {
     const { value } = event.target;
     setAskFormValues(current => {
@@ -2058,6 +2266,24 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
         />
       ) : null}
 
+      {boardData ? (
+        <AiAskGeneratorPanel
+          open={isAskAiPanelOpen}
+          onOpenChange={setIsAskAiPanelOpen}
+          challengeTitle={activeChallenge?.title ?? "Current challenge"}
+          isRunning={isAskAiRunning}
+          onRunAgain={handleLaunchAskAiGenerator}
+          suggestions={askAiSuggestions}
+          feedback={askAiFeedback}
+          errors={askAiErrors}
+          onApplySuggestion={(suggestion, index) => {
+            handleApplyAiAskSuggestion(suggestion);
+            handleDismissAskSuggestion(index);
+          }}
+          onDismissSuggestion={handleDismissAskSuggestion}
+        />
+      ) : null}
+
       <div className="space-y-8 text-slate-100">
       {error ? (
         <Alert variant="destructive">
@@ -2401,9 +2627,19 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
                       {isAskFormOpen ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
                       {isAskFormOpen ? "Close form" : "Create ASK"}
                     </Button>
-                    <Button size="sm" variant="glassDark" className="gap-2">
-                      <Sparkles className="h-4 w-4" />
-                      Generate ASKs with AI
+                    <Button
+                      size="sm"
+                      variant="glassDark"
+                      className="gap-2"
+                      onClick={handleLaunchAskAiGenerator}
+                      disabled={isAskAiRunning || !activeChallenge}
+                    >
+                      {isAskAiRunning ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Sparkles className="h-4 w-4" />
+                      )}
+                      {isAskAiRunning ? "Generating ASKs" : "Generate ASKs with AI"}
                     </Button>
                   </div>
                 </div>
