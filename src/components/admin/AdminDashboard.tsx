@@ -482,7 +482,6 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
     updateClient,
     createUser,
     updateUser,
-    deleteUser,
     createProject,
     updateProject,
     updateChallenge,
@@ -1681,13 +1680,6 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
       return;
     }
     await deleteAsk(askId);
-  };
-
-  const handleDeleteUser = async (userId: string) => {
-    if (!window.confirm("Delete this user?")) {
-      return;
-    }
-    await deleteUser(userId);
   };
 
   const filteredUsers = useMemo(() => {
