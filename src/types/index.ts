@@ -436,6 +436,8 @@ export interface ProjectAskOverview {
   dueDate: string;
   participants: ProjectAskParticipant[];
   originatingChallengeIds: string[];
+  primaryChallengeId?: string | null;
+  relatedChallengeIds?: string[];
   relatedProjects: { id: string; name: string }[];
   insights: ProjectParticipantInsight[];
 }

@@ -1172,14 +1172,38 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
     if (!boardData) {
       return new Map<string, ProjectAskOverview[]>();
     }
+
     const map = new Map<string, ProjectAskOverview[]>();
+
     boardData.asks.forEach(ask => {
-      ask.originatingChallengeIds.forEach(challengeId => {
+      const directIds = new Set<string>();
+      const relatedIds = new Set<string>();
+
+      if (ask.primaryChallengeId) {
+        directIds.add(ask.primaryChallengeId);
+      }
+
+      ask.originatingChallengeIds?.forEach(id => {
+        if (id) {
+          directIds.add(id);
+        }
+      });
+
+      ask.relatedChallengeIds?.forEach(id => {
+        if (id) {
+          relatedIds.add(id);
+        }
+      });
+
+      const targetIds = directIds.size > 0 ? directIds : relatedIds;
+
+      targetIds.forEach(challengeId => {
         const list = map.get(challengeId) ?? [];
         list.push(ask);
         map.set(challengeId, list);
       });
     });
+
     return map;
   }, [boardData]);
 
@@ -2148,11 +2172,11 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
         
         setAskDetails(current => ({ ...current, [record.id]: record }));
         setAskFeedback({ type: "success", message: "ASK created successfully." });
-        setAskFormValues(current => ({ ...createEmptyAskForm(challengeId), challengeId }));
-        setHasManualAskKey(false);
-        
+        setFeedback({ type: "success", message: "ASK created successfully." });
+
         console.log('✅ Frontend: ASK created, reloading data...');
         await loadJourneyData({ silent: true });
+        handleAskCancel();
       }
     } catch (error) {
       console.error("Failed to save ASK", error);
@@ -3410,7 +3434,7 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
                       disabled={isSavingAsk}
                       className="gap-2"
                     >
-                      Cancel
+                      Close
                     </Button>
                   </div>
                 </form>

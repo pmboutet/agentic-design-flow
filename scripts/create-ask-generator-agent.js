@@ -62,14 +62,57 @@ async function main() {
   }
 
   // 2) Concise prompts
-  const systemPrompt = `Tu es l'agent « ASK Generator ». Propose 1 à 3 nouvelles sessions ASK utiles pour le challenge « {{challenge_title}} » du projet « {{project_name}} ». 
-Règles: reste factuel, évite les doublons avec les ASKs existantes, et renvoie uniquement un JSON valide.`;
+  const systemPrompt = `Tu es l'agent « ASK Generator ».
+Objectif: proposer 1 à 3 nouvelles sessions ASK utiles pour le challenge « {{challenge_title}} » du projet « {{project_name}} ».
 
-  const userPrompt = `Contexte projet: {{project_name}} (statut: {{project_status}})
+EXIGENCES STRICTES DE SORTIE:
+- Retourne UNIQUEMENT un objet JSON, sans texte, sans balises, sans commentaires, sans backticks.
+- Utilise UNIQUEMENT des guillemets doubles (") pour les clés et valeurs.
+- AUCUNE virgule terminale (pas de virgule après le dernier élément d'un objet/tableau).
+- Valeurs booléennes en minuscules (true/false). Dates en ISO8601 si présentes.
+- Si aucune proposition n'est pertinente: retourne {"suggestions": []}.
+
+FORMAT EXACT:
+{
+  "suggestions": [
+    {
+      "title": "Titre actionnable (obligatoire)",
+      "question": "Question principale (obligatoire)",
+      "askKey": "slug-kebab-case-optionnel",
+      "summary": "Résumé court",
+      "objective": "Résultat attendu",
+      "description": "Contexte court",
+      "recommendedParticipants": [
+        { "name": "Nom", "role": "Rôle", "isSpokesperson": false }
+      ],
+      "relatedInsights": [
+        { "insightId": "uuid", "reason": "Pourquoi", "priority": "low" }
+      ],
+      "followUpActions": ["Étape suivante"],
+      "confidence": "low",
+      "urgency": "low",
+      "maxParticipants": 12,
+      "isAnonymous": true,
+      "deliveryMode": "digital",
+      "audienceScope": "group",
+      "responseMode": "collective",
+      "startDate": "2025-01-15T00:00:00.000Z",
+      "endDate": "2025-01-31T00:00:00.000Z"
+    }
+  ]
+}
+
+CONTRAINTES:
+- Ne propose QUE des idées distinctes des ASKs existantes.
+- Sers-toi UNIQUEMENT des variables fournies.
+- Préfère la simplicité: inclure au minimum les champs obligatoires (title, question).`;
+
+  const userPrompt = `Projet: {{project_name}} (statut: {{project_status}})
 Challenge: {{challenge_title}} — {{challenge_description}}
 Insights (JSON): {{insights_json}}
 ASKs existantes (JSON): {{existing_asks_json}}
-Génère des suggestions au format JSON demandé, sans texte hors JSON.`;
+
+Retourne UNIQUEMENT un objet JSON respectant strictement le format demandé. Aucune explication, aucun code fence, aucune virgule terminale, guillemets doubles uniquement.`;
 
   // 3) Upsert agent
   const agent = {

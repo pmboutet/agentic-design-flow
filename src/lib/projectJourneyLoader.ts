@@ -500,12 +500,15 @@ export async function fetchProjectJourneyContext(
     const participants = participantsByAskId.get(row.id) ?? [];
     const askInsights = insightsByAskId.get(row.id) ?? [];
 
+    const primaryChallengeId = row.challenge_id ? String(row.challenge_id) : null;
     const originatingChallengeIds = new Set<string>();
-    if (row.challenge_id) {
-      originatingChallengeIds.add(row.challenge_id);
+    if (primaryChallengeId) {
+      originatingChallengeIds.add(primaryChallengeId);
     }
+
+    const relatedChallengeIds = new Set<string>();
     askInsights.forEach(insight => {
-      insight.relatedChallengeIds.forEach(id => originatingChallengeIds.add(id));
+      insight.relatedChallengeIds.forEach(id => relatedChallengeIds.add(id));
     });
 
     return {
@@ -517,6 +520,8 @@ export async function fetchProjectJourneyContext(
       theme: "General",
       dueDate: row.end_date ?? row.start_date ?? new Date().toISOString(),
       originatingChallengeIds: Array.from(originatingChallengeIds),
+      primaryChallengeId,
+      relatedChallengeIds: Array.from(relatedChallengeIds),
       relatedProjects: [{ id: projectId, name: projectRow.name }],
       participants,
       insights: askInsights,
@@ -550,6 +555,8 @@ export async function fetchProjectJourneyContext(
       theme: 'Foundation',
       dueDate: new Date().toISOString(),
       originatingChallengeIds: Array.from(orphanChallengeIds),
+      primaryChallengeId: null,
+      relatedChallengeIds: Array.from(orphanChallengeIds),
       relatedProjects: [{ id: projectId, name: projectRow.name }],
       participants: [syntheticParticipant],
       insights: orphanInsights,

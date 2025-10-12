@@ -3,6 +3,8 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { Loader2, RefreshCcw, ShieldPlus, Sparkles, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { LoaderInsightConstellation } from "@/components/ui/LoaderInsightConstellation";
+import { useIndeterminateProgress } from "@/hooks/useIndeterminateProgress";
 import { Button } from "@/components/ui/button";
 import { AiDiffView } from "@/components/project/AiDiffView";
 import { Input } from "@/components/ui/input";
@@ -552,6 +554,31 @@ export function AiChallengeBuilderPanel({
 }: AiChallengeBuilderPanelProps) {
   const hasSuggestions = suggestions.length > 0;
   const hasNewChallenges = newChallenges.length > 0;
+  const progress = useIndeterminateProgress(isRunning);
+  const insightSnippets = useMemo(() => {
+    if (!isRunning) return [] as string[];
+    // Gather a rotating list of short insight texts from both suggestions and new challenges
+    const fromFoundation = [
+      ...suggestions.flatMap(s => s.foundationInsights?.map(i => i.title || i.reason || "") || []),
+      ...newChallenges.flatMap(n => n.foundationInsights?.map(i => i.title || i.reason || "") || []),
+    ]
+      .map(t => (t || "").trim())
+      .filter(Boolean)
+      .map(t => (t.length > 90 ? `${t.slice(0, 90)}…` : t));
+    // Also include summaries if available
+    const fromSummaries = [
+      ...suggestions.map(s => s.summary || ""),
+      ...newChallenges.map(n => n.summary || ""),
+    ]
+      .map(t => (t || "").trim())
+      .filter(Boolean)
+      .map(t => (t.length > 90 ? `${t.slice(0, 90)}…` : t));
+    const merged = Array.from(new Set([...
+      fromFoundation,
+      ...fromSummaries,
+    ]));
+    return merged.slice(0, 20);
+  }, [isRunning, suggestions, newChallenges]);
 
   const panelTitle = useMemo(() => {
     if (isRunning) {
@@ -595,6 +622,9 @@ export function AiChallengeBuilderPanel({
           </div>
 
           <div className="flex-1 overflow-y-auto px-6 py-5">
+            {isRunning ? (
+              <LoaderInsightConstellation progress={progress} className="mb-6" snippets={insightSnippets} />
+            ) : null}
             {errors?.length ? (
               <div className="mb-5 rounded-lg border border-amber-400/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
                 <p className="font-semibold">Some steps failed</p>

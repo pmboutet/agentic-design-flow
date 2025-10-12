@@ -70,13 +70,41 @@ const askSuggestionSchema = z.object({
 type ParsedSuggestion = z.infer<typeof askSuggestionSchema>;
 
 function sanitizeJsonString(jsonString: string): string {
-  return jsonString
-    .replace(/^[^\[{]+/, "")
-    .replace(/[^\]}]+$/, "")
-    .replace(/,(\s*[}\]])/g, "$1")
-    .replace(/'(\s*[:,\]}])/g, '"$1')
-    .replace(/"(\s*[:,\]}])/g, '"$1')
-    .replace(/\u0000/g, "");
+  // Remove BOM and non-printables
+  let s = jsonString.replace(/^\uFEFF/, "").replace(/[\u0000-\u001F]+/g, " ");
+
+  // Strip markdown code fences/backticks
+  s = s.replace(/```[a-zA-Z]*[\s\S]*?```/g, (block) => {
+    const inner = block.replace(/^```[a-zA-Z]*\n?/, "").replace(/\n?```$/, "");
+    return inner;
+  });
+  s = s.replace(/`([^`\\]*(?:\\.[^`\\]*)*)`/g, '"$1"');
+
+  // Normalize quotes
+  s = s.replace(/[“”]/g, '"').replace(/[‘’]/g, "'");
+
+  // Remove JS/JSONC comments
+  s = s.replace(/\/\*[\s\S]*?\*\//g, "");
+  s = s.replace(/(^|[^:])\/\/.*$/gm, "$1");
+
+  // Quote unquoted keys
+  s = s.replace(/([,{]\s*)([A-Za-z_][A-Za-z0-9_]*)(\s*:)/g, '$1"$2"$3');
+
+  // Convert single-quoted strings to double-quoted strings
+  s = s.replace(/'([^'\\]*(?:\\.[^'\\]*)*)'/g, (_m, g1) => '"' + g1.replace(/\\?"/g, '\\"') + '"');
+
+  // Remove trailing commas in objects/arrays
+  s = s.replace(/,(\s*[}\]])/g, '$1');
+
+  // Convert undefined to null; normalise booleans and null casing
+  s = s.replace(/:\s*undefined(\s*[,}\]])/g, ': null$1');
+  s = s.replace(/\bTrue\b/g, 'true').replace(/\bFalse\b/g, 'false');
+  s = s.replace(/\bNULL\b/g, 'null');
+
+  // Trim any noise outside first/last braces/brackets
+  s = s.replace(/^[^\[{]+/, '').replace(/[^\]}]+$/, '');
+
+  return s;
 }
 
 function extractJsonCandidate(raw: string): string {
@@ -129,9 +157,128 @@ function extractJsonCandidate(raw: string): string {
   return fallback ? fallback[0] : trimmed;
 }
 
+function quoteUnquotedKeysDeep(s: string): string {
+  return s.replace(/([,{]\s*)([A-Za-z_][A-Za-z0-9_]*)(\s*:)/g, '$1"$2"$3');
+}
+
+function normalizeAndRepairJson(raw: string): string[] {
+  const base = extractJsonCandidate(raw);
+  const attempts: string[] = [];
+
+  // Base and simple sanitization
+  attempts.push(base);
+  attempts.push(sanitizeJsonString(base));
+
+  // Quote keys, remove trailing commas
+  attempts.push(quoteUnquotedKeysDeep(base).replace(/,(\s*[}\]])/g, '$1'));
+  attempts.push(quoteUnquotedKeysDeep(sanitizeJsonString(base)));
+
+  // Convert single quotes to double quotes globally
+  attempts.push(base.replace(/'([^'\\]*(?:\\.[^'\\]*)*)'/g, '"$1"'));
+  attempts.push(sanitizeJsonString(base).replace(/'([^'\\]*(?:\\.[^'\\]*)*)'/g, '"$1"'));
+
+  // Backticks to double-quotes
+  attempts.push(base.replace(/`([^`\\]*(?:\\.[^`\\]*)*)`/g, '"$1"'));
+
+  return attempts;
+}
+
+function coerceScalar(value: unknown): unknown {
+  if (typeof value !== 'string') return value;
+  const v = value.trim();
+  if (v === 'true') return true;
+  if (v === 'false') return false;
+  if (v === 'null') return null;
+  if (/^-?\d+$/.test(v)) return Number(v);
+  return value;
+}
+
+function normalizeSuggestionKeysDeep(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(item => normalizeSuggestionKeysDeep(item));
+  }
+  if (value && typeof value === 'object') {
+    const mapping: Record<string, string> = {
+      reference_id: 'referenceId',
+      ask_key: 'askKey',
+      recommended_participants: 'recommendedParticipants',
+      related_insights: 'relatedInsights',
+      follow_up_actions: 'followUpActions',
+      is_spokesperson: 'isSpokesperson',
+      delivery_mode: 'deliveryMode',
+      audience_scope: 'audienceScope',
+      response_mode: 'responseMode',
+      start_date: 'startDate',
+      end_date: 'endDate',
+      insight_id: 'insightId',
+    };
+
+    const input = value as Record<string, unknown>;
+    const output: Record<string, unknown> = {};
+    for (const [key, val] of Object.entries(input)) {
+      const nextKey = (mapping as Record<string, string>)[key as keyof typeof mapping] || key;
+      output[nextKey] = normalizeSuggestionKeysDeep(coerceScalar(val));
+    }
+    return output;
+  }
+  return coerceScalar(value);
+}
+
+function sanitizeEnum<T extends string>(value: unknown, allowed: readonly T[]): T | undefined {
+  if (typeof value !== 'string') return undefined;
+  const lowered = value.trim().toLowerCase();
+  const found = allowed.find(v => v === lowered);
+  return found as T | undefined;
+}
+
+function sanitizeSuggestionDomain(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(item => sanitizeSuggestionDomain(item));
+  }
+  if (value && typeof value === 'object') {
+    const v = { ...(value as Record<string, unknown>) };
+    // Drop or fix invalid enum values to avoid hard failures
+    const dm = sanitizeEnum(v.deliveryMode, deliveryModes);
+    if (dm) v.deliveryMode = dm; else delete v.deliveryMode;
+
+    const as = sanitizeEnum(v.audienceScope, audienceScopes);
+    if (as) v.audienceScope = as; else delete v.audienceScope;
+
+    const rm = sanitizeEnum(v.responseMode, responseModes);
+    if (rm) v.responseMode = rm; else delete v.responseMode;
+
+    const urg = sanitizeEnum(v.urgency, urgencyLevels);
+    if (urg) v.urgency = urg; else delete v.urgency;
+
+    const conf = sanitizeEnum(v.confidence, confidenceLevels);
+    if (conf) v.confidence = conf; else delete v.confidence;
+
+    // Ensure maxParticipants is a positive integer when present
+    if (v.maxParticipants != null) {
+      const n = typeof v.maxParticipants === 'number' ? v.maxParticipants : Number(v.maxParticipants);
+      if (Number.isFinite(n) && n > 0) {
+        v.maxParticipants = Math.floor(n);
+      } else {
+        delete v.maxParticipants;
+      }
+    }
+
+    // Recurse known arrays
+    if (Array.isArray(v.recommendedParticipants)) {
+      v.recommendedParticipants = (v.recommendedParticipants as unknown[]).map(item => sanitizeSuggestionDomain(item));
+    }
+    if (Array.isArray(v.relatedInsights)) {
+      v.relatedInsights = (v.relatedInsights as unknown[]).map(item => sanitizeSuggestionDomain(item));
+    }
+
+    return v;
+  }
+  return value;
+}
+
 function normaliseSuggestionPayload(payload: unknown): ParsedSuggestion[] {
   if (Array.isArray(payload)) {
-    return payload.map(item => askSuggestionSchema.parse(item));
+    return payload.map(item => askSuggestionSchema.parse(sanitizeSuggestionDomain(normalizeSuggestionKeysDeep(item))));
   }
 
   if (payload && typeof payload === "object") {
@@ -141,19 +288,18 @@ function normaliseSuggestionPayload(payload: unknown): ParsedSuggestion[] {
     for (const key of possibleKeys) {
       const value = container[key];
       if (Array.isArray(value)) {
-        return value.map(item => askSuggestionSchema.parse(item));
+        return value.map(item => askSuggestionSchema.parse(sanitizeSuggestionDomain(normalizeSuggestionKeysDeep(item))));
       }
     }
 
-    return [askSuggestionSchema.parse(container)];
+    return [askSuggestionSchema.parse(sanitizeSuggestionDomain(normalizeSuggestionKeysDeep(container)))];
   }
 
   throw new Error("Agent response does not contain ASK suggestions");
 }
 
 function parseAskSuggestions(rawContent: string): ParsedSuggestion[] {
-  const candidate = extractJsonCandidate(rawContent);
-  const attempts = [candidate, sanitizeJsonString(candidate), candidate.replace(/'/g, '"')];
+  const attempts = normalizeAndRepairJson(rawContent);
 
   let lastError: unknown = null;
 
@@ -236,7 +382,18 @@ function buildExistingAskSummaries(
   });
 
   return boardData.asks
-    .filter(ask => ask.originatingChallengeIds.includes(challengeId))
+    .filter(ask => {
+      const directIds = new Set<string>();
+      if (ask.primaryChallengeId) {
+        directIds.add(ask.primaryChallengeId);
+      }
+      ask.originatingChallengeIds?.forEach(id => {
+        if (id) {
+          directIds.add(id);
+        }
+      });
+      return directIds.has(challengeId);
+    })
     .map(ask => {
       const raw = askRowById.get(ask.id) ?? {};
       return {
