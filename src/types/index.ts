@@ -462,7 +462,7 @@ export interface ProjectChallengeNode {
 export interface ProjectJourneyBoardData {
   projectId: string;
   projectName: string;
-  clientName: string;
+  clientName: string | null;
   projectGoal?: string | null;
   timeframe?: string | null;
   projectDescription?: string | null;
@@ -492,7 +492,7 @@ export interface AiSubChallengeUpdateSuggestion {
 
 export interface AiFoundationInsight {
   insightId: string;
-  title: string;
+  title?: string; // Optional: will be fetched from DB if not provided (smart optimization)
   reason: string;
   priority: "low" | "medium" | "high" | "critical";
 }

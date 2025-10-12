@@ -85,7 +85,7 @@ const revisionPlanSchema = z.object({
 
 const foundationInsightSchema = z.object({
   insightId: z.string().trim().min(1),
-  title: z.string().trim().min(1).optional(), // Optional: will be fetched from DB if not provided
+  title: z.string().trim().min(1),
   reason: z.string().trim().min(1),
   priority: z.enum(["low", "medium", "high", "critical"]),
 });
@@ -98,56 +98,56 @@ const ownerSuggestionSchema = z.object({
 
 const challengeUpdateBlockSchema = z
   .object({
-    title: z.string().trim().min(1).nullish(),
-    description: z.string().trim().nullish(),
-    status: z.string().trim().min(1).nullish(),
-    impact: z.string().trim().min(1).nullish(),
-    owners: z.array(ownerSuggestionSchema).nullish(),
+    title: z.string().trim().min(1).optional(),
+    description: z.string().trim().optional(),
+    status: z.string().trim().min(1).optional(),
+    impact: z.string().trim().min(1).optional(),
+    owners: z.array(ownerSuggestionSchema).optional(),
   })
   .partial();
 
 const subChallengeUpdateSchema = z.object({
   id: z.string().trim().min(1),
-  title: z.string().trim().min(1).nullish(),
-  description: z.string().trim().nullish(),
-  status: z.string().trim().min(1).nullish(),
-  impact: z.string().trim().min(1).nullish(),
-  summary: z.string().trim().nullish(),
+  title: z.string().trim().min(1).optional(),
+  description: z.string().trim().optional(),
+  status: z.string().trim().min(1).optional(),
+  impact: z.string().trim().min(1).optional(),
+  summary: z.string().trim().optional(),
 });
 
 const subChallengeCreateSchema = z.object({
   referenceId: z.string().trim().min(1).optional(),
-  parentId: z.string().trim().min(1).nullish(),
+  parentId: z.string().trim().min(1).optional().nullable(),
   title: z.string().trim().min(1),
-  description: z.string().trim().nullish(),
-  status: z.string().trim().min(1).nullish(),
-  impact: z.string().trim().min(1).nullish(),
-  owners: z.array(ownerSuggestionSchema).nullish(),
-  summary: z.string().trim().nullish(),
-  foundationInsights: z.array(foundationInsightSchema).nullish(),
+  description: z.string().trim().optional(),
+  status: z.string().trim().min(1).optional(),
+  impact: z.string().trim().min(1).optional(),
+  owners: z.array(ownerSuggestionSchema).optional(),
+  summary: z.string().trim().optional(),
+  foundationInsights: z.array(foundationInsightSchema).optional(),
 });
 
 const detailedUpdateSchema = z.object({
-  challengeId: z.string().trim().min(1).nullish(),
-  summary: z.string().trim().nullish(),
-  foundationInsights: z.array(foundationInsightSchema).nullish(),
-  updates: challengeUpdateBlockSchema.nullish(),
+  challengeId: z.string().trim().min(1).optional(),
+  summary: z.string().trim().optional(),
+  foundationInsights: z.array(foundationInsightSchema).optional(),
+  updates: challengeUpdateBlockSchema.optional(),
   subChallenges: z
     .object({
-      update: z.array(subChallengeUpdateSchema).nullish(),
-      updates: z.array(subChallengeUpdateSchema).nullish(),
-      create: z.array(subChallengeCreateSchema).nullish(),
-      new: z.array(subChallengeCreateSchema).nullish(),
+      update: z.array(subChallengeUpdateSchema).optional(),
+      updates: z.array(subChallengeUpdateSchema).optional(),
+      create: z.array(subChallengeCreateSchema).optional(),
+      new: z.array(subChallengeCreateSchema).optional(),
     })
     .partial()
-    .nullish(),
-  errors: z.array(z.string().trim()).nullish(),
+    .optional(),
+  errors: z.array(z.string().trim()).optional(),
 });
 
 const detailedCreationSchema = z.object({
-  summary: z.string().trim().nullish(),
-  newChallenges: z.array(subChallengeCreateSchema).nullish(),
-  challenges: z.array(subChallengeCreateSchema).nullish(),
+  summary: z.string().trim().optional(),
+  newChallenges: z.array(subChallengeCreateSchema).optional(),
+  challenges: z.array(subChallengeCreateSchema).optional(),
 });
 
 // Constants
@@ -580,22 +580,6 @@ function buildProjectGlobalContext(
 }
 
 // ============================================================================
-// ENRICHMENT FUNCTIONS
-// ============================================================================
-
-function enrichFoundationInsights(
-  foundationInsights: Array<z.infer<typeof foundationInsightSchema>>,
-  insightLookup: Map<string, InsightSummary>,
-): AiFoundationInsight[] {
-  return foundationInsights.map(fi => ({
-    insightId: fi.insightId,
-    title: fi.title ?? insightLookup.get(fi.insightId)?.title ?? "Unknown Insight",
-    reason: fi.reason,
-    priority: fi.priority,
-  }));
-}
-
-// ============================================================================
 // MAPPERS
 // ============================================================================
 
@@ -604,7 +588,6 @@ function mapDetailedUpdate(
   challenge: ProjectChallengeNode,
   planItem: z.infer<typeof planUpdateSchema>,
   agentMetadata: { logId: string; agentId?: string | null; modelConfigId?: string | null },
-  insightLookup: Map<string, InsightSummary>,
 ): AiChallengeUpdateSuggestion {
   const updates = updateData.updates ?? null;
   const subUpdateBlock = updateData.subChallenges ?? {};
@@ -635,7 +618,12 @@ function mapDetailedUpdate(
     challengeTitle: challenge.title,
     summary: updateData.summary ?? planItem.reason,
     foundationInsights: foundationInsights.length
-      ? enrichFoundationInsights(foundationInsights, insightLookup)
+      ? foundationInsights.map(insight => ({
+          insightId: insight.insightId,
+          title: insight.title,
+          reason: insight.reason,
+          priority: insight.priority,
+        }))
       : undefined,
     updates: normalisedUpdates,
     subChallengeUpdates: subUpdates.length
@@ -669,7 +657,6 @@ function mapDetailedUpdate(
 function mapDetailedCreation(
   creationData: z.infer<typeof detailedCreationSchema>,
   planItem: z.infer<typeof planCreationSchema>,
-  insightLookup: Map<string, InsightSummary>,
 ): AiNewChallengeSuggestion[] {
   const candidates = creationData.newChallenges ?? creationData.challenges ?? [];
   
@@ -682,9 +669,12 @@ function mapDetailedCreation(
     impact: normaliseImpact(item.impact) ?? planItem.estimatedImpact,
     owners: normaliseOwnerSuggestions(item.owners),
     summary: item.summary ?? creationData.summary ?? planItem.reason,
-    foundationInsights: item.foundationInsights?.length
-      ? enrichFoundationInsights(item.foundationInsights, insightLookup)
-      : undefined,
+    foundationInsights: item.foundationInsights?.map(insight => ({
+      insightId: insight.insightId,
+      title: insight.title,
+      reason: insight.reason,
+      priority: insight.priority,
+    })) ?? undefined,
   }));
 }
 
@@ -789,7 +779,7 @@ export async function POST(
           logId: result.logId,
           agentId: result.agent.id,
           modelConfigId: result.modelConfig.id,
-        }, insightLookup);
+        });
         mapped.rawResponse = result.content;
         
         return mapped;
@@ -833,7 +823,7 @@ export async function POST(
         });
 
         const creationData = parseAgentResponse(result.content, detailedCreationSchema, "creator");
-        return mapDetailedCreation(creationData, creationItem, insightLookup);
+        return mapDetailedCreation(creationData, creationItem);
       } catch (error) {
         errors.push({
           challengeId: null,
@@ -889,3 +879,4 @@ export async function POST(
     }, { status: 500 });
   }
 }
+

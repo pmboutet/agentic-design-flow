@@ -891,6 +891,7 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
           payload.assignedTo = ownerId;
         }
 
+        // 1️⃣ Créer le challenge
         const response = await fetch("/api/admin/challenges", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -901,11 +902,72 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
           throw new Error(result.error || `Échec de la création du challenge ${suggestion.title}.`);
         }
 
+        const newChallengeId = result.data?.id;
+
+        // 2️⃣ Créer les foundation insights si présents
+        if (newChallengeId && suggestion.foundationInsights?.length) {
+          console.log('🔍 Creating foundation insights for challenge:', {
+            challengeId: newChallengeId,
+            insightCount: suggestion.foundationInsights.length,
+            insights: suggestion.foundationInsights,
+          });
+          
+          try {
+            const applyResponse = await fetch(`/api/admin/projects/${boardData.projectId}/ai/challenge-builder/apply`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                challengeId: newChallengeId,
+                foundationInsights: suggestion.foundationInsights,
+              }),
+            });
+            
+            console.log('📡 Foundation insights API response:', {
+              status: applyResponse.status,
+              ok: applyResponse.ok,
+            });
+            
+            if (!applyResponse.ok) {
+              const errorText = await applyResponse.text();
+              console.error("❌ Failed to create foundation insights:", errorText);
+              // Note: on continue quand même car le challenge est créé
+            } else {
+              const applyResult = await applyResponse.json();
+              console.log('✅ Foundation insights created successfully:', applyResult);
+            }
+          } catch (insightError) {
+            console.error("❌ Error creating foundation insights:", insightError);
+            // On continue même si les insights échouent
+          }
+        } else {
+          console.log('⚠️ No foundation insights to create:', {
+            hasNewChallengeId: !!newChallengeId,
+            hasFoundationInsights: !!suggestion.foundationInsights,
+            foundationInsightsLength: suggestion.foundationInsights?.length,
+          });
+        }
+
         await loadJourneyData({ silent: true });
+        
+        // Sélectionner automatiquement le challenge nouvellement créé
+        if (newChallengeId) {
+          console.log('🎯 Auto-selecting newly created challenge:', newChallengeId);
+          setActiveChallengeId(newChallengeId);
+          
+          // Scroll vers la section des insights (si possible)
+          setTimeout(() => {
+            rightColumnRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }, 300);
+        }
+        
         setAiNewChallenges(current => current.filter((_, candidateIndex) => candidateIndex !== index));
+        
+        const insightCount = suggestion.foundationInsights?.length || 0;
+        const insightMessage = insightCount > 0 ? ` avec ${insightCount} foundation insight${insightCount > 1 ? 's' : ''}` : '';
+        
         setAiBuilderFeedback({
           type: "success",
-          message: `Challenge « ${suggestion.title} » créé à partir des recommandations IA.`,
+          message: `Challenge « ${suggestion.title} » créé${insightMessage}. Cliquez dessus pour voir les foundation insights.`,
         });
       } catch (error) {
         setAiBuilderFeedback({
@@ -1009,6 +1071,26 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
     if (!boardData) {
       return new Map<string, ChallengeInsightRow[]>();
     }
+    
+    console.log('🔍 Frontend: Building insight map from asks:', {
+      askCount: boardData.asks.length,
+      asks: boardData.asks.map(ask => ({
+        id: ask.id,
+        title: ask.title,
+        participantCount: ask.participants.length,
+        participants: ask.participants.map(p => ({
+          id: p.id,
+          name: p.name,
+          insightCount: p.insights.length,
+          insights: p.insights.map(i => ({
+            id: i.id,
+            title: i.title.substring(0, 50),
+            relatedChallengeIds: i.relatedChallengeIds,
+          })),
+        })),
+      })),
+    });
+    
     const map = new Map<string, ChallengeInsightRow[]>();
     boardData.asks.forEach(ask => {
       ask.participants.forEach(participant => {
@@ -1041,6 +1123,15 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
         });
       });
     });
+    
+    console.log('🗺️ Frontend: Challenge insight map built:', {
+      totalChallenges: map.size,
+      challengesWithInsights: Array.from(map.entries()).map(([id, insights]) => ({
+        challengeId: id,
+        insightCount: insights.length,
+      })),
+    });
+    
     return map;
   }, [boardData]);
 
@@ -1064,10 +1155,19 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
     [activeChallengeId, allChallenges],
   );
 
-  const activeChallengeInsights = useMemo(
-    () => (activeChallengeId ? challengeInsightMap.get(activeChallengeId) ?? [] : []),
-    [challengeInsightMap, activeChallengeId],
-  );
+  const activeChallengeInsights = useMemo(() => {
+    if (!activeChallengeId) return [];
+    
+    const insights = challengeInsightMap.get(activeChallengeId) ?? [];
+    
+    console.log('🔍 Frontend: Active challenge insights:', {
+      challengeId: activeChallengeId,
+      insightCount: insights.length,
+      insights: insights.map(i => ({ id: i.id, title: i.title })),
+    });
+    
+    return insights;
+  }, [challengeInsightMap, activeChallengeId]);
 
   const activeChallengeAsks = useMemo(
     () => (activeChallengeId ? asksByChallenge.get(activeChallengeId) ?? [] : []),
@@ -1079,6 +1179,139 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
       rightColumnRef.current.scrollTo({ top: 0, behavior: "smooth" });
     }
   }, [activeChallengeId]);
+
+  const handleApplyAiAskSuggestion = useCallback(
+    (suggestion: AiAskSuggestion) => {
+      if (!boardData) {
+        return;
+      }
+
+      const challengeId = activeChallengeId ?? allChallenges[0]?.id ?? "";
+      if (!challengeId) {
+        setAskAiFeedback({ type: "error", message: "Sélectionnez un challenge pour appliquer la suggestion IA." });
+        return;
+      }
+
+      const trimmedQuestion = suggestion.question?.trim();
+      if (!trimmedQuestion) {
+        setAskAiFeedback({ type: "error", message: "La suggestion sélectionnée ne contient pas de question valide." });
+        return;
+      }
+
+      const trimmedTitle = suggestion.title?.trim() || trimmedQuestion.slice(0, 80) || "ASK";
+      const candidateKey = suggestion.askKey?.trim();
+      const isValidAskKey = Boolean(candidateKey && /^[a-zA-Z0-9._-]{3,255}$/.test(candidateKey));
+      const askKey = isValidAskKey ? (candidateKey as string) : generateAskKey(trimmedTitle || trimmedQuestion);
+
+      const matchedParticipants: string[] = [];
+      let spokespersonId = "";
+
+      const availableUsers = boardData.availableUsers ?? [];
+
+      if (suggestion.recommendedParticipants?.length) {
+        suggestion.recommendedParticipants.forEach(participant => {
+          const normalizedName = participant.name?.trim().toLowerCase();
+          const matched = participant.id
+            ? availableUsers.find(user => user.id === participant.id)
+            : normalizedName
+              ? availableUsers.find(user => user.name.toLowerCase() === normalizedName)
+              : undefined;
+
+          if (matched && !matchedParticipants.includes(matched.id)) {
+            matchedParticipants.push(matched.id);
+            if (participant.isSpokesperson) {
+              spokespersonId = matched.id;
+            }
+          }
+        });
+      }
+
+      const descriptionParts: string[] = [];
+      const registerDescription = (value?: string | null) => {
+        if (!value) {
+          return;
+        }
+        const trimmed = value.trim();
+        if (!trimmed) {
+          return;
+        }
+        if (!descriptionParts.includes(trimmed)) {
+          descriptionParts.push(trimmed);
+        }
+      };
+
+      registerDescription(suggestion.summary);
+      if (suggestion.objective && suggestion.objective !== suggestion.summary) {
+        registerDescription(suggestion.objective);
+      }
+      registerDescription(suggestion.description);
+
+      if (suggestion.followUpActions?.length) {
+        const actions = suggestion.followUpActions.map(action => `- ${action}`).join("\n");
+        registerDescription(`Actions recommandées :\n${actions}`);
+      }
+
+      if (suggestion.relatedInsights?.length) {
+        const insightsSummary = suggestion.relatedInsights
+          .map(reference => {
+            const labelParts = [`Insight ${reference.insightId}`];
+            if (reference.title) {
+              labelParts.push(reference.title);
+            }
+            const base = labelParts.join(" – ");
+            return reference.reason ? `${base} : ${reference.reason}` : base;
+          })
+          .join("\n");
+        registerDescription(`Insights mobilisés :\n${insightsSummary}`);
+      }
+
+      const normaliseDateInput = (value?: string | null): string | null => {
+        if (!value) {
+          return null;
+        }
+        const parsed = new Date(value);
+        if (Number.isNaN(parsed.getTime())) {
+          return null;
+        }
+        return parsed.toISOString().slice(0, 16);
+      };
+
+      const baseForm = createEmptyAskForm(challengeId);
+      const startDate = normaliseDateInput(suggestion.startDate) ?? baseForm.startDate;
+      const endDate = normaliseDateInput(suggestion.endDate) ?? baseForm.endDate;
+      const maxParticipants = suggestion.maxParticipants ? String(suggestion.maxParticipants) : baseForm.maxParticipants;
+
+      setAskFormValues({
+        ...baseForm,
+        challengeId,
+        askKey,
+        name: trimmedTitle,
+        question: trimmedQuestion,
+        description: descriptionParts.length ? descriptionParts.join("\n\n") : baseForm.description,
+        participantIds: matchedParticipants.length ? matchedParticipants : baseForm.participantIds,
+        spokespersonId: spokespersonId || baseForm.spokespersonId,
+        maxParticipants,
+        isAnonymous:
+          typeof suggestion.isAnonymous === "boolean" ? suggestion.isAnonymous : baseForm.isAnonymous,
+        deliveryMode: suggestion.deliveryMode ?? baseForm.deliveryMode,
+        audienceScope: suggestion.audienceScope ?? baseForm.audienceScope,
+        responseMode: suggestion.responseMode ?? baseForm.responseMode,
+        startDate,
+        endDate,
+      });
+
+      setHasManualAskKey(isValidAskKey);
+      setIsAskFormOpen(true);
+      setIsEditingAsk(false);
+      setEditingAskId(null);
+      setAskFeedback(null);
+      setAskAiFeedback({
+        type: "success",
+        message: "La suggestion IA a été appliquée au formulaire ASK. Vérifiez et complétez avant de sauvegarder.",
+      });
+    },
+    [activeChallengeId, allChallenges, boardData],
+  );
 
   const renderChallengeList = (nodes: ProjectChallengeNode[], depth = 0) => {
     return (
@@ -1666,139 +1899,6 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
     setHasManualAskKey(false);
     setAskFormValues(createEmptyAskForm(getDefaultChallengeId()));
   };
-
-  const handleApplyAiAskSuggestion = useCallback(
-    (suggestion: AiAskSuggestion) => {
-      if (!boardData) {
-        return;
-      }
-
-      const challengeId = activeChallengeId ?? allChallenges[0]?.id ?? "";
-      if (!challengeId) {
-        setAskAiFeedback({ type: "error", message: "Sélectionnez un challenge pour appliquer la suggestion IA." });
-        return;
-      }
-
-      const trimmedQuestion = suggestion.question?.trim();
-      if (!trimmedQuestion) {
-        setAskAiFeedback({ type: "error", message: "La suggestion sélectionnée ne contient pas de question valide." });
-        return;
-      }
-
-      const trimmedTitle = suggestion.title?.trim() || trimmedQuestion.slice(0, 80) || "ASK";
-      const candidateKey = suggestion.askKey?.trim();
-      const isValidAskKey = Boolean(candidateKey && /^[a-zA-Z0-9._-]{3,255}$/.test(candidateKey));
-      const askKey = isValidAskKey ? (candidateKey as string) : generateAskKey(trimmedTitle || trimmedQuestion);
-
-      const matchedParticipants: string[] = [];
-      let spokespersonId = "";
-
-      const availableUsers = boardData.availableUsers ?? [];
-
-      if (suggestion.recommendedParticipants?.length) {
-        suggestion.recommendedParticipants.forEach(participant => {
-          const normalizedName = participant.name?.trim().toLowerCase();
-          const matched = participant.id
-            ? availableUsers.find(user => user.id === participant.id)
-            : normalizedName
-              ? availableUsers.find(user => user.name.toLowerCase() === normalizedName)
-              : undefined;
-
-          if (matched && !matchedParticipants.includes(matched.id)) {
-            matchedParticipants.push(matched.id);
-            if (participant.isSpokesperson) {
-              spokespersonId = matched.id;
-            }
-          }
-        });
-      }
-
-      const descriptionParts: string[] = [];
-      const registerDescription = (value?: string | null) => {
-        if (!value) {
-          return;
-        }
-        const trimmed = value.trim();
-        if (!trimmed) {
-          return;
-        }
-        if (!descriptionParts.includes(trimmed)) {
-          descriptionParts.push(trimmed);
-        }
-      };
-
-      registerDescription(suggestion.summary);
-      if (suggestion.objective && suggestion.objective !== suggestion.summary) {
-        registerDescription(suggestion.objective);
-      }
-      registerDescription(suggestion.description);
-
-      if (suggestion.followUpActions?.length) {
-        const actions = suggestion.followUpActions.map(action => `- ${action}`).join("\n");
-        registerDescription(`Actions recommandées :\n${actions}`);
-      }
-
-      if (suggestion.relatedInsights?.length) {
-        const insightsSummary = suggestion.relatedInsights
-          .map(reference => {
-            const labelParts = [`Insight ${reference.insightId}`];
-            if (reference.title) {
-              labelParts.push(reference.title);
-            }
-            const base = labelParts.join(" – ");
-            return reference.reason ? `${base} : ${reference.reason}` : base;
-          })
-          .join("\n");
-        registerDescription(`Insights mobilisés :\n${insightsSummary}`);
-      }
-
-      const normaliseDateInput = (value?: string | null): string | null => {
-        if (!value) {
-          return null;
-        }
-        const parsed = new Date(value);
-        if (Number.isNaN(parsed.getTime())) {
-          return null;
-        }
-        return parsed.toISOString().slice(0, 16);
-      };
-
-      const baseForm = createEmptyAskForm(challengeId);
-      const startDate = normaliseDateInput(suggestion.startDate) ?? baseForm.startDate;
-      const endDate = normaliseDateInput(suggestion.endDate) ?? baseForm.endDate;
-      const maxParticipants = suggestion.maxParticipants ? String(suggestion.maxParticipants) : baseForm.maxParticipants;
-
-      setAskFormValues({
-        ...baseForm,
-        challengeId,
-        askKey,
-        name: trimmedTitle,
-        question: trimmedQuestion,
-        description: descriptionParts.length ? descriptionParts.join("\n\n") : baseForm.description,
-        participantIds: matchedParticipants.length ? matchedParticipants : baseForm.participantIds,
-        spokespersonId: spokespersonId || baseForm.spokespersonId,
-        maxParticipants,
-        isAnonymous:
-          typeof suggestion.isAnonymous === "boolean" ? suggestion.isAnonymous : baseForm.isAnonymous,
-        deliveryMode: suggestion.deliveryMode ?? baseForm.deliveryMode,
-        audienceScope: suggestion.audienceScope ?? baseForm.audienceScope,
-        responseMode: suggestion.responseMode ?? baseForm.responseMode,
-        startDate,
-        endDate,
-      });
-
-      setHasManualAskKey(isValidAskKey);
-      setIsAskFormOpen(true);
-      setIsEditingAsk(false);
-      setEditingAskId(null);
-      setAskFeedback(null);
-      setAskAiFeedback({
-        type: "success",
-        message: "La suggestion IA a été appliquée au formulaire ASK. Vérifiez et complétez avant de sauvegarder.",
-      });
-    },
-    [activeChallengeId, allChallenges, boardData],
-  );
 
   const handleAskNameChange = (event: ChangeEvent<HTMLInputElement>) => {
     const { value } = event.target;

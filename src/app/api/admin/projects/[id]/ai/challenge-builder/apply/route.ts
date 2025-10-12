@@ -20,7 +20,7 @@ const applySuggestionSchema = z.object({
   }).optional(),
   foundationInsights: z.array(z.object({
     insightId: z.string(),
-    title: z.string(),
+    title: z.string().optional(), // Optional: will be fetched from DB if not provided
     reason: z.string(),
     priority: z.enum(["low", "medium", "high", "critical"]),
   })).optional(),
@@ -54,7 +54,13 @@ export async function POST(
 ) {
   try {
     const projectId = z.string().uuid().parse(params.id);
-    const suggestion = applySuggestionSchema.parse(await request.json());
+    const body = await request.json();
+    
+    console.log('🔍 Apply API - Received body:', JSON.stringify(body, null, 2));
+    
+    const suggestion = applySuggestionSchema.parse(body);
+    
+    console.log('✅ Apply API - Zod validation passed');
     
     const supabase = getAdminSupabaseClient();
 
@@ -86,11 +92,23 @@ export async function POST(
 
     // 2. Create foundation insights links
     if (suggestion.foundationInsights?.length) {
-      const foundationInsights = await createChallengeFoundationInsights(
-        suggestion.challengeId,
-        suggestion.foundationInsights
-      );
-      results.push({ type: 'foundation_insights', data: foundationInsights });
+      console.log('🔍 Apply API - Creating foundation insights:', {
+        challengeId: suggestion.challengeId,
+        count: suggestion.foundationInsights.length,
+        insights: suggestion.foundationInsights,
+      });
+      
+      try {
+        const foundationInsights = await createChallengeFoundationInsights(
+          suggestion.challengeId,
+          suggestion.foundationInsights
+        );
+        console.log('✅ Apply API - Foundation insights created successfully:', foundationInsights.length);
+        results.push({ type: 'foundation_insights', data: foundationInsights });
+      } catch (insightError) {
+        console.error('❌ Apply API - Error creating foundation insights:', insightError);
+        throw insightError;
+      }
     }
 
     // 3. Update sub-challenges
