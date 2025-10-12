@@ -1093,6 +1093,7 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
     
     const map = new Map<string, ChallengeInsightRow[]>();
     boardData.asks.forEach(ask => {
+      // Case 1: insights attached to participants (standard flow)
       ask.participants.forEach(participant => {
         participant.insights.forEach(insight => {
           const baseContributors =
@@ -1122,6 +1123,38 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
           });
         });
       });
+
+      // Case 2: no participants provided but ask.insights exists (synthetic/orphan insights)
+      // Some loaders may place insights directly on the ask when there are no participants
+      // Ensure those are also mapped to challenges for display
+      // @ts-expect-error allow optional field from loader shape
+      const askLevelInsights: typeof ask.participants[number]["insights"] | undefined = (ask as any).insights;
+      if ((!ask.participants || ask.participants.length === 0) && Array.isArray(askLevelInsights) && askLevelInsights.length) {
+        askLevelInsights.forEach(insight => {
+          const baseContributors = insight.contributors?.length ? insight.contributors : [];
+
+          insight.relatedChallengeIds.forEach((challengeId: string) => {
+            const rows = map.get(challengeId) ?? [];
+            const existingIndex = rows.findIndex(row => row.id === insight.id && row.askId === ask.id);
+
+            if (existingIndex >= 0) {
+              rows[existingIndex] = {
+                ...rows[existingIndex],
+                contributors: mergeContributors(rows[existingIndex].contributors, baseContributors),
+              };
+            } else {
+              rows.push({
+                ...insight,
+                contributors: baseContributors,
+                askId: ask.id,
+                askTitle: ask.title,
+              });
+            }
+
+            map.set(challengeId, rows);
+          });
+        });
+      }
     });
     
     console.log('🗺️ Frontend: Challenge insight map built:', {
