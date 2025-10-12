@@ -1118,6 +1118,21 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
     return selectedProjectId;
   }, [editingAskId, asks, selectedChallenge, selectedProjectId]);
 
+  const activeAskClientId = useMemo(() => {
+    if (activeAskProjectId) {
+      const project = projects.find(item => item.id === activeAskProjectId);
+      if (project?.clientId) {
+        return project.clientId;
+      }
+    }
+
+    if (selectedClientId) {
+      return selectedClientId;
+    }
+
+    return null;
+  }, [activeAskProjectId, projects, selectedClientId]);
+
   const eligibleAskUsers = useMemo(() => {
     const sorted = [...users].sort((a, b) => {
       const nameA = (a.fullName || `${a.firstName ?? ""} ${a.lastName ?? ""}` || a.email || "").trim().toLowerCase();
@@ -1133,18 +1148,22 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
       const normalizedRole = user.role?.toLowerCase?.() ?? "";
       const isGlobal = normalizedRole.includes("admin") || normalizedRole.includes("owner");
 
-      if (isGlobal) {
-        return true;
+      if (!isGlobal) {
+        if (activeAskClientId && user.clientId !== activeAskClientId) {
+          return false;
+        }
+
+        if (activeAskProjectId) {
+          const projectIds = user.projectIds ?? [];
+          if (!projectIds.includes(activeAskProjectId)) {
+            return false;
+          }
+        }
       }
 
-      if (!activeAskProjectId) {
-        return true;
-      }
-
-      const projectIds = user.projectIds ?? [];
-      return projectIds.includes(activeAskProjectId);
+      return true;
     });
-  }, [activeAskProjectId, users]);
+  }, [activeAskClientId, activeAskProjectId, users]);
 
   const lockedParticipantIds = useMemo(() => {
     const eligibleIds = new Set(eligibleAskUsers.map(user => user.id));
@@ -1684,16 +1703,16 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
 
   const filteredUsers = useMemo(() => {
     return users.filter(user => {
-      if (selectedClientId && user.clientId !== selectedClientId) {
+      const normalizedRole = user.role?.toLowerCase?.() ?? "";
+      const isGlobal = normalizedRole.includes("admin") || normalizedRole.includes("owner");
+
+      if (selectedClientId && user.clientId !== selectedClientId && !isGlobal) {
         return false;
       }
 
       if (!selectedProjectId) {
         return true;
       }
-
-      const normalizedRole = user.role?.toLowerCase?.() ?? "";
-      const isGlobal = normalizedRole.includes("admin") || normalizedRole.includes("owner");
 
       if (isGlobal) {
         return true;

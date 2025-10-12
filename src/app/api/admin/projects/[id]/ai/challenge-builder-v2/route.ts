@@ -599,7 +599,7 @@ function mapDetailedUpdate(
         description: updates.description ?? null,
         status: normaliseStatus(updates.status),
         impact: normaliseImpact(updates.impact),
-        owners: normaliseOwnerSuggestions(updates.owners) ?? undefined,
+        owners: normaliseOwnerSuggestions(updates.owners ?? undefined) ?? undefined,
       }
     : null;
 
@@ -644,13 +644,13 @@ function mapDetailedUpdate(
           description: item.description ?? null,
           status: normaliseStatus(item.status),
           impact: normaliseImpact(item.impact),
-          owners: normaliseOwnerSuggestions(item.owners),
+          owners: normaliseOwnerSuggestions(item.owners ?? undefined),
           summary: item.summary ?? null,
         }))
       : undefined,
     agentMetadata,
     rawResponse: undefined,
-    errors: updateData.errors,
+    errors: updateData.errors ?? undefined,
   };
 }
 
@@ -667,7 +667,7 @@ function mapDetailedCreation(
     description: item.description ?? null,
     status: normaliseStatus(item.status),
     impact: normaliseImpact(item.impact) ?? planItem.estimatedImpact,
-    owners: normaliseOwnerSuggestions(item.owners),
+    owners: normaliseOwnerSuggestions(item.owners ?? undefined),
     summary: item.summary ?? creationData.summary ?? planItem.reason,
     foundationInsights: item.foundationInsights?.map(insight => ({
       insightId: insight.insightId,

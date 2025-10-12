@@ -629,7 +629,7 @@ function mapChallengeSuggestion(
         description: updates.description ?? null,
         status: normaliseStatus(updates.status),
         impact: normaliseImpact(updates.impact),
-        owners: normaliseOwnerSuggestions(updates.owners) ?? undefined,
+        owners: normaliseOwnerSuggestions(updates.owners ?? undefined) ?? undefined,
       }
     : null;
 
@@ -675,13 +675,13 @@ function mapChallengeSuggestion(
           description: item.description ?? null,
           status: normaliseStatus(item.status),
           impact: normaliseImpact(item.impact),
-          owners: normaliseOwnerSuggestions(item.owners),
+          owners: normaliseOwnerSuggestions(item.owners ?? undefined),
           summary: item.summary ?? null,
         }))
       : undefined,
     agentMetadata,
     rawResponse: undefined,
-    errors: suggestion.errors,
+    errors: suggestion.errors ?? undefined,
   } satisfies AiChallengeUpdateSuggestion;
 }
 
@@ -693,7 +693,7 @@ function mapNewChallengeSuggestion(item: z.infer<typeof subChallengeCreateSchema
     description: item.description ?? null,
     status: normaliseStatus(item.status),
     impact: normaliseImpact(item.impact),
-    owners: normaliseOwnerSuggestions(item.owners),
+    owners: normaliseOwnerSuggestions(item.owners ?? undefined),
     summary: item.summary ?? null,
     foundationInsights: item.foundationInsights?.map(insight => ({
       insightId: insight.insightId,
