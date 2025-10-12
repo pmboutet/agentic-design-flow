@@ -521,7 +521,7 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
         if ((err as { name?: string }).name === "AbortError") {
           return;
         }
-        console.error("Failed to load project journey data", err);
+        console.error("❌ Frontend: Failed to load project journey data", { projectId, error: err });
         if (USE_MOCK_JOURNEY) {
           setBoardData(getMockProjectJourneyData(projectId));
         } else if (!options?.silent) {
@@ -545,6 +545,20 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
       controller.abort();
     };
   }, [loadJourneyData]);
+
+  useEffect(() => {
+    if (!boardData) {
+      console.log('🧭 Frontend: Board data cleared');
+      return;
+    }
+
+    console.log('🧭 Frontend: Board data ready', {
+      projectId: boardData.projectId,
+      challenges: boardData.challenges.length,
+      asks: boardData.asks.length,
+      availableUsers: boardData.availableUsers.length,
+    });
+  }, [boardData]);
 
   const ensureAskDetails = useCallback(
     async (askId: string): Promise<AskSessionRecord> => {
@@ -950,6 +964,9 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
 
   useEffect(() => {
     if (!boardData) {
+      if (activeChallengeId !== null) {
+        console.log('🧭 Frontend: Clearing active challenge because board data is unavailable');
+      }
       setActiveChallengeId(null);
       return;
     }
@@ -958,7 +975,18 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
       return;
     }
 
-    setActiveChallengeId(boardData.challenges[0]?.id ?? null);
+    const fallbackId = boardData.challenges[0]?.id ?? null;
+
+    if (!activeChallengeId) {
+      console.log('🧭 Frontend: Setting initial active challenge', { fallbackId });
+    } else {
+      console.log('🧭 Frontend: Active challenge missing, selecting fallback', {
+        missingId: activeChallengeId,
+        fallbackId,
+      });
+    }
+
+    setActiveChallengeId(fallbackId);
   }, [boardData, activeChallengeId, allChallenges]);
 
   const challengeParentMap = useMemo(

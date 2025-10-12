@@ -39,14 +39,25 @@ export async function GET(
   try {
     const projectId = z.string().uuid().parse(params.id);
 
+    console.log("🛠️ API: Loading journey data", { projectId });
+
     const supabase = getAdminSupabaseClient();
     const { boardData } = await fetchProjectJourneyContext(supabase, projectId);
+
+    console.log("✅ API: Journey data loaded", {
+      projectId,
+      challengeCount: boardData.challenges.length,
+      askCount: boardData.asks.length,
+      availableUserCount: boardData.availableUsers.length,
+    });
 
     return NextResponse.json<ApiResponse<ProjectJourneyBoardData>>({
       success: true,
       data: boardData,
     });
   } catch (error) {
+    console.error("❌ API: Failed to load journey data", error);
+
     if (error instanceof z.ZodError) {
       return NextResponse.json<ApiResponse>({
         success: false,

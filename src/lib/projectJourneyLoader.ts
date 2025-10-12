@@ -244,6 +244,8 @@ export async function fetchProjectJourneyContext(
   supabase: SupabaseClient,
   projectId: string,
 ): Promise<ProjectJourneyContext> {
+  console.log("🧩 Loader: Fetching project journey context", { projectId });
+
   const [projectResult, challengeResult, askResult] = await Promise.all([
     supabase
       .from("projects")
@@ -282,6 +284,12 @@ export async function fetchProjectJourneyContext(
 
   const challengeRows = challengeResult.data ?? [];
   const askRows = askResult.data ?? [];
+
+  console.log("🧩 Loader: Primary entities fetched", {
+    projectId,
+    challengeCount: challengeRows.length,
+    askCount: askRows.length,
+  });
 
   const askIds = askRows.map(row => row.id);
   const challengeIds = challengeRows.map(row => row.id);
@@ -340,6 +348,14 @@ export async function fetchProjectJourneyContext(
   const insightRows = insightResult.data ?? [];
   const challengeInsightRows = challengeInsightResult.data ?? [];
   const ownerRows = ownerResult.data ?? [];
+
+  console.log("🧩 Loader: Related entities fetched", {
+    projectId,
+    participantCount: participantRows.length,
+    insightCount: insightRows.length,
+    challengeInsightLinks: challengeInsightRows.length,
+    ownerCount: ownerRows.length,
+  });
 
   const ownerMap = new Map<string, ProjectParticipantSummary>();
   for (const row of ownerRows) {
@@ -441,6 +457,11 @@ export async function fetchProjectJourneyContext(
 
   const challengeNodes = buildChallengeTree(challengeRows, relatedInsightMap, ownerMap);
 
+  console.log("🧩 Loader: Challenge tree built", {
+    projectId,
+    rootChallenges: challengeNodes.length,
+  });
+
   const askOverviews: ProjectAskOverview[] = askRows.map(row => {
     const participants = participantsByAskId.get(row.id) ?? [];
     const askInsights = insightsByAskId.get(row.id) ?? [];
@@ -488,6 +509,13 @@ export async function fetchProjectJourneyContext(
     challenges: challengeNodes,
     availableUsers: Array.from(availableUsers.values()),
   };
+
+  console.log("🧩 Loader: Board data assembled", {
+    projectId,
+    challengeCount: boardData.challenges.length,
+    askCount: boardData.asks.length,
+    availableUsers: boardData.availableUsers.length,
+  });
 
   return {
     projectRow,
