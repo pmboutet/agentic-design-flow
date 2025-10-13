@@ -4,6 +4,7 @@ import { getAdminSupabaseClient } from "@/lib/supabaseAdmin";
 import { sanitizeOptional, sanitizeText } from "@/lib/sanitize";
 import { parseErrorMessage } from "@/lib/utils";
 import { type ApiResponse, type ManagedUser } from "@/types";
+import { fetchProjectMemberships, mapManagedUser } from "../helpers";
 
 const roleValues = ["full_admin", "project_admin", "facilitator", "manager", "participant", "user"] as const;
 
@@ -15,22 +16,6 @@ const updateSchema = z.object({
   clientId: z.string().uuid().optional().or(z.literal("")),
   isActive: z.boolean().optional()
 });
-
-function mapUser(row: any): ManagedUser {
-  return {
-    id: row.id,
-    email: row.email,
-    firstName: row.first_name,
-    lastName: row.last_name,
-    fullName: row.full_name,
-    role: row.role,
-    clientId: row.client_id,
-    clientName: row.clients?.name ?? null,
-    isActive: row.is_active,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at
-  };
-}
 
 export async function PATCH(
   request: NextRequest,
@@ -113,9 +98,11 @@ export async function PATCH(
       throw error;
     }
 
+    const membershipMap = await fetchProjectMemberships(supabase, [data.id]);
+
     return NextResponse.json<ApiResponse<ManagedUser>>({
       success: true,
-      data: mapUser(data)
+      data: mapManagedUser(data, membershipMap)
     });
   } catch (error) {
     const status = error instanceof z.ZodError ? 400 : 500;

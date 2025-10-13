@@ -11,7 +11,9 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
   type AiChallengeUpdateSuggestion,
+  type AiFoundationInsight,
   type AiNewChallengeSuggestion,
+  type AiSubChallengeUpdateSuggestion,
   type ProjectChallengeNode,
   type ProjectParticipantSummary,
 } from "@/types";
@@ -52,9 +54,24 @@ interface AiChallengeBuilderPanelProps {
   newChallenges: AiNewChallengeSuggestion[];
   errors?: Array<{ challengeId: string | null; message: string }> | null;
   challengeLookup: Map<string, ProjectChallengeNode>;
-  onApplySuggestion: (suggestion: AiChallengeUpdateSuggestion) => void | Promise<void>;
+  onApplyChallengeUpdates: (
+    challengeId: string,
+    updates?: AiChallengeUpdateSuggestion["updates"] | null,
+    foundationInsights?: AiFoundationInsight[],
+  ) => void | Promise<void>;
+  onDismissChallengeUpdates: (challengeId: string) => void;
   onDismissSuggestion: (challengeId: string) => void;
-  applyingChallengeIds: Set<string>;
+  applyingChallengeUpdateIds: Set<string>;
+  onApplySubChallengeUpdate: (challengeId: string, update: AiSubChallengeUpdateSuggestion) => void | Promise<void>;
+  onDismissSubChallengeUpdate: (challengeId: string, subChallengeId: string) => void;
+  applyingSubChallengeUpdateIds: Set<string>;
+  onApplySuggestedNewSubChallenge: (
+    challengeId: string,
+    index: number,
+    suggestion: AiNewChallengeSuggestion,
+  ) => void | Promise<void>;
+  onDismissSuggestedNewSubChallenge: (challengeId: string, index: number) => void;
+  applyingNewSubChallengeKeys: Set<string>;
   onApplyNewChallenge: (suggestion: AiNewChallengeSuggestion, index: number) => void | Promise<void>;
   onDismissNewChallenge: (index: number) => void;
   applyingNewChallengeIndices: Set<number>;
@@ -110,19 +127,38 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
   return <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-300">{children}</h3>;
 }
 
+interface SuggestionCardProps {
+  suggestion: AiChallengeUpdateSuggestion;
+  challenge: ProjectChallengeNode | undefined;
+  applyingChallengeUpdate: boolean;
+  applyingSubChallengeUpdateIds: Set<string>;
+  applyingNewSubChallengeKeys: Set<string>;
+  onApplyChallengeUpdate: (
+    updates?: AiChallengeUpdateSuggestion["updates"] | null,
+    foundationInsights?: AiFoundationInsight[],
+  ) => void;
+  onDismissChallengeUpdate: () => void;
+  onDismissSuggestion: () => void;
+  onApplySubChallengeUpdate: (update: AiSubChallengeUpdateSuggestion) => void;
+  onDismissSubChallengeUpdate: (subChallengeId: string) => void;
+  onApplyNewSubChallenge: (index: number, suggestion: AiNewChallengeSuggestion) => void;
+  onDismissNewSubChallenge: (index: number) => void;
+}
+
 function SuggestionCard({
   suggestion,
   challenge,
-  applying,
-  onApply,
-  onDismiss,
-}: {
-  suggestion: AiChallengeUpdateSuggestion;
-  challenge: ProjectChallengeNode | undefined;
-  applying: boolean;
-  onApply: (updatedSuggestion: AiChallengeUpdateSuggestion) => void;
-  onDismiss: () => void;
-}) {
+  applyingChallengeUpdate,
+  applyingSubChallengeUpdateIds,
+  applyingNewSubChallengeKeys,
+  onApplyChallengeUpdate,
+  onDismissChallengeUpdate,
+  onDismissSuggestion,
+  onApplySubChallengeUpdate,
+  onDismissSubChallengeUpdate,
+  onApplyNewSubChallenge,
+  onDismissNewSubChallenge,
+}: SuggestionCardProps) {
   const [draft, setDraft] = useState<AiChallengeUpdateSuggestion>(() => cloneChallengeSuggestion(suggestion));
 
   useEffect(() => {
@@ -136,6 +172,15 @@ function SuggestionCard({
   const updatedStatus = draft.updates?.status ?? null;
   const updatedImpact = draft.updates?.impact ?? null;
   const updatedOwners = draft.updates?.owners;
+  const hasChallengeFieldChanges = Boolean(
+    draft.updates &&
+      (draft.updates.title ||
+        draft.updates.description ||
+        draft.updates.status ||
+        draft.updates.impact ||
+        draft.updates.owners?.length),
+  );
+  const hasChallengeUpdate = hasChallengeFieldChanges || Boolean(draft.foundationInsights?.length);
 
   const handleSummaryChange = (value: string) => {
     setDraft(current => ({
@@ -193,6 +238,33 @@ function SuggestionCard({
     });
   };
 
+  const handleApplyChallenge = () => {
+    if (!hasChallengeUpdate) {
+      return;
+    }
+    onApplyChallengeUpdate(draft.updates ?? null, draft.foundationInsights);
+  };
+
+  const handleDismissChallenge = () => {
+    onDismissChallengeUpdate();
+  };
+
+  const handleApplySubChallenge = (index: number) => {
+    const update = draft.subChallengeUpdates?.[index];
+    if (!update) {
+      return;
+    }
+    onApplySubChallengeUpdate(update);
+  };
+
+  const handleApplyNewSubChallenge = (index: number) => {
+    const newSuggestion = draft.newSubChallenges?.[index];
+    if (!newSuggestion) {
+      return;
+    }
+    onApplyNewSubChallenge(index, newSuggestion);
+  };
+
   return (
     <div className="rounded-lg border border-slate-800 bg-slate-900/70 p-4 shadow-inner">
       <div className="flex items-start justify-between gap-4">
@@ -206,27 +278,44 @@ function SuggestionCard({
             className="min-h-[56px] resize-y border border-slate-700 bg-slate-900/80 text-sm text-slate-200 placeholder:text-slate-500"
           />
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-col gap-2 sm:flex-row">
           <Button
             type="button"
             variant="outline"
             className="border-slate-700 bg-slate-900/60 text-slate-200 hover:bg-slate-800"
             onClick={() => {
               setDraft(cloneChallengeSuggestion(suggestion));
-              onDismiss();
+              onDismissSuggestion();
             }}
           >
-            Dismiss
+            Dismiss all
           </Button>
-          <Button
-            type="button"
-            className="gap-2 bg-emerald-500/90 text-emerald-100 hover:bg-emerald-500"
-            onClick={() => onApply(draft)}
-            disabled={applying}
-          >
-            {applying ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-            Apply
-          </Button>
+          {hasChallengeUpdate ? (
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="border-slate-700 bg-slate-900/60 text-slate-200 hover:bg-slate-800"
+                onClick={handleDismissChallenge}
+                disabled={applyingChallengeUpdate}
+              >
+                Ignore update
+              </Button>
+              <Button
+                type="button"
+                className="gap-2 bg-emerald-500/90 text-emerald-100 hover:bg-emerald-500"
+                onClick={handleApplyChallenge}
+                disabled={!hasChallengeUpdate || applyingChallengeUpdate}
+              >
+                {applyingChallengeUpdate ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Sparkles className="h-4 w-4" />
+                )}
+                Apply challenge
+              </Button>
+            </div>
+          ) : null}
         </div>
       </div>
 
@@ -270,6 +359,7 @@ function SuggestionCard({
               value={updatedTitle}
               onChange={event => handleUpdateField("title", event.target.value)}
               className="mt-2 border border-slate-700 bg-slate-900/80 text-slate-100"
+              disabled={applyingChallengeUpdate}
             />
           </div>
         ) : null}
@@ -283,6 +373,7 @@ function SuggestionCard({
               onChange={event => handleUpdateField("description", event.target.value)}
               rows={5}
               className="mt-3 resize-y border border-slate-700 bg-slate-900/80 text-slate-100 placeholder:text-slate-500"
+              disabled={applyingChallengeUpdate}
             />
           </div>
         ) : null}
@@ -320,23 +411,27 @@ function SuggestionCard({
         {draft.subChallengeUpdates?.length ? (
           <div className="space-y-3">
             <SectionTitle>Sub-challenge updates</SectionTitle>
-            {draft.subChallengeUpdates.map((update, index) => (
-              <div
-                key={update.id}
-                className="space-y-2 rounded-md border border-indigo-400/30 bg-indigo-500/10 px-3 py-2"
-              >
-                <Input
-                  value={update.title ?? ""}
-                  onChange={event => handleSubChallengeUpdateChange(index, "title", event.target.value)}
-                  placeholder={`Sub-challenge ${update.id}`}
-                  className="border border-indigo-300/40 bg-indigo-500/20 text-sm text-indigo-100 placeholder:text-indigo-200/60"
-                />
-                {update.description ? (
-                  <Textarea
-                    value={update.description}
+            {draft.subChallengeUpdates.map((update, index) => {
+              const isApplying = applyingSubChallengeUpdateIds.has(update.id);
+              return (
+                <div
+                  key={update.id}
+                  className="space-y-2 rounded-md border border-indigo-400/30 bg-indigo-500/10 px-3 py-2"
+                >
+                  <Input
+                    value={update.title ?? ""}
+                    onChange={event => handleSubChallengeUpdateChange(index, "title", event.target.value)}
+                    placeholder={`Sub-challenge ${update.id}`}
+                    className="border border-indigo-300/40 bg-indigo-500/20 text-sm text-indigo-100 placeholder:text-indigo-200/60"
+                    disabled={isApplying}
+                  />
+                  {update.description ? (
+                    <Textarea
+                      value={update.description}
                     onChange={event => handleSubChallengeUpdateChange(index, "description", event.target.value)}
                     rows={3}
                     className="resize-y border border-indigo-300/40 bg-indigo-500/15 text-xs text-indigo-100 placeholder:text-indigo-200/60"
+                    disabled={isApplying}
                   />
                 ) : null}
                 {update.summary ? (
@@ -345,6 +440,7 @@ function SuggestionCard({
                     onChange={event => handleSubChallengeUpdateChange(index, "summary", event.target.value)}
                     rows={2}
                     className="resize-y border border-indigo-300/40 bg-indigo-500/15 text-xs text-indigo-100 placeholder:text-indigo-200/60"
+                    disabled={isApplying}
                   />
                 ) : null}
                 {update.status ? (
@@ -357,23 +453,54 @@ function SuggestionCard({
                     {formatStatusSummary("Impact", undefined, update.impact)}
                   </p>
                 ) : null}
-              </div>
-            ))}
+                <div className="flex flex-wrap gap-2 pt-1">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="border-indigo-300/40 bg-indigo-500/15 text-indigo-100 hover:bg-indigo-500/25"
+                    onClick={() => onDismissSubChallengeUpdate(update.id)}
+                    disabled={isApplying}
+                  >
+                    Dismiss
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="gap-1 bg-emerald-500/90 text-emerald-100 hover:bg-emerald-500"
+                    onClick={() => handleApplySubChallenge(index)}
+                    disabled={isApplying}
+                  >
+                    {isApplying ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Sparkles className="h-3.5 w-3.5" />
+                    )}
+                    Apply
+                  </Button>
+                </div>
+                </div>
+              );
+            })}
           </div>
         ) : null}
 
         {draft.newSubChallenges?.length ? (
           <div className="space-y-3">
             <SectionTitle>New sub-challenges</SectionTitle>
-            {draft.newSubChallenges.map((newChallenge, index) => (
-              <div
-                key={`${suggestion.challengeId}-${index}`}
-                className="space-y-3 rounded-md border border-emerald-400/30 bg-emerald-500/10 px-3 py-2"
-              >
-                <Input
-                  value={newChallenge.title}
-                  onChange={event => handleNewSubChallengeChange(index, "title", event.target.value)}
-                  className="border border-emerald-300/40 bg-emerald-500/15 text-sm font-semibold text-emerald-100 placeholder:text-emerald-200/70"
+            {draft.newSubChallenges.map((newChallenge, index) => {
+              const key = `${suggestion.challengeId}:${newChallenge.referenceId ?? index}`;
+              const isApplying = applyingNewSubChallengeKeys.has(key);
+              return (
+                <div
+                  key={`${suggestion.challengeId}-${index}`}
+                  className="space-y-3 rounded-md border border-emerald-400/30 bg-emerald-500/10 px-3 py-2"
+                >
+                  <Input
+                    value={newChallenge.title}
+                    onChange={event => handleNewSubChallengeChange(index, "title", event.target.value)}
+                    className="border border-emerald-300/40 bg-emerald-500/15 text-sm font-semibold text-emerald-100 placeholder:text-emerald-200/70"
+                    disabled={isApplying}
                 />
                 <Textarea
                   value={newChallenge.description ?? ""}
@@ -381,6 +508,7 @@ function SuggestionCard({
                   rows={3}
                   placeholder="Describe the new sub-challenge"
                   className="resize-y border border-emerald-300/40 bg-emerald-500/15 text-xs text-emerald-100 placeholder:text-emerald-200/70"
+                  disabled={isApplying}
                 />
                 {newChallenge.summary ? (
                   <Textarea
@@ -388,6 +516,7 @@ function SuggestionCard({
                     onChange={event => handleNewSubChallengeChange(index, "summary", event.target.value)}
                     rows={2}
                     className="resize-y border border-emerald-300/40 bg-emerald-500/15 text-xs text-emerald-100 placeholder:text-emerald-200/70"
+                    disabled={isApplying}
                   />
                 ) : null}
                 <div className="flex flex-wrap gap-2 text-[11px] text-emerald-100/80">
@@ -407,8 +536,35 @@ function SuggestionCard({
                     </span>
                   ) : null}
                 </div>
-              </div>
-            ))}
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="border-emerald-300/40 bg-emerald-500/15 text-emerald-100 hover:bg-emerald-500/25"
+                    onClick={() => onDismissNewSubChallenge(index)}
+                    disabled={isApplying}
+                  >
+                    Dismiss
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="gap-1 bg-emerald-500/90 text-emerald-100 hover:bg-emerald-500"
+                    onClick={() => handleApplyNewSubChallenge(index)}
+                    disabled={isApplying}
+                  >
+                    {isApplying ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <ShieldPlus className="h-3.5 w-3.5" />
+                    )}
+                    Create
+                  </Button>
+                </div>
+                </div>
+              );
+            })}
           </div>
         ) : null}
       </div>
@@ -545,9 +701,16 @@ export function AiChallengeBuilderPanel({
   newChallenges,
   errors,
   challengeLookup,
-  onApplySuggestion,
+  onApplyChallengeUpdates,
+  onDismissChallengeUpdates,
   onDismissSuggestion,
-  applyingChallengeIds,
+  applyingChallengeUpdateIds,
+  onApplySubChallengeUpdate,
+  onDismissSubChallengeUpdate,
+  applyingSubChallengeUpdateIds,
+  onApplySuggestedNewSubChallenge,
+  onDismissSuggestedNewSubChallenge,
+  applyingNewSubChallengeKeys,
   onApplyNewChallenge,
   onDismissNewChallenge,
   applyingNewChallengeIndices,
@@ -647,13 +810,30 @@ export function AiChallengeBuilderPanel({
                     key={suggestion.challengeId}
                     suggestion={suggestion}
                     challenge={challengeLookup.get(suggestion.challengeId)}
-                    applying={applyingChallengeIds.has(suggestion.challengeId)}
-                    onApply={updated => onApplySuggestion(updated)}
-                    onDismiss={() => onDismissSuggestion(suggestion.challengeId)}
+                    applyingChallengeUpdate={applyingChallengeUpdateIds.has(suggestion.challengeId)}
+                    applyingSubChallengeUpdateIds={applyingSubChallengeUpdateIds}
+                    applyingNewSubChallengeKeys={applyingNewSubChallengeKeys}
+                    onApplyChallengeUpdate={(updates, foundationInsights) =>
+                      onApplyChallengeUpdates(suggestion.challengeId, updates, foundationInsights)
+                    }
+                    onDismissChallengeUpdate={() => onDismissChallengeUpdates(suggestion.challengeId)}
+                    onDismissSuggestion={() => onDismissSuggestion(suggestion.challengeId)}
+                    onApplySubChallengeUpdate={update =>
+                      onApplySubChallengeUpdate(suggestion.challengeId, update)
+                    }
+                    onDismissSubChallengeUpdate={subId =>
+                      onDismissSubChallengeUpdate(suggestion.challengeId, subId)
+                    }
+                    onApplyNewSubChallenge={(index, newSuggestion) =>
+                      onApplySuggestedNewSubChallenge(suggestion.challengeId, index, newSuggestion)
+                    }
+                    onDismissNewSubChallenge={index =>
+                      onDismissSuggestedNewSubChallenge(suggestion.challengeId, index)
+                    }
                   />
                 ))}
               </section>
-            ) : (
+            ) : !isRunning ? (
               <div className="rounded-lg border border-slate-800 bg-slate-900/70 px-4 py-5 text-sm text-slate-300">
                 <div className="space-y-2">
                   <p className="font-medium text-slate-200">No challenge updates proposed</p>
@@ -663,7 +843,7 @@ export function AiChallengeBuilderPanel({
                   </p>
                 </div>
               </div>
-            )}
+            ) : null}
 
             {hasNewChallenges ? (
               <section className="mt-8 space-y-4">

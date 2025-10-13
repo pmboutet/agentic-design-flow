@@ -31,7 +31,9 @@ import {
   type AiAskSuggestion,
   type AiChallengeBuilderResponse,
   type AiChallengeUpdateSuggestion,
+  type AiFoundationInsight,
   type AiNewChallengeSuggestion,
+  type AiSubChallengeUpdateSuggestion,
   type AskAudienceScope,
   type AskDeliveryMode,
   type AskGroupResponseMode,
@@ -416,13 +418,50 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
   const [aiBuilderFeedback, setAiBuilderFeedback] = useState<FeedbackState | null>(null);
   const [isAiBuilderRunning, setIsAiBuilderRunning] = useState(false);
   const [isAiPanelOpen, setIsAiPanelOpen] = useState(false);
-  const [applyingChallengeIds, setApplyingChallengeIds] = useState<Set<string>>(() => new Set());
+  const [applyingChallengeUpdateIds, setApplyingChallengeUpdateIds] = useState<Set<string>>(() => new Set());
+  const [applyingSubChallengeUpdateIds, setApplyingSubChallengeUpdateIds] = useState<Set<string>>(() => new Set());
+  const [applyingNewSubChallengeKeys, setApplyingNewSubChallengeKeys] = useState<Set<string>>(() => new Set());
   const [applyingNewChallengeIndices, setApplyingNewChallengeIndices] = useState<Set<number>>(() => new Set());
   const [isAskAiPanelOpen, setIsAskAiPanelOpen] = useState(false);
   const [isAskAiRunning, setIsAskAiRunning] = useState(false);
   const [askAiSuggestions, setAskAiSuggestions] = useState<AiAskSuggestion[]>([]);
   const [askAiFeedback, setAskAiFeedback] = useState<FeedbackState | null>(null);
   const [askAiErrors, setAskAiErrors] = useState<string[] | null>(null);
+
+  const pruneAiSuggestionNodes = (suggestion: AiChallengeUpdateSuggestion): AiChallengeUpdateSuggestion | null => {
+    const hasChallengeUpdates = Boolean(
+      suggestion.updates &&
+        (suggestion.updates.title ||
+          suggestion.updates.description ||
+          suggestion.updates.status ||
+          suggestion.updates.impact ||
+          suggestion.updates.owners?.length),
+    );
+    const hasSubChallengeUpdates = Boolean(suggestion.subChallengeUpdates?.length);
+    const hasNewSubChallenges = Boolean(suggestion.newSubChallenges?.length);
+
+    const cleaned: AiChallengeUpdateSuggestion = { ...suggestion };
+
+    if (!hasChallengeUpdates) {
+      delete (cleaned as Partial<AiChallengeUpdateSuggestion>).updates;
+      delete (cleaned as Partial<AiChallengeUpdateSuggestion>).foundationInsights;
+      if (!hasSubChallengeUpdates && !hasNewSubChallenges && !cleaned.summary) {
+        delete (cleaned as Partial<AiChallengeUpdateSuggestion>).summary;
+      }
+    }
+    if (!hasSubChallengeUpdates) {
+      delete (cleaned as Partial<AiChallengeUpdateSuggestion>).subChallengeUpdates;
+    }
+    if (!hasNewSubChallenges) {
+      delete (cleaned as Partial<AiChallengeUpdateSuggestion>).newSubChallenges;
+    }
+
+    if (!hasChallengeUpdates && !hasSubChallengeUpdates && !hasNewSubChallenges) {
+      return null;
+    }
+
+    return cleaned;
+  };
 
   useEffect(() => {
     if (challengeFeedback?.type !== "success") {
@@ -714,152 +753,341 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
     setAskAiSuggestions(current => current.filter((_, candidateIndex) => candidateIndex !== index));
   }, []);
 
-  const handleApplyChallengeSuggestion = useCallback(
-    async (suggestion: AiChallengeUpdateSuggestion) => {
+  const handleApplyChallengeUpdate = useCallback(
+    async (
+      challengeId: string,
+      updates?: AiChallengeUpdateSuggestion["updates"] | null,
+      _foundationInsights?: AiFoundationInsight[],
+    ) => {
       if (!boardData) {
         return;
       }
 
-      setApplyingChallengeIds(current => {
+      setApplyingChallengeUpdateIds(current => {
         const next = new Set(current);
-        next.add(suggestion.challengeId);
+        next.add(challengeId);
         return next;
       });
       setAiBuilderFeedback(null);
 
       try {
-        const pending: Array<Promise<void>> = [];
-        const baseChallenge = challengeById.get(suggestion.challengeId);
+        const baseChallenge = challengeById.get(challengeId);
+        const payload: Record<string, unknown> = {};
 
-        if (suggestion.updates) {
-          const payload: Record<string, unknown> = {};
-          if (suggestion.updates.title && suggestion.updates.title !== baseChallenge?.title) {
-            payload.name = suggestion.updates.title;
-          }
-          if (suggestion.updates.description && suggestion.updates.description !== baseChallenge?.description) {
-            payload.description = suggestion.updates.description;
-          }
-          if (suggestion.updates.status && suggestion.updates.status !== baseChallenge?.status) {
-            payload.status = suggestion.updates.status;
-          }
-          if (suggestion.updates.impact && suggestion.updates.impact !== baseChallenge?.impact) {
-            payload.priority = suggestion.updates.impact;
-          }
-          const ownerId = resolveOwnerId(suggestion.updates.owners ?? null);
-          if (ownerId) {
-            payload.assignedTo = ownerId;
-          }
+        if (updates?.title && updates.title !== baseChallenge?.title) {
+          payload.name = updates.title;
+        }
+        if (updates?.description && updates.description !== baseChallenge?.description) {
+          payload.description = updates.description;
+        }
+        if (updates?.status && updates.status !== baseChallenge?.status) {
+          payload.status = updates.status;
+        }
+        if (updates?.impact && updates.impact !== baseChallenge?.impact) {
+          payload.priority = updates.impact;
+        }
+        const ownerId = resolveOwnerId(updates?.owners ?? null);
+        if (ownerId) {
+          payload.assignedTo = ownerId;
+        }
 
-          if (Object.keys(payload).length > 0) {
-            pending.push(
-              fetch(`/api/admin/challenges/${suggestion.challengeId}`, {
-                method: "PATCH",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(payload),
-              }).then(async response => {
-                const result = await response.json().catch(() => ({}));
-                if (!response.ok || !result.success) {
-                  throw new Error(result.error || `Échec de la mise à jour du challenge ${suggestion.challengeTitle}.`);
-                }
-              }),
-            );
+        if (Object.keys(payload).length > 0) {
+          await fetch(`/api/admin/challenges/${challengeId}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          }).then(async response => {
+            const result = await response.json().catch(() => ({}));
+            if (!response.ok || !result.success) {
+              throw new Error(
+                result.error || `Échec de la mise à jour du challenge ${baseChallenge?.title ?? challengeId}.`,
+              );
+            }
+          });
+          await loadJourneyData({ silent: true });
+        }
+
+        setAiSuggestions(current =>
+          current
+            .map(suggestion => {
+              if (suggestion.challengeId !== challengeId) {
+                return suggestion;
+              }
+              const next: AiChallengeUpdateSuggestion = { ...suggestion };
+              delete (next as Partial<AiChallengeUpdateSuggestion>).updates;
+              delete (next as Partial<AiChallengeUpdateSuggestion>).foundationInsights;
+              return pruneAiSuggestionNodes(next);
+            })
+            .filter((value): value is AiChallengeUpdateSuggestion => Boolean(value)),
+        );
+
+        setAiBuilderFeedback({
+          type: "success",
+          message: `Mise à jour appliquée au challenge « ${baseChallenge?.title ?? challengeId} ».`,
+        });
+      } catch (error) {
+        setAiBuilderFeedback({
+          type: "error",
+          message: error instanceof Error ? error.message : "Impossible d'appliquer la mise à jour du challenge.",
+        });
+      } finally {
+        setApplyingChallengeUpdateIds(current => {
+          const next = new Set(current);
+          next.delete(challengeId);
+          return next;
+        });
+      }
+    },
+    [boardData, challengeById, loadJourneyData, pruneAiSuggestionNodes, resolveOwnerId],
+  );
+
+  const handleDismissChallengeUpdate = useCallback(
+    (challengeId: string) => {
+      setAiSuggestions(current =>
+        current
+          .map(suggestion => {
+            if (suggestion.challengeId !== challengeId) {
+              return suggestion;
+            }
+            const next: AiChallengeUpdateSuggestion = { ...suggestion };
+            delete (next as Partial<AiChallengeUpdateSuggestion>).updates;
+            delete (next as Partial<AiChallengeUpdateSuggestion>).foundationInsights;
+            return pruneAiSuggestionNodes(next);
+          })
+          .filter((value): value is AiChallengeUpdateSuggestion => Boolean(value)),
+      );
+    },
+    [pruneAiSuggestionNodes],
+  );
+
+  const handleApplySubChallengeUpdate = useCallback(
+    async (parentChallengeId: string, update: AiSubChallengeUpdateSuggestion) => {
+      if (!boardData) {
+        return;
+      }
+
+      setApplyingSubChallengeUpdateIds(current => {
+        const next = new Set(current);
+        next.add(update.id);
+        return next;
+      });
+      setAiBuilderFeedback(null);
+
+      try {
+        const currentChallenge = challengeById.get(update.id);
+        const payload: Record<string, unknown> = {};
+
+        if (currentChallenge) {
+          if (update.title && update.title !== currentChallenge.title) {
+            payload.name = update.title;
+          }
+          if (update.description && update.description !== currentChallenge.description) {
+            payload.description = update.description;
+          }
+          if (update.status && update.status !== currentChallenge.status) {
+            payload.status = update.status;
+          }
+          if (update.impact && update.impact !== currentChallenge.impact) {
+            payload.priority = update.impact;
           }
         }
 
-        if (suggestion.subChallengeUpdates?.length) {
-          suggestion.subChallengeUpdates.forEach(update => {
-            const currentChallenge = challengeById.get(update.id);
-            if (!currentChallenge) {
-              return;
+        if (currentChallenge && Object.keys(payload).length > 0) {
+          await fetch(`/api/admin/challenges/${update.id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          }).then(async response => {
+            const result = await response.json().catch(() => ({}));
+            if (!response.ok || !result.success) {
+              throw new Error(
+                result.error || `Échec de la mise à jour du sous-challenge ${currentChallenge.title}.`,
+              );
             }
+          });
+          await loadJourneyData({ silent: true });
+        }
 
-            const payload: Record<string, unknown> = {};
-            if (update.title && update.title !== currentChallenge.title) {
-              payload.name = update.title;
-            }
-            if (update.description && update.description !== currentChallenge.description) {
-              payload.description = update.description;
-            }
-            if (update.status && update.status !== currentChallenge.status) {
-              payload.status = update.status;
-            }
-            if (update.impact && update.impact !== currentChallenge.impact) {
-              payload.priority = update.impact;
-            }
+        setAiSuggestions(current =>
+          current
+            .map(suggestion => {
+              if (suggestion.challengeId !== parentChallengeId) {
+                return suggestion;
+              }
+              const remaining = (suggestion.subChallengeUpdates ?? []).filter(item => item.id !== update.id);
+              const next: AiChallengeUpdateSuggestion = {
+                ...suggestion,
+                subChallengeUpdates: remaining.length ? remaining : undefined,
+              };
+              return pruneAiSuggestionNodes(next);
+            })
+            .filter((value): value is AiChallengeUpdateSuggestion => Boolean(value)),
+        );
 
-            if (Object.keys(payload).length > 0) {
-              pending.push(
-                fetch(`/api/admin/challenges/${update.id}`, {
-                  method: "PATCH",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify(payload),
-                }).then(async response => {
-                  const result = await response.json().catch(() => ({}));
-                  if (!response.ok || !result.success) {
-                    throw new Error(result.error || `Échec de la mise à jour du sous-challenge ${update.id}.`);
-                  }
-                }),
+        const label = currentChallenge?.title ?? update.title ?? update.id;
+        setAiBuilderFeedback({
+          type: "success",
+          message: `Mise à jour appliquée au sous-challenge « ${label} ».`,
+        });
+      } catch (error) {
+        setAiBuilderFeedback({
+          type: "error",
+          message:
+            error instanceof Error ? error.message : "Impossible d'appliquer la mise à jour du sous-challenge.",
+        });
+      } finally {
+        setApplyingSubChallengeUpdateIds(current => {
+          const next = new Set(current);
+          next.delete(update.id);
+          return next;
+        });
+      }
+    },
+    [boardData, challengeById, loadJourneyData, pruneAiSuggestionNodes],
+  );
+
+  const handleDismissSubChallengeUpdate = useCallback(
+    (parentChallengeId: string, subChallengeId: string) => {
+      setAiSuggestions(current =>
+        current
+          .map(suggestion => {
+            if (suggestion.challengeId !== parentChallengeId) {
+              return suggestion;
+            }
+            const remaining = (suggestion.subChallengeUpdates ?? []).filter(item => item.id !== subChallengeId);
+            const next: AiChallengeUpdateSuggestion = {
+              ...suggestion,
+              subChallengeUpdates: remaining.length ? remaining : undefined,
+            };
+            return pruneAiSuggestionNodes(next);
+          })
+          .filter((value): value is AiChallengeUpdateSuggestion => Boolean(value)),
+      );
+    },
+    [pruneAiSuggestionNodes],
+  );
+
+  const handleApplySuggestedNewSubChallenge = useCallback(
+    async (parentChallengeId: string, index: number, newChallenge: AiNewChallengeSuggestion) => {
+      if (!boardData) {
+        return;
+      }
+
+      const key = `${parentChallengeId}:${newChallenge.referenceId ?? index}`;
+      setApplyingNewSubChallengeKeys(current => {
+        const next = new Set(current);
+        next.add(key);
+        return next;
+      });
+      setAiBuilderFeedback(null);
+
+      try {
+        const resolvedParentId = newChallenge.parentId ?? parentChallengeId;
+        const parent = challengeById.get(resolvedParentId) ?? challengeById.get(parentChallengeId) ?? null;
+        const payload: Record<string, unknown> = {
+          name: newChallenge.title,
+          description: newChallenge.description ?? "",
+          status: newChallenge.status ?? parent?.status ?? "open",
+          priority: newChallenge.impact ?? parent?.impact ?? "medium",
+          projectId: boardData.projectId,
+          parentChallengeId: resolvedParentId,
+        };
+        const ownerId = resolveOwnerId(newChallenge.owners ?? null);
+        if (ownerId) {
+          payload.assignedTo = ownerId;
+        }
+
+        const response = await fetch("/api/admin/challenges", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok || !result.success) {
+          throw new Error(result.error || `Échec de la création du sous-challenge ${newChallenge.title}.`);
+        }
+
+        const createdChallengeId = result.data?.id as string | undefined;
+
+        if (createdChallengeId && newChallenge.foundationInsights?.length) {
+          await fetch(`/api/admin/projects/${boardData.projectId}/ai/challenge-builder/apply`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              challengeId: createdChallengeId,
+              foundationInsights: newChallenge.foundationInsights,
+            }),
+          }).then(async applyResponse => {
+            if (!applyResponse.ok) {
+              const applyResult = await applyResponse.json().catch(() => ({}));
+              throw new Error(
+                (applyResult as { error?: string }).error ||
+                  `Sous-challenge créé mais les foundation insights n'ont pas pu être liés.`,
               );
             }
           });
         }
 
-        if (suggestion.newSubChallenges?.length) {
-          suggestion.newSubChallenges.forEach(newChallenge => {
-            const parentId = newChallenge.parentId ?? suggestion.challengeId;
-            const parent = challengeById.get(parentId) ?? baseChallenge;
-            const payload: Record<string, unknown> = {
-              name: newChallenge.title,
-              description: newChallenge.description ?? "",
-              status: newChallenge.status ?? parent?.status ?? "open",
-              priority: newChallenge.impact ?? parent?.impact ?? "medium",
-              projectId: boardData.projectId,
-              parentChallengeId: parentId || "",
-            };
-            const ownerId = resolveOwnerId(newChallenge.owners ?? null);
-            if (ownerId) {
-              payload.assignedTo = ownerId;
-            }
+        await loadJourneyData({ silent: true });
 
-            pending.push(
-              fetch("/api/admin/challenges", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(payload),
-              }).then(async response => {
-                const result = await response.json().catch(() => ({}));
-                if (!response.ok || !result.success) {
-                  throw new Error(result.error || `Échec de la création du sous-challenge ${newChallenge.title}.`);
-                }
-              }),
-            );
-          });
-        }
+        setAiSuggestions(current =>
+          current
+            .map(suggestion => {
+              if (suggestion.challengeId !== parentChallengeId) {
+                return suggestion;
+              }
+              const remaining = (suggestion.newSubChallenges ?? []).filter(
+                (_, candidateIndex) => candidateIndex !== index,
+              );
+              const next: AiChallengeUpdateSuggestion = {
+                ...suggestion,
+                newSubChallenges: remaining.length ? remaining : undefined,
+              };
+              return pruneAiSuggestionNodes(next);
+            })
+            .filter((value): value is AiChallengeUpdateSuggestion => Boolean(value)),
+        );
 
-        if (pending.length > 0) {
-          await Promise.all(pending);
-          await loadJourneyData({ silent: true });
-        }
-
-        setAiSuggestions(current => current.filter(item => item.challengeId !== suggestion.challengeId));
         setAiBuilderFeedback({
           type: "success",
-          message: `Recommandations appliquées à « ${suggestion.challengeTitle} ».`,
+          message: `Sous-challenge « ${newChallenge.title} » créé.`,
         });
       } catch (error) {
         setAiBuilderFeedback({
           type: "error",
-          message: error instanceof Error ? error.message : "Impossible d'appliquer les recommandations IA.",
+          message:
+            error instanceof Error ? error.message : "Impossible de créer le nouveau sous-challenge suggéré.",
         });
       } finally {
-        setApplyingChallengeIds(current => {
+        setApplyingNewSubChallengeKeys(current => {
           const next = new Set(current);
-          next.delete(suggestion.challengeId);
+          next.delete(key);
           return next;
         });
       }
     },
-    [boardData, challengeById, loadJourneyData, resolveOwnerId],
+    [boardData, challengeById, loadJourneyData, pruneAiSuggestionNodes, resolveOwnerId],
+  );
+
+  const handleDismissSuggestedNewSubChallenge = useCallback(
+    (parentChallengeId: string, index: number) => {
+      setAiSuggestions(current =>
+        current
+          .map(suggestion => {
+            if (suggestion.challengeId !== parentChallengeId) {
+              return suggestion;
+            }
+            const remaining = (suggestion.newSubChallenges ?? []).filter((_, candidateIndex) => candidateIndex !== index);
+            const next: AiChallengeUpdateSuggestion = {
+              ...suggestion,
+              newSubChallenges: remaining.length ? remaining : undefined,
+            };
+            return pruneAiSuggestionNodes(next);
+          })
+          .filter((value): value is AiChallengeUpdateSuggestion => Boolean(value)),
+      );
+    },
+    [pruneAiSuggestionNodes],
   );
 
   const handleApplyNewChallengeSuggestion = useCallback(
@@ -2420,9 +2648,16 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
           newChallenges={aiNewChallenges}
           errors={aiBuilderErrors}
           challengeLookup={challengeById}
-          onApplySuggestion={handleApplyChallengeSuggestion}
+          onApplyChallengeUpdates={handleApplyChallengeUpdate}
+          onDismissChallengeUpdates={handleDismissChallengeUpdate}
           onDismissSuggestion={handleDismissChallengeSuggestion}
-          applyingChallengeIds={applyingChallengeIds}
+          applyingChallengeUpdateIds={applyingChallengeUpdateIds}
+          onApplySubChallengeUpdate={handleApplySubChallengeUpdate}
+          onDismissSubChallengeUpdate={handleDismissSubChallengeUpdate}
+          applyingSubChallengeUpdateIds={applyingSubChallengeUpdateIds}
+          onApplySuggestedNewSubChallenge={handleApplySuggestedNewSubChallenge}
+          onDismissSuggestedNewSubChallenge={handleDismissSuggestedNewSubChallenge}
+          applyingNewSubChallengeKeys={applyingNewSubChallengeKeys}
           onApplyNewChallenge={handleApplyNewChallengeSuggestion}
           onDismissNewChallenge={handleDismissNewChallengeSuggestion}
           applyingNewChallengeIndices={applyingNewChallengeIndices}

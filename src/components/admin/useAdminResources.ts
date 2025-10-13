@@ -164,6 +164,11 @@ export function useAdminResources() {
     setProjects(data ?? []);
   };
 
+  const refreshUsers = async () => {
+    const data = await request<ManagedUser[]>("/api/admin/users");
+    setUsers(data ?? []);
+  };
+
   const refreshClients = async () => {
     const data = await request<ClientRecord[]>("/api/admin/clients");
     setClients(data ?? []);
@@ -185,23 +190,37 @@ export function useAdminResources() {
   const createUser = (values: UserFormValues) =>
     handleAction(async () => {
       await request("/api/admin/users", { method: "POST", body: JSON.stringify(values) });
-      const data = await request<ManagedUser[]>("/api/admin/users");
-      setUsers(data ?? []);
+      await refreshUsers();
     }, "User created");
 
   const updateUser = (userId: string, values: Partial<UserFormValues>) =>
     handleAction(async () => {
       await request(`/api/admin/users/${userId}`, { method: "PATCH", body: JSON.stringify(values) });
-      const data = await request<ManagedUser[]>("/api/admin/users");
-      setUsers(data ?? []);
+      await refreshUsers();
     }, "User updated");
 
   const deleteUser = (userId: string) =>
     handleAction(async () => {
       await request(`/api/admin/users/${userId}`, { method: "DELETE" });
-      const data = await request<ManagedUser[]>("/api/admin/users");
-      setUsers(data ?? []);
+      await refreshUsers();
     }, "User removed");
+
+  const addUserToProject = (userId: string, projectId: string) =>
+    handleAction(async () => {
+      await request(`/api/admin/projects/${projectId}/members`, {
+        method: "POST",
+        body: JSON.stringify({ userId })
+      });
+      await refreshUsers();
+    }, "User added to project");
+
+  const removeUserFromProject = (userId: string, projectId: string) =>
+    handleAction(async () => {
+      await request(`/api/admin/projects/${projectId}/members/${userId}`, {
+        method: "DELETE"
+      });
+      await refreshUsers();
+    }, "User removed from project");
 
   const createProject = (values: ProjectFormValues) =>
     handleAction(async () => {
@@ -272,6 +291,8 @@ export function useAdminResources() {
     updateClient,
     createUser,
     updateUser,
+    addUserToProject,
+    removeUserFromProject,
     createProject,
     updateProject,
     updateChallenge,

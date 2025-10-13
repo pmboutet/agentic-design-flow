@@ -4,6 +4,7 @@ import { getAdminSupabaseClient } from "@/lib/supabaseAdmin";
 import { sanitizeOptional, sanitizeText } from "@/lib/sanitize";
 import { parseErrorMessage } from "@/lib/utils";
 import { type ApiResponse, type ManagedUser } from "@/types";
+import { fetchProjectMemberships, mapManagedUser } from "./helpers";
 
 const roleValues = ["full_admin", "project_admin", "facilitator", "manager", "participant", "user"] as const;
 
@@ -15,22 +16,6 @@ const userSchema = z.object({
   clientId: z.string().uuid().optional().or(z.literal("")),
   isActive: z.boolean().default(true)
 });
-
-function mapUser(row: any): ManagedUser {
-  return {
-    id: row.id,
-    email: row.email,
-    firstName: row.first_name,
-    lastName: row.last_name,
-    fullName: row.full_name,
-    role: row.role,
-    clientId: row.client_id,
-    clientName: row.clients?.name ?? null,
-    isActive: row.is_active,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at
-  };
-}
 
 export async function GET() {
   try {
@@ -44,9 +29,12 @@ export async function GET() {
       throw error;
     }
 
+    const userIds = (data ?? []).map(row => row.id).filter((id): id is string => Boolean(id));
+    const membershipMap = await fetchProjectMemberships(supabase, userIds);
+
     return NextResponse.json<ApiResponse<ManagedUser[]>>({
       success: true,
-      data: (data ?? []).map(mapUser)
+      data: (data ?? []).map(row => mapManagedUser(row, membershipMap))
     });
   } catch (error) {
     return NextResponse.json<ApiResponse>({
@@ -84,9 +72,11 @@ export async function POST(request: NextRequest) {
       throw error;
     }
 
+    const membershipMap = await fetchProjectMemberships(supabase, [data.id]);
+
     return NextResponse.json<ApiResponse<ManagedUser>>({
       success: true,
-      data: mapUser(data)
+      data: mapManagedUser(data, membershipMap)
     }, { status: 201 });
   } catch (error) {
     const status = error instanceof z.ZodError ? 400 : 500;
