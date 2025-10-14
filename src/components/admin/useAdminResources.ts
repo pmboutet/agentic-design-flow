@@ -291,8 +291,6 @@ export function useAdminResources() {
     updateClient,
     createUser,
     updateUser,
-    addUserToProject,
-    removeUserFromProject,
     createProject,
     updateProject,
     updateChallenge,

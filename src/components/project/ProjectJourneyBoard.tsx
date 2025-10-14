@@ -105,16 +105,22 @@ const askResponseModes: AskGroupResponseMode[] = ["collective", "simultaneous"];
 
 const USE_MOCK_JOURNEY = process.env.NEXT_PUBLIC_USE_MOCK_PROJECT_JOURNEY === "true";
 
-function flattenChallenges(nodes: ProjectChallengeNode[]): ProjectChallengeNode[] {
-  return nodes.flatMap(node => [node, ...(node.children ? flattenChallenges(node.children) : [])]);
+function normalizeChallengeNodes(nodes?: ProjectChallengeNode[] | null): ProjectChallengeNode[] {
+  return Array.isArray(nodes) ? nodes : [];
+}
+
+function flattenChallenges(nodes?: ProjectChallengeNode[] | null): ProjectChallengeNode[] {
+  const source = normalizeChallengeNodes(nodes);
+  return source.flatMap(node => [node, ...(node.children ? flattenChallenges(node.children) : [])]);
 }
 
 function insertChallengeNode(
-  nodes: ProjectChallengeNode[],
+  nodes: ProjectChallengeNode[] | null | undefined,
   newNode: ProjectChallengeNode,
   parentId?: string | null,
 ): ProjectChallengeNode[] {
-  const [, updated] = insertChallengeNodeInternal(nodes, newNode, parentId ?? null);
+  const source = normalizeChallengeNodes(nodes);
+  const [, updated] = insertChallengeNodeInternal(source, newNode, parentId ?? null);
   return updated;
 }
 
@@ -161,8 +167,10 @@ function countSubChallenges(node: ProjectChallengeNode): number {
   return node.children.length + node.children.reduce((total, child) => total + countSubChallenges(child), 0);
 }
 
-function buildChallengeParentMap(nodes: ProjectChallengeNode[]): Map<string, string | null> {
+function buildChallengeParentMap(nodes?: ProjectChallengeNode[] | null): Map<string, string | null> {
   const map = new Map<string, string | null>();
+
+  const source = normalizeChallengeNodes(nodes);
 
   const traverse = (items: ProjectChallengeNode[], parentId: string | null) => {
     items.forEach(item => {
@@ -173,12 +181,14 @@ function buildChallengeParentMap(nodes: ProjectChallengeNode[]): Map<string, str
     });
   };
 
-  traverse(nodes, null);
+  traverse(source, null);
   return map;
 }
 
-function buildChallengeDescendantsMap(nodes: ProjectChallengeNode[]): Map<string, Set<string>> {
+function buildChallengeDescendantsMap(nodes?: ProjectChallengeNode[] | null): Map<string, Set<string>> {
   const map = new Map<string, Set<string>>();
+
+  const source = normalizeChallengeNodes(nodes);
 
   const collect = (item: ProjectChallengeNode): Set<string> => {
     const descendants = new Set<string>();
@@ -193,7 +203,7 @@ function buildChallengeDescendantsMap(nodes: ProjectChallengeNode[]): Map<string
     return descendants;
   };
 
-  nodes.forEach(node => {
+  source.forEach(node => {
     collect(node);
   });
 
@@ -523,23 +533,26 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
         }
 
         console.log('✅ Frontend: Journey data loaded successfully:', payload.data);
-        
-        // Debug: Check the structure of the data
-        if (payload.data && typeof payload.data === 'object') {
-          console.log('🔍 Frontend: Data structure check:', {
-            hasProject: !!payload.data.project,
-            hasChallenges: !!payload.data.challenges,
-            hasAsks: !!payload.data.asks,
-            hasParticipants: !!payload.data.participants,
-            challengesLength: payload.data.challenges?.length,
-            asksLength: payload.data.asks?.length,
-            participantsLength: payload.data.participants?.length
-          });
-        } else {
-          console.log('❌ Frontend: Invalid data structure:', payload.data);
+
+        if (!payload.data || typeof payload.data !== 'object') {
+          throw new Error('Invalid project journey payload received from the server');
         }
-        
-        setBoardData(payload.data as ProjectJourneyBoardData);
+
+        const rawData = payload.data as ProjectJourneyBoardData;
+        const normalizedData: ProjectJourneyBoardData = {
+          ...rawData,
+          asks: Array.isArray(rawData.asks) ? rawData.asks : [],
+          challenges: normalizeChallengeNodes(rawData.challenges),
+          availableUsers: Array.isArray(rawData.availableUsers) ? rawData.availableUsers : [],
+        };
+
+        console.log('🔍 Frontend: Normalised data structure check:', {
+          challengesLength: normalizedData.challenges.length,
+          asksLength: normalizedData.asks.length,
+          availableUsersLength: normalizedData.availableUsers.length,
+        });
+
+        setBoardData(normalizedData);
       } catch (err) {
         if (options?.signal?.aborted) {
           return;
@@ -547,7 +560,7 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
         if ((err as { name?: string }).name === "AbortError") {
           return;
         }
-        console.error("Failed to load project journey data", err);
+        console.error("❌ Frontend: Failed to load project journey data", { projectId, error: err });
         if (USE_MOCK_JOURNEY) {
           setBoardData(getMockProjectJourneyData(projectId));
         } else if (!options?.silent) {
@@ -571,6 +584,20 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
       controller.abort();
     };
   }, [loadJourneyData]);
+
+  useEffect(() => {
+    if (!boardData) {
+      console.log('🧭 Frontend: Board data cleared');
+      return;
+    }
+
+    console.log('🧭 Frontend: Board data ready', {
+      projectId: boardData.projectId,
+      challenges: boardData.challenges.length,
+      asks: boardData.asks.length,
+      availableUsers: boardData.availableUsers.length,
+    });
+  }, [boardData]);
 
   const ensureAskDetails = useCallback(
     async (askId: string): Promise<AskSessionRecord> => {
@@ -596,7 +623,7 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
     [askDetails],
   );
 
-  const allChallenges = useMemo(() => (boardData ? flattenChallenges(boardData.challenges) : []), [boardData]);
+  const allChallenges = useMemo(() => flattenChallenges(boardData?.challenges), [boardData]);
 
   const challengeById = useMemo(() => {
     const map = new Map<string, ProjectChallengeNode>();
@@ -1230,6 +1257,9 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
 
   useEffect(() => {
     if (!boardData) {
+      if (activeChallengeId !== null) {
+        console.log('🧭 Frontend: Clearing active challenge because board data is unavailable');
+      }
       setActiveChallengeId(null);
       return;
     }
@@ -1238,16 +1268,27 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
       return;
     }
 
-    setActiveChallengeId(boardData.challenges[0]?.id ?? null);
+    const fallbackId = boardData.challenges[0]?.id ?? null;
+
+    if (!activeChallengeId) {
+      console.log('🧭 Frontend: Setting initial active challenge', { fallbackId });
+    } else {
+      console.log('🧭 Frontend: Active challenge missing, selecting fallback', {
+        missingId: activeChallengeId,
+        fallbackId,
+      });
+    }
+
+    setActiveChallengeId(fallbackId);
   }, [boardData, activeChallengeId, allChallenges]);
 
   const challengeParentMap = useMemo(
-    () => (boardData ? buildChallengeParentMap(boardData.challenges) : new Map<string, string | null>()),
+    () => buildChallengeParentMap(boardData?.challenges),
     [boardData],
   );
 
   const challengeDescendantsMap = useMemo(
-    () => (boardData ? buildChallengeDescendantsMap(boardData.challenges) : new Map<string, Set<string>>()),
+    () => buildChallengeDescendantsMap(boardData?.challenges),
     [boardData],
   );
 

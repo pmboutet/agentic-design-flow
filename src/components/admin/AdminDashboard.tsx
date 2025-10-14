@@ -482,8 +482,6 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
     updateClient,
     createUser,
     updateUser,
-    addUserToProject,
-    removeUserFromProject,
     createProject,
     updateProject,
     updateChallenge,
@@ -1701,23 +1699,6 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
       return;
     }
     await deleteAsk(askId);
-  };
-
-  const handleAddUserToProject = async (userId: string) => {
-    if (!selectedProjectId) {
-      return;
-    }
-    await addUserToProject(userId, selectedProjectId);
-  };
-
-  const handleRemoveUserFromProject = async (userId: string) => {
-    if (!selectedProjectId) {
-      return;
-    }
-    if (!window.confirm("Remove this user from the project?")) {
-      return;
-    }
-    await removeUserFromProject(userId, selectedProjectId);
   };
 
   const filteredUsers = useMemo(() => {
