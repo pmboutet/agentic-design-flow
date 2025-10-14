@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth/AuthProvider";
 import {
   Card,
@@ -18,7 +19,8 @@ import { Loader2, LogOut } from "lucide-react";
 type FormState = "idle" | "saving" | "saved";
 
 export default function AccountSettingsPage() {
-  const { status, user, signIn, signOut, isProcessing } = useAuth();
+  const router = useRouter();
+  const { status, user, signOut, isProcessing } = useAuth();
   const [profileState, setProfileState] = useState<FormState>("idle");
   const [notificationsState, setNotificationsState] = useState<FormState>("idle");
 
@@ -93,7 +95,7 @@ export default function AccountSettingsPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col items-center gap-4">
-              <Button onClick={() => void signIn()} disabled={isProcessing} className="rounded-full px-6">
+              <Button onClick={() => router.push('/auth/login')} disabled={isProcessing} className="rounded-full px-6">
                 {isProcessing ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
