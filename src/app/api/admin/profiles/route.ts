@@ -14,14 +14,15 @@ const userSchema = z.object({
   lastName: z.string().trim().max(100).optional().or(z.literal("")),
   role: z.enum(roleValues).default("user"),
   clientId: z.string().uuid().optional().or(z.literal("")),
-  isActive: z.boolean().default(true)
+  isActive: z.boolean().default(true),
+  password: z.string().min(6).optional(), // For creating auth user
 });
 
 export async function GET() {
   try {
     const supabase = getAdminSupabaseClient();
     const { data, error } = await supabase
-      .from("users")
+      .from("profiles")
       .select("*, clients(name)")
       .order("created_at", { ascending: false });
 
@@ -53,11 +54,40 @@ export async function POST(request: NextRequest) {
     const firstName = sanitizeOptional(payload.firstName || null);
     const lastName = sanitizeOptional(payload.lastName || null);
     const fullName = [firstName, lastName].filter(Boolean).join(" ") || null;
+    const email = sanitizeText(payload.email.toLowerCase());
 
+    // Create user in Supabase Auth first (if password provided)
+    let authId: string | null = null;
+    if (payload.password) {
+      const { data: authData, error: authError } = await supabase.auth.admin.createUser({
+        email,
+        password: payload.password,
+        email_confirm: true, // Auto-confirm email
+        user_metadata: {
+          full_name: fullName,
+          fullName,
+          first_name: firstName,
+          firstName,
+          last_name: lastName,
+          lastName,
+          role: payload.role,
+        },
+      });
+
+      if (authError) {
+        throw new Error(`Failed to create auth user: ${authError.message}`);
+      }
+
+      authId = authData.user.id;
+    }
+
+    // Note: If password is not provided, profile is created without auth_id
+    // This allows for profiles that will be linked to auth users later
     const { data, error } = await supabase
-      .from("users")
+      .from("profiles")
       .insert({
-        email: sanitizeText(payload.email.toLowerCase()),
+        auth_id: authId,
+        email,
         first_name: firstName,
         last_name: lastName,
         full_name: fullName,
@@ -69,6 +99,10 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (error) {
+      // If profile creation fails but auth user was created, clean up
+      if (authId) {
+        await supabase.auth.admin.deleteUser(authId);
+      }
       throw error;
     }
 
@@ -86,3 +120,4 @@ export async function POST(request: NextRequest) {
     }, { status });
   }
 }
+

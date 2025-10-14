@@ -172,7 +172,7 @@ export async function GET(
 
     if (additionalUserIds.length > 0) {
       const { data: extraUsers, error: extraUsersError } = await supabase
-        .from('users')
+        .from('profiles')
         .select('id, email, full_name, first_name, last_name')
         .in('id', additionalUserIds);
 

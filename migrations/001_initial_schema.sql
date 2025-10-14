@@ -3,7 +3,7 @@ BEGIN;
 -- Ensure extensions required by the schema exist
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
-CREATE EXTENSION IF NOT EXISTS vector;
+-- CREATE EXTENSION IF NOT EXISTS vector;  -- Disabled: pgvector not needed for core functionality
 
 -- Sequences
 CREATE SEQUENCE IF NOT EXISTS public.documents_id_seq;
@@ -153,7 +153,7 @@ CREATE TABLE IF NOT EXISTS public.documents (
   id BIGINT PRIMARY KEY DEFAULT nextval('public.documents_id_seq'),
   content TEXT,
   metadata JSONB,
-  embedding vector(1536),
+  -- embedding vector(1536),  -- Disabled: requires pgvector extension
   ts TIMESTAMPTZ DEFAULT now()
 );
 

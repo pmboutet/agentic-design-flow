@@ -299,7 +299,7 @@ export async function fetchProjectJourneyContext(
       ? supabase
           .from("ask_participants")
           .select(
-            "id, ask_session_id, user_id, participant_name, participant_email, role, is_spokesperson, users(id, full_name, email, role)",
+            "id, ask_session_id, user_id, participant_name, participant_email, role, is_spokesperson, profiles(id, full_name, email, role)",
           )
           .in("ask_session_id", askIds)
       : Promise.resolve({ data: [], error: null }),
@@ -317,7 +317,7 @@ export async function fetchProjectJourneyContext(
       : Promise.resolve({ data: [], error: null }),
     ownerIds.length
       ? supabase
-          .from("users")
+          .from("profiles")
           .select("id, full_name, email, role")
           .in("id", ownerIds)
       : Promise.resolve({ data: [], error: null }),

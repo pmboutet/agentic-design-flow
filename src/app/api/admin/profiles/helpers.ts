@@ -46,6 +46,7 @@ export function mapManagedUser(
 
   return {
     id: row.id,
+    authId: row.auth_id,
     email: row.email,
     firstName: row.first_name,
     lastName: row.last_name,
@@ -53,9 +54,12 @@ export function mapManagedUser(
     role: row.role,
     clientId: row.client_id,
     clientName: row.clients?.name ?? null,
+    avatarUrl: row.avatar_url,
     projectIds,
     isActive: row.is_active,
+    lastLogin: row.last_login,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
 }
+

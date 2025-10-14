@@ -1,6 +1,9 @@
 "use client";
 
 import React, { createContext, useContext, useMemo, useState, useEffect, useCallback } from "react";
+import { Session, User } from "@supabase/supabase-js";
+import { supabase } from "@/lib/supabaseClient";
+import type { Profile } from "@/types";
 
 export type AuthUser = {
   id: string;
@@ -8,6 +11,7 @@ export type AuthUser = {
   fullName: string;
   avatarUrl?: string | null;
   role?: string | null;
+  profile?: Profile | null;
 };
 
 type AuthStatus = "loading" | "signed-out" | "signed-in";
@@ -15,122 +19,258 @@ type AuthStatus = "loading" | "signed-out" | "signed-in";
 type AuthContextValue = {
   status: AuthStatus;
   user: AuthUser | null;
+  session: Session | null;
+  profile: Profile | null;
   isProcessing: boolean;
-  availableUsers: AuthUser[];
-  signIn: () => Promise<void>;
+  signIn: (email: string, password: string) => Promise<{ error?: string }>;
+  signUp: (email: string, password: string, metadata?: { fullName?: string; firstName?: string; lastName?: string }) => Promise<{ error?: string }>;
+  signInWithGoogle: () => Promise<{ error?: string }>;
   signOut: () => Promise<void>;
-  switchUser: (userId: string | null) => Promise<void>;
+  refreshProfile: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
-const LOCAL_STORAGE_KEY = "dev-auth-user-id";
-
-// Mirrors the seed users defined in DATABASE_SETUP.md so we can impersonate real project roles during development.
-const DEV_USERS: AuthUser[] = [
-  {
-    id: "550e8400-e29b-41d4-a716-446655440011",
-    email: "pierre.marie@techcorp.com",
-    fullName: "Pierre-Marie Boutet",
-    role: "facilitator",
-  },
-  {
-    id: "550e8400-e29b-41d4-a716-446655440012",
-    email: "sarah.manager@techcorp.com",
-    fullName: "Sarah Martin",
-    role: "manager",
-  },
-  {
-    id: "550e8400-e29b-41d4-a716-446655440013",
-    email: "dev.team@techcorp.com",
-    fullName: "Alex Developer",
-    role: "participant",
-  },
-];
-
-function readStoredUserId() {
-  if (typeof window === "undefined") return null;
-  return window.localStorage.getItem(LOCAL_STORAGE_KEY);
-}
-
-function persistUserId(userId: string | null) {
-  if (typeof window === "undefined") return;
-  if (userId) {
-    window.localStorage.setItem(LOCAL_STORAGE_KEY, userId);
-  } else {
-    window.localStorage.removeItem(LOCAL_STORAGE_KEY);
-  }
-}
-
 /**
- * Temporary mock authentication provider.
- * Sets up the context structure that will later be backed by Supabase auth.
+ * AuthProvider with Supabase Auth integration.
+ * Manages authentication state, session, and user profile synchronization.
  */
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = useState<AuthStatus>("loading");
+  const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<AuthUser | null>(null);
+  const [profile, setProfile] = useState<Profile | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
 
-  const availableUsers = useMemo(() => DEV_USERS, []);
+  // Fetch user profile from public.profiles
+  const fetchProfile = useCallback(async (authUser: User): Promise<Profile | null> => {
+    try {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("*, clients(name)")
+        .eq("auth_id", authUser.id)
+        .single();
 
-  useEffect(() => {
-    const storedUserId = readStoredUserId();
-    if (storedUserId) {
-      const storedUser = availableUsers.find(candidate => candidate.id === storedUserId) ?? null;
-      if (storedUser) {
-        setUser(storedUser);
-        setStatus("signed-in");
-        return;
+      if (error) {
+        console.error("Error fetching profile:", error);
+        return null;
       }
+
+      if (!data) {
+        return null;
+      }
+
+      return {
+        id: data.id,
+        authId: data.auth_id,
+        email: data.email,
+        firstName: data.first_name,
+        lastName: data.last_name,
+        fullName: data.full_name,
+        role: data.role,
+        clientId: data.client_id,
+        clientName: data.clients?.name ?? null,
+        avatarUrl: data.avatar_url,
+        isActive: data.is_active,
+        lastLogin: data.last_login,
+        createdAt: data.created_at,
+        updatedAt: data.updated_at,
+      };
+    } catch (error) {
+      console.error("Exception fetching profile:", error);
+      return null;
     }
-    setStatus("signed-out");
-  }, [availableUsers]);
+  }, []);
 
-  const switchUser = useCallback(
-    async (userId: string | null) => {
-      if (isProcessing) return;
-
-      setIsProcessing(true);
-
-      await new Promise(resolve => setTimeout(resolve, 200));
-
-      if (!userId) {
+  // Update user state from session
+  const updateUserFromSession = useCallback(
+    async (session: Session | null) => {
+      if (!session?.user) {
         setUser(null);
+        setProfile(null);
         setStatus("signed-out");
-        persistUserId(null);
-        setIsProcessing(false);
         return;
       }
 
-      const nextUser = availableUsers.find(candidate => candidate.id === userId) ?? null;
+      const authUser = session.user;
+      const userProfile = await fetchProfile(authUser);
 
-      if (nextUser) {
-        setUser(nextUser);
-        setStatus("signed-in");
-        persistUserId(nextUser.id);
-      } else {
-        setUser(null);
-        setStatus("signed-out");
-        persistUserId(null);
-      }
-
-      setIsProcessing(false);
+      setProfile(userProfile);
+      setUser({
+        id: authUser.id,
+        email: authUser.email ?? "",
+        fullName: userProfile?.fullName ?? authUser.user_metadata?.fullName ?? authUser.email ?? "Unknown",
+        avatarUrl: userProfile?.avatarUrl ?? authUser.user_metadata?.avatarUrl ?? null,
+        role: userProfile?.role ?? null,
+        profile: userProfile,
+      });
+      setStatus("signed-in");
     },
-    [availableUsers, isProcessing]
+    [fetchProfile]
   );
 
-  const signIn = useCallback(async () => {
-    const defaultUser = availableUsers[0];
-    await switchUser(defaultUser?.id ?? null);
-  }, [availableUsers, switchUser]);
+  // Initialize auth state
+  useEffect(() => {
+    // Get initial session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      updateUserFromSession(session);
+    });
+
+    // Listen for auth changes
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      setSession(session);
+      await updateUserFromSession(session);
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [updateUserFromSession]);
+
+  const signIn = useCallback(async (email: string, password: string) => {
+    setIsProcessing(true);
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (error) {
+        return { error: error.message };
+      }
+
+      if (data.session) {
+        setSession(data.session);
+        await updateUserFromSession(data.session);
+      }
+
+      return {};
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : "An error occurred during sign in" };
+    } finally {
+      setIsProcessing(false);
+    }
+  }, [updateUserFromSession]);
+
+  const signUp = useCallback(
+    async (
+      email: string,
+      password: string,
+      metadata?: { fullName?: string; firstName?: string; lastName?: string }
+    ) => {
+      setIsProcessing(true);
+      try {
+        const { data, error } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            data: {
+              full_name: metadata?.fullName,
+              fullName: metadata?.fullName,
+              first_name: metadata?.firstName,
+              firstName: metadata?.firstName,
+              last_name: metadata?.lastName,
+              lastName: metadata?.lastName,
+            },
+          },
+        });
+
+        if (error) {
+          return { error: error.message };
+        }
+
+        // If email confirmation is disabled, the user will be signed in immediately
+        if (data.session) {
+          setSession(data.session);
+          await updateUserFromSession(data.session);
+        }
+
+        return {};
+      } catch (error) {
+        return { error: error instanceof Error ? error.message : "An error occurred during sign up" };
+      } finally {
+        setIsProcessing(false);
+      }
+    },
+    [updateUserFromSession]
+  );
+
+  const signInWithGoogle = useCallback(async () => {
+    setIsProcessing(true);
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: `${window.location.origin}/auth/callback`,
+          queryParams: {
+            access_type: 'offline',
+            prompt: 'consent',
+          }
+        }
+      });
+
+      if (error) {
+        setIsProcessing(false);
+        return { error: error.message };
+      }
+
+      // OAuth redirect will happen, no need to set isProcessing to false
+      return {};
+    } catch (error) {
+      setIsProcessing(false);
+      return { error: error instanceof Error ? error.message : "An error occurred during Google sign in" };
+    }
+  }, []);
 
   const signOut = useCallback(async () => {
-    await switchUser(null);
-  }, [switchUser]);
+    setIsProcessing(true);
+    try {
+      await supabase.auth.signOut();
+      setSession(null);
+      setUser(null);
+      setProfile(null);
+      setStatus("signed-out");
+    } catch (error) {
+      console.error("Error signing out:", error);
+    } finally {
+      setIsProcessing(false);
+    }
+  }, []);
+
+  const refreshProfile = useCallback(async () => {
+    if (!session?.user) {
+      return;
+    }
+    const userProfile = await fetchProfile(session.user);
+    setProfile(userProfile);
+    if (user) {
+      setUser({
+        ...user,
+        fullName: userProfile?.fullName ?? user.fullName,
+        avatarUrl: userProfile?.avatarUrl ?? user.avatarUrl,
+        role: userProfile?.role ?? user.role,
+        profile: userProfile,
+      });
+    }
+  }, [session, user, fetchProfile]);
 
   const value = useMemo<AuthContextValue>(
-    () => ({ status, user, isProcessing, availableUsers, signIn, signOut, switchUser }),
-    [status, user, isProcessing, availableUsers, signIn, signOut, switchUser]
+    () => ({
+      status,
+      user,
+      session,
+      profile,
+      isProcessing,
+      signIn,
+      signUp,
+      signInWithGoogle,
+      signOut,
+      refreshProfile,
+    }),
+    [status, user, session, profile, isProcessing, signIn, signUp, signInWithGoogle, signOut, refreshProfile]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

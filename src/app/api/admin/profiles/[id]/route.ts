@@ -32,7 +32,7 @@ export async function PATCH(
     let currentLastName: string | null | undefined;
     if (payload.firstName !== undefined || payload.lastName !== undefined) {
       const { data: existing, error: fetchError } = await supabase
-        .from("users")
+        .from("profiles")
         .select("first_name, last_name")
         .eq("id", userId)
         .single();
@@ -88,7 +88,7 @@ export async function PATCH(
     }
 
     const { data, error } = await supabase
-      .from("users")
+      .from("profiles")
       .update(updateData)
       .eq("id", userId)
       .select("*, clients(name)")
@@ -112,3 +112,4 @@ export async function PATCH(
     }, { status });
   }
 }
+

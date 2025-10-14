@@ -21,7 +21,7 @@ function getInitials(name?: string | null) {
 }
 
 export function UserProfileMenu() {
-  const { status, user, signIn, signOut, isProcessing } = useAuth();
+  const { status, user, signOut, isProcessing } = useAuth();
   const router = useRouter();
   const isSignedIn = status === "signed-in" && Boolean(user);
   const fullName = user?.fullName ?? "";
@@ -30,6 +30,10 @@ export function UserProfileMenu() {
 
   const handleAccountSettings = useCallback(() => {
     router.push("/account");
+  }, [router]);
+
+  const handleSignIn = useCallback(() => {
+    router.push("/auth/login");
   }, [router]);
 
   return (
@@ -109,7 +113,7 @@ export function UserProfileMenu() {
             </Button>
           ) : (
             <Button
-              onClick={() => signIn()}
+              onClick={handleSignIn}
               className="flex w-full items-center justify-center gap-2 rounded-full bg-white/90 text-primary hover:bg-white"
               disabled={isProcessing || status === "loading"}
             >
