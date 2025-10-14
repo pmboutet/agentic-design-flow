@@ -1396,7 +1396,6 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
       // Case 2: no participants provided but ask.insights exists (synthetic/orphan insights)
       // Some loaders may place insights directly on the ask when there are no participants
       // Ensure those are also mapped to challenges for display
-      // @ts-expect-error allow optional field from loader shape
       const askLevelInsights: typeof ask.participants[number]["insights"] | undefined = (ask as any).insights;
       if ((!ask.participants || ask.participants.length === 0) && Array.isArray(askLevelInsights) && askLevelInsights.length) {
         askLevelInsights.forEach(insight => {
