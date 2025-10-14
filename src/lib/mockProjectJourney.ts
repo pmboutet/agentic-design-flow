@@ -37,7 +37,9 @@ export function getMockProjectJourneyData(projectId: string): ProjectJourneyBoar
         status: "active",
         theme: "Store experience",
         dueDate: "2024-05-30",
-        originatingChallengeIds: ["challenge-inventory-sync", "challenge-stock-visibility", "challenge-promise-accuracy"],
+        originatingChallengeIds: ["challenge-inventory-sync"],
+        primaryChallengeId: "challenge-inventory-sync",
+        relatedChallengeIds: ["challenge-inventory-sync", "challenge-stock-visibility", "challenge-promise-accuracy"],
         relatedProjects: [
           { id: projectId, name: "Nova Retail Transformation" },
           { id: "project-click-collect", name: "Click & Collect 2024" },
@@ -224,7 +226,9 @@ export function getMockProjectJourneyData(projectId: string): ProjectJourneyBoar
         status: "active",
         theme: "Customer journey",
         dueDate: "2024-06-10",
-        originatingChallengeIds: ["challenge-omnichannel-delivery", "challenge-change-adoption"],
+        originatingChallengeIds: ["challenge-omnichannel-delivery"],
+        primaryChallengeId: "challenge-omnichannel-delivery",
+        relatedChallengeIds: ["challenge-omnichannel-delivery", "challenge-change-adoption"],
         relatedProjects: [
           { id: projectId, name: "Nova Retail Transformation" },
           { id: "project-cx-2024", name: "CX Omnichannel 2024" },

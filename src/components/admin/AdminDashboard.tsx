@@ -1118,6 +1118,21 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
     return selectedProjectId;
   }, [editingAskId, asks, selectedChallenge, selectedProjectId]);
 
+  const activeAskClientId = useMemo(() => {
+    if (activeAskProjectId) {
+      const project = projects.find(item => item.id === activeAskProjectId);
+      if (project?.clientId) {
+        return project.clientId;
+      }
+    }
+
+    if (selectedClientId) {
+      return selectedClientId;
+    }
+
+    return null;
+  }, [activeAskProjectId, projects, selectedClientId]);
+
   const eligibleAskUsers = useMemo(() => {
     const sorted = [...users].sort((a, b) => {
       const nameA = (a.fullName || `${a.firstName ?? ""} ${a.lastName ?? ""}` || a.email || "").trim().toLowerCase();
@@ -1133,18 +1148,22 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
       const normalizedRole = user.role?.toLowerCase?.() ?? "";
       const isGlobal = normalizedRole.includes("admin") || normalizedRole.includes("owner");
 
-      if (isGlobal) {
-        return true;
+      if (!isGlobal) {
+        if (activeAskClientId && user.clientId !== activeAskClientId) {
+          return false;
+        }
+
+        if (activeAskProjectId) {
+          const projectIds = user.projectIds ?? [];
+          if (!projectIds.includes(activeAskProjectId)) {
+            return false;
+          }
+        }
       }
 
-      if (!activeAskProjectId) {
-        return true;
-      }
-
-      const projectIds = user.projectIds ?? [];
-      return projectIds.includes(activeAskProjectId);
+      return true;
     });
-  }, [activeAskProjectId, users]);
+  }, [activeAskClientId, activeAskProjectId, users]);
 
   const lockedParticipantIds = useMemo(() => {
     const eligibleIds = new Set(eligibleAskUsers.map(user => user.id));
@@ -1683,26 +1702,64 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
   };
 
   const filteredUsers = useMemo(() => {
-    return users.filter(user => {
-      if (selectedClientId && user.clientId !== selectedClientId) {
-        return false;
-      }
+    const projectClientId = selectedProject?.clientId ?? null;
+    const targetClientId = selectedClientId ?? projectClientId ?? null;
 
-      if (!selectedProjectId) {
+    const filtered = users.filter(user => {
+      const normalizedRole = user.role?.toLowerCase?.() ?? "";
+      const isGlobal = normalizedRole.includes("admin") || normalizedRole.includes("owner");
+      const userProjectIds = user.projectIds ?? [];
+
+      if (targetClientId && user.clientId === targetClientId) {
         return true;
       }
 
-      const normalizedRole = user.role?.toLowerCase?.() ?? "";
-      const isGlobal = normalizedRole.includes("admin") || normalizedRole.includes("owner");
+      if (selectedProjectId && userProjectIds.includes(selectedProjectId)) {
+        return true;
+      }
 
       if (isGlobal) {
         return true;
       }
 
-      const projectIds = user.projectIds ?? [];
-      return projectIds.includes(selectedProjectId);
+      if (!targetClientId) {
+        return true;
+      }
+
+      return false;
     });
-  }, [users, selectedClientId, selectedProjectId]);
+
+    const sorted = [...filtered].sort((a, b) => {
+      const aProjects = a.projectIds ?? [];
+      const bProjects = b.projectIds ?? [];
+
+      const aMemberPriority = selectedProjectId ? (aProjects.includes(selectedProjectId) ? 0 : 1) : 0;
+      const bMemberPriority = selectedProjectId ? (bProjects.includes(selectedProjectId) ? 0 : 1) : 0;
+      if (aMemberPriority !== bMemberPriority) {
+        return aMemberPriority - bMemberPriority;
+      }
+
+      const aClientPriority = targetClientId ? (a.clientId === targetClientId ? 0 : 1) : 0;
+      const bClientPriority = targetClientId ? (b.clientId === targetClientId ? 0 : 1) : 0;
+      if (aClientPriority !== bClientPriority) {
+        return aClientPriority - bClientPriority;
+      }
+
+      const aIsGlobal = (a.role?.toLowerCase?.() ?? "").includes("admin") || (a.role?.toLowerCase?.() ?? "").includes("owner");
+      const bIsGlobal = (b.role?.toLowerCase?.() ?? "").includes("admin") || (b.role?.toLowerCase?.() ?? "").includes("owner");
+      if (aIsGlobal !== bIsGlobal) {
+        return aIsGlobal ? -1 : 1;
+      }
+
+      const aLabel = (a.fullName || a.email || "").toLowerCase();
+      const bLabel = (b.fullName || b.email || "").toLowerCase();
+      return aLabel.localeCompare(bLabel);
+    });
+
+    return sorted;
+  }, [users, selectedClientId, selectedProjectId, selectedProject]);
+
+  const viewingClientId = selectedClientId ?? selectedProject?.clientId ?? null;
 
   const activeUserCount = useMemo(
     () => filteredUsers.filter(user => user.isActive).length,
@@ -2944,10 +3001,19 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                   id="section-users"
                   className="relative flex flex-col gap-4 rounded-3xl border border-white/10 bg-white/5 p-5 backdrop-blur"
                 >
-                  <header className="flex items-center justify-between">
+                  <header className="flex flex-wrap items-center justify-between gap-3">
                     <div>
                       <h3 className="text-lg font-semibold text-white">Users</h3>
-                      <p className="text-xs text-slate-400">Directory scoped to the selected client when one is active.</p>
+                      <p className="text-xs text-slate-400">
+                        {selectedClient
+                          ? `Directory for ${selectedClient.name}. Admins stay visible regardless of client.`
+                          : "Directory across all clients. Admins stay visible for quick access."}
+                      </p>
+                      {selectedProject && (
+                        <p className="text-[11px] text-slate-500">
+                          Members of {selectedProject.name} appear first, with other client users ready to add.
+                        </p>
+                      )}
                     </div>
                     <Button
                       type="button"
@@ -3050,56 +3116,97 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                     {isLoading && filteredUsers.length === 0 ? (
                       <p className="text-sm text-slate-400">Loading users...</p>
                     ) : filteredUsers.length === 0 ? (
-                      <p className="text-sm text-slate-400">No users found for the selected client.</p>
+                      <p className="text-sm text-slate-400">No users available in this directory yet.</p>
                     ) : (
-                      filteredUsers.map(user => (
-                        <article
-                          key={user.id}
-                          className={`rounded-2xl border px-4 py-3 transition hover:border-indigo-400 ${
-                            user.id === editingUserId
-                              ? "border-indigo-400 bg-indigo-500/10"
-                              : "border-white/10 bg-slate-900/40"
-                          }`}
-                        >
-                          <div className="flex items-center justify-between">
-                            <div className="text-left">
-                              <h4 className="text-sm font-semibold text-white">{user.fullName || user.email}</h4>
-                              <p className="text-xs text-slate-400">{user.email}</p>
+                      filteredUsers.map(user => {
+                        const projectIds = user.projectIds ?? [];
+                        const isMemberOfSelectedProject = selectedProjectId ? projectIds.includes(selectedProjectId) : false;
+                        const canManageMembership = Boolean(
+                          selectedProjectId && selectedProject && viewingClientId && user.clientId === viewingClientId
+                        );
+
+                        return (
+                          <article
+                            key={user.id}
+                            className={`rounded-2xl border px-4 py-3 transition hover:border-indigo-400 ${
+                              user.id === editingUserId
+                                ? "border-indigo-400 bg-indigo-500/10"
+                                : "border-white/10 bg-slate-900/40"
+                            }`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <div className="text-left">
+                                <h4 className="text-sm font-semibold text-white">{user.fullName || user.email}</h4>
+                                <p className="text-xs text-slate-400">{user.email}</p>
+                                <p className="text-[11px] text-slate-500">
+                                  {user.clientName || "No client assigned"}
+                                  {viewingClientId && user.clientId && user.clientId !== viewingClientId
+                                    ? " • other client"
+                                    : ""}
+                                </p>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <span className="rounded-full bg-white/10 px-2 py-1 text-[10px] uppercase tracking-wide text-slate-200">
+                                  {user.role}
+                                </span>
+                                <span className={`rounded-full px-2 py-1 text-[10px] uppercase tracking-wide ${
+                                  user.isActive ? "bg-green-500/20 text-green-300" : "bg-slate-500/20 text-slate-300"
+                                }`}>
+                                  {user.isActive ? "Active" : "Inactive"}
+                                </span>
+                              </div>
                             </div>
-                            <div className="flex items-center gap-2">
-                              <span className="rounded-full bg-white/10 px-2 py-1 text-[10px] uppercase tracking-wide text-slate-200">
-                                {user.role}
-                              </span>
-                              <span className={`rounded-full px-2 py-1 text-[10px] uppercase tracking-wide ${
-                                user.isActive ? "bg-green-500/20 text-green-300" : "bg-slate-500/20 text-slate-300"
-                              }`}>
-                                {user.isActive ? "Active" : "Inactive"}
-                              </span>
+                            {selectedProjectId && (
+                              <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400">
+                                <span className={isMemberOfSelectedProject ? "text-indigo-200" : undefined}>
+                                  {isMemberOfSelectedProject
+                                    ? `Assigned to ${selectedProject?.name ?? "project"}`
+                                    : "Not assigned to this project"}
+                                </span>
+                                {canManageMembership && (
+                                  <Button
+                                    type="button"
+                                    variant={isMemberOfSelectedProject ? "glassDark" : "secondary"}
+                                    size="sm"
+                                    className="h-7 px-3 text-[11px]"
+                                    onClick={() => {
+                                      if (isMemberOfSelectedProject) {
+                                        void handleRemoveUserFromProject(user.id);
+                                      } else {
+                                        void handleAddUserToProject(user.id);
+                                      }
+                                    }}
+                                    disabled={isBusy}
+                                  >
+                                    {isMemberOfSelectedProject ? "Remove from project" : "Add to project"}
+                                  </Button>
+                                )}
+                              </div>
+                            )}
+                            <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+                              <span>Joined {formatDateTime(user.createdAt)}</span>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => startUserEdit(user.id)}
+                                  className="text-slate-200 hover:text-white"
+                                  disabled={isBusy}
+                                >
+                                  Edit
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteUser(user.id)}
+                                  className="text-red-300 hover:text-red-200"
+                                  disabled={isBusy}
+                                >
+                                  Delete
+                                </button>
+                              </div>
                             </div>
-                          </div>
-                          <div className="mt-2 flex items-center justify-between text-xs text-slate-500">
-                            <span>Joined {formatDateTime(user.createdAt)}</span>
-                            <div className="flex items-center gap-2">
-                              <button
-                                type="button"
-                                onClick={() => startUserEdit(user.id)}
-                                className="text-slate-200 hover:text-white"
-                                disabled={isBusy}
-                              >
-                                Edit
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteUser(user.id)}
-                                className="text-red-300 hover:text-red-200"
-                                disabled={isBusy}
-                              >
-                                Delete
-                              </button>
-                            </div>
-                          </div>
-                        </article>
-                      ))
+                          </article>
+                        );
+                      })
                     )}
                   </div>
                   {isLargeScreen && (

@@ -138,7 +138,7 @@ function AskSuggestionCard({
       <div className="space-y-3">
         <div>
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">ASK question</p>
-          <Textarea readOnly value={suggestion.question} className="mt-2 h-24 resize-none bg-slate-950/60" />
+          <Textarea readOnly value={suggestion.question} className="mt-2 h-24 resize-none bg-slate-950/60 text-white" />
         </div>
 
         {descriptionPreview ? (

@@ -307,7 +307,7 @@ export async function fetchProjectJourneyContext(
       ? supabase
           .from("ask_participants")
           .select(
-            "id, ask_session_id, user_id, participant_name, participant_email, role, is_spokesperson, users(id, full_name, email, role)",
+            "id, ask_session_id, user_id, participant_name, participant_email, role, is_spokesperson, profiles(id, full_name, email, role)",
           )
           .in("ask_session_id", askIds)
       : Promise.resolve({ data: [], error: null }),
@@ -325,11 +325,21 @@ export async function fetchProjectJourneyContext(
       : Promise.resolve({ data: [], error: null }),
     ownerIds.length
       ? supabase
-          .from("users")
+          .from("profiles")
           .select("id, full_name, email, role")
           .in("id", ownerIds)
       : Promise.resolve({ data: [], error: null }),
   ]);
+  
+  // Also fetch insights that are directly linked to challenges (foundation insights)
+  // These insights may not be associated with ASK sessions
+  const challengeLinkedInsightIds = (challengeInsightResult.data ?? []).map(row => row.insight_id);
+  const directInsightResult = challengeLinkedInsightIds.length
+    ? await supabase
+        .from("insights")
+        .select("id, ask_session_id, user_id, content, summary, insight_type_id, status, updated_at, created_at, challenge_id, insight_types(name)")
+        .in("id", challengeLinkedInsightIds)
+    : { data: [], error: null };
 
   if (participantResult.error) {
     throw participantResult.error;
@@ -343,9 +353,32 @@ export async function fetchProjectJourneyContext(
   if (ownerResult.error) {
     throw ownerResult.error;
   }
+  if (directInsightResult.error) {
+    throw directInsightResult.error;
+  }
 
   const participantRows = participantResult.data ?? [];
-  const insightRows = insightResult.data ?? [];
+  const askInsightRows = insightResult.data ?? [];
+  const directInsightRows = directInsightResult.data ?? [];
+  
+  // Merge ASK insights and direct insights, avoiding duplicates
+  const insightRowsMap = new Map<string, any>();
+  for (const row of askInsightRows) {
+    insightRowsMap.set(row.id, row);
+  }
+  for (const row of directInsightRows) {
+    if (!insightRowsMap.has(row.id)) {
+      insightRowsMap.set(row.id, row);
+    }
+  }
+  const insightRows = Array.from(insightRowsMap.values());
+  
+  console.log('📊 projectJourneyLoader: Insights loaded:', {
+    fromAskSessions: askInsightRows.length,
+    fromDirectLinks: directInsightRows.length,
+    total: insightRows.length,
+  });
+  
   const challengeInsightRows = challengeInsightResult.data ?? [];
   const ownerRows = ownerResult.data ?? [];
 
@@ -385,6 +418,15 @@ export async function fetchProjectJourneyContext(
     }
     relatedInsightMap.set(row.challenge_id, list);
   }
+  
+  console.log('🗺️ projectJourneyLoader: relatedInsightMap built:', {
+    totalChallenges: relatedInsightMap.size,
+    challengesWithInsights: Array.from(relatedInsightMap.entries()).map(([id, insightIds]) => ({
+      challengeId: id,
+      insightCount: insightIds.length,
+      insightIds,
+    })),
+  });
 
   const participantsByAskId = new Map<string, ProjectAskParticipant[]>();
   const participantSummaryByUserId = new Map<string, ProjectParticipantSummary>();
@@ -423,6 +465,7 @@ export async function fetchProjectJourneyContext(
   });
 
   const insightsByAskId = new Map<string, ProjectParticipantInsight[]>();
+  const orphanInsights: ProjectParticipantInsight[] = [];
 
   for (const row of insightRows) {
     const contributor = row.user_id ? participantSummaryByUserId.get(row.user_id) : undefined;
@@ -438,10 +481,22 @@ export async function fetchProjectJourneyContext(
     challengeIdsForInsight.forEach(id => relatedChallenges.add(id));
 
     const insight = buildInsight(row, Array.from(relatedChallenges), contributor);
-    const list = insightsByAskId.get(row.ask_session_id) ?? [];
-    list.push(insight);
-    insightsByAskId.set(row.ask_session_id, list);
+    
+    // If insight has an ASK session, add it to that ASK
+    if (row.ask_session_id) {
+      const list = insightsByAskId.get(row.ask_session_id) ?? [];
+      list.push(insight);
+      insightsByAskId.set(row.ask_session_id, list);
+    } else {
+      // If no ASK session, keep it as orphan (foundation insight)
+      orphanInsights.push(insight);
+    }
   }
+  
+  console.log('📊 projectJourneyLoader: Insights organization:', {
+    insightsWithAsk: Array.from(insightsByAskId.values()).flat().length,
+    orphanInsights: orphanInsights.length,
+  });
 
   participantsByAskId.forEach((participants, askId) => {
     const askInsights = insightsByAskId.get(askId) ?? [];
@@ -466,12 +521,15 @@ export async function fetchProjectJourneyContext(
     const participants = participantsByAskId.get(row.id) ?? [];
     const askInsights = insightsByAskId.get(row.id) ?? [];
 
+    const primaryChallengeId = row.challenge_id ? String(row.challenge_id) : null;
     const originatingChallengeIds = new Set<string>();
-    if (row.challenge_id) {
-      originatingChallengeIds.add(row.challenge_id);
+    if (primaryChallengeId) {
+      originatingChallengeIds.add(primaryChallengeId);
     }
+
+    const relatedChallengeIds = new Set<string>();
     askInsights.forEach(insight => {
-      insight.relatedChallengeIds.forEach(id => originatingChallengeIds.add(id));
+      insight.relatedChallengeIds.forEach(id => relatedChallengeIds.add(id));
     });
 
     return {
@@ -483,11 +541,56 @@ export async function fetchProjectJourneyContext(
       theme: "General",
       dueDate: row.end_date ?? row.start_date ?? new Date().toISOString(),
       originatingChallengeIds: Array.from(originatingChallengeIds),
+      primaryChallengeId,
+      relatedChallengeIds: Array.from(relatedChallengeIds),
       relatedProjects: [{ id: projectId, name: projectRow.name }],
       participants,
       insights: askInsights,
     };
   });
+  
+  // Create synthetic ASK session for orphan insights (foundation insights without ASK)
+  if (orphanInsights.length > 0) {
+    const orphanChallengeIds = new Set<string>();
+    orphanInsights.forEach(insight => {
+      insight.relatedChallengeIds.forEach(id => orphanChallengeIds.add(id));
+    });
+    
+    // Create a synthetic participant for foundation insights
+    const syntheticParticipant: ProjectAskParticipant = {
+      id: 'foundation-insights-participant',
+      userId: null,
+      name: 'Foundation Insights',
+      role: 'system',
+      avatarInitials: 'FI',
+      avatarColor: undefined,
+      insights: orphanInsights,
+    };
+    
+    const syntheticAsk: ProjectAskOverview = {
+      id: 'foundation-insights-ask',
+      askKey: 'foundation-insights',
+      title: 'Foundation Insights',
+      summary: 'Insights directly linked to challenges without ASK sessions',
+      status: 'completed',
+      theme: 'Foundation',
+      dueDate: new Date().toISOString(),
+      originatingChallengeIds: Array.from(orphanChallengeIds),
+      primaryChallengeId: null,
+      relatedChallengeIds: Array.from(orphanChallengeIds),
+      relatedProjects: [{ id: projectId, name: projectRow.name }],
+      participants: [syntheticParticipant],
+      insights: orphanInsights,
+    };
+    
+    askOverviews.push(syntheticAsk);
+    
+    console.log('✨ projectJourneyLoader: Created synthetic ASK for orphan insights:', {
+      askId: syntheticAsk.id,
+      insightCount: orphanInsights.length,
+      challengeIds: Array.from(orphanChallengeIds),
+    });
+  }
 
   const clientRelation = (projectRow as { client?: any }).client;
   const clientName = Array.isArray(clientRelation)

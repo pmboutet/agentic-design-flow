@@ -64,4 +64,4 @@ export const PROMPT_VARIABLES: PromptVariableDefinition[] = [
   },
 ];
 
-export const DEFAULT_MAX_OUTPUT_TOKENS = 1024;
+export const DEFAULT_MAX_OUTPUT_TOKENS = 4096;

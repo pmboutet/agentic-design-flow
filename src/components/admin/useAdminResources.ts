@@ -51,7 +51,7 @@ export function useAdminResources() {
     const loadInitial = async () => {
       const results = await Promise.allSettled([
         request<ClientRecord[]>("/api/admin/clients"),
-        request<ManagedUser[]>("/api/admin/users"),
+        request<ManagedUser[]>("/api/admin/profiles"),
         request<ProjectRecord[]>("/api/admin/projects"),
         request<ChallengeRecord[]>("/api/admin/challenges"),
         request<AskSessionRecord[]>("/api/admin/asks")
@@ -164,6 +164,11 @@ export function useAdminResources() {
     setProjects(data ?? []);
   };
 
+  const refreshUsers = async () => {
+    const data = await request<ManagedUser[]>("/api/admin/profiles");
+    setUsers(data ?? []);
+  };
+
   const refreshClients = async () => {
     const data = await request<ClientRecord[]>("/api/admin/clients");
     setClients(data ?? []);
@@ -184,24 +189,38 @@ export function useAdminResources() {
 
   const createUser = (values: UserFormValues) =>
     handleAction(async () => {
-      await request("/api/admin/users", { method: "POST", body: JSON.stringify(values) });
-      const data = await request<ManagedUser[]>("/api/admin/users");
-      setUsers(data ?? []);
+      await request("/api/admin/profiles", { method: "POST", body: JSON.stringify(values) });
+      await refreshUsers();
     }, "User created");
 
   const updateUser = (userId: string, values: Partial<UserFormValues>) =>
     handleAction(async () => {
-      await request(`/api/admin/users/${userId}`, { method: "PATCH", body: JSON.stringify(values) });
-      const data = await request<ManagedUser[]>("/api/admin/users");
-      setUsers(data ?? []);
+      await request(`/api/admin/profiles/${userId}`, { method: "PATCH", body: JSON.stringify(values) });
+      await refreshUsers();
     }, "User updated");
 
   const deleteUser = (userId: string) =>
     handleAction(async () => {
-      await request(`/api/admin/users/${userId}`, { method: "DELETE" });
-      const data = await request<ManagedUser[]>("/api/admin/users");
-      setUsers(data ?? []);
+      await request(`/api/admin/profiles/${userId}`, { method: "DELETE" });
+      await refreshUsers();
     }, "User removed");
+
+  const addUserToProject = (userId: string, projectId: string) =>
+    handleAction(async () => {
+      await request(`/api/admin/projects/${projectId}/members`, {
+        method: "POST",
+        body: JSON.stringify({ userId })
+      });
+      await refreshUsers();
+    }, "User added to project");
+
+  const removeUserFromProject = (userId: string, projectId: string) =>
+    handleAction(async () => {
+      await request(`/api/admin/projects/${projectId}/members/${userId}`, {
+        method: "DELETE"
+      });
+      await refreshUsers();
+    }, "User removed from project");
 
   const createProject = (values: ProjectFormValues) =>
     handleAction(async () => {

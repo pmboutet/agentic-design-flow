@@ -291,8 +291,17 @@ export interface ClientRecord {
   updatedAt: string;
 }
 
-export interface ManagedUser {
-  id: string;
+// Auth types - Supabase Auth integration
+export interface AuthUser {
+  id: string; // auth.users.id from Supabase Auth
+  email: string;
+  emailConfirmed?: boolean;
+  profile?: Profile | null; // Linked profile from public.profiles
+}
+
+export interface Profile {
+  id: string; // public.profiles.id (UUID)
+  authId: string; // References auth.users.id
   email: string;
   firstName?: string | null;
   lastName?: string | null;
@@ -300,10 +309,16 @@ export interface ManagedUser {
   role: string;
   clientId?: string | null;
   clientName?: string | null;
-  projectIds?: string[];
+  avatarUrl?: string | null;
   isActive: boolean;
+  lastLogin?: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+// Managed user for admin backoffice (extends Profile with additional info)
+export interface ManagedUser extends Profile {
+  projectIds?: string[];
 }
 
 export interface ProjectRecord {
@@ -436,6 +451,8 @@ export interface ProjectAskOverview {
   dueDate: string;
   participants: ProjectAskParticipant[];
   originatingChallengeIds: string[];
+  primaryChallengeId?: string | null;
+  relatedChallengeIds?: string[];
   relatedProjects: { id: string; name: string }[];
   insights: ProjectParticipantInsight[];
 }
@@ -462,7 +479,7 @@ export interface ProjectChallengeNode {
 export interface ProjectJourneyBoardData {
   projectId: string;
   projectName: string;
-  clientName: string;
+  clientName: string | null;
   projectGoal?: string | null;
   timeframe?: string | null;
   projectDescription?: string | null;
@@ -492,7 +509,7 @@ export interface AiSubChallengeUpdateSuggestion {
 
 export interface AiFoundationInsight {
   insightId: string;
-  title: string;
+  title?: string; // Optional: will be fetched from DB if not provided (smart optimization)
   reason: string;
   priority: "low" | "medium" | "high" | "critical";
 }

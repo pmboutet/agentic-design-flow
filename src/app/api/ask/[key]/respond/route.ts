@@ -1137,7 +1137,7 @@ export async function POST(
 
     if (participantUserIds.length > 0) {
       const { data: userRows, error: userError } = await supabase
-        .from('users')
+        .from('profiles')
         .select('id, email, full_name, first_name, last_name')
         .in('id', participantUserIds);
 
@@ -1182,7 +1182,7 @@ export async function POST(
 
     if (additionalUserIds.length > 0) {
       const { data: extraUsers, error: extraUsersError } = await supabase
-        .from('users')
+        .from('profiles')
         .select('id, email, full_name, first_name, last_name')
         .in('id', additionalUserIds);
 

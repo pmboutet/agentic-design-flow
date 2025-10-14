@@ -4,6 +4,7 @@ import { getAdminSupabaseClient } from "@/lib/supabaseAdmin";
 import { sanitizeOptional, sanitizeText } from "@/lib/sanitize";
 import { parseErrorMessage } from "@/lib/utils";
 import { type ApiResponse, type ManagedUser } from "@/types";
+import { fetchProjectMemberships, mapManagedUser } from "./helpers";
 
 const roleValues = ["full_admin", "project_admin", "facilitator", "manager", "participant", "user"] as const;
 
@@ -13,30 +14,15 @@ const userSchema = z.object({
   lastName: z.string().trim().max(100).optional().or(z.literal("")),
   role: z.enum(roleValues).default("user"),
   clientId: z.string().uuid().optional().or(z.literal("")),
-  isActive: z.boolean().default(true)
+  isActive: z.boolean().default(true),
+  password: z.string().min(6).optional(), // For creating auth user
 });
-
-function mapUser(row: any): ManagedUser {
-  return {
-    id: row.id,
-    email: row.email,
-    firstName: row.first_name,
-    lastName: row.last_name,
-    fullName: row.full_name,
-    role: row.role,
-    clientId: row.client_id,
-    clientName: row.clients?.name ?? null,
-    isActive: row.is_active,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at
-  };
-}
 
 export async function GET() {
   try {
     const supabase = getAdminSupabaseClient();
     const { data, error } = await supabase
-      .from("users")
+      .from("profiles")
       .select("*, clients(name)")
       .order("created_at", { ascending: false });
 
@@ -44,9 +30,12 @@ export async function GET() {
       throw error;
     }
 
+    const userIds = (data ?? []).map(row => row.id).filter((id): id is string => Boolean(id));
+    const membershipMap = await fetchProjectMemberships(supabase, userIds);
+
     return NextResponse.json<ApiResponse<ManagedUser[]>>({
       success: true,
-      data: (data ?? []).map(mapUser)
+      data: (data ?? []).map(row => mapManagedUser(row, membershipMap))
     });
   } catch (error) {
     return NextResponse.json<ApiResponse>({
@@ -65,11 +54,40 @@ export async function POST(request: NextRequest) {
     const firstName = sanitizeOptional(payload.firstName || null);
     const lastName = sanitizeOptional(payload.lastName || null);
     const fullName = [firstName, lastName].filter(Boolean).join(" ") || null;
+    const email = sanitizeText(payload.email.toLowerCase());
 
+    // Create user in Supabase Auth first (if password provided)
+    let authId: string | null = null;
+    if (payload.password) {
+      const { data: authData, error: authError } = await supabase.auth.admin.createUser({
+        email,
+        password: payload.password,
+        email_confirm: true, // Auto-confirm email
+        user_metadata: {
+          full_name: fullName,
+          fullName,
+          first_name: firstName,
+          firstName,
+          last_name: lastName,
+          lastName,
+          role: payload.role,
+        },
+      });
+
+      if (authError) {
+        throw new Error(`Failed to create auth user: ${authError.message}`);
+      }
+
+      authId = authData.user.id;
+    }
+
+    // Note: If password is not provided, profile is created without auth_id
+    // This allows for profiles that will be linked to auth users later
     const { data, error } = await supabase
-      .from("users")
+      .from("profiles")
       .insert({
-        email: sanitizeText(payload.email.toLowerCase()),
+        auth_id: authId,
+        email,
         first_name: firstName,
         last_name: lastName,
         full_name: fullName,
@@ -81,12 +99,18 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (error) {
+      // If profile creation fails but auth user was created, clean up
+      if (authId) {
+        await supabase.auth.admin.deleteUser(authId);
+      }
       throw error;
     }
 
+    const membershipMap = await fetchProjectMemberships(supabase, [data.id]);
+
     return NextResponse.json<ApiResponse<ManagedUser>>({
       success: true,
-      data: mapUser(data)
+      data: mapManagedUser(data, membershipMap)
     }, { status: 201 });
   } catch (error) {
     const status = error instanceof z.ZodError ? 400 : 500;
@@ -96,3 +120,4 @@ export async function POST(request: NextRequest) {
     }, { status });
   }
 }
+

@@ -48,17 +48,29 @@ export async function createChallengeFoundationInsights(
   challengeId: string,
   foundationInsights: AiFoundationInsight[]
 ): Promise<ChallengeFoundationInsight[]> {
+  console.log('🔍 createChallengeFoundationInsights - Start:', {
+    challengeId,
+    count: foundationInsights.length,
+    insights: foundationInsights,
+  });
+  
   const supabase = getAdminSupabaseClient();
   
   if (!foundationInsights.length) {
+    console.log('⚠️ createChallengeFoundationInsights - No insights to create');
     return [];
   }
 
   // First, clear existing foundation insights for this challenge
-  await supabase
+  console.log('🗑️ createChallengeFoundationInsights - Deleting existing foundation insights');
+  const { error: deleteError } = await supabase
     .from('challenge_foundation_insights')
     .delete()
     .eq('challenge_id', challengeId);
+  
+  if (deleteError) {
+    console.error('❌ createChallengeFoundationInsights - Delete error:', deleteError);
+  }
 
   // Insert new foundation insights
   const foundationInsightData = foundationInsights.map(insight => ({
@@ -67,6 +79,8 @@ export async function createChallengeFoundationInsights(
     priority: insight.priority,
     reason: insight.reason,
   }));
+  
+  console.log('📝 createChallengeFoundationInsights - Inserting data:', foundationInsightData);
 
   const { data, error } = await supabase
     .from('challenge_foundation_insights')
@@ -82,9 +96,55 @@ export async function createChallengeFoundationInsights(
     `);
 
   if (error) {
-    console.error('Error creating challenge foundation insights:', error);
+    console.error('❌ createChallengeFoundationInsights - Insert error:', error);
     throw new Error(`Failed to create foundation insights: ${error.message}`);
   }
+  
+  console.log('✅ createChallengeFoundationInsights - Inserted successfully:', data?.length);
+
+  // Also create standard challenge-insight links so they appear in the UI
+  // This ensures the insights are visible in the "Foundational insights" section
+  console.log('🔗 createChallengeFoundationInsights - Creating challenge-insight links');
+  
+  for (const insight of foundationInsights) {
+    console.log('🔍 Checking existing link for insight:', insight.insightId);
+    
+    // Check if link already exists
+    const { data: existingLink, error: checkError } = await supabase
+      .from('challenge_insights')
+      .select('challenge_id, insight_id')
+      .eq('challenge_id', challengeId)
+      .eq('insight_id', insight.insightId)
+      .maybeSingle();
+
+    if (checkError) {
+      console.error('❌ Error checking existing link:', checkError);
+    }
+
+    if (!existingLink) {
+      console.log('📝 Creating new challenge-insight link:', { challengeId, insightId: insight.insightId });
+      
+      // Create new link if it doesn't exist
+      const { error: insertError } = await supabase
+        .from('challenge_insights')
+        .insert({
+          challenge_id: challengeId,
+          insight_id: insight.insightId,
+        });
+
+      if (insertError) {
+        console.error('❌ Error creating challenge-insight link:', insertError);
+        // Don't throw here - foundation insights are already created
+        // Just log the error
+      } else {
+        console.log('✅ Created challenge-insight link:', { challengeId, insightId: insight.insightId });
+      }
+    } else {
+      console.log('ℹ️ Challenge-insight link already exists:', { challengeId, insightId: insight.insightId });
+    }
+  }
+  
+  console.log('✅ createChallengeFoundationInsights - Complete');
 
   return (data ?? []).map(mapChallengeFoundationInsight);
 }

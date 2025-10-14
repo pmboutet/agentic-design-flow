@@ -179,7 +179,14 @@ function readMigrations() {
     .filter((file) => file.endsWith('.sql'))
     .map((file) => {
       const filePath = path.join(MIGRATIONS_DIR, file);
-      const contents = fs.readFileSync(filePath, 'utf8');
+      let contents = fs.readFileSync(filePath, 'utf8');
+      
+      // Extract only the "up" migration (before //@UNDO marker)
+      const undoMarkerIndex = contents.indexOf('//@UNDO');
+      if (undoMarkerIndex !== -1) {
+        contents = contents.substring(0, undoMarkerIndex).trim();
+      }
+      
       const [version, ...nameParts] = file.replace('.sql', '').split('_');
       const name = nameParts.join('_');
       const hash = require('crypto').createHash('sha256').update(contents).digest('hex');
