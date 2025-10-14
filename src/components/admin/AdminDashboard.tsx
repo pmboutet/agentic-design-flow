@@ -491,7 +491,9 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
     deleteClient,
     deleteProject,
     deleteChallenge,
-    deleteAsk
+    deleteAsk,
+    addUserToProject,
+    removeUserFromProject
   } = useAdminResources();
 
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
@@ -1699,6 +1701,20 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
       return;
     }
     await deleteAsk(askId);
+  };
+
+  const handleAddUserToProject = async (userId: string) => {
+    if (!selectedProjectId) {
+      return;
+    }
+    await addUserToProject(userId, selectedProjectId);
+  };
+
+  const handleRemoveUserFromProject = async (userId: string) => {
+    if (!selectedProjectId) {
+      return;
+    }
+    await removeUserFromProject(userId, selectedProjectId);
   };
 
   const filteredUsers = useMemo(() => {
