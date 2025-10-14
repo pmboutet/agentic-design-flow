@@ -70,7 +70,12 @@ export async function middleware(request: NextRequest) {
     // You can fetch the profile here to verify role
   }
 
-  // Redirect logged-in users away from auth pages
+  // Allow /auth/callback to process the OAuth flow without redirecting
+  if (request.nextUrl.pathname === '/auth/callback') {
+    return response
+  }
+
+  // Redirect logged-in users away from auth pages (except callback)
   if (request.nextUrl.pathname.startsWith('/auth/')) {
     if (session) {
       return NextResponse.redirect(new URL('/admin', request.url))
