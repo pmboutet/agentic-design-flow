@@ -300,6 +300,8 @@ export function useAdminResources() {
     deleteClient,
     deleteProject,
     deleteChallenge,
-    deleteAsk
+    deleteAsk,
+    addUserToProject,
+    removeUserFromProject
   };
 }
