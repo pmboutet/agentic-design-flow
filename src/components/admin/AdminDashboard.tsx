@@ -1245,6 +1245,16 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
   const isEditingUser = Boolean(editingUserId);
 
   useEffect(() => {
+    if (!showUserForm || isEditingUser) {
+      return;
+    }
+    const targetClientId = selectedClientId ?? "";
+    if (userForm.getValues("clientId") !== targetClientId) {
+      userForm.setValue("clientId", targetClientId, { shouldDirty: false });
+    }
+  }, [selectedClientId, showUserForm, isEditingUser, userForm]);
+
+  useEffect(() => {
     if (!selectedChallenge) {
       challengeForm.reset({
         name: "",
@@ -1433,6 +1443,10 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
   const handleSubmitProject = async (values: ProjectFormInput) => {
     const targetClientId = selectedClientId || selectedProject?.clientId;
     if (!targetClientId) {
+      setFeedback({
+        type: "error",
+        message: "Select a client before creating or updating a project."
+      });
       return;
     }
 
@@ -1625,8 +1639,17 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
   const handleSubmitUser = async (values: UserFormInput) => {
     const payload = { ...values };
     if (editingUserId) {
+      payload.clientId = values.clientId ?? "";
       await updateUser(editingUserId, payload);
     } else {
+      if (!selectedClientId) {
+        setFeedback({
+          type: "error",
+          message: "Select a client before creating a user."
+        });
+        return;
+      }
+      payload.clientId = selectedClientId;
       await createUser(payload);
     }
     resetUserForm();
