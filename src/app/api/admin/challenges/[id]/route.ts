@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { getAdminSupabaseClient } from "@/lib/supabaseAdmin";
+import { createServerSupabaseClient, requireAdmin } from "@/lib/supabaseServer";
 import { sanitizeOptional, sanitizeText } from "@/lib/sanitize";
 import { parseErrorMessage } from "@/lib/utils";
 import { type ApiResponse, type ChallengeRecord } from "@/types";
@@ -43,6 +43,9 @@ export async function PATCH(
   { params }: { params: { id: string } }
 ) {
   try {
+    await requireAdmin();
+    const supabase = await createServerSupabaseClient();
+    
     const challengeId = z.string().uuid().parse(params.id);
     const body = await request.json();
     console.log('🔧 Challenge update request:', { challengeId, body });
@@ -84,7 +87,6 @@ export async function PATCH(
       }, { status: 400 });
     }
 
-    const supabase = getAdminSupabaseClient();
     const { data, error } = await supabase
       .from("challenges")
       .update(updateData)
@@ -104,7 +106,10 @@ export async function PATCH(
     });
   } catch (error) {
     console.error('❌ Challenge update error:', error);
-    const status = error instanceof z.ZodError ? 400 : 500;
+    let status = 500;
+    if (error instanceof z.ZodError) status = 400;
+    else if (error instanceof Error && error.message.includes('required')) status = 403;
+    
     return NextResponse.json<ApiResponse>({
       success: false,
       error: error instanceof z.ZodError ? error.errors[0]?.message || "Invalid payload" : parseErrorMessage(error)
@@ -117,9 +122,10 @@ export async function DELETE(
   { params }: { params: { id: string } }
 ) {
   try {
+    await requireAdmin();
+    const supabase = await createServerSupabaseClient();
+    
     const challengeId = z.string().uuid().parse(params.id);
-
-    const supabase = getAdminSupabaseClient();
     const { error } = await supabase.from("challenges").delete().eq("id", challengeId);
 
     if (error) {
@@ -128,9 +134,13 @@ export async function DELETE(
 
     return NextResponse.json<ApiResponse>({ success: true });
   } catch (error) {
+    let status = 500;
+    if (error instanceof z.ZodError) status = 400;
+    else if (error instanceof Error && error.message.includes('required')) status = 403;
+    
     return NextResponse.json<ApiResponse>({
       success: false,
       error: error instanceof z.ZodError ? error.errors[0]?.message || "Invalid challenge id" : parseErrorMessage(error)
-    }, { status: error instanceof z.ZodError ? 400 : 500 });
+    }, { status });
   }
 }

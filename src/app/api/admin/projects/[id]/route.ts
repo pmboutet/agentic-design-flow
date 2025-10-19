@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { getAdminSupabaseClient } from "@/lib/supabaseAdmin";
+import { createServerSupabaseClient, requireAdmin } from "@/lib/supabaseServer";
 import { parseErrorMessage } from "@/lib/utils";
 import { type ApiResponse, type ProjectRecord } from "@/types";
 import { sanitizeOptional, sanitizeText } from "@/lib/sanitize";
@@ -43,9 +43,10 @@ export async function DELETE(
   { params }: { params: { id: string } }
 ) {
   try {
+    await requireAdmin();
+    const supabase = await createServerSupabaseClient();
+    
     const projectId = z.string().uuid().parse(params.id);
-
-    const supabase = getAdminSupabaseClient();
     const { error } = await supabase.from("projects").delete().eq("id", projectId);
 
     if (error) {
@@ -54,10 +55,14 @@ export async function DELETE(
 
     return NextResponse.json<ApiResponse>({ success: true });
   } catch (error) {
+    let status = 500;
+    if (error instanceof z.ZodError) status = 400;
+    else if (error instanceof Error && error.message.includes('required')) status = 403;
+    
     return NextResponse.json<ApiResponse>({
       success: false,
       error: error instanceof z.ZodError ? error.errors[0]?.message || "Invalid project id" : parseErrorMessage(error)
-    }, { status: error instanceof z.ZodError ? 400 : 500 });
+    }, { status });
   }
 }
 
@@ -66,6 +71,9 @@ export async function PATCH(
   { params }: { params: { id: string } }
 ) {
   try {
+    await requireAdmin();
+    const supabase = await createServerSupabaseClient();
+    
     const projectId = z.string().uuid().parse(params.id);
     const body = await request.json();
     const payload = updateSchema.parse(body);
@@ -103,7 +111,6 @@ export async function PATCH(
       }, { status: 400 });
     }
 
-    const supabase = getAdminSupabaseClient();
     const { data, error } = await supabase
       .from("projects")
       .update(updateData)
@@ -120,7 +127,10 @@ export async function PATCH(
       data: mapProject(data)
     });
   } catch (error) {
-    const status = error instanceof z.ZodError ? 400 : 500;
+    let status = 500;
+    if (error instanceof z.ZodError) status = 400;
+    else if (error instanceof Error && error.message.includes('required')) status = 403;
+    
     return NextResponse.json<ApiResponse>({
       success: false,
       error: error instanceof z.ZodError ? error.errors[0]?.message || "Invalid payload" : parseErrorMessage(error)

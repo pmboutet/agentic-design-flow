@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { createServerSupabaseClient, requireAdmin } from "@/lib/supabaseServer";
 import { getAdminSupabaseClient } from "@/lib/supabaseAdmin";
 import { sanitizeOptional, sanitizeText } from "@/lib/sanitize";
 import { parseErrorMessage } from "@/lib/utils";
@@ -20,7 +21,10 @@ const userSchema = z.object({
 
 export async function GET() {
   try {
-    const supabase = getAdminSupabaseClient();
+    // Verify user is admin and get authenticated client
+    await requireAdmin();
+    const supabase = await createServerSupabaseClient();
+    
     const { data, error } = await supabase
       .from("profiles")
       .select("*, clients(name)")
@@ -38,19 +42,26 @@ export async function GET() {
       data: (data ?? []).map(row => mapManagedUser(row, membershipMap))
     });
   } catch (error) {
+    const status = error instanceof Error && error.message.includes('required') ? 403 : 500;
     return NextResponse.json<ApiResponse>({
       success: false,
       error: parseErrorMessage(error)
-    }, { status: 500 });
+    }, { status });
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
+    // Verify user is admin
+    await requireAdmin();
+    
     const body = await request.json();
     const payload = userSchema.parse(body);
 
-    const supabase = getAdminSupabaseClient();
+    // Use admin client for auth.admin operations (creating auth users)
+    const adminSupabase = getAdminSupabaseClient();
+    // Use authenticated client for RLS-enabled operations
+    const supabase = await createServerSupabaseClient();
     const firstName = sanitizeOptional(payload.firstName || null);
     const lastName = sanitizeOptional(payload.lastName || null);
     const fullName = [firstName, lastName].filter(Boolean).join(" ") || null;
@@ -59,7 +70,7 @@ export async function POST(request: NextRequest) {
     // Create user in Supabase Auth first (if password provided)
     let authId: string | null = null;
     if (payload.password) {
-      const { data: authData, error: authError } = await supabase.auth.admin.createUser({
+      const { data: authData, error: authError } = await adminSupabase.auth.admin.createUser({
         email,
         password: payload.password,
         email_confirm: true, // Auto-confirm email
@@ -101,7 +112,7 @@ export async function POST(request: NextRequest) {
     if (error) {
       // If profile creation fails but auth user was created, clean up
       if (authId) {
-        await supabase.auth.admin.deleteUser(authId);
+        await adminSupabase.auth.admin.deleteUser(authId);
       }
       throw error;
     }
@@ -113,7 +124,10 @@ export async function POST(request: NextRequest) {
       data: mapManagedUser(data, membershipMap)
     }, { status: 201 });
   } catch (error) {
-    const status = error instanceof z.ZodError ? 400 : 500;
+    let status = 500;
+    if (error instanceof z.ZodError) status = 400;
+    else if (error instanceof Error && error.message.includes('required')) status = 403;
+    
     return NextResponse.json<ApiResponse>({
       success: false,
       error: error instanceof z.ZodError ? error.errors[0]?.message || "Invalid payload" : parseErrorMessage(error)

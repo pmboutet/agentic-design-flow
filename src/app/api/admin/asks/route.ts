@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { getAdminSupabaseClient } from "@/lib/supabaseAdmin";
+import { createServerSupabaseClient, requireAdmin } from "@/lib/supabaseServer";
 import { sanitizeOptional, sanitizeText } from "@/lib/sanitize";
 import { parseErrorMessage } from "@/lib/utils";
 import { type ApiResponse, type AskSessionRecord } from "@/types";
@@ -75,7 +75,10 @@ function mapAsk(row: any): AskSessionRecord {
 
 export async function GET(request: NextRequest) {
   try {
-    const supabase = getAdminSupabaseClient();
+    // Verify user is admin and get authenticated client
+    await requireAdmin();
+    const supabase = await createServerSupabaseClient();
+    
     const url = new URL(request.url);
     const challengeId = url.searchParams.get("challengeId");
 
@@ -105,22 +108,25 @@ export async function GET(request: NextRequest) {
       data: (data ?? []).map(mapAsk)
     });
   } catch (error) {
+    const status = error instanceof Error && error.message.includes('required') ? 403 : 500;
     return NextResponse.json<ApiResponse>({
       success: false,
       error: parseErrorMessage(error)
-    }, { status: 500 });
+    }, { status });
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
+    // Verify user is admin and get authenticated client
+    await requireAdmin();
+    const supabase = await createServerSupabaseClient();
+    
     const body = await request.json();
     console.log('🔧 ASK creation request:', body);
     
     const payload = askSchema.parse(body);
     console.log('✅ Parsed ASK payload:', payload);
-
-    const supabase = getAdminSupabaseClient();
     const startDate = new Date(payload.startDate).toISOString();
     const endDate = new Date(payload.endDate).toISOString();
 
@@ -186,7 +192,10 @@ export async function POST(request: NextRequest) {
       data: mapAsk(record)
     }, { status: 201 });
   } catch (error) {
-    const status = error instanceof z.ZodError ? 400 : 500;
+    let status = 500;
+    if (error instanceof z.ZodError) status = 400;
+    else if (error instanceof Error && error.message.includes('required')) status = 403;
+    
     return NextResponse.json<ApiResponse>({
       success: false,
       error: error instanceof z.ZodError ? error.errors[0]?.message || "Invalid payload" : parseErrorMessage(error)

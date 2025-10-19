@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { getAdminSupabaseClient } from "@/lib/supabaseAdmin";
+import { createServerSupabaseClient, requireAdmin } from "@/lib/supabaseServer";
 import { sanitizeOptional, sanitizeText } from "@/lib/sanitize";
 import { parseErrorMessage } from "@/lib/utils";
 import { type ApiResponse, type ManagedUser } from "@/types";
@@ -22,11 +22,12 @@ export async function PATCH(
   { params }: { params: { id: string } }
 ) {
   try {
+    await requireAdmin();
+    const supabase = await createServerSupabaseClient();
+    
     const userId = z.string().uuid().parse(params.id);
     const body = await request.json();
     const payload = updateSchema.parse(body);
-
-    const supabase = getAdminSupabaseClient();
 
     let currentFirstName: string | null | undefined;
     let currentLastName: string | null | undefined;
@@ -105,7 +106,10 @@ export async function PATCH(
       data: mapManagedUser(data, membershipMap)
     });
   } catch (error) {
-    const status = error instanceof z.ZodError ? 400 : 500;
+    let status = 500;
+    if (error instanceof z.ZodError) status = 400;
+    else if (error instanceof Error && error.message.includes('required')) status = 403;
+    
     return NextResponse.json<ApiResponse>({
       success: false,
       error: error instanceof z.ZodError ? error.errors[0]?.message || "Invalid payload" : parseErrorMessage(error)
