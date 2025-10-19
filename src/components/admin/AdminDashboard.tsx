@@ -8,7 +8,6 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { AnimatePresence, motion } from "framer-motion";
 import { useRouter } from "next/navigation";
 import {
-  Bell,
   Building2,
   ClipboardList,
   Compass,
@@ -2415,7 +2414,7 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
             animate={{ opacity: 1, y: 0 }}
             className="sticky top-0 z-40 border-b border-white/10 bg-slate-950/80 backdrop-blur"
           >
-            <div className="flex items-center justify-between px-6 py-4">
+            <div className="flex items-center px-6 py-4">
               <div className="flex flex-1 items-center gap-3">
                 <div className="hidden md:flex md:max-w-md md:flex-1">
                   <div className="relative w-full">
@@ -2503,15 +2502,6 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                       )}
                     </AnimatePresence>
                   </div>
-                </div>
-              </div>
-              <div className="flex items-center gap-4">
-                <div className="flex items-center gap-2 text-sm text-slate-300">
-                  <Bell className="h-5 w-5" />
-                  <span>Notifications</span>
-                </div>
-                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 text-sm font-semibold">
-                  AD
                 </div>
               </div>
             </div>
