@@ -49,88 +49,95 @@ export function useAdminResources() {
 
   useEffect(() => {
     const loadInitial = async () => {
-      const results = await Promise.allSettled([
-        request<ClientRecord[]>("/api/admin/clients"),
-        request<ManagedUser[]>("/api/admin/profiles"),
-        request<ProjectRecord[]>("/api/admin/projects"),
-        request<ChallengeRecord[]>("/api/admin/challenges"),
-        request<AskSessionRecord[]>("/api/admin/asks")
-      ]);
+      try {
+        const results = await Promise.allSettled([
+          request<ClientRecord[]>("/api/admin/clients"),
+          request<ManagedUser[]>("/api/admin/profiles"),
+          request<ProjectRecord[]>("/api/admin/projects"),
+          request<ChallengeRecord[]>("/api/admin/challenges"),
+          request<AskSessionRecord[]>("/api/admin/asks")
+        ]);
 
-      const [clientResult, userResult, projectResult, challengeResult, askResult] = results;
-      const errors: string[] = [];
+        const [clientResult, userResult, projectResult, challengeResult, askResult] = results;
+        const errors: string[] = [];
 
-      if (clientResult.status === "fulfilled") {
-        setClients(clientResult.value ?? []);
-      } else {
-        errors.push(
-          clientResult.reason instanceof Error
-            ? clientResult.reason.message
-            : typeof clientResult.reason === "string"
-              ? clientResult.reason
-              : "Unable to load clients"
-        );
-      }
+        if (clientResult.status === "fulfilled") {
+          setClients(clientResult.value ?? []);
+        } else {
+          errors.push(
+            clientResult.reason instanceof Error
+              ? clientResult.reason.message
+              : typeof clientResult.reason === "string"
+                ? clientResult.reason
+                : "Unable to load clients"
+          );
+        }
 
-      if (userResult.status === "fulfilled") {
-        setUsers(userResult.value ?? []);
-      } else {
-        errors.push(
-          userResult.reason instanceof Error
-            ? userResult.reason.message
-            : typeof userResult.reason === "string"
-              ? userResult.reason
-              : "Unable to load users"
-        );
-      }
+        if (userResult.status === "fulfilled") {
+          setUsers(userResult.value ?? []);
+        } else {
+          errors.push(
+            userResult.reason instanceof Error
+              ? userResult.reason.message
+              : typeof userResult.reason === "string"
+                ? userResult.reason
+                : "Unable to load users"
+          );
+        }
 
-      if (projectResult.status === "fulfilled") {
-        setProjects(projectResult.value ?? []);
-      } else {
-        errors.push(
-          projectResult.reason instanceof Error
-            ? projectResult.reason.message
-            : typeof projectResult.reason === "string"
-              ? projectResult.reason
-              : "Unable to load projects"
-        );
-      }
+        if (projectResult.status === "fulfilled") {
+          setProjects(projectResult.value ?? []);
+        } else {
+          errors.push(
+            projectResult.reason instanceof Error
+              ? projectResult.reason.message
+              : typeof projectResult.reason === "string"
+                ? projectResult.reason
+                : "Unable to load projects"
+          );
+        }
 
-      if (challengeResult.status === "fulfilled") {
-        setChallenges(challengeResult.value ?? []);
-      } else {
-        errors.push(
-          challengeResult.reason instanceof Error
-            ? challengeResult.reason.message
-            : typeof challengeResult.reason === "string"
-              ? challengeResult.reason
-              : "Unable to load challenges"
-        );
-      }
+        if (challengeResult.status === "fulfilled") {
+          setChallenges(challengeResult.value ?? []);
+        } else {
+          errors.push(
+            challengeResult.reason instanceof Error
+              ? challengeResult.reason.message
+              : typeof challengeResult.reason === "string"
+                ? challengeResult.reason
+                : "Unable to load challenges"
+          );
+        }
 
-      if (askResult.status === "fulfilled") {
-        setAsks(askResult.value ?? []);
-      } else {
-        errors.push(
-          askResult.reason instanceof Error
-            ? askResult.reason.message
-            : typeof askResult.reason === "string"
-              ? askResult.reason
-              : "Unable to load ASK sessions"
-        );
-      }
+        if (askResult.status === "fulfilled") {
+          setAsks(askResult.value ?? []);
+        } else {
+          errors.push(
+            askResult.reason instanceof Error
+              ? askResult.reason.message
+              : typeof askResult.reason === "string"
+                ? askResult.reason
+                : "Unable to load ASK sessions"
+          );
+        }
 
-      if (errors.length > 0) {
+        if (errors.length > 0) {
+          setFeedback({
+            type: "error",
+            message: `Some data could not be loaded: ${Array.from(new Set(errors)).join(", ")}`
+          });
+        }
+      } catch (error) {
         setFeedback({
           type: "error",
-          message: `Some data could not be loaded: ${Array.from(new Set(errors)).join(", ")}`
+          message: error instanceof Error ? error.message : "Unable to load admin resources"
         });
+      } finally {
+        setIsLoading(false);
       }
-
-      setIsLoading(false);
     };
 
-    loadInitial();
+    void loadInitial();
   }, []);
 
   const handleAction = async (action: () => Promise<void>, successMessage: string) => {
