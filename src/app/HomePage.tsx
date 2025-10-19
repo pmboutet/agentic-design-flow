@@ -17,6 +17,7 @@ import {
   getDeliveryModeLabel,
 } from "@/lib/utils";
 import { UserProfileMenu } from "@/components/auth/UserProfileMenu";
+import { supabase } from "@/lib/supabaseClient";
 
 /**
  * Main application page with beautiful glassmorphic design
@@ -45,6 +46,16 @@ export default function HomePage() {
   const [isDetailsCollapsed, setIsDetailsCollapsed] = useState(false);
   const autoCollapseTriggeredRef = useRef(false);
   const previousMessageCountRef = useRef(0);
+  // DEBUG: Afficher auth ID temporairement
+  const [debugAuthId, setDebugAuthId] = useState<string | null>(null);
+  
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      if (data?.user?.id) {
+        setDebugAuthId(data.user.id);
+      }
+    });
+  }, []);
   const askDetails = sessionData.ask;
   const participants = askDetails?.participants ?? [];
   const statusLabel = askDetails?.status
@@ -796,6 +807,11 @@ export default function HomePage() {
                 </h1>
                 {isTestMode && (
                   <span className="test-mode-badge">TEST MODE</span>
+                )}
+                {debugAuthId && (
+                  <div className="mt-1 text-xs font-mono bg-yellow-100 px-2 py-1 rounded border border-yellow-300">
+                    🔑 Auth ID: {debugAuthId}
+                  </div>
                 )}
               </div>
             </motion.div>
