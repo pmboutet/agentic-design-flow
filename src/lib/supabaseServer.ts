@@ -1,6 +1,5 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { cookies } from 'next/headers'
-import { type SupabaseClient } from '@supabase/supabase-js'
 
 /**
  * Creates a Supabase client for use in Server Components and Route Handlers.
@@ -9,7 +8,7 @@ import { type SupabaseClient } from '@supabase/supabase-js'
  * Use this for user-initiated requests where RLS should be enforced.
  * For admin operations that need to bypass RLS, use getAdminSupabaseClient() instead.
  */
-export async function createServerSupabaseClient(): Promise<SupabaseClient> {
+export async function createServerSupabaseClient() {
   const cookieStore = await cookies()
 
   return createServerClient(
