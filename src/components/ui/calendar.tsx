@@ -8,23 +8,22 @@ import {
   ChevronsLeft,
   ChevronsRight
 } from "lucide-react";
-import ReactDatePicker from "react-datepicker";
+import ReactDatePicker, { type DatePickerProps } from "react-datepicker";
 
 import { cn } from "@/lib/utils";
 
+type HeaderRenderer = NonNullable<
+  DatePickerProps["renderCustomHeader"]
+>;
+
 export interface CalendarProps
-  extends Omit<
-    React.ComponentProps<typeof ReactDatePicker>,
-    "inline" | "renderCustomHeader"
-  > {
+  extends Omit<DatePickerProps, "inline" | "renderCustomHeader"> {
   containerClassName?: string;
-  renderCustomHeader?: NonNullable<
-    React.ComponentProps<typeof ReactDatePicker>["renderCustomHeader"]
-  >;
+  renderCustomHeader?: HeaderRenderer;
 }
 
 type HeaderProps = Parameters<
-  NonNullable<React.ComponentProps<typeof ReactDatePicker>["renderCustomHeader"]>
+  NonNullable<HeaderRenderer>
 >[0];
 
 const navigationButtonClasses =
@@ -95,6 +94,7 @@ export function Calendar({
   renderCustomHeader,
   ...props
 }: CalendarProps) {
+  const calendarProps = props as DatePickerProps;
   const headerRenderer = React.useMemo(() => {
     if (!renderCustomHeader) {
       return (headerProps: HeaderProps) => <DefaultHeader {...headerProps} />;
@@ -113,7 +113,7 @@ export function Calendar({
           calendarClassName
         )}
         renderCustomHeader={headerRenderer}
-        {...props}
+        {...calendarProps}
       />
     </div>
   );
