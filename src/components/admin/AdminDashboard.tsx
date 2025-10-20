@@ -30,6 +30,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { DateTimePicker } from "@/components/ui/date-time-picker";
 import { ProjectJourneyBoard } from "@/components/project/ProjectJourneyBoard";
 import { AskRelationshipCanvas } from "./AskRelationshipCanvas";
+import { FormDateTimeField } from "./FormDateTimeField";
 import { useAdminResources } from "./useAdminResources";
 import type { AskSessionRecord, ChallengeRecord, ClientRecord, ProjectRecord } from "@/types";
 
@@ -2902,44 +2903,24 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                         />
                       </div>
                       <div className="grid gap-3 md:grid-cols-2">
-                        <div className="flex flex-col gap-2">
-                          <Label htmlFor="project-start">Start date</Label>
-                          <Controller
-                            control={projectForm.control}
-                            name="startDate"
-                            render={({ field }) => (
-                              <DateTimePicker
-                                id="project-start"
-                                value={field.value}
-                                onChange={field.onChange}
-                                disabled={isBusy}
-                                placeholder="Select start date"
-                              />
-                            )}
-                          />
-                          {projectForm.formState.errors.startDate && (
-                            <p className="text-xs text-red-400">{projectForm.formState.errors.startDate.message}</p>
-                          )}
-                        </div>
-                        <div className="flex flex-col gap-2">
-                          <Label htmlFor="project-end">End date</Label>
-                          <Controller
-                            control={projectForm.control}
-                            name="endDate"
-                            render={({ field }) => (
-                              <DateTimePicker
-                                id="project-end"
-                                value={field.value}
-                                onChange={field.onChange}
-                                disabled={isBusy}
-                                placeholder="Select end date"
-                              />
-                            )}
-                          />
-                          {projectForm.formState.errors.endDate && (
-                            <p className="text-xs text-red-400">{projectForm.formState.errors.endDate.message}</p>
-                          )}
-                        </div>
+                        <FormDateTimeField
+                          control={projectForm.control}
+                          name="startDate"
+                          id="project-start"
+                          label="Start date"
+                          placeholder="Select start date"
+                          disabled={isBusy}
+                          error={projectForm.formState.errors.startDate?.message}
+                        />
+                        <FormDateTimeField
+                          control={projectForm.control}
+                          name="endDate"
+                          id="project-end"
+                          label="End date"
+                          placeholder="Select end date"
+                          disabled={isBusy}
+                          error={projectForm.formState.errors.endDate?.message}
+                        />
                       </div>
                       <div className="grid gap-3 md:grid-cols-2">
                         <div className="flex flex-col gap-2">
