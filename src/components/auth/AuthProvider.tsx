@@ -208,7 +208,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       const url = new URL(window.location.href);
       const searchParamRedirect = url.searchParams.get("redirectTo");
-      const nextDestination = redirectTo ?? searchParamRedirect ?? url.searchParams.get("next") ?? url.pathname ?? "/admin";
+      const nextParam = url.searchParams.get("next");
+
+      const fallbackDestination = "/admin";
+      const candidateDestination = redirectTo ?? searchParamRedirect ?? nextParam ?? fallbackDestination;
+
+      let nextDestination = fallbackDestination;
+      try {
+        const candidateUrl = new URL(candidateDestination, window.location.origin);
+        if (candidateUrl.origin === window.location.origin) {
+          nextDestination = `${candidateUrl.pathname}${candidateUrl.search}${candidateUrl.hash}`;
+        }
+      } catch (error) {
+        console.warn("Invalid redirect destination provided for Google sign-in", error);
+      }
 
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
