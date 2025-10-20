@@ -344,3 +344,30 @@ export async function fetchInsightTypeMap(
     return acc;
   }, {});
 }
+
+/**
+ * Fetch insight types formatted for AI prompt
+ */
+export async function fetchInsightTypesForPrompt(
+  supabase: SupabaseClient,
+): Promise<string> {
+  const { data, error } = await supabase
+    .from('insight_types')
+    .select('name')
+    .order('name', { ascending: true });
+
+  if (error) {
+    throw error;
+  }
+
+  const types = (data ?? [])
+    .map(row => (row as InsightTypeRow).name)
+    .filter((name): name is string => typeof name === 'string' && name.trim().length > 0)
+    .map(name => name.toLowerCase());
+
+  if (types.length === 0) {
+    return 'pain, idea, solution, opportunity, risk, feedback, question';
+  }
+
+  return types.join(', ');
+}
