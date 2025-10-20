@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useMemo } from "react";
-import { useForm } from "react-hook-form";
+import { Controller, useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
+import { DateTimePicker } from "@/components/ui/date-time-picker";
 import { type AskSessionRecord, type ManagedUser } from "@/types";
 
 const statusOptions = ["active", "inactive", "draft", "closed"] as const;
@@ -110,8 +111,8 @@ export function AskEditForm({ asks, availableUsers, onSubmit, isLoading }: AskEd
       name: ask.name,
       question: ask.question,
       description: ask.description ?? "",
-      startDate: new Date(ask.startDate).toISOString().slice(0, 16),
-      endDate: new Date(ask.endDate).toISOString().slice(0, 16),
+      startDate: new Date(ask.startDate).toISOString(),
+      endDate: new Date(ask.endDate).toISOString(),
       status: (ask.status as typeof statusOptions[number]) || "active",
       isAnonymous: ask.isAnonymous,
       maxParticipants: ask.maxParticipants ?? undefined,
@@ -214,20 +215,34 @@ export function AskEditForm({ asks, availableUsers, onSubmit, isLoading }: AskEd
       <div className="grid gap-3 md:grid-cols-2">
         <div className="flex flex-col gap-2">
           <Label htmlFor="edit-start">Start</Label>
-          <Input
-            id="edit-start"
-            type="datetime-local"
-            {...form.register("startDate")}
-            disabled={isLoading}
+          <Controller
+            control={form.control}
+            name="startDate"
+            render={({ field }) => (
+              <DateTimePicker
+                id="edit-start"
+                value={field.value}
+                onChange={field.onChange}
+                disabled={isLoading}
+                placeholder="Select start date"
+              />
+            )}
           />
         </div>
         <div className="flex flex-col gap-2">
           <Label htmlFor="edit-end">End</Label>
-          <Input
-            id="edit-end"
-            type="datetime-local"
-            {...form.register("endDate")}
-            disabled={isLoading}
+          <Controller
+            control={form.control}
+            name="endDate"
+            render={({ field }) => (
+              <DateTimePicker
+                id="edit-end"
+                value={field.value}
+                onChange={field.onChange}
+                disabled={isLoading}
+                placeholder="Select end date"
+              />
+            )}
           />
         </div>
       </div>

@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent as ReactMouseEvent, RefObject } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { useForm } from "react-hook-form";
+import { Controller, useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { AnimatePresence, motion } from "framer-motion";
@@ -27,6 +27,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { DateTimePicker } from "@/components/ui/date-time-picker";
 import { ProjectJourneyBoard } from "@/components/project/ProjectJourneyBoard";
 import { AskRelationshipCanvas } from "./AskRelationshipCanvas";
 import { useAdminResources } from "./useAdminResources";
@@ -236,7 +237,7 @@ function toInputDate(value: string | null | undefined) {
   if (Number.isNaN(date.getTime())) {
     return "";
   }
-  return date.toISOString().slice(0, 16);
+  return date.toISOString();
 }
 
 function formatDisplayValue(value: string | number | null | undefined) {
@@ -1991,8 +1992,18 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                   </div>
                   <div className="flex flex-col gap-2">
                     <Label htmlFor="challenge-due">Due date</Label>
-                    <Input id="challenge-due" type="datetime-local" {...challengeForm.register("dueDate")}
-                      disabled={isBusy}
+                    <Controller
+                      control={challengeForm.control}
+                      name="dueDate"
+                      render={({ field }) => (
+                        <DateTimePicker
+                          id="challenge-due"
+                          value={field.value}
+                          onChange={field.onChange}
+                          disabled={isBusy}
+                          placeholder="Select due date"
+                        />
+                      )}
                     />
                   </div>
                   <div className="md:col-span-2 flex justify-end">
@@ -2092,14 +2103,38 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                       <div className="grid gap-3 md:grid-cols-2">
                         <div className="flex flex-col gap-2">
                           <Label htmlFor="ask-start">Start</Label>
-                          <Input id="ask-start" type="datetime-local" {...askForm.register("startDate")} disabled={isBusy} />
+                          <Controller
+                            control={askForm.control}
+                            name="startDate"
+                            render={({ field }) => (
+                              <DateTimePicker
+                                id="ask-start"
+                                value={field.value}
+                                onChange={field.onChange}
+                                disabled={isBusy}
+                                placeholder="Select start date"
+                              />
+                            )}
+                          />
                           {askForm.formState.errors.startDate && (
                             <p className="text-xs text-red-400">{askForm.formState.errors.startDate.message}</p>
                           )}
                         </div>
                         <div className="flex flex-col gap-2">
                           <Label htmlFor="ask-end">End</Label>
-                          <Input id="ask-end" type="datetime-local" {...askForm.register("endDate")} disabled={isBusy} />
+                          <Controller
+                            control={askForm.control}
+                            name="endDate"
+                            render={({ field }) => (
+                              <DateTimePicker
+                                id="ask-end"
+                                value={field.value}
+                                onChange={field.onChange}
+                                disabled={isBusy}
+                                placeholder="Select end date"
+                              />
+                            )}
+                          />
                           {askForm.formState.errors.endDate && (
                             <p className="text-xs text-red-400">{askForm.formState.errors.endDate.message}</p>
                           )}
@@ -2869,14 +2904,38 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                       <div className="grid gap-3 md:grid-cols-2">
                         <div className="flex flex-col gap-2">
                           <Label htmlFor="project-start">Start date</Label>
-                          <Input id="project-start" type="datetime-local" {...projectForm.register("startDate")} disabled={isBusy} />
+                          <Controller
+                            control={projectForm.control}
+                            name="startDate"
+                            render={({ field }) => (
+                              <DateTimePicker
+                                id="project-start"
+                                value={field.value}
+                                onChange={field.onChange}
+                                disabled={isBusy}
+                                placeholder="Select start date"
+                              />
+                            )}
+                          />
                           {projectForm.formState.errors.startDate && (
                             <p className="text-xs text-red-400">{projectForm.formState.errors.startDate.message}</p>
                           )}
                         </div>
                         <div className="flex flex-col gap-2">
                           <Label htmlFor="project-end">End date</Label>
-                          <Input id="project-end" type="datetime-local" {...projectForm.register("endDate")} disabled={isBusy} />
+                          <Controller
+                            control={projectForm.control}
+                            name="endDate"
+                            render={({ field }) => (
+                              <DateTimePicker
+                                id="project-end"
+                                value={field.value}
+                                onChange={field.onChange}
+                                disabled={isBusy}
+                                placeholder="Select end date"
+                              />
+                            )}
+                          />
                           {projectForm.formState.errors.endDate && (
                             <p className="text-xs text-red-400">{projectForm.formState.errors.endDate.message}</p>
                           )}
