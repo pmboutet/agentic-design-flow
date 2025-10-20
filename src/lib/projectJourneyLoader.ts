@@ -184,7 +184,9 @@ function buildChallengeTree(
   return roots;
 }
 
-function getProfileFromRow(row: any): { full_name?: string | null; email?: string | null; role?: string | null } | null {
+function getProfileFromRow(
+  row: any,
+): { id?: string | null; full_name?: string | null; email?: string | null; role?: string | null } | null {
   if (row.profiles && typeof row.profiles === "object") {
     return row.profiles;
   }
@@ -554,9 +556,16 @@ export async function fetchProjectJourneyContext(
     });
   });
 
-  const profileLookupsNeeded = Array.from(new Set([...memberUserIds, ...participantUserIds])).filter(
-    userId => !profileCache.has(userId),
-  );
+  const combinedUserIdSet = new Set<string>();
+  memberUserIds.forEach(id => combinedUserIdSet.add(id));
+  participantUserIds.forEach(id => combinedUserIdSet.add(id));
+
+  const profileLookupsNeeded: string[] = [];
+  combinedUserIdSet.forEach(userId => {
+    if (!profileCache.has(userId)) {
+      profileLookupsNeeded.push(userId);
+    }
+  });
 
   if (profileLookupsNeeded.length > 0) {
     const { data: profileRows, error: profileError } = await supabase
