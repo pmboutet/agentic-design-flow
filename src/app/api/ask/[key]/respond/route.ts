@@ -7,7 +7,7 @@ import { getAskSessionByKey } from '@/lib/asks';
 import { normaliseMessageMetadata } from '@/lib/messages';
 import { executeAgent, fetchAgentBySlug, type AgentExecutionResult } from '@/lib/ai';
 import { INSIGHT_TYPES, mapInsightRowToInsight, type InsightRow } from '@/lib/insights';
-import { fetchInsightRowById, fetchInsightsForSession, fetchInsightTypeMap } from '@/lib/insightQueries';
+import { fetchInsightRowById, fetchInsightsForSession, fetchInsightTypeMap, fetchInsightTypesForPrompt } from '@/lib/insightQueries';
 
 const CHAT_AGENT_SLUG = 'ask-conversation-response';
 const INSIGHT_AGENT_SLUG = 'ask-insight-detection';
@@ -1053,6 +1053,7 @@ function buildPromptVariables(options: {
   participants: { name: string; role?: string | null }[];
   insights: Insight[];
   latestAiResponse?: string | null;
+  insightTypes?: string | null;
 }): Record<string, string | null | undefined> {
   const history = formatMessageHistory(options.messages);
   const lastUserMessage = [...options.messages].reverse().find(message => message.senderType === 'user');
@@ -1086,6 +1087,7 @@ function buildPromptVariables(options: {
     participant_name: lastUserMessage?.senderName ?? lastUserMessage?.metadata?.senderName ?? '',
     participants: participantsSummary,
     existing_insights_json: serialiseInsightsForPrompt(options.insights),
+    insight_types: options.insightTypes ?? 'pain, idea, solution, opportunity, risk, feedback, question',
   } satisfies Record<string, string | null | undefined>;
 }
 
@@ -1274,6 +1276,9 @@ export async function POST(
     const insightRows = await fetchInsightsForSession(supabase, askRow.id);
     const existingInsights = insightRows.map(mapInsightRowToInsight);
 
+    // Fetch insight types for prompt
+    const insightTypes = await fetchInsightTypesForPrompt(supabase);
+
     let projectData: ProjectRow | null = null;
     if (askRow.project_id) {
       const { data, error } = await supabase
@@ -1313,6 +1318,7 @@ export async function POST(
       messages,
       participants: participantSummaries,
       insights: existingInsights,
+      insightTypes,
     });
 
     if (detectInsightsOnly) {
@@ -1327,6 +1333,7 @@ export async function POST(
           participants: participantSummaries,
           insights: existingInsights,
           latestAiResponse: lastAiMessage?.content ?? null,
+          insightTypes,
         });
 
         const refreshedInsights = await triggerInsightDetection(
@@ -1364,6 +1371,7 @@ export async function POST(
         messages,
         participants: participantSummaries,
         insights: existingInsights,
+        insightTypes,
       });
 
       const aiResult = await executeAgent({
@@ -1432,6 +1440,7 @@ export async function POST(
       participants: participantSummaries,
       insights: existingInsights,
       latestAiResponse,
+      insightTypes,
     });
 
     let refreshedInsights: Insight[] = existingInsights;
