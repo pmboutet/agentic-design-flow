@@ -957,8 +957,9 @@ function resolveInsightAgentPayload(result: AgentExecutionResult): unknown | nul
   }
   addCandidate(extractTextFromRawResponse(result.raw));
 
-  for (const candidate of candidates) {
-    const parsed = parseAgentJsonSafely(candidate);
+  const candidateList = Array.from(candidates);
+  for (let i = 0; i < candidateList.length; i += 1) {
+    const parsed = parseAgentJsonSafely(candidateList[i]);
     if (parsed !== null) {
       return parsed;
     }
