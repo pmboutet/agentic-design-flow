@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useForm } from "react-hook-form";
+import { Controller, useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
+import { DateTimePicker } from "@/components/ui/date-time-picker";
 import { type ChallengeRecord, type ManagedUser } from "@/types";
 
 const statusOptions = ["open", "in_progress", "active", "closed", "archived"] as const;
@@ -66,9 +67,7 @@ export function ChallengeEditor({ challenges, users, onSave, isLoading }: Challe
       priority: (selectedChallenge.priority as typeof priorityOptions[number]) || "medium",
       category: selectedChallenge.category ?? "",
       assignedTo: selectedChallenge.assignedTo ?? "",
-      dueDate: selectedChallenge.dueDate
-        ? new Date(selectedChallenge.dueDate).toISOString().slice(0, 16)
-        : ""
+      dueDate: selectedChallenge.dueDate ? new Date(selectedChallenge.dueDate).toISOString() : ""
     });
   }, [selectedChallenge, form]);
 
@@ -184,11 +183,18 @@ export function ChallengeEditor({ challenges, users, onSave, isLoading }: Challe
 
             <div className="flex flex-col gap-2">
               <Label htmlFor="challenge-due">Due date</Label>
-              <Input
-                id="challenge-due"
-                type="datetime-local"
-                {...form.register("dueDate")}
-                disabled={isLoading}
+              <Controller
+                control={form.control}
+                name="dueDate"
+                render={({ field }) => (
+                  <DateTimePicker
+                    id="challenge-due"
+                    value={field.value}
+                    onChange={field.onChange}
+                    disabled={isLoading}
+                    placeholder="Select due date"
+                  />
+                )}
               />
             </div>
 

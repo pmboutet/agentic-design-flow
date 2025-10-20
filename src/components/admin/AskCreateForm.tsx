@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useMemo } from "react";
-import { useForm } from "react-hook-form";
+import { Controller, useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
+import { DateTimePicker } from "@/components/ui/date-time-picker";
 import { type ChallengeRecord, type ManagedUser } from "@/types";
 
 const statusOptions = ["active", "inactive", "draft", "closed"] as const;
@@ -221,20 +222,34 @@ export function AskCreateForm({ challenges, availableUsers, onSubmit, isLoading 
       <div className="grid gap-3 md:grid-cols-2">
         <div className="flex flex-col gap-2">
           <Label htmlFor="create-start">Start</Label>
-          <Input
-            id="create-start"
-            type="datetime-local"
-            {...form.register("startDate")}
-            disabled={isLoading}
+          <Controller
+            control={form.control}
+            name="startDate"
+            render={({ field }) => (
+              <DateTimePicker
+                id="create-start"
+                value={field.value}
+                onChange={field.onChange}
+                disabled={isLoading}
+                placeholder="Select start date"
+              />
+            )}
           />
         </div>
         <div className="flex flex-col gap-2">
           <Label htmlFor="create-end">End</Label>
-          <Input
-            id="create-end"
-            type="datetime-local"
-            {...form.register("endDate")}
-            disabled={isLoading}
+          <Controller
+            control={form.control}
+            name="endDate"
+            render={({ field }) => (
+              <DateTimePicker
+                id="create-end"
+                value={field.value}
+                onChange={field.onChange}
+                disabled={isLoading}
+                placeholder="Select end date"
+              />
+            )}
           />
         </div>
       </div>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { useForm } from "react-hook-form";
+import { Controller, useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
+import { DateTimePicker } from "@/components/ui/date-time-picker";
 import { type ClientRecord, type ManagedUser, type ProjectRecord } from "@/types";
 
 const statuses = ["active", "paused", "completed", "archived"] as const;
@@ -136,11 +137,18 @@ export function ProjectManager({ clients, users, projects, onCreate, isLoading }
 
           <div className="flex flex-col gap-2">
             <Label htmlFor="project-start">Start</Label>
-            <Input
-              id="project-start"
-              type="datetime-local"
-              {...form.register("startDate")}
-              disabled={isLoading}
+            <Controller
+              control={form.control}
+              name="startDate"
+              render={({ field }) => (
+                <DateTimePicker
+                  id="project-start"
+                  value={field.value}
+                  onChange={field.onChange}
+                  disabled={isLoading}
+                  placeholder="Select start date"
+                />
+              )}
             />
             {form.formState.errors.startDate && (
               <p className="text-sm text-destructive">{form.formState.errors.startDate.message}</p>
@@ -149,11 +157,18 @@ export function ProjectManager({ clients, users, projects, onCreate, isLoading }
 
           <div className="flex flex-col gap-2">
             <Label htmlFor="project-end">End</Label>
-            <Input
-              id="project-end"
-              type="datetime-local"
-              {...form.register("endDate")}
-              disabled={isLoading}
+            <Controller
+              control={form.control}
+              name="endDate"
+              render={({ field }) => (
+                <DateTimePicker
+                  id="project-end"
+                  value={field.value}
+                  onChange={field.onChange}
+                  disabled={isLoading}
+                  placeholder="Select end date"
+                />
+              )}
             />
             {form.formState.errors.endDate && (
               <p className="text-sm text-destructive">{form.formState.errors.endDate.message}</p>

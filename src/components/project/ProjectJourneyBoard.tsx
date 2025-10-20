@@ -23,6 +23,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { DateTimePicker } from "@/components/ui/date-time-picker";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { cn } from "@/lib/utils";
 import { getMockProjectJourneyData } from "@/lib/mockProjectJourney";
@@ -295,8 +296,7 @@ function toInputDate(value?: string | null): string {
   if (Number.isNaN(date.getTime())) {
     return "";
   }
-  const iso = date.toISOString();
-  return iso.slice(0, 16);
+  return date.toISOString();
 }
 
 type ProjectEditState = {
@@ -357,8 +357,8 @@ function generateAskKey(base: string) {
 
 function createEmptyAskForm(challengeId?: string): AskFormState {
   const now = new Date();
-  const defaultStart = now.toISOString().slice(0, 16);
-  const defaultEnd = new Date(now.getTime() + 60 * 60 * 1000).toISOString().slice(0, 16);
+  const defaultStart = now.toISOString();
+  const defaultEnd = new Date(now.getTime() + 60 * 60 * 1000).toISOString();
 
   return {
     challengeId: challengeId ?? "",
@@ -1598,7 +1598,7 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
         if (Number.isNaN(parsed.getTime())) {
           return null;
         }
-        return parsed.toISOString().slice(0, 16);
+        return parsed.toISOString();
       };
 
       const baseForm = createEmptyAskForm(challengeId);
@@ -1885,6 +1885,10 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
 
   const handleInputChange = (field: keyof ProjectEditState) => (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { value } = event.target;
+    setEditValues(current => ({ ...current, [field]: value }));
+  };
+
+  const handleProjectDateChange = (field: "startDate" | "endDate") => (value: string) => {
     setEditValues(current => ({ ...current, [field]: value }));
   };
 
@@ -2262,13 +2266,11 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
     setAskFormValues(current => ({ ...current, description: value }));
   };
 
-  const handleAskStartChange = (event: ChangeEvent<HTMLInputElement>) => {
-    const { value } = event.target;
+  const handleAskStartChange = (value: string) => {
     setAskFormValues(current => ({ ...current, startDate: value }));
   };
 
-  const handleAskEndChange = (event: ChangeEvent<HTMLInputElement>) => {
-    const { value } = event.target;
+  const handleAskEndChange = (value: string) => {
     setAskFormValues(current => ({ ...current, endDate: value }));
   };
 
@@ -2843,20 +2845,20 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
               </div>
               <div className="flex flex-col gap-2">
                 <Label htmlFor="project-start">Start date</Label>
-                <Input
+                <DateTimePicker
                   id="project-start"
-                  type="datetime-local"
                   value={editValues.startDate}
-                  onChange={handleInputChange("startDate")}
+                  onChange={handleProjectDateChange("startDate")}
+                  placeholder="Select start date"
                 />
               </div>
               <div className="flex flex-col gap-2">
                 <Label htmlFor="project-end">End date</Label>
-                <Input
+                <DateTimePicker
                   id="project-end"
-                  type="datetime-local"
                   value={editValues.endDate}
-                  onChange={handleInputChange("endDate")}
+                  onChange={handleProjectDateChange("endDate")}
+                  placeholder="Select end date"
                 />
               </div>
               <div className="md:col-span-2 flex flex-col gap-2">
@@ -3528,22 +3530,22 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
                   <div className="grid gap-4 md:grid-cols-2">
                     <div className="flex flex-col gap-2">
                       <Label htmlFor="ask-start">Start</Label>
-                      <Input
+                      <DateTimePicker
                         id="ask-start"
-                        type="datetime-local"
                         value={askFormValues.startDate}
                         onChange={handleAskStartChange}
                         disabled={isSavingAsk || isLoadingAskDetails}
+                        placeholder="Select start date"
                       />
                     </div>
                     <div className="flex flex-col gap-2">
                       <Label htmlFor="ask-end">End</Label>
-                      <Input
+                      <DateTimePicker
                         id="ask-end"
-                        type="datetime-local"
                         value={askFormValues.endDate}
                         onChange={handleAskEndChange}
                         disabled={isSavingAsk || isLoadingAskDetails}
+                        placeholder="Select end date"
                       />
                     </div>
                   </div>
