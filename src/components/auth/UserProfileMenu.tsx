@@ -6,6 +6,7 @@ import { Loader2, LogIn, LogOut, Settings, UserCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "./AuthProvider";
 import { useRouter } from "next/navigation";
+import { cn } from "@/lib/utils";
 
 function getInitials(name?: string | null) {
   if (!name) return "";
@@ -24,6 +25,7 @@ export function UserProfileMenu() {
   const { status, user, signOut, isProcessing } = useAuth();
   const router = useRouter();
   const isSignedIn = status === "signed-in" && Boolean(user);
+  const isLoading = status === "loading";
   const fullName = user?.fullName ?? "";
   const email = user?.email ?? "";
   const role = user?.role ?? undefined;
@@ -41,14 +43,17 @@ export function UserProfileMenu() {
       <DropdownMenu.Trigger asChild>
         <Button
           variant="ghost"
-          className={`flex items-center justify-center text-white transition-all duration-200 hover:bg-white/10 hover:scale-110 ${
-            isSignedIn 
-              ? "h-10 w-10 rounded-full" 
-              : "h-12 w-12 rounded-xl"
-          }`}
-          disabled={status === "loading"}
+          type="button"
+          className={cn(
+            "flex items-center justify-center text-white transition-all duration-200 hover:bg-white/10 hover:scale-110",
+            isSignedIn ? "h-10 w-10 rounded-full" : "h-12 w-12 rounded-xl",
+            isLoading && "cursor-wait opacity-80"
+          )}
+          aria-disabled={isLoading}
         >
-          {isSignedIn ? (
+          {isLoading ? (
+            <Loader2 className="h-6 w-6 animate-spin" />
+          ) : isSignedIn ? (
             <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-purple-500 via-pink-500 to-orange-500 text-sm font-bold text-white">
               {getInitials(fullName)}
             </div>
@@ -62,7 +67,12 @@ export function UserProfileMenu() {
           Profil utilisateur
         </DropdownMenu.Label>
         <div className="rounded-xl bg-white/70 p-3 shadow-inner">
-          {isSignedIn ? (
+          {isLoading ? (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Chargement du profil...
+            </div>
+          ) : isSignedIn ? (
             <div className="space-y-1">
               <p className="text-sm font-semibold text-foreground">{fullName}</p>
               <p className="text-xs text-muted-foreground">{email}</p>
@@ -89,14 +99,14 @@ export function UserProfileMenu() {
             <Settings className="h-4 w-4 text-primary" />
             Paramètres du compte
           </DropdownMenu.Item>
-        ) : (
+        ) : !isLoading ? (
           <DropdownMenu.Item
             className="flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-foreground outline-none transition hover:bg-primary/10"
           >
             <Settings className="h-4 w-4 text-primary" />
             Préférences invité
           </DropdownMenu.Item>
-        )}
+        ) : null}
 
         <DropdownMenu.Arrow className="fill-white/70" />
 
@@ -115,7 +125,7 @@ export function UserProfileMenu() {
             <Button
               onClick={handleSignIn}
               className="flex w-full items-center justify-center gap-2 rounded-full bg-white/90 text-primary hover:bg-white"
-              disabled={isProcessing || status === "loading"}
+              disabled={isProcessing || isLoading}
             >
               {isProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogIn className="h-4 w-4" />}
               Se connecter
