@@ -362,7 +362,7 @@ export async function fetchInsightTypesForPrompt(
 
   const types = (data ?? [])
     .map(row => (row as InsightTypeRow).name)
-    .filter(name => typeof name === 'string' && name.trim().length > 0)
+    .filter((name): name is string => typeof name === 'string' && name.trim().length > 0)
     .map(name => name.toLowerCase());
 
   if (types.length === 0) {
