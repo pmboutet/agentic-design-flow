@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { LoginForm } from "@/components/auth/LoginForm";
@@ -9,12 +9,14 @@ import { LoginForm } from "@/components/auth/LoginForm";
 export default function LoginPage() {
   const { status } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const redirectTo = searchParams?.get("redirectTo") ?? "/admin";
 
   useEffect(() => {
     if (status === "signed-in") {
-      router.push("/admin");
+      router.push(redirectTo);
     }
-  }, [status, router]);
+  }, [status, router, redirectTo]);
 
   if (status === "loading") {
     return (
@@ -33,7 +35,7 @@ export default function LoginPage() {
         </div>
 
         <div className="bg-white shadow-lg rounded-lg p-8">
-          <LoginForm />
+          <LoginForm redirectTo={redirectTo} />
 
           <div className="mt-6 text-center text-sm text-gray-600">
             Don't have an account?{" "}

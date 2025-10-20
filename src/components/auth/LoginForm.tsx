@@ -1,13 +1,19 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { useAuth } from "./AuthProvider";
 
-export function LoginForm() {
+interface LoginFormProps {
+  redirectTo?: string;
+}
+
+export function LoginForm({ redirectTo = "/admin" }: LoginFormProps) {
   const { signIn, signInWithGoogle, isProcessing } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const router = useRouter();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -17,13 +23,16 @@ export function LoginForm() {
 
     if (result.error) {
       setError(result.error);
+      return;
     }
+
+    router.push(redirectTo);
   };
 
   const handleGoogleSignIn = async () => {
     setError(null);
-    const result = await signInWithGoogle();
-    
+    const result = await signInWithGoogle(redirectTo);
+
     if (result.error) {
       setError(result.error);
     }
