@@ -5,7 +5,7 @@ import { getAdminSupabaseClient } from '@/lib/supabaseAdmin';
 import { isValidAskKey, parseErrorMessage } from '@/lib/utils';
 import { getAskSessionByKey } from '@/lib/asks';
 import { normaliseMessageMetadata } from '@/lib/messages';
-import { executeAgent, fetchAgentBySlug } from '@/lib/ai';
+import { executeAgent, fetchAgentBySlug, type AgentExecutionResult } from '@/lib/ai';
 import { INSIGHT_TYPES, mapInsightRowToInsight, type InsightRow } from '@/lib/insights';
 import { fetchInsightRowById, fetchInsightsForSession, fetchInsightTypeMap } from '@/lib/insightQueries';
 
@@ -937,6 +937,43 @@ async function failInsightJob(
   }
 }
 
+function resolveInsightAgentPayload(result: AgentExecutionResult): unknown | null {
+  const candidates = new Set<string>();
+
+  const addCandidate = (value: string | null | undefined) => {
+    if (typeof value !== 'string') {
+      return;
+    }
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return;
+    }
+    candidates.add(trimmed);
+  };
+
+  addCandidate(typeof result.content === 'string' ? result.content : null);
+  if (typeof result.content === 'string') {
+    addCandidate(sanitiseJsonString(result.content));
+  }
+  addCandidate(extractTextFromRawResponse(result.raw));
+
+  for (const candidate of candidates) {
+    const parsed = parseAgentJsonSafely(candidate);
+    if (parsed !== null) {
+      return parsed;
+    }
+  }
+
+  if (result.raw && typeof result.raw === 'object') {
+    const rawRecord = result.raw as Record<string, unknown>;
+    if ('insights' in rawRecord || 'items' in rawRecord) {
+      return rawRecord;
+    }
+  }
+
+  return null;
+}
+
 async function triggerInsightDetection(
   supabase: ReturnType<typeof getAdminSupabaseClient>,
   options: {
@@ -978,15 +1015,9 @@ async function triggerInsightDetection(
       .eq('id', job.id);
 
     const parsedPayload = (() => {
-      try {
-        if (typeof result.content === 'string' && result.content.trim().length > 0) {
-          const candidate = sanitiseJsonString(result.content);
-          if (candidate.length > 0) {
-            return JSON.parse(candidate);
-          }
-        }
-      } catch {
-        // Ignore parse errors and fall through to the shared failure path below
+      const payload = resolveInsightAgentPayload(result);
+      if (payload && typeof payload === 'object') {
+        return payload;
       }
 
       throw new Error('Le contenu retourné par l’agent insight n’est pas un JSON valide.');
@@ -1064,7 +1095,12 @@ export async function POST(
   try {
     const { key } = params;
     const body = await request.json().catch(() => ({}));
-    const { detectInsights, askSessionId } = body;
+    const typedBody = body as {
+      detectInsights?: boolean;
+      askSessionId?: string;
+      mode?: string;
+    };
+    const { detectInsights, askSessionId, mode } = typedBody;
     const detectInsightsOnly = detectInsights === true;
 
     if (!key || !isValidAskKey(key)) {
@@ -1074,15 +1110,8 @@ export async function POST(
       }, { status: 400 });
     }
 
-    let requestPayload: { mode?: string } = {};
-    try {
-      requestPayload = await request.json();
-    } catch {
-      requestPayload = {};
-    }
-
-    const mode = requestPayload.mode === 'insights-only' ? 'insights-only' : 'full';
-    const insightsOnly = mode === 'insights-only';
+    const modeValue = typeof mode === 'string' ? mode : undefined;
+    const insightsOnly = modeValue === 'insights-only';
 
     const supabase = getAdminSupabaseClient();
 
@@ -1321,14 +1350,6 @@ export async function POST(
         }, { status: 500 });
       }
     }
-
-    const aiResult = await executeAgent({
-      supabase,
-      agentSlug: CHAT_AGENT_SLUG,
-      askSessionId: askRow.id,
-      interactionType: CHAT_INTERACTION_TYPE,
-      variables: promptVariables,
-    });
 
     let message: Message | undefined;
     let latestAiResponse = '';
