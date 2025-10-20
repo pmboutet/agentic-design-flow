@@ -109,11 +109,15 @@ export function DateTimePicker({
   );
 
   const handleSelectDate = React.useCallback(
-    (selected: Date | undefined) => {
-      if (!selected) {
+    (
+      selected: Date | null | [Date | null, Date | null],
+      _event?: React.SyntheticEvent<any> | undefined
+    ) => {
+      const [next] = Array.isArray(selected) ? selected : [selected];
+      if (!next) {
         return;
       }
-      applyChange(selected, timeValue);
+      applyChange(next, timeValue);
       setOpen(false);
     },
     [applyChange, timeValue]
@@ -165,7 +169,11 @@ export function DateTimePicker({
         </button>
       </PopoverTrigger>
       <PopoverContent align={align} sideOffset={sideOffset} className="w-80 space-y-3">
-        <Calendar mode="single" selected={parsedValue} onSelect={handleSelectDate} initialFocus />
+        <Calendar
+          selected={parsedValue ?? null}
+          onChange={handleSelectDate}
+          containerClassName="rounded-2xl"
+        />
         <div className="flex items-center justify-between gap-3">
           <label className="flex flex-1 items-center gap-2 rounded-xl border border-white/10 bg-slate-900/80 px-3 py-2 text-xs uppercase tracking-wide text-slate-300">
             <span>Time</span>
