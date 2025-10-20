@@ -24,7 +24,7 @@ type AuthContextValue = {
   isProcessing: boolean;
   signIn: (email: string, password: string) => Promise<{ error?: string }>;
   signUp: (email: string, password: string, metadata?: { fullName?: string; firstName?: string; lastName?: string }) => Promise<{ error?: string }>;
-  signInWithGoogle: () => Promise<{ error?: string }>;
+  signInWithGoogle: (redirectTo?: string) => Promise<{ error?: string }>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
 };
@@ -198,17 +198,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [updateUserFromSession]
   );
 
-  const signInWithGoogle = useCallback(async () => {
+  const signInWithGoogle = useCallback(async (redirectTo?: string) => {
     setIsProcessing(true);
     try {
+      if (typeof window === "undefined") {
+        setIsProcessing(false);
+        return { error: "Google sign in is only available in the browser" };
+      }
+
+      const url = new URL(window.location.href);
+      const searchParamRedirect = url.searchParams.get("redirectTo");
+      const nextDestination = redirectTo ?? searchParamRedirect ?? url.searchParams.get("next") ?? url.pathname ?? "/admin";
+
       const { error } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
+        provider: "google",
         options: {
-          redirectTo: `${window.location.origin}/auth/callback`,
+          redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(nextDestination)}`,
           skipBrowserRedirect: false,
           queryParams: {
-            access_type: 'offline',
-            prompt: 'consent',
+            access_type: "offline",
+            prompt: "consent",
           }
         }
       });
