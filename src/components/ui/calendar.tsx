@@ -11,13 +11,16 @@ export function Calendar({ className, classNames, showOutsideDays = true, ...pro
   return (
     <DayPicker
       showOutsideDays={showOutsideDays}
-      className={cn("p-2", className)}
+      className={cn(
+        "rounded-2xl border border-white/10 bg-slate-900/90 p-4 text-slate-100 shadow-xl backdrop-blur-sm",
+        className
+      )}
       classNames={{
         months: cn("flex flex-col space-y-4", classNames?.months),
         month: cn("space-y-4", classNames?.month),
-        caption: cn("flex justify-between px-1 text-sm font-medium text-slate-100", classNames?.caption),
+        caption: cn("flex items-center justify-between px-1 text-sm font-semibold", classNames?.caption),
         caption_label: cn("capitalize", classNames?.caption_label),
-        nav: cn("flex items-center gap-1", classNames?.nav),
+        nav: cn("flex items-center gap-2", classNames?.nav),
         nav_button: cn(
           "flex h-8 w-8 items-center justify-center rounded-full text-slate-300 transition hover:bg-white/10 hover:text-white focus:outline-none focus:ring-2 focus:ring-indigo-400",
           classNames?.nav_button
@@ -25,24 +28,27 @@ export function Calendar({ className, classNames, showOutsideDays = true, ...pro
         nav_button_previous: cn("absolute left-1 top-1", classNames?.nav_button_previous),
         nav_button_next: cn("absolute right-1 top-1", classNames?.nav_button_next),
         table: cn("w-full border-collapse space-y-1", classNames?.table),
-        head_row: cn("flex w-full", classNames?.head_row),
-        head_cell: cn("w-9 text-center text-xs font-medium uppercase tracking-wide text-slate-400", classNames?.head_cell),
-        row: cn("mt-2 flex w-full", classNames?.row),
+        head_row: cn("grid w-full grid-cols-7", classNames?.head_row),
+        head_cell: cn(
+          "text-center text-xs font-semibold uppercase tracking-wide text-indigo-200",
+          classNames?.head_cell
+        ),
+        row: cn("mt-2 grid w-full grid-cols-7 gap-y-1", classNames?.row),
         cell: cn(
-          "relative h-9 w-9 rounded-xl text-sm text-slate-200 focus-within:relative focus-within:z-20",
+          "relative flex h-10 items-center justify-center text-sm text-slate-200 focus-within:relative focus-within:z-20",
           "[&:has([aria-selected])]:bg-indigo-500/10 [&:has([aria-selected])]:text-white",
           "data-[disabled]:opacity-40",
           classNames?.cell
         ),
         day: cn(
-          "flex h-9 w-9 items-center justify-center rounded-xl transition hover:bg-white/10 hover:text-white focus:outline-none",
+          "flex h-10 w-10 items-center justify-center rounded-xl transition hover:bg-white/10 hover:text-white focus:outline-none",
           classNames?.day
         ),
         day_selected: cn(
           "bg-indigo-500 text-white hover:bg-indigo-500 hover:text-white focus:bg-indigo-500 focus:text-white",
           classNames?.day_selected
         ),
-        day_today: cn("text-indigo-200", classNames?.day_today),
+        day_today: cn("border border-indigo-400/50 text-white", classNames?.day_today),
         day_outside: cn("opacity-40", classNames?.day_outside),
         day_disabled: cn("opacity-30", classNames?.day_disabled),
         day_range_middle: cn("rounded-none bg-indigo-500/20 text-white", classNames?.day_range_middle),
