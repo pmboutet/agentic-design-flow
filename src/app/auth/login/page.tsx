@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect } from "react";
+import { Suspense, useEffect, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/components/auth/AuthProvider";
@@ -10,7 +10,23 @@ function LoginPageContent() {
   const { status } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const redirectTo = searchParams?.get("redirectTo") ?? "/admin";
+  const requestedRedirect = searchParams?.get("redirectTo") ?? null;
+
+  const redirectTo = useMemo(() => {
+    if (!requestedRedirect) {
+      return "/admin";
+    }
+
+    if (!requestedRedirect.startsWith("/")) {
+      return "/admin";
+    }
+
+    if (requestedRedirect.startsWith("//")) {
+      return "/admin";
+    }
+
+    return requestedRedirect;
+  }, [requestedRedirect]);
 
   useEffect(() => {
     if (status === "signed-in") {

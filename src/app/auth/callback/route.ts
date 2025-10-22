@@ -10,7 +10,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 export async function GET(request: NextRequest) {
   const requestUrl = new URL(request.url)
   const code = requestUrl.searchParams.get('code')
-  const next = requestUrl.searchParams.get('next') ?? '/admin'
+  const nextParam = requestUrl.searchParams.get('next')
   const error_description = requestUrl.searchParams.get('error_description')
 
   // Handle OAuth errors
@@ -58,7 +58,33 @@ export async function GET(request: NextRequest) {
     }
   }
 
+  const fallbackDestination = '/admin'
+
+  const safeNext = (() => {
+    if (!nextParam) {
+      return fallbackDestination
+    }
+
+    try {
+      const candidateUrl = new URL(nextParam, requestUrl.origin)
+
+      if (candidateUrl.origin !== requestUrl.origin) {
+        return fallbackDestination
+      }
+
+      const normalizedDestination = `${candidateUrl.pathname}${candidateUrl.search}${candidateUrl.hash}`
+
+      if (normalizedDestination === '' || normalizedDestination === '/') {
+        return fallbackDestination
+      }
+
+      return normalizedDestination
+    } catch {
+      return fallbackDestination
+    }
+  })()
+
   // Redirect to the intended destination (default: admin)
-  return NextResponse.redirect(new URL(next, request.url))
+  return NextResponse.redirect(new URL(safeNext, requestUrl.origin))
 }
 
