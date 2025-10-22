@@ -198,6 +198,15 @@ function getProfileFromRow(
   return null;
 }
 
+function resolveParticipantId(row: any): string {
+  const userId = row?.user_id ?? getProfileFromRow(row)?.id ?? null;
+  if (userId) {
+    return String(userId);
+  }
+
+  return String(row.id);
+}
+
 function buildParticipantSummary(row: any): ProjectParticipantSummary {
   const profile = getProfileFromRow(row);
   const name =
@@ -210,7 +219,7 @@ function buildParticipantSummary(row: any): ProjectParticipantSummary {
   const role = row.role ?? profile?.role ?? undefined;
 
   return {
-    id: row.id,
+    id: resolveParticipantId(row),
     name,
     role,
   };
@@ -218,9 +227,10 @@ function buildParticipantSummary(row: any): ProjectParticipantSummary {
 
 function mapParticipant(row: any): ProjectAskParticipant {
   const summary = buildParticipantSummary(row);
+  const participantId = resolveParticipantId(row);
   return {
-    id: row.id,
-    userId: row.user_id ?? null,
+    id: participantId,
+    userId: row.user_id ? String(row.user_id) : null,
     name: summary.name,
     role: summary.role ?? "participant",
     avatarInitials: initialsFromName(summary.name),
