@@ -211,17 +211,39 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const nextParam = url.searchParams.get("next");
 
       const fallbackDestination = "/admin";
-      const candidateDestination = redirectTo ?? searchParamRedirect ?? nextParam ?? fallbackDestination;
 
-      let nextDestination = fallbackDestination;
-      try {
-        const candidateUrl = new URL(candidateDestination, window.location.origin);
-        if (candidateUrl.origin === window.location.origin) {
-          nextDestination = `${candidateUrl.pathname}${candidateUrl.search}${candidateUrl.hash}`;
+      const sanitizeDestination = (destination: string, { logOnError }: { logOnError: boolean }) => {
+        try {
+          const candidateUrl = new URL(destination, window.location.origin);
+          if (candidateUrl.origin !== window.location.origin) {
+            return null;
+          }
+
+          const normalizedDestination = `${candidateUrl.pathname}${candidateUrl.search}${candidateUrl.hash}`;
+          return normalizedDestination === "/" ? null : normalizedDestination;
+        } catch (error) {
+          if (logOnError) {
+            console.warn("Invalid redirect destination provided for Google sign-in", error);
+          }
+          return null;
         }
-      } catch (error) {
-        console.warn("Invalid redirect destination provided for Google sign-in", error);
-      }
+      };
+
+      const nextDestination = (
+        [
+          { value: redirectTo, logOnError: true },
+          { value: searchParamRedirect, logOnError: true },
+          { value: nextParam, logOnError: true },
+          { value: `${url.pathname}${url.search}${url.hash}`, logOnError: false },
+        ]
+          .map((candidate) => {
+            if (!candidate.value) {
+              return null;
+            }
+
+            return sanitizeDestination(candidate.value, { logOnError: candidate.logOnError });
+          })
+          .find((candidate) => candidate !== null)) ?? fallbackDestination;
 
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
