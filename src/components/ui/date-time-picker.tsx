@@ -109,11 +109,7 @@ export function DateTimePicker({
   );
 
   const handleSelectDate = React.useCallback(
-    (
-      selected: Date | null | [Date | null, Date | null],
-      _event?: React.SyntheticEvent<any> | undefined
-    ) => {
-      const [next] = Array.isArray(selected) ? selected : [selected];
+    (next: Date | null) => {
       if (!next) {
         return;
       }
@@ -171,8 +167,9 @@ export function DateTimePicker({
       <PopoverContent align={align} sideOffset={sideOffset} className="w-80 space-y-3">
         <Calendar
           selected={parsedValue ?? null}
-          onChange={handleSelectDate}
+          onSelect={handleSelectDate}
           containerClassName="rounded-2xl"
+          ariaLabel="Date picker"
         />
         <div className="flex items-center justify-between gap-3">
           <label className="flex flex-1 items-center gap-2 rounded-xl border border-white/10 bg-slate-900/80 px-3 py-2 text-xs uppercase tracking-wide text-slate-300">
