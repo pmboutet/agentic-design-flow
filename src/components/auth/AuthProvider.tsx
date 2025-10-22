@@ -31,19 +31,39 @@ type AuthContextValue = {
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
+const DEV_BYPASS_USER: AuthUser = {
+  id: "dev-bypass-user",
+  email: "dev@example.com",
+  fullName: "Dev User",
+  role: "admin",
+  avatarUrl: null,
+  profile: null,
+};
+
 /**
  * AuthProvider with Supabase Auth integration.
  * Manages authentication state, session, and user profile synchronization.
  */
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [status, setStatus] = useState<AuthStatus>("loading");
+  const isDevBypass = useMemo(() => {
+    const rawValue =
+      (process.env.NEXT_PUBLIC_IS_DEV ?? process.env.IS_DEV ?? "")
+        .toString()
+        .toLowerCase();
+    return rawValue === "true" || rawValue === "1";
+  }, []);
+
+  const [status, setStatus] = useState<AuthStatus>(isDevBypass ? "signed-in" : "loading");
   const [session, setSession] = useState<Session | null>(null);
-  const [user, setUser] = useState<AuthUser | null>(null);
+  const [user, setUser] = useState<AuthUser | null>(isDevBypass ? DEV_BYPASS_USER : null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
 
   // Fetch user profile from public.profiles
   const fetchProfile = useCallback(async (authUser: User): Promise<Profile | null> => {
+    if (isDevBypass) {
+      return null;
+    }
     try {
       const { data, error } = await supabase
         .from("profiles")
@@ -80,11 +100,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.error("Exception fetching profile:", error);
       return null;
     }
-  }, []);
+  }, [isDevBypass]);
 
   // Update user state from session
   const updateUserFromSession = useCallback(
     async (session: Session | null) => {
+      if (isDevBypass) {
+        setUser(DEV_BYPASS_USER);
+        setProfile(null);
+        setStatus("signed-in");
+        return;
+      }
+
       if (!session?.user) {
         setUser(null);
         setProfile(null);
@@ -106,13 +133,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
       setStatus("signed-in");
     },
-    [fetchProfile]
+    [fetchProfile, isDevBypass]
   );
 
   // Initialize auth state
   useEffect(() => {
+    if (isDevBypass) {
+      setStatus("signed-in");
+      setUser(DEV_BYPASS_USER);
+      setProfile(null);
+      setSession(null);
+      setIsProcessing(false);
+      return;
+    }
+
+    let isMounted = true;
+
     // Get initial session
     supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!isMounted) {
+        return;
+      }
       setSession(session);
       updateUserFromSession(session);
     });
@@ -121,16 +162,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (!isMounted) {
+        return;
+      }
       setSession(session);
       await updateUserFromSession(session);
     });
 
     return () => {
+      isMounted = false;
       subscription.unsubscribe();
     };
-  }, [updateUserFromSession]);
+  }, [isDevBypass, updateUserFromSession]);
 
   const signIn = useCallback(async (email: string, password: string) => {
+    if (isDevBypass) {
+      setStatus("signed-in");
+      setUser(DEV_BYPASS_USER);
+      setProfile(null);
+      setSession(null);
+      return {};
+    }
+
     setIsProcessing(true);
     try {
       const { data, error } = await supabase.auth.signInWithPassword({
@@ -153,7 +206,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setIsProcessing(false);
     }
-  }, [updateUserFromSession]);
+  }, [isDevBypass, updateUserFromSession]);
 
   const signUp = useCallback(
     async (
@@ -161,6 +214,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       password: string,
       metadata?: { fullName?: string; firstName?: string; lastName?: string }
     ) => {
+      if (isDevBypass) {
+        setStatus("signed-in");
+        setUser(DEV_BYPASS_USER);
+        setProfile(null);
+        setSession(null);
+        return {};
+      }
+
       setIsProcessing(true);
       try {
         const { data, error } = await supabase.auth.signUp({
@@ -195,10 +256,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setIsProcessing(false);
       }
     },
-    [updateUserFromSession]
+    [isDevBypass, updateUserFromSession]
   );
 
   const signInWithGoogle = useCallback(async (redirectTo?: string) => {
+    if (isDevBypass) {
+      setStatus("signed-in");
+      setUser(DEV_BYPASS_USER);
+      setProfile(null);
+      setSession(null);
+      return {};
+    }
+
     setIsProcessing(true);
     try {
       if (typeof window === "undefined") {
@@ -233,9 +302,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setIsProcessing(false);
       return { error: error instanceof Error ? error.message : "An error occurred during Google sign in" };
     }
-  }, []);
+  }, [isDevBypass]);
 
   const signOut = useCallback(async () => {
+    if (isDevBypass) {
+      console.info("Dev auth bypass enabled; skipping Supabase sign out.");
+      setStatus("signed-in");
+      setUser(DEV_BYPASS_USER);
+      setProfile(null);
+      setSession(null);
+      return;
+    }
+
     setIsProcessing(true);
     try {
       await supabase.auth.signOut();
@@ -248,9 +326,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setIsProcessing(false);
     }
-  }, []);
+  }, [isDevBypass]);
 
   const refreshProfile = useCallback(async () => {
+    if (isDevBypass) {
+      return;
+    }
     if (!session?.user) {
       return;
     }
@@ -265,7 +346,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         profile: userProfile,
       });
     }
-  }, [session, user, fetchProfile]);
+  }, [fetchProfile, isDevBypass, session, user]);
 
   const value = useMemo<AuthContextValue>(
     () => ({
