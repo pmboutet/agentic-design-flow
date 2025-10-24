@@ -27,7 +27,7 @@ import { cn } from "@/lib/utils";
 const timeZone = getLocalTimeZone();
 
 const navigationButtonClasses =
-  "flex h-9 w-9 items-center justify-center rounded-full text-slate-300 transition hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 data-[disabled]:cursor-not-allowed data-[disabled]:opacity-40";
+  "flex h-9 w-9 items-center justify-center rounded-xl text-slate-300 transition-all duration-200 hover:bg-indigo-500/20 hover:text-white hover:scale-105 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 data-[disabled]:cursor-not-allowed data-[disabled]:opacity-40 data-[disabled]:hover:scale-100";
 
 type OptionalAriaProps = Partial<
   Omit<
@@ -142,8 +142,8 @@ function CalendarHeader() {
   }
 
   return (
-    <div className="mb-3 flex items-center justify-between gap-2 border-b border-white/10 pb-2">
-      <div className="flex items-center gap-1">
+    <div className="mb-4 flex items-center justify-between gap-2 border-b border-white/10 pb-3">
+      <div className="flex items-center gap-0.5">
         <Button
           aria-label="Previous year"
           className={navigationButtonClasses}
@@ -165,13 +165,13 @@ function CalendarHeader() {
           <ChevronLeft className="h-4 w-4" />
         </Button>
       </div>
-      <div className="flex flex-col items-center text-sm font-semibold text-white">
-        <span className="uppercase tracking-wide text-indigo-200">
+      <div className="flex flex-col items-center gap-0.5 text-sm font-semibold text-white">
+        <span className="text-base uppercase tracking-wider text-indigo-100">
           {monthLabel}
         </span>
-        <span className="text-xs text-slate-300">{yearLabel}</span>
+        <span className="text-xs font-medium text-slate-400">{yearLabel}</span>
       </div>
-      <div className="flex items-center gap-1">
+      <div className="flex items-center gap-0.5">
         <Button
           slot="next"
           aria-label="Next month"
@@ -269,19 +269,19 @@ export function Calendar({
         onChange={handleSelect}
       >
         <CalendarHeader />
-        <CalendarGrid className="w-full border-separate border-spacing-y-2">
-          <CalendarGridHeader className="grid grid-cols-7 gap-1 border-b border-white/10 pb-2 text-xs font-semibold uppercase tracking-wide text-indigo-200">
+        <CalendarGrid className="w-full border-separate border-spacing-y-1">
+          <CalendarGridHeader className="grid grid-cols-7 gap-1.5 border-b border-white/10 pb-2.5 text-xs font-bold uppercase tracking-wider text-indigo-300/90">
             {day => (
-              <CalendarHeaderCell className="flex h-10 w-10 items-center justify-center rounded-xl">
+              <CalendarHeaderCell className="flex h-10 w-10 items-center justify-center rounded-lg">
                 {day}
               </CalendarHeaderCell>
             )}
           </CalendarGridHeader>
-          <CalendarGridBody className="grid grid-cols-7 gap-1">
+          <CalendarGridBody className="grid grid-cols-7 gap-1.5 pt-2">
             {date => (
               <CalendarCell
                 date={date}
-                className="group mx-auto flex h-10 w-10 items-center justify-center rounded-xl text-sm font-medium text-slate-200 transition data-[disabled]:cursor-not-allowed data-[disabled]:opacity-40 data-[outside-month]:text-slate-500 data-[selected]:bg-indigo-500 data-[selected]:text-white data-[selected]:shadow-[0_8px_24px_-12px_rgba(99,102,241,0.85)] data-[today]:ring-1 data-[today]:ring-indigo-400/60 hover:bg-white/10 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+                className="group relative mx-auto flex h-10 w-10 items-center justify-center rounded-xl text-sm font-semibold text-slate-200 transition-all duration-150 data-[disabled]:cursor-not-allowed data-[disabled]:opacity-30 data-[outside-month]:text-slate-600 data-[selected]:bg-gradient-to-br data-[selected]:from-indigo-500 data-[selected]:to-indigo-600 data-[selected]:text-white data-[selected]:shadow-[0_8px_24px_-12px_rgba(99,102,241,0.9)] data-[selected]:ring-2 data-[selected]:ring-indigo-400/50 data-[today]:ring-2 data-[today]:ring-indigo-400/60 data-[today]:ring-offset-1 data-[today]:ring-offset-slate-950 hover:bg-white/15 hover:text-white hover:scale-105 active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
               >
                 {({ formattedDate }) => formattedDate}
               </CalendarCell>
