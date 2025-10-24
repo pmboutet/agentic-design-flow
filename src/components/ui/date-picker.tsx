@@ -7,25 +7,7 @@ import { cn } from "@/lib/utils";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
-function createDateWithTime(date: Date, time: string): Date {
-  const [hours = "0", minutes = "0"] = time.split(":");
-  const hoursNumber = Number.parseInt(hours, 10);
-  const minutesNumber = Number.parseInt(minutes, 10);
-
-  return new Date(
-    date.getFullYear(),
-    date.getMonth(),
-    date.getDate(),
-    Number.isNaN(hoursNumber) ? 0 : hoursNumber,
-    Number.isNaN(minutesNumber) ? 0 : minutesNumber,
-    0,
-    0
-  );
-}
-
-const defaultTime = "09:00";
-
-export interface DateTimePickerProps {
+export interface DatePickerProps {
   id?: string;
   value?: string;
   onChange: (value: string) => void;
@@ -34,9 +16,11 @@ export interface DateTimePickerProps {
   className?: string;
   align?: "start" | "center" | "end";
   sideOffset?: number;
+  minDate?: Date;
+  maxDate?: Date;
 }
 
-export function DateTimePicker({
+export function DatePicker({
   id,
   value,
   onChange,
@@ -44,8 +28,10 @@ export function DateTimePicker({
   disabled,
   className,
   align = "start",
-  sideOffset
-}: DateTimePickerProps) {
+  sideOffset,
+  minDate,
+  maxDate
+}: DatePickerProps) {
   const parsedValue = React.useMemo(() => {
     if (!value) {
       return undefined;
@@ -65,73 +51,36 @@ export function DateTimePicker({
     }
     try {
       return new Intl.DateTimeFormat(undefined, {
-        dateStyle: "medium",
-        timeStyle: "short"
+        dateStyle: "medium"
       }).format(parsedValue);
     } catch {
-      return format(parsedValue, "PP p");
+      return format(parsedValue, "PP");
     }
   }, [parsedValue]);
-
-  const [timeValue, setTimeValue] = React.useState(() => {
-    if (!parsedValue) {
-      return defaultTime;
-    }
-    try {
-      return format(parsedValue, "HH:mm");
-    } catch {
-      return defaultTime;
-    }
-  });
-
-  React.useEffect(() => {
-    if (!parsedValue) {
-      setTimeValue(defaultTime);
-      return;
-    }
-    try {
-      setTimeValue(format(parsedValue, "HH:mm"));
-    } catch {
-      setTimeValue(defaultTime);
-    }
-  }, [parsedValue]);
-
-  const applyChange = React.useCallback(
-    (date: Date | undefined, nextTime: string) => {
-      if (!date) {
-        onChange("");
-        return;
-      }
-      const nextDate = createDateWithTime(date, nextTime || defaultTime);
-      onChange(nextDate.toISOString());
-    },
-    [onChange]
-  );
 
   const handleSelectDate = React.useCallback(
     (next: Date | null) => {
       if (!next) {
+        onChange("");
         return;
       }
-      applyChange(next, timeValue);
+      // Set the time to noon to avoid timezone issues
+      const dateAtNoon = new Date(
+        next.getFullYear(),
+        next.getMonth(),
+        next.getDate(),
+        12,
+        0,
+        0,
+        0
+      );
+      onChange(dateAtNoon.toISOString());
       setOpen(false);
     },
-    [applyChange, timeValue]
-  );
-
-  const handleTimeChange = React.useCallback(
-    (event: React.ChangeEvent<HTMLInputElement>) => {
-      const next = event.target.value;
-      setTimeValue(next);
-      if (parsedValue) {
-        applyChange(parsedValue, next);
-      }
-    },
-    [applyChange, parsedValue]
+    [onChange]
   );
 
   const handleClear = React.useCallback(() => {
-    setTimeValue(defaultTime);
     onChange("");
     setOpen(false);
   }, [onChange]);
@@ -164,32 +113,17 @@ export function DateTimePicker({
           ) : null}
         </button>
       </PopoverTrigger>
-      <PopoverContent align={align} sideOffset={sideOffset} className="w-80 space-y-3 p-4">
+      <PopoverContent align={align} sideOffset={sideOffset} className="w-auto p-0">
         <Calendar
           selected={parsedValue ?? null}
           onSelect={handleSelectDate}
+          minDate={minDate}
+          maxDate={maxDate}
           containerClassName="rounded-2xl"
           ariaLabel="Date picker"
         />
-        <div className="flex items-center justify-between gap-3 border-t border-white/10 pt-3">
-          <label className="flex flex-1 items-center gap-2 rounded-xl border border-white/10 bg-slate-900/80 px-3 py-2.5 text-xs font-semibold uppercase tracking-wide text-slate-300 transition-all duration-150 hover:border-indigo-400/40 hover:bg-slate-900/90">
-            <span className="text-indigo-300">Time</span>
-            <input
-              type="time"
-              value={timeValue}
-              onChange={handleTimeChange}
-              className="flex-1 bg-transparent text-sm font-medium text-white outline-none [color-scheme:dark]"
-            />
-          </label>
-          <button
-            type="button"
-            onClick={handleClear}
-            className="rounded-xl border border-white/10 bg-transparent px-3 py-2.5 text-xs font-semibold uppercase tracking-wide text-slate-300 transition-all duration-150 hover:border-red-400/70 hover:bg-red-500/10 hover:text-red-300 hover:scale-105 active:scale-95"
-          >
-            Clear
-          </button>
-        </div>
       </PopoverContent>
     </Popover>
   );
 }
+
