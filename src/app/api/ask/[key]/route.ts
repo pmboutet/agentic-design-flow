@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
+import type { PostgrestError } from '@supabase/supabase-js';
 import { ApiResponse, Ask, AskParticipant, Insight, Message } from '@/types';
 import { isValidAskKey, parseErrorMessage } from '@/lib/utils';
-import { getAdminSupabaseClient } from '@/lib/supabaseAdmin';
 import { mapInsightRowToInsight } from '@/lib/insights';
 import { fetchInsightsForSession } from '@/lib/insightQueries';
 import { normaliseMessageMetadata } from '@/lib/messages';
 import { getAskSessionByKey } from '@/lib/asks';
+import { createServerSupabaseClient } from '@/lib/supabaseServer';
 
 interface AskSessionRow {
   id: string;
@@ -75,6 +76,27 @@ function buildParticipantDisplayName(participant: ParticipantRow, user: UserRow 
   return `Participant ${index + 1}`;
 }
 
+function isPermissionDenied(error: unknown): boolean {
+  if (!error || typeof error !== 'object') {
+    return false;
+  }
+
+  const code = ((error as PostgrestError).code ?? '').toString().toUpperCase();
+  if (code === '42501' || code === 'PGRST301' || code === 'PGRST302') {
+    return true;
+  }
+
+  const message = ((error as { message?: string }).message ?? '').toString().toLowerCase();
+  return message.includes('permission denied') || message.includes('unauthorized');
+}
+
+function permissionDeniedResponse(): NextResponse<ApiResponse> {
+  return NextResponse.json<ApiResponse>({
+    success: false,
+    error: "Accès non autorisé à cette ASK"
+  }, { status: 403 });
+}
+
 export async function GET(
   _request: NextRequest,
   { params }: { params: { key: string } }
@@ -89,7 +111,25 @@ export async function GET(
       }, { status: 400 });
     }
 
-    const supabase = getAdminSupabaseClient();
+    const supabase = await createServerSupabaseClient();
+
+    const { data: userResult, error: userError } = await supabase.auth.getUser();
+
+    if (userError) {
+      if (isPermissionDenied(userError as unknown as PostgrestError)) {
+        return permissionDeniedResponse();
+      }
+      throw userError;
+    }
+
+    const user = userResult?.user;
+
+    if (!user) {
+      return NextResponse.json<ApiResponse>({
+        success: false,
+        error: "Authentification requise"
+      }, { status: 401 });
+    }
 
     const { row: askRow, error: askError } = await getAskSessionByKey<AskSessionRow>(
       supabase,
@@ -98,6 +138,9 @@ export async function GET(
     );
 
     if (askError) {
+      if (isPermissionDenied(askError)) {
+        return permissionDeniedResponse();
+      }
       throw askError;
     }
 
@@ -106,6 +149,24 @@ export async function GET(
         success: false,
         error: 'ASK introuvable pour la clé fournie'
       }, { status: 404 });
+    }
+
+    const { data: membership, error: membershipError } = await supabase
+      .from('ask_participants')
+      .select('id, user_id, role, is_spokesperson')
+      .eq('ask_session_id', askRow.id)
+      .eq('user_id', user.id)
+      .maybeSingle();
+
+    if (membershipError) {
+      if (isPermissionDenied(membershipError)) {
+        return permissionDeniedResponse();
+      }
+      throw membershipError;
+    }
+
+    if (!membership) {
+      return permissionDeniedResponse();
     }
 
     const askSessionId = askRow.id;
@@ -117,6 +178,9 @@ export async function GET(
       .order('joined_at', { ascending: true });
 
     if (participantError) {
+      if (isPermissionDenied(participantError)) {
+        return permissionDeniedResponse();
+      }
       throw participantError;
     }
 
@@ -133,6 +197,9 @@ export async function GET(
         .in('id', participantUserIds);
 
       if (userError) {
+        if (isPermissionDenied(userError)) {
+          return permissionDeniedResponse();
+        }
         throw userError;
       }
 
@@ -161,6 +228,9 @@ export async function GET(
       .order('created_at', { ascending: true });
 
     if (messageError) {
+      if (isPermissionDenied(messageError)) {
+        return permissionDeniedResponse();
+      }
       throw messageError;
     }
 
@@ -177,6 +247,9 @@ export async function GET(
         .in('id', additionalUserIds);
 
       if (extraUsersError) {
+        if (isPermissionDenied(extraUsersError)) {
+          return permissionDeniedResponse();
+        }
         throw extraUsersError;
       }
 
@@ -230,7 +303,15 @@ export async function GET(
       };
     });
 
-    const insightRows = await fetchInsightsForSession(supabase, askSessionId);
+    let insightRows;
+    try {
+      insightRows = await fetchInsightsForSession(supabase, askSessionId);
+    } catch (error) {
+      if (isPermissionDenied((error as PostgrestError) ?? null)) {
+        return permissionDeniedResponse();
+      }
+      throw error;
+    }
 
     const insights: Insight[] = insightRows.map(mapInsightRowToInsight);
 
@@ -319,7 +400,25 @@ export async function POST(
       }, { status: 400 });
     }
 
-    const supabase = getAdminSupabaseClient();
+    const supabase = await createServerSupabaseClient();
+
+    const { data: userResult, error: userError } = await supabase.auth.getUser();
+
+    if (userError) {
+      if (isPermissionDenied(userError as unknown as PostgrestError)) {
+        return permissionDeniedResponse();
+      }
+      throw userError;
+    }
+
+    const user = userResult?.user;
+
+    if (!user) {
+      return NextResponse.json<ApiResponse>({
+        success: false,
+        error: "Authentification requise"
+      }, { status: 401 });
+    }
 
     const { row: askRow, error: askError } = await getAskSessionByKey<Pick<AskSessionRow, 'id' | 'ask_key'>>(
       supabase,
@@ -328,6 +427,9 @@ export async function POST(
     );
 
     if (askError) {
+      if (isPermissionDenied(askError)) {
+        return permissionDeniedResponse();
+      }
       throw askError;
     }
 
@@ -338,6 +440,24 @@ export async function POST(
       }, { status: 404 });
     }
 
+    const { data: membership, error: membershipError } = await supabase
+      .from('ask_participants')
+      .select('id, user_id')
+      .eq('ask_session_id', askRow.id)
+      .eq('user_id', user.id)
+      .maybeSingle();
+
+    if (membershipError) {
+      if (isPermissionDenied(membershipError)) {
+        return permissionDeniedResponse();
+      }
+      throw membershipError;
+    }
+
+    if (!membership) {
+      return permissionDeniedResponse();
+    }
+
     const timestamp = body.timestamp ?? new Date().toISOString();
     const metadata = body.metadata && typeof body.metadata === 'object' ? body.metadata : {};
 
@@ -345,14 +465,16 @@ export async function POST(
       metadata.senderName = body.senderName;
     }
 
+    const senderType: Message['senderType'] = 'user';
+
     const insertPayload = {
       ask_session_id: askRow.id,
       content: body.content,
       message_type: body.type ?? 'text',
-      sender_type: body.senderType ?? 'user',
+      sender_type: senderType,
       metadata,
       created_at: timestamp,
-      user_id: body.userId ?? null,
+      user_id: user.id,
     };
 
     const { data: insertedRows, error: insertError } = await supabase
@@ -362,6 +484,9 @@ export async function POST(
       .limit(1);
 
     if (insertError) {
+      if (isPermissionDenied(insertError)) {
+        return permissionDeniedResponse();
+      }
       throw insertError;
     }
 
@@ -377,7 +502,7 @@ export async function POST(
       askSessionId: inserted.ask_session_id,
       content: inserted.content,
       type: (inserted.message_type as Message['type']) ?? 'text',
-      senderType: (inserted.sender_type as Message['senderType']) ?? 'user',
+      senderType: senderType,
       senderId: inserted.user_id ?? null,
       senderName: typeof metadata.senderName === 'string' ? metadata.senderName : body.senderName ?? null,
       timestamp: inserted.created_at ?? timestamp,
