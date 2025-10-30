@@ -751,6 +751,16 @@ export async function POST(
 
       try {
         const challengeContext = buildChallengeContext(boardData, challenge, parentMap, insightLookup, asksById);
+        // Backend fallback: if no insights are attached in context but planner provided IDs,
+        // enrich context with those insight summaries (when available)
+        if (challengeContext.insights.length === 0 && Array.isArray(updateItem.relatedInsightIds) && updateItem.relatedInsightIds.length > 0) {
+          const enriched = updateItem.relatedInsightIds
+            .map(id => insightLookup.get(id))
+            .filter((insight): insight is InsightSummary => Boolean(insight));
+          if (enriched.length > 0) {
+            challengeContext.insights = enriched;
+          }
+        }
         
         const result = await executeAgent({
           supabase,
@@ -769,6 +779,8 @@ export async function POST(
             estimated_changes: updateItem.estimatedChanges,
             priority: updateItem.priority,
             reason: updateItem.reason,
+            // Provide planner-related insight IDs explicitly for agent fallback
+            related_insight_ids: JSON.stringify(updateItem.relatedInsightIds),
           },
           maxOutputTokens: options.maxOutputTokens,
           temperature: options.temperature,
