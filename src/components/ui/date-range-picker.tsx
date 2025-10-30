@@ -265,21 +265,21 @@ export function DateRangePicker({
             maxValue={maxValue}
           >
             <RangeCalendarHeader />
-            <CalendarGrid className="w-full border-separate border-spacing-y-1">
-              <CalendarGridHeader className="grid grid-cols-7 gap-1.5 border-b border-white/10 pb-2.5 text-xs font-bold uppercase tracking-wider text-indigo-300/90">
+            <CalendarGrid className="w-full table-fixed">
+              <CalendarGridHeader className="border-b border-white/10 pb-2.5 text-xs font-bold uppercase tracking-wider text-indigo-300/90">
                 {day => (
-                  <CalendarHeaderCell className="flex h-10 w-10 items-center justify-center rounded-lg">
-                    {day}
+                  <CalendarHeaderCell className="h-10 w-10 text-center align-middle">
+                    <span className="inline-block w-10">{day}</span>
                   </CalendarHeaderCell>
                 )}
               </CalendarGridHeader>
-              <CalendarGridBody className="grid grid-cols-7 gap-1.5 pt-2">
+              <CalendarGridBody className="pt-2">
                 {date => (
                   <CalendarCell
                     date={date}
-                    className="group relative mx-auto flex h-10 w-10 items-center justify-center rounded-xl text-sm font-semibold text-slate-200 transition-all duration-150 data-[disabled]:cursor-not-allowed data-[disabled]:opacity-30 data-[outside-month]:text-slate-600 data-[selection-start]:bg-gradient-to-br data-[selection-start]:from-indigo-500 data-[selection-start]:to-indigo-600 data-[selection-start]:text-white data-[selection-end]:bg-gradient-to-br data-[selection-end]:from-indigo-500 data-[selection-end]:to-indigo-600 data-[selection-end]:text-white data-[selected]:bg-indigo-500/30 data-[selected]:text-white data-[selection-start]:shadow-[0_8px_24px_-12px_rgba(99,102,241,0.9)] data-[selection-start]:ring-2 data-[selection-start]:ring-indigo-400/50 data-[selection-end]:shadow-[0_8px_24px_-12px_rgba(99,102,241,0.9)] data-[selection-end]:ring-2 data-[selection-end]:ring-indigo-400/50 data-[today]:ring-2 data-[today]:ring-indigo-400/60 data-[today]:ring-offset-1 data-[today]:ring-offset-slate-950 hover:bg-white/15 hover:text-white hover:scale-105 active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                    className="group relative h-10 w-10 text-center align-middle rounded-xl text-sm font-semibold text-slate-200 transition-all duration-150 data-[disabled]:cursor-not-allowed data-[disabled]:opacity-30 data-[outside-month]:text-slate-600 data-[selection-start]:bg-gradient-to-br data-[selection-start]:from-indigo-500 data-[selection-start]:to-indigo-600 data-[selection-start]:text-white data-[selection-end]:bg-gradient-to-br data-[selection-end]:from-indigo-500 data-[selection-end]:to-indigo-600 data-[selection-end]:text-white data-[selected]:bg-indigo-500/30 data-[selected]:text-white data-[selection-start]:shadow-[0_8px_24px_-12px_rgba(99,102,241,0.9)] data-[selection-start]:ring-2 data-[selection-start]:ring-indigo-400/50 data-[selection-end]:shadow-[0_8px_24px_-12px_rgba(99,102,241,0.9)] data-[selection-end]:ring-2 data-[selection-end]:ring-indigo-400/50 data-[today]:ring-2 data-[today]:ring-indigo-400/60 data-[today]:ring-offset-1 data-[today]:ring-offset-slate-950 hover:bg-white/15 hover:text-white hover:scale-105 active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
                   >
-                    {({ formattedDate }) => formattedDate}
+                    {({ formattedDate }) => <span className="inline-block w-10">{formattedDate}</span>}
                   </CalendarCell>
                 )}
               </CalendarGridBody>
