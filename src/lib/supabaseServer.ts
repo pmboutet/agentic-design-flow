@@ -1,5 +1,4 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr'
-import { createClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
 
 /**
@@ -11,23 +10,6 @@ import { cookies } from 'next/headers'
  */
 export async function createServerSupabaseClient() {
   const cookieStore = await cookies()
-
-  // In development, use service-role client to bypass RLS if available
-  if (process.env.IS_DEV === 'true' && process.env.SUPABASE_SERVICE_ROLE_KEY) {
-    return createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      {
-        auth: { persistSession: false },
-        global: {
-          headers: {
-            'X-Client-Info': 'agentic-dev-bypass',
-            'X-Client-Role': 'service',
-          },
-        },
-      }
-    )
-  }
 
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -80,20 +62,6 @@ export async function getCurrentUser() {
  * Throws an error if not authenticated or not an admin.
  */
 export async function requireAdmin() {
-  // In development, allow simulating an admin user when IS_DEV=true
-  if (process.env.IS_DEV === 'true') {
-    return {
-      user: {
-        id: 'dev-user',
-        email: 'dev-admin@example.com',
-      },
-      profile: {
-        role: 'full_admin',
-        is_active: true,
-      },
-    }
-  }
-
   const supabase = await createServerSupabaseClient()
   const { data: { user }, error } = await supabase.auth.getUser()
   

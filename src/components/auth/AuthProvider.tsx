@@ -46,7 +46,10 @@ const DEV_BYPASS_USER: AuthUser = {
  */
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const isDevBypass = useMemo(() => {
-    const rawValue = (process.env.NEXT_PUBLIC_IS_DEV ?? "").toString().toLowerCase();
+    const rawValue =
+      (process.env.NEXT_PUBLIC_IS_DEV ?? process.env.IS_DEV ?? "")
+        .toString()
+        .toLowerCase();
     return rawValue === "true" || rawValue === "1";
   }, []);
 
