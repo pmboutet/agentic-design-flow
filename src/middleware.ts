@@ -2,12 +2,8 @@ import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
 export async function middleware(request: NextRequest) {
-  const isDevBypass =
-    (process.env.IS_DEV ?? process.env.NEXT_PUBLIC_IS_DEV ?? '')
-      .toString()
-      .toLowerCase() === 'true'
-
-  if (isDevBypass) {
+  // Skip auth/session checks entirely in development when IS_DEV=true
+  if (process.env.IS_DEV === 'true') {
     return NextResponse.next({
       request: {
         headers: request.headers,
