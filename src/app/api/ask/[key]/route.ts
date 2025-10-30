@@ -112,23 +112,30 @@ export async function GET(
     }
 
     const supabase = await createServerSupabaseClient();
+    const isDevBypass = process.env.IS_DEV === 'true';
 
-    const { data: userResult, error: userError } = await supabase.auth.getUser();
+    let userId: string | null = null;
 
-    if (userError) {
-      if (isPermissionDenied(userError as unknown as PostgrestError)) {
-        return permissionDeniedResponse();
+    if (!isDevBypass) {
+      const { data: userResult, error: userError } = await supabase.auth.getUser();
+
+      if (userError) {
+        if (isPermissionDenied(userError as unknown as PostgrestError)) {
+          return permissionDeniedResponse();
+        }
+        throw userError;
       }
-      throw userError;
-    }
 
-    const user = userResult?.user;
+      const user = userResult?.user;
 
-    if (!user) {
-      return NextResponse.json<ApiResponse>({
-        success: false,
-        error: "Authentification requise"
-      }, { status: 401 });
+      if (!user) {
+        return NextResponse.json<ApiResponse>({
+          success: false,
+          error: "Authentification requise"
+        }, { status: 401 });
+      }
+
+      userId = user.id;
     }
 
     const { row: askRow, error: askError } = await getAskSessionByKey<AskSessionRow>(
@@ -151,22 +158,24 @@ export async function GET(
       }, { status: 404 });
     }
 
-    const { data: membership, error: membershipError } = await supabase
-      .from('ask_participants')
-      .select('id, user_id, role, is_spokesperson')
-      .eq('ask_session_id', askRow.id)
-      .eq('user_id', user.id)
-      .maybeSingle();
+    if (!isDevBypass && userId) {
+      const { data: membership, error: membershipError } = await supabase
+        .from('ask_participants')
+        .select('id, user_id, role, is_spokesperson')
+        .eq('ask_session_id', askRow.id)
+        .eq('user_id', userId)
+        .maybeSingle();
 
-    if (membershipError) {
-      if (isPermissionDenied(membershipError)) {
+      if (membershipError) {
+        if (isPermissionDenied(membershipError)) {
+          return permissionDeniedResponse();
+        }
+        throw membershipError;
+      }
+
+      if (!membership) {
         return permissionDeniedResponse();
       }
-      throw membershipError;
-    }
-
-    if (!membership) {
-      return permissionDeniedResponse();
     }
 
     const askSessionId = askRow.id;
@@ -401,23 +410,30 @@ export async function POST(
     }
 
     const supabase = await createServerSupabaseClient();
+    const isDevBypass = process.env.IS_DEV === 'true';
 
-    const { data: userResult, error: userError } = await supabase.auth.getUser();
+    let userId: string | null = null;
 
-    if (userError) {
-      if (isPermissionDenied(userError as unknown as PostgrestError)) {
-        return permissionDeniedResponse();
+    if (!isDevBypass) {
+      const { data: userResult, error: userError } = await supabase.auth.getUser();
+
+      if (userError) {
+        if (isPermissionDenied(userError as unknown as PostgrestError)) {
+          return permissionDeniedResponse();
+        }
+        throw userError;
       }
-      throw userError;
-    }
 
-    const user = userResult?.user;
+      const user = userResult?.user;
 
-    if (!user) {
-      return NextResponse.json<ApiResponse>({
-        success: false,
-        error: "Authentification requise"
-      }, { status: 401 });
+      if (!user) {
+        return NextResponse.json<ApiResponse>({
+          success: false,
+          error: "Authentification requise"
+        }, { status: 401 });
+      }
+
+      userId = user.id;
     }
 
     const { row: askRow, error: askError } = await getAskSessionByKey<Pick<AskSessionRow, 'id' | 'ask_key'>>(
@@ -440,22 +456,24 @@ export async function POST(
       }, { status: 404 });
     }
 
-    const { data: membership, error: membershipError } = await supabase
-      .from('ask_participants')
-      .select('id, user_id')
-      .eq('ask_session_id', askRow.id)
-      .eq('user_id', user.id)
-      .maybeSingle();
+    if (!isDevBypass && userId) {
+      const { data: membership, error: membershipError } = await supabase
+        .from('ask_participants')
+        .select('id, user_id')
+        .eq('ask_session_id', askRow.id)
+        .eq('user_id', userId)
+        .maybeSingle();
 
-    if (membershipError) {
-      if (isPermissionDenied(membershipError)) {
+      if (membershipError) {
+        if (isPermissionDenied(membershipError)) {
+          return permissionDeniedResponse();
+        }
+        throw membershipError;
+      }
+
+      if (!membership) {
         return permissionDeniedResponse();
       }
-      throw membershipError;
-    }
-
-    if (!membership) {
-      return permissionDeniedResponse();
     }
 
     const timestamp = body.timestamp ?? new Date().toISOString();
@@ -474,7 +492,7 @@ export async function POST(
       sender_type: senderType,
       metadata,
       created_at: timestamp,
-      user_id: user.id,
+      user_id: userId,
     };
 
     const { data: insertedRows, error: insertError } = await supabase

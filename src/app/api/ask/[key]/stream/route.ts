@@ -168,20 +168,27 @@ export async function POST(
     }
 
     const supabase = await createServerSupabaseClient();
+    const isDevBypass = process.env.IS_DEV === 'true';
 
-    const { data: userResult, error: userError } = await supabase.auth.getUser();
+    let userId: string | null = null;
 
-    if (userError) {
-      if (isPermissionDenied(userError)) {
-        return permissionDeniedResponse();
+    if (!isDevBypass) {
+      const { data: userResult, error: userError } = await supabase.auth.getUser();
+
+      if (userError) {
+        if (isPermissionDenied(userError)) {
+          return permissionDeniedResponse();
+        }
+        throw userError;
       }
-      throw userError;
-    }
 
-    const user = userResult?.user;
+      const user = userResult?.user;
 
-    if (!user) {
-      return new Response('Authentification requise', { status: 401 });
+      if (!user) {
+        return new Response('Authentification requise', { status: 401 });
+      }
+
+      userId = user.id;
     }
 
     const { row: askRow, error: askError } = await getAskSessionByKey<AskSessionRow>(
@@ -201,22 +208,24 @@ export async function POST(
       return new Response('ASK introuvable pour la clé fournie', { status: 404 });
     }
 
-    const { data: membership, error: membershipError } = await supabase
-      .from('ask_participants')
-      .select('id, user_id, role, is_spokesperson')
-      .eq('ask_session_id', askRow.id)
-      .eq('user_id', user.id)
-      .maybeSingle();
+    if (!isDevBypass && userId) {
+      const { data: membership, error: membershipError } = await supabase
+        .from('ask_participants')
+        .select('id, user_id, role, is_spokesperson')
+        .eq('ask_session_id', askRow.id)
+        .eq('user_id', userId)
+        .maybeSingle();
 
-    if (membershipError) {
-      if (isPermissionDenied(membershipError)) {
+      if (membershipError) {
+        if (isPermissionDenied(membershipError)) {
+          return permissionDeniedResponse();
+        }
+        throw membershipError;
+      }
+
+      if (!membership) {
         return permissionDeniedResponse();
       }
-      throw membershipError;
-    }
-
-    if (!membership) {
-      return permissionDeniedResponse();
     }
 
     // Fetch participants

@@ -14,7 +14,7 @@ This document captures the key findings from a targeted security review of the p
 ### 2. Public ASK API routes ran with service-role privileges and no authentication
 * **Risk**: Critical (full read/write of protected data)
 * **Details**: The public route handlers under `/api/ask/[key]` relied on `getAdminSupabaseClient`, which uses the Supabase service-role key. Combined with fuzzy key matching, unauthenticated callers could retrieve complete session transcripts, participants, insights, and could insert arbitrary messages.
-* **Remediation**: Both GET and POST handlers now execute with the RLS-respecting server client, require an authenticated Supabase user, verify ASK participant membership, and translate permission denials into 401/403 responses rather than defaulting to administrator-level access.【F:src/app/api/ask/[key]/route.ts†L1-L360】
+* **Remediation**: Both GET and POST handlers now execute with the RLS-respecting server client, require an authenticated Supabase user, verify ASK participant membership, and translate permission denials into 401/403 responses rather than defaulting to administrator-level access in production. Development environments may deliberately bypass authentication by setting `IS_DEV=true`, mirroring earlier workflows while retaining the hardened defaults for deployed instances.【F:src/app/api/ask/[key]/route.ts†L118-L520】
 * **Status**: Remediated.
 
 ### 3. Challenge update endpoint was exposed without authentication
@@ -26,7 +26,7 @@ This document captures the key findings from a targeted security review of the p
 ### 4. Streaming endpoint reused service-role access for AI prompts
 * **Risk**: Critical (session transcript exfiltration & unauthorized AI actions)
 * **Details**: The ASK streaming route at `/api/ask/[key]/stream` previously executed entirely with the service-role client, exposing transcript history, participant rosters, and downstream AI actions without authenticating the caller.
-* **Remediation**: The route now authenticates the caller, validates their membership in the ASK session, routes all Supabase queries through the RLS-aware server client, and gracefully handles permission denials. AI-generated message inserts and follow-up insight detection reuse the caller’s session instead of elevated credentials.【F:src/app/api/ask/[key]/stream/route.ts†L1-L672】
+* **Remediation**: The route now authenticates the caller, validates their membership in the ASK session, routes all Supabase queries through the RLS-aware server client, and gracefully handles permission denials. AI-generated message inserts and follow-up insight detection reuse the caller’s session instead of elevated credentials. As with the REST handlers, development builds can opt into the legacy bypass by setting `IS_DEV=true` while production continues to enforce authentication.【F:src/app/api/ask/[key]/stream/route.ts†L1-L720】
 * **Status**: Remediated.
 
 ## Positive Observations
