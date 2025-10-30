@@ -58,6 +58,8 @@ export function DateTimePicker({
   }, [value]);
 
   const [open, setOpen] = React.useState(false);
+  const [mounted, setMounted] = React.useState(false);
+  React.useEffect(() => setMounted(true), []);
 
   const formattedDisplay = React.useMemo(() => {
     if (!parsedValue) {
@@ -148,11 +150,11 @@ export function DateTimePicker({
             className
           )}
         >
-          <span className="flex items-center gap-2 truncate">
+          <span className="flex items-center gap-2 truncate" suppressHydrationWarning>
             <CalendarIcon className="h-4 w-4 text-indigo-200" />
             {formattedDisplay || <span className="text-slate-400">{placeholder}</span>}
           </span>
-          {value ? (
+          {mounted && value ? (
             <X
               className="h-4 w-4 text-slate-400 transition hover:text-red-300"
               onClick={event => {
