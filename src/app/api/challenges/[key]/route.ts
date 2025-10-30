@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
+import type { PostgrestError } from '@supabase/supabase-js';
 import { ApiResponse, Challenge } from '@/types';
 import { isValidAskKey, parseErrorMessage } from '@/lib/utils';
-import { getAdminSupabaseClient } from '@/lib/supabaseAdmin';
 import { getAskSessionByKey } from '@/lib/asks';
+import { createServerSupabaseClient, requireAdmin } from '@/lib/supabaseServer';
 
 interface AskSessionRow {
   id: string;
@@ -17,6 +18,20 @@ type ChallengeUpdatePayload = Partial<Pick<Challenge, 'name' | 'updatedAt'>> & {
   dueDate?: string | null;
   assignedTo?: string | null;
 };
+
+function isPermissionDenied(error: unknown): boolean {
+  if (!error || typeof error !== 'object') {
+    return false;
+  }
+
+  const code = ((error as PostgrestError).code ?? '').toString().toUpperCase();
+  if (code === '42501' || code === 'PGRST301' || code === 'PGRST302') {
+    return true;
+  }
+
+  const message = ((error as { message?: string }).message ?? '').toString().toLowerCase();
+  return message.includes('permission denied') || message.includes('unauthorized');
+}
 
 function buildChallengeUpdate(data: ChallengeUpdatePayload) {
   const payload: Record<string, unknown> = {};
@@ -67,7 +82,18 @@ export async function PUT(
 
     const body = (await request.json()) as ChallengeUpdatePayload;
 
-    const supabase = getAdminSupabaseClient();
+    try {
+      await requireAdmin();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const status = message.toLowerCase().includes('authentication') ? 401 : 403;
+      return NextResponse.json<ApiResponse>({
+        success: false,
+        error: status === 401 ? 'Authentification requise' : 'Accès administrateur requis'
+      }, { status });
+    }
+
+    const supabase = await createServerSupabaseClient();
 
     const { row: askRow, error: askError } = await getAskSessionByKey<AskSessionRow>(
       supabase,
@@ -76,6 +102,12 @@ export async function PUT(
     );
 
     if (askError) {
+      if (isPermissionDenied(askError)) {
+        return NextResponse.json<ApiResponse>({
+          success: false,
+          error: 'Accès non autorisé au challenge demandé'
+        }, { status: 403 });
+      }
       throw askError;
     }
 
@@ -103,6 +135,12 @@ export async function PUT(
       .maybeSingle();
 
     if (error) {
+      if (isPermissionDenied(error)) {
+        return NextResponse.json<ApiResponse>({
+          success: false,
+          error: 'Accès non autorisé à cette ressource'
+        }, { status: 403 });
+      }
       throw error;
     }
 

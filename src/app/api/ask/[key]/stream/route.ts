@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { getAdminSupabaseClient } from '@/lib/supabaseAdmin';
+import type { PostgrestError } from '@supabase/supabase-js';
 import { isValidAskKey, parseErrorMessage } from '@/lib/utils';
 import { getAskSessionByKey } from '@/lib/asks';
 import { normaliseMessageMetadata } from '@/lib/messages';
@@ -8,6 +8,7 @@ import { createAgentLog, markAgentLogProcessing, completeAgentLog, failAgentLog 
 import { DEFAULT_MAX_OUTPUT_TOKENS } from '@/lib/ai/constants';
 import { getChatAgentConfig, DEFAULT_CHAT_AGENT_SLUG, type PromptVariables, type AgentConfigResult } from '@/lib/ai/agent-config';
 import type { AiAgentLog, Insight } from '@/types';
+import { createServerSupabaseClient } from '@/lib/supabaseServer';
 
 interface InsightDetectionResponse {
   success: boolean;
@@ -137,6 +138,24 @@ function buildPromptVariables(options: {
   } satisfies Record<string, string | null | undefined>;
 }
 
+function isPermissionDenied(error: unknown): boolean {
+  if (!error || typeof error !== 'object') {
+    return false;
+  }
+
+  const code = ((error as PostgrestError).code ?? '').toString().toUpperCase();
+  if (code === '42501' || code === 'PGRST301' || code === 'PGRST302') {
+    return true;
+  }
+
+  const message = ((error as { message?: string }).message ?? '').toString().toLowerCase();
+  return message.includes('permission denied') || message.includes('unauthorized');
+}
+
+function permissionDeniedResponse(): Response {
+  return new Response('Accès non autorisé à cette ASK', { status: 403 });
+}
+
 export async function POST(
   request: NextRequest,
   { params }: { params: { key: string } }
@@ -148,7 +167,29 @@ export async function POST(
       return new Response('Invalid ASK key format', { status: 400 });
     }
 
-    const supabase = getAdminSupabaseClient();
+    const supabase = await createServerSupabaseClient();
+    const isDevBypass = process.env.IS_DEV === 'true';
+
+    let userId: string | null = null;
+
+    if (!isDevBypass) {
+      const { data: userResult, error: userError } = await supabase.auth.getUser();
+
+      if (userError) {
+        if (isPermissionDenied(userError)) {
+          return permissionDeniedResponse();
+        }
+        throw userError;
+      }
+
+      const user = userResult?.user;
+
+      if (!user) {
+        return new Response('Authentification requise', { status: 401 });
+      }
+
+      userId = user.id;
+    }
 
     const { row: askRow, error: askError } = await getAskSessionByKey<AskSessionRow>(
       supabase,
@@ -157,11 +198,34 @@ export async function POST(
     );
 
     if (askError) {
+      if (isPermissionDenied(askError)) {
+        return permissionDeniedResponse();
+      }
       throw askError;
     }
 
     if (!askRow) {
       return new Response('ASK introuvable pour la clé fournie', { status: 404 });
+    }
+
+    if (!isDevBypass && userId) {
+      const { data: membership, error: membershipError } = await supabase
+        .from('ask_participants')
+        .select('id, user_id, role, is_spokesperson')
+        .eq('ask_session_id', askRow.id)
+        .eq('user_id', userId)
+        .maybeSingle();
+
+      if (membershipError) {
+        if (isPermissionDenied(membershipError)) {
+          return permissionDeniedResponse();
+        }
+        throw membershipError;
+      }
+
+      if (!membership) {
+        return permissionDeniedResponse();
+      }
     }
 
     // Fetch participants
@@ -172,6 +236,9 @@ export async function POST(
       .order('joined_at', { ascending: true });
 
     if (participantError) {
+      if (isPermissionDenied(participantError)) {
+        return permissionDeniedResponse();
+      }
       throw participantError;
     }
 
@@ -188,6 +255,9 @@ export async function POST(
         .in('id', participantUserIds);
 
       if (userError) {
+        if (isPermissionDenied(userError)) {
+          return permissionDeniedResponse();
+        }
         throw userError;
       }
 
@@ -217,6 +287,9 @@ export async function POST(
       .order('created_at', { ascending: true });
 
     if (messageError) {
+      if (isPermissionDenied(messageError)) {
+        return permissionDeniedResponse();
+      }
       throw messageError;
     }
 
@@ -233,6 +306,9 @@ export async function POST(
         .in('id', additionalUserIds);
 
       if (extraUsersError) {
+        if (isPermissionDenied(extraUsersError)) {
+          return permissionDeniedResponse();
+        }
         throw extraUsersError;
       }
 
@@ -296,6 +372,9 @@ export async function POST(
         .maybeSingle<ProjectRow>();
 
       if (error) {
+        if (isPermissionDenied(error)) {
+          return permissionDeniedResponse();
+        }
         throw error;
       }
 
@@ -311,6 +390,9 @@ export async function POST(
         .maybeSingle<ChallengeRow>();
 
       if (error) {
+        if (isPermissionDenied(error)) {
+          return permissionDeniedResponse();
+        }
         throw error;
       }
 
@@ -359,14 +441,17 @@ export async function POST(
       console.log('🔍 Loading chat agent configuration...');
       console.log('Agent slug:', DEFAULT_CHAT_AGENT_SLUG);
       console.log('Variables:', agentVariables);
-      
+
       agentConfig = await getChatAgentConfig(supabase, agentVariables);
-      
+
       console.log('✅ Chat agent config loaded successfully');
       console.log('System prompt length:', agentConfig.systemPrompt?.length || 0);
       console.log('User prompt length:', agentConfig.userPrompt?.length || 0);
       console.log('Model config:', agentConfig.modelConfig.provider);
     } catch (error) {
+      if (isPermissionDenied(error)) {
+        return permissionDeniedResponse();
+      }
       console.error('❌ Error getting chat agent config:', error);
       console.error('Error details:', {
         message: error instanceof Error ? error.message : String(error),
@@ -507,7 +592,11 @@ export async function POST(
                   .limit(1);
 
                 if (insertError) {
-                  console.error('Error storing AI response:', insertError);
+                  if (isPermissionDenied(insertError)) {
+                    console.error('Permission denied while storing AI response:', insertError);
+                  } else {
+                    console.error('Error storing AI response:', insertError);
+                  }
                 } else {
                   const inserted = insertedRows?.[0] as MessageRow | undefined;
                   if (inserted) {
@@ -544,6 +633,7 @@ export async function POST(
                   method: 'POST',
                   headers: {
                     'Content-Type': 'application/json',
+                    ...(request.headers.get('cookie') ? { Cookie: request.headers.get('cookie')! } : {}),
                   },
                   body: JSON.stringify({
                     detectInsights: true,
