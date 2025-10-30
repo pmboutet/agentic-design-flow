@@ -1,20 +1,22 @@
 "use client";
 
-import { useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useEffect } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { LoginForm } from "@/components/auth/LoginForm";
 
-export default function LoginPage() {
+function LoginPageContent() {
   const { status } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const redirectTo = searchParams?.get("redirectTo") ?? "/admin";
 
   useEffect(() => {
     if (status === "signed-in") {
-      router.push("/admin");
+      router.push(redirectTo);
     }
-  }, [status, router]);
+  }, [status, router, redirectTo]);
 
   if (status === "loading") {
     return (
@@ -23,7 +25,6 @@ export default function LoginPage() {
       </div>
     );
   }
-
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
       <div className="w-full max-w-md">
@@ -33,7 +34,7 @@ export default function LoginPage() {
         </div>
 
         <div className="bg-white shadow-lg rounded-lg p-8">
-          <LoginForm />
+          <LoginForm redirectTo={redirectTo} />
 
           <div className="mt-6 text-center text-sm text-gray-600">
             Don't have an account?{" "}
@@ -44,6 +45,20 @@ export default function LoginPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen flex items-center justify-center bg-gray-50">
+          <div className="text-gray-600">Loading...</div>
+        </div>
+      }
+    >
+      <LoginPageContent />
+    </Suspense>
   );
 }
 

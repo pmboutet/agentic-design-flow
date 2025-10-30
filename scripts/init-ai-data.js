@@ -122,26 +122,81 @@ Ton rôle est d'analyser les échanges de groupe et d'identifier :
 - Les tendances et patterns émergents
 - Les opportunités et défis mentionnés
 - Les recommandations et solutions proposées
+- Les problèmes (pains) et frustrations exprimés
+- Les solutions et recommandations proposées
+- Les opportunités identifiées
+- Les risques mentionnés
 
 Contexte :
 - Question ASK : {{ask_question}}
 - Participants : {{participants}}
 - Historique : {{message_history}}
 - Insights existants : {{existing_insights_json}}
+- Dernière réponse IA : {{latest_ai_response}}
 
-Extrais les insights les plus pertinents et structure-les de manière claire.`,
-        user_prompt: `Analyse cette conversation et extrais les insights les plus importants :
+## TYPES D'INSIGHTS
+
+Les types d'insights disponibles sont : {{insight_types}}
+
+Classifie chaque insight selon l'un de ces types.
+
+## FORMAT DE SORTIE STRICT
+
+Retourne UNIQUEMENT un objet JSON valide, sans texte additionnel, sans balises markdown, sans backticks.
+
+Structure attendue :
+{
+  "insights": [
+    {
+      "type": "un des types disponibles (voir insight_types)",
+      "content": "Description complète de l'insight (2-4 phrases)",
+      "summary": "Résumé court en une phrase",
+      "category": "Catégorie optionnelle (ex: onboarding, formation, produit)",
+      "priority": "low|medium|high|critical",
+      "status": "new",
+      "authors": [
+        {
+          "name": "Nom du participant",
+          "userId": null
+        }
+      ],
+      "sourceMessageId": null
+    }
+  ]
+}
+
+## RÈGLES
+
+1. Crée UN insight par idée/problème/solution distinct
+2. Le content doit être détaillé (2-4 phrases minimum)
+3. Le summary doit être concis (une phrase)
+4. Attribue les bons auteurs selon qui a exprimé l'insight
+5. N'inclus QUE les nouveaux insights, pas ceux déjà dans existing_insights_json
+6. Retourne {"insights": []} si aucun nouvel insight n'est détecté`,
+        user_prompt: `Analyse cette conversation et extrais les insights les plus importants.
+
+## CONVERSATION
 
 {{message_history}}
 
-Fournis une réponse structurée avec les insights identifiés.`,
+## DERNIÈRE RÉPONSE IA
+
+{{latest_ai_response}}
+
+## INSTRUCTIONS
+
+Identifie tous les nouveaux insights dans cette conversation et retourne-les en JSON strict (sans markdown, sans backticks, sans texte additionnel).
+
+Si la dernière réponse IA contient une analyse structurée, extrais-en les insights principaux en respectant le format JSON demandé.`,
         available_variables: [
           'ask_key',
           'ask_question',
           'ask_description',
           'message_history',
           'participants',
-          'existing_insights_json'
+          'existing_insights_json',
+          'latest_ai_response',
+          'insight_types'
         ]
       },
       {
