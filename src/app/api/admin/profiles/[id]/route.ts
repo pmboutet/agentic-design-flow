@@ -14,7 +14,8 @@ const updateSchema = z.object({
   lastName: z.string().trim().max(100).optional().or(z.literal("")),
   role: z.enum(roleValues).optional(),
   clientId: z.string().uuid().optional().or(z.literal("")),
-  isActive: z.boolean().optional()
+  isActive: z.boolean().optional(),
+  jobTitle: z.string().trim().max(255).optional().or(z.literal(""))
 });
 
 export async function PATCH(
@@ -74,6 +75,10 @@ export async function PATCH(
 
     if (payload.isActive !== undefined) {
       updateData.is_active = payload.isActive;
+    }
+
+    if (payload.jobTitle !== undefined) {
+      updateData.job_title = sanitizeOptional(payload.jobTitle || null);
     }
 
     if (payload.firstName !== undefined || payload.lastName !== undefined) {

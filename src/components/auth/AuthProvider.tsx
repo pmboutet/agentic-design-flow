@@ -90,6 +90,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         avatarUrl: data.avatar_url,
         isActive: data.is_active,
         lastLogin: data.last_login,
+        jobTitle: data.job_title ?? null,
         createdAt: data.created_at,
         updatedAt: data.updated_at,
       };

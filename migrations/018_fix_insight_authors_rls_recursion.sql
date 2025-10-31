@@ -1,22 +1,36 @@
 BEGIN;
 
 -- ============================================================================
--- FIX: Infinite recursion in insight_authors RLS policies
+-- FIX: Infinite recursion in insights and insight_authors RLS policies
 -- ============================================================================
 -- 
--- Problem: The policy "Users can view insight authors in their sessions" 
--- queries the insights table, which has a policy that queries insight_authors,
--- creating infinite recursion.
+-- Problem: Circular dependency between policies:
+-- 1. Policy "Users can view their authored insights" on insights table 
+--    queries insight_authors table
+-- 2. Policy "Users can view insight authors in their sessions" on insight_authors 
+--    queries insights table
+-- This creates infinite recursion.
 --
--- Solution: Modify the policy to avoid querying insights table by using
--- a simpler approach that checks if the user is the author OR uses a 
--- security definer function to bypass RLS when checking ask_session_id.
+-- Solution: Use SECURITY DEFINER functions to bypass RLS when checking 
+-- cross-table relationships.
 
--- Drop the problematic policy
-DROP POLICY IF EXISTS "Users can view insight authors in their sessions" ON public.insight_authors;
+-- ============================================================================
+-- STEP 1: Create helper functions with SECURITY DEFINER to bypass RLS
+-- ============================================================================
 
--- Create a security definer function to check if an insight belongs to a session
--- the user participates in, without triggering RLS policies
+-- Function to check if user authored an insight (bypasses RLS)
+CREATE OR REPLACE FUNCTION public.check_user_authored_insight(insight_uuid UUID)
+RETURNS BOOLEAN AS $$
+BEGIN
+  RETURN EXISTS (
+    SELECT 1 FROM public.insight_authors
+    WHERE insight_id = insight_uuid
+    AND user_id = public.current_user_id()
+  );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Function to check if an insight belongs to a session the user participates in (bypasses RLS)
 CREATE OR REPLACE FUNCTION public.check_insight_session_access(insight_uuid UUID)
 RETURNS BOOLEAN AS $$
 DECLARE
@@ -37,6 +51,13 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
+-- ============================================================================
+-- STEP 2: Fix insight_authors policies
+-- ============================================================================
+
+-- Drop the problematic policy
+DROP POLICY IF EXISTS "Users can view insight authors in their sessions" ON public.insight_authors;
+
 -- Recreate the policy using the security definer function to avoid recursion
 CREATE POLICY "Users can view insight authors in their sessions"
   ON public.insight_authors FOR SELECT
@@ -46,6 +67,21 @@ CREATE POLICY "Users can view insight authors in their sessions"
     OR
     -- Or if user has access to the insight's session (using security definer to avoid recursion)
     public.check_insight_session_access(insight_id)
+  );
+
+-- ============================================================================
+-- STEP 3: Fix insights policies
+-- ============================================================================
+
+-- Drop the problematic policy
+DROP POLICY IF EXISTS "Users can view their authored insights" ON public.insights;
+
+-- Recreate the policy using the security definer function to avoid recursion
+CREATE POLICY "Users can view their authored insights"
+  ON public.insights FOR SELECT
+  USING (
+    -- Use security definer function to check authorship without triggering RLS on insight_authors
+    public.check_user_authored_insight(id)
   );
 
 COMMIT;

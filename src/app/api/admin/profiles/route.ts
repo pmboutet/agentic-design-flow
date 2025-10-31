@@ -17,14 +17,48 @@ const userSchema = z.object({
   clientId: z.string().uuid().optional().or(z.literal("")),
   isActive: z.boolean().default(true),
   password: z.string().min(6).optional(), // For creating auth user
+  jobTitle: z.string().trim().max(255).optional().or(z.literal("")),
 });
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
     // Verify user is admin and get authenticated client
     await requireAdmin();
     const supabase = await createServerSupabaseClient();
     
+    // Check for email query parameter for lookup
+    const { searchParams } = new URL(request.url);
+    const email = searchParams.get("email");
+
+    if (email) {
+      // Email lookup endpoint
+      const sanitizedEmail = sanitizeText(email.toLowerCase());
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("*, clients(name)")
+        .eq("email", sanitizedEmail)
+        .maybeSingle();
+
+      if (error) {
+        throw error;
+      }
+
+      if (!data) {
+        return NextResponse.json<ApiResponse<ManagedUser | null>>({
+          success: true,
+          data: null
+        });
+      }
+
+      const membershipMap = await fetchProjectMemberships(supabase, [data.id]);
+
+      return NextResponse.json<ApiResponse<ManagedUser | null>>({
+        success: true,
+        data: mapManagedUser(data, membershipMap)
+      });
+    }
+
+    // Regular GET all profiles
     const { data, error } = await supabase
       .from("profiles")
       .select("*, clients(name)")
@@ -94,6 +128,7 @@ export async function POST(request: NextRequest) {
 
     // Note: If password is not provided, profile is created without auth_id
     // This allows for profiles that will be linked to auth users later
+    const jobTitle = sanitizeOptional(payload.jobTitle || null);
     const { data, error } = await supabase
       .from("profiles")
       .insert({
@@ -104,7 +139,8 @@ export async function POST(request: NextRequest) {
         full_name: fullName,
         role: payload.role,
         client_id: payload.clientId && payload.clientId !== "" ? payload.clientId : null,
-        is_active: payload.isActive
+        is_active: payload.isActive,
+        job_title: jobTitle
       })
       .select("*, clients(name)")
       .single();

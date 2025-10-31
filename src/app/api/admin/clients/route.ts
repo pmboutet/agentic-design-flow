@@ -76,6 +76,10 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (error) {
+      // Check if it's a unique constraint violation (duplicate name)
+      if (error.code === '23505' || error.message.includes('unique constraint') || error.message.includes('duplicate key')) {
+        throw new Error(`A client with the name "${payload.name}" already exists. Client names must be unique.`);
+      }
       throw error;
     }
 
@@ -87,6 +91,7 @@ export async function POST(request: NextRequest) {
     let status = 500;
     if (error instanceof z.ZodError) status = 400;
     else if (error instanceof Error && error.message.includes('required')) status = 403;
+    else if (error instanceof Error && (error.message.includes('already exists') || error.message.includes('unique'))) status = 409; // Conflict
     
     return NextResponse.json<ApiResponse>({
       success: false,

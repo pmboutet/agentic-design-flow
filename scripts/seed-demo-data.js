@@ -36,26 +36,30 @@ async function seedDemoData() {
     await client.connect();
     console.log('✅ Connected to database\n');
 
-    // 1. Create a demo client
+    // 1. Create a demo client (or get existing one)
     console.log('📦 Creating demo client...');
     const clientResult = await client.query(
       `INSERT INTO public.clients (name, status, email, company, industry)
        VALUES ('TechCorp Demo', 'active', 'contact@techcorp.demo', 'TechCorp', 'Technology')
-       ON CONFLICT DO NOTHING
+       ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name
        RETURNING id, name`
     );
 
     let clientId;
     if (clientResult.rows.length > 0) {
       clientId = clientResult.rows[0].id;
-      console.log(`✅ Client created: ${clientResult.rows[0].name} (${clientId})`);
+      console.log(`✅ Client created/exists: ${clientResult.rows[0].name} (${clientId})`);
     } else {
-      // Client already exists, get it
+      // Fallback: Client already exists, get it
       const existing = await client.query(
-        `SELECT id, name FROM public.clients WHERE name = 'TechCorp Demo'`
+        `SELECT id, name FROM public.clients WHERE name = 'TechCorp Demo' LIMIT 1`
       );
-      clientId = existing.rows[0].id;
-      console.log(`ℹ️  Client already exists: ${existing.rows[0].name} (${clientId})`);
+      if (existing.rows.length > 0) {
+        clientId = existing.rows[0].id;
+        console.log(`ℹ️  Client already exists: ${existing.rows[0].name} (${clientId})`);
+      } else {
+        throw new Error('Failed to create or find demo client');
+      }
     }
 
     // 2. Link current user to client

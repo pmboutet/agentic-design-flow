@@ -212,14 +212,82 @@ export function useAdminResources() {
       await refreshUsers();
     }, "User removed");
 
-  const addUserToProject = (userId: string, projectId: string) =>
+  const findUserByEmail = async (email: string): Promise<ManagedUser | null> => {
+    try {
+      const data = await request<ManagedUser | null>(`/api/admin/profiles?email=${encodeURIComponent(email)}`);
+      return data;
+    } catch (error) {
+      // If user not found, return null instead of throwing
+      if (error instanceof Error && error.message.includes("not found")) {
+        return null;
+      }
+      throw error;
+    }
+  };
+
+  const addUserToProject = (userId: string, projectId: string, jobTitle?: string) =>
     handleAction(async () => {
       await request(`/api/admin/projects/${projectId}/members`, {
         method: "POST",
-        body: JSON.stringify({ userId })
+        body: JSON.stringify({ userId, jobTitle })
       });
       await refreshUsers();
     }, "User added to project");
+
+  const createUserAndAddToProject = async (
+    email: string,
+    projectId: string,
+    clientId?: string,
+    jobTitle?: string
+  ) => {
+    return handleAction(async () => {
+      // Create user with minimal data
+      const newUser = await request<ManagedUser>("/api/admin/profiles", {
+        method: "POST",
+        body: JSON.stringify({
+          email,
+          role: "user",
+          isActive: true,
+          clientId: clientId || "",
+          jobTitle: jobTitle || ""
+        })
+      });
+
+      // Add to project
+      await request(`/api/admin/projects/${projectId}/members`, {
+        method: "POST",
+        body: JSON.stringify({ userId: newUser.id, jobTitle: jobTitle || "" })
+      });
+
+      await refreshUsers();
+    }, "User created and added to project");
+  };
+
+  const addUserToClient = (userId: string, clientId: string, jobTitle?: string) =>
+    handleAction(async () => {
+      await request(`/api/admin/clients/${clientId}/members`, {
+        method: "POST",
+        body: JSON.stringify({ userId, jobTitle })
+      });
+      await refreshUsers();
+    }, "User added to client");
+
+  const removeUserFromClient = (userId: string, clientId: string) =>
+    handleAction(async () => {
+      await request(`/api/admin/clients/${clientId}/members/${userId}`, {
+        method: "DELETE"
+      });
+      await refreshUsers();
+    }, "User removed from client");
+
+  const updateClientMemberJob = (userId: string, clientId: string, jobTitle: string) =>
+    handleAction(async () => {
+      await request(`/api/admin/clients/${clientId}/members/${userId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ jobTitle })
+      });
+      await refreshUsers();
+    }, "Client member job title updated");
 
   const removeUserFromProject = (userId: string, projectId: string) =>
     handleAction(async () => {
@@ -308,7 +376,12 @@ export function useAdminResources() {
     deleteProject,
     deleteChallenge,
     deleteAsk,
+    findUserByEmail,
     addUserToProject,
-    removeUserFromProject
+    removeUserFromProject,
+    createUserAndAddToProject,
+    addUserToClient,
+    removeUserFromClient,
+    updateClientMemberJob
   };
 }

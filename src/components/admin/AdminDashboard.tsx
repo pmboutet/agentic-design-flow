@@ -32,7 +32,7 @@ import { ProjectJourneyBoard } from "@/components/project/ProjectJourneyBoard";
 import { AskRelationshipCanvas } from "./AskRelationshipCanvas";
 import { FormDateTimeField } from "./FormDateTimeField";
 import { useAdminResources } from "./useAdminResources";
-import type { AskSessionRecord, ChallengeRecord, ClientRecord, ProjectRecord } from "@/types";
+import type { AskSessionRecord, ChallengeRecord, ClientRecord, ManagedUser, ProjectRecord } from "@/types";
 
 interface AdminDashboardProps {
   initialProjectId?: string | null;
@@ -109,7 +109,8 @@ const userFormSchema = z.object({
   lastName: z.string().trim().max(100).optional().or(z.literal("")),
   role: z.enum(userRoles).default("user"),
   clientId: z.string().trim().optional().or(z.literal("")),
-  isActive: z.boolean().default(true)
+  isActive: z.boolean().default(true),
+  jobTitle: z.string().trim().max(255).optional().or(z.literal(""))
 });
 
 type ClientFormInput = z.infer<typeof clientFormSchema>;
@@ -167,7 +168,8 @@ const defaultUserFormValues: UserFormInput = {
   lastName: "",
   role: "user",
   clientId: "",
-  isActive: true
+  isActive: true,
+  jobTitle: ""
 };
 
 const navigationItems = [
@@ -494,7 +496,9 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
     deleteChallenge,
     deleteAsk,
     addUserToProject,
-    removeUserFromProject
+    removeUserFromProject,
+    findUserByEmail,
+    createUserAndAddToProject
   } = useAdminResources();
 
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
@@ -506,6 +510,9 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
   const [showAskForm, setShowAskForm] = useState(false);
   const [showUserForm, setShowUserForm] = useState(false);
   const [manualAskKey, setManualAskKey] = useState(false);
+  const [emailLookup, setEmailLookup] = useState("");
+  const [emailLookupResult, setEmailLookupResult] = useState<ManagedUser | null>(null);
+  const [isLookingUpEmail, setIsLookingUpEmail] = useState(false);
   const [showJourneyBoard, setShowJourneyBoard] = useState(false);
   const [activeSection, setActiveSection] = useState<SectionLabel>(navigationItems[0].label);
   const [columnWidths, setColumnWidths] = useState<ColumnWidths>(defaultColumnWidths);
@@ -1638,7 +1645,8 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
   };
 
   const handleSubmitUser = async (values: UserFormInput) => {
-    const payload = { ...values };
+    // Remove fullName as it's not accepted by the API - it's computed from firstName/lastName
+    const { fullName, ...payload } = values;
     if (editingUserId) {
       payload.clientId = values.clientId ?? "";
       await updateUser(editingUserId, payload);
@@ -1654,6 +1662,7 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
       await createUser(payload);
     }
     resetUserForm();
+    setEditingUserId(null);
     setShowUserForm(false);
   };
 
@@ -1671,12 +1680,53 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
       lastName: user.lastName ?? "",
       role: (user.role as UserFormInput["role"]) || "user",
       clientId: user.clientId ?? "",
-      isActive: user.isActive
+      isActive: user.isActive,
+      jobTitle: user.jobTitle ?? ""
     });
+  };
+
+  const handleEmailLookup = async (email: string) => {
+    if (!email || !email.includes("@")) {
+      setEmailLookupResult(null);
+      return;
+    }
+    setIsLookingUpEmail(true);
+    try {
+      const user = await findUserByEmail(email);
+      setEmailLookupResult(user);
+    } catch (error) {
+      setEmailLookupResult(null);
+    } finally {
+      setIsLookingUpEmail(false);
+    }
+  };
+
+  const handleAddUserToProjectFromEmail = async () => {
+    if (!selectedProjectId || !emailLookupResult) {
+      return;
+    }
+    await addUserToProject(emailLookupResult.id, selectedProjectId);
+    setEmailLookup("");
+    setEmailLookupResult(null);
+    setShowUserForm(false);
+  };
+
+  const handleCreateAndAddUserToProject = async () => {
+    if (!selectedProjectId) {
+      return;
+    }
+    const clientId = selectedProject?.clientId ?? selectedClientId ?? undefined;
+    await createUserAndAddToProject(emailLookup, selectedProjectId, clientId);
+    setEmailLookup("");
+    setEmailLookupResult(null);
+    setShowUserForm(false);
   };
 
   const cancelUserEdit = () => {
     resetUserForm();
+    setEmailLookup("");
+    setEmailLookupResult(null);
+    setEditingUserId(null);
     setShowUserForm(false);
   };
 
@@ -1745,16 +1795,25 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
     const projectClientId = selectedProject?.clientId ?? null;
     const targetClientId = selectedClientId ?? projectClientId ?? null;
 
+    // If a project is selected, only show users who are members of that project
+    if (selectedProjectId) {
+      return users.filter(user => {
+        const userProjectIds = user.projectIds ?? [];
+        return userProjectIds.includes(selectedProjectId);
+      }).sort((a, b) => {
+        const aLabel = (a.fullName || a.email || "").toLowerCase();
+        const bLabel = (b.fullName || b.email || "").toLowerCase();
+        return aLabel.localeCompare(bLabel);
+      });
+    }
+
+    // When no project is selected, show all users (original behavior)
     const filtered = users.filter(user => {
       const normalizedRole = user.role?.toLowerCase?.() ?? "";
       const isGlobal = normalizedRole.includes("admin") || normalizedRole.includes("owner");
       const userProjectIds = user.projectIds ?? [];
 
       if (targetClientId && user.clientId === targetClientId) {
-        return true;
-      }
-
-      if (selectedProjectId && userProjectIds.includes(selectedProjectId)) {
         return true;
       }
 
@@ -3102,83 +3161,152 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                   </header>
 
                   {showUserForm && (
-                    <form
-                      onSubmit={userForm.handleSubmit(handleSubmitUser)}
-                      className="space-y-3 rounded-2xl border border-white/10 bg-slate-900/40 p-4"
-                    >
-                      {isEditingUser && (
-                        <p className="text-xs font-medium text-amber-300">
-                          Editing {users.find(user => user.id === editingUserId)?.fullName || users.find(user => user.id === editingUserId)?.email}
-                        </p>
+                    <>
+                      {editingUserId ? (
+                        <form
+                          onSubmit={userForm.handleSubmit(handleSubmitUser)}
+                          className="space-y-3 rounded-2xl border border-white/10 bg-slate-900/40 p-4"
+                        >
+                          <p className="text-xs font-medium text-amber-300">
+                            Editing {users.find(user => user.id === editingUserId)?.fullName || users.find(user => user.id === editingUserId)?.email}
+                          </p>
+                          <div className="grid gap-3 md:grid-cols-2">
+                            <div className="flex flex-col gap-2">
+                              <Label htmlFor="user-email-admin">Email</Label>
+                              <Input
+                                id="user-email-admin"
+                                type="email"
+                                placeholder="user@company.com"
+                                {...userForm.register("email")}
+                                disabled={isBusy}
+                              />
+                              {userForm.formState.errors.email && (
+                                <p className="text-xs text-red-400">{userForm.formState.errors.email.message}</p>
+                              )}
+                            </div>
+                            <div className="flex flex-col gap-2">
+                              <Label htmlFor="user-firstname-admin">First name</Label>
+                              <Input
+                                id="user-firstname-admin"
+                                placeholder="John"
+                                {...userForm.register("firstName")}
+                                disabled={isBusy}
+                              />
+                              {userForm.formState.errors.firstName && (
+                                <p className="text-xs text-red-400">{userForm.formState.errors.firstName.message}</p>
+                              )}
+                            </div>
+                            <div className="flex flex-col gap-2">
+                              <Label htmlFor="user-lastname-admin">Last name</Label>
+                              <Input
+                                id="user-lastname-admin"
+                                placeholder="Doe"
+                                {...userForm.register("lastName")}
+                                disabled={isBusy}
+                              />
+                              {userForm.formState.errors.lastName && (
+                                <p className="text-xs text-red-400">{userForm.formState.errors.lastName.message}</p>
+                              )}
+                            </div>
+                            <div className="flex flex-col gap-2">
+                              <Label htmlFor="user-job-title-admin">Job Title</Label>
+                              <Input
+                                id="user-job-title-admin"
+                                placeholder="e.g. Product Manager"
+                                {...userForm.register("jobTitle")}
+                                disabled={isBusy}
+                              />
+                            </div>
+                            <div className="flex flex-col gap-2">
+                              <Label htmlFor="user-role-admin">Role</Label>
+                              <select
+                                id="user-role-admin"
+                                className="h-10 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm text-white"
+                                {...userForm.register("role")}
+                                disabled={isBusy}
+                              >
+                                <option value="full_admin">Full Admin</option>
+                                <option value="project_admin">Project Admin</option>
+                                <option value="facilitator">Facilitator</option>
+                                <option value="manager">Manager</option>
+                                <option value="participant">Participant</option>
+                                <option value="user">User</option>
+                              </select>
+                            </div>
+                          </div>
+                          <div className="flex justify-end gap-2">
+                            <Button
+                              type="button"
+                              variant="glassDark"
+                              onClick={cancelUserEdit}
+                              disabled={isBusy}
+                            >
+                              Cancel
+                            </Button>
+                            <Button type="submit" className={`${gradientButtonClasses} px-4`} disabled={isBusy}>
+                              Update user
+                            </Button>
+                          </div>
+                        </form>
+                      ) : selectedProjectId ? (
+                        <div className="space-y-3 rounded-2xl border border-white/10 bg-slate-900/40 p-4">
+                          <div className="flex flex-col gap-2">
+                            <Label htmlFor="add-user-email">Email</Label>
+                            <Input
+                              id="add-user-email"
+                              type="email"
+                              placeholder="user@company.com"
+                              value={emailLookup}
+                              onChange={(e) => {
+                                const email = e.target.value;
+                                setEmailLookup(email);
+                                void handleEmailLookup(email);
+                              }}
+                              disabled={isBusy || isLookingUpEmail}
+                            />
+                            {isLookingUpEmail && (
+                              <p className="text-xs text-slate-400">Recherche...</p>
+                            )}
+                          </div>
+                          {emailLookupResult ? (
+                            <div className="rounded-lg border border-indigo-500/30 bg-indigo-500/10 p-3">
+                              <p className="text-sm font-medium text-white">{emailLookupResult.fullName || emailLookupResult.email}</p>
+                              <p className="text-xs text-slate-400">{emailLookupResult.email}</p>
+                              {emailLookupResult.jobTitle && (
+                                <p className="text-xs text-slate-500 mt-1">{emailLookupResult.jobTitle}</p>
+                              )}
+                              <Button
+                                type="button"
+                                className={`${gradientButtonClasses} mt-3 w-full`}
+                                onClick={handleAddUserToProjectFromEmail}
+                                disabled={isBusy}
+                              >
+                                Ajouter au projet
+                              </Button>
+                            </div>
+                          ) : emailLookup && !isLookingUpEmail && emailLookup.includes("@") ? (
+                            <div className="rounded-lg border border-slate-500/30 bg-slate-500/10 p-3">
+                              <p className="text-xs text-slate-400 mb-3">Cet utilisateur n'existe pas encore.</p>
+                              <Button
+                                type="button"
+                                className={`${gradientButtonClasses} w-full`}
+                                onClick={handleCreateAndAddUserToProject}
+                                disabled={isBusy}
+                              >
+                                Créer et ajouter au projet
+                              </Button>
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : (
+                        <form
+                          onSubmit={userForm.handleSubmit(handleSubmitUser)}
+                          className="space-y-3 rounded-2xl border border-white/10 bg-slate-900/40 p-4"
+                        >
+                          <p className="text-xs text-slate-400">Sélectionnez un projet pour ajouter des utilisateurs par email.</p>
+                        </form>
                       )}
-                      <div className="grid gap-3 md:grid-cols-2">
-                        <div className="flex flex-col gap-2">
-                          <Label htmlFor="user-email-admin">Email</Label>
-                          <Input
-                            id="user-email-admin"
-                            type="email"
-                            placeholder="user@company.com"
-                            {...userForm.register("email")}
-                            disabled={isBusy}
-                          />
-                          {userForm.formState.errors.email && (
-                            <p className="text-xs text-red-400">{userForm.formState.errors.email.message}</p>
-                          )}
-                        </div>
-                        <div className="flex flex-col gap-2">
-                          <Label htmlFor="user-firstname-admin">First name</Label>
-                          <Input
-                            id="user-firstname-admin"
-                            placeholder="John"
-                            {...userForm.register("firstName")}
-                            disabled={isBusy}
-                          />
-                          {userForm.formState.errors.firstName && (
-                            <p className="text-xs text-red-400">{userForm.formState.errors.firstName.message}</p>
-                          )}
-                        </div>
-                        <div className="flex flex-col gap-2">
-                          <Label htmlFor="user-lastname-admin">Last name</Label>
-                          <Input
-                            id="user-lastname-admin"
-                            placeholder="Doe"
-                            {...userForm.register("lastName")}
-                            disabled={isBusy}
-                          />
-                          {userForm.formState.errors.lastName && (
-                            <p className="text-xs text-red-400">{userForm.formState.errors.lastName.message}</p>
-                          )}
-                        </div>
-                        <div className="flex flex-col gap-2">
-                          <Label htmlFor="user-role-admin">Role</Label>
-                          <select
-                            id="user-role-admin"
-                            className="h-10 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm text-white"
-                            {...userForm.register("role")}
-                            disabled={isBusy}
-                          >
-                            <option value="facilitator">Facilitator</option>
-                            <option value="participant">Participant</option>
-                            <option value="admin">Admin</option>
-                          </select>
-                        </div>
-                      </div>
-                      <div className="flex justify-end gap-2">
-                        {isEditingUser && (
-                          <Button
-                            type="button"
-                            variant="glassDark"
-                            onClick={cancelUserEdit}
-                            disabled={isBusy}
-                          >
-                            Cancel
-                          </Button>
-                        )}
-                        <Button type="submit" className={`${gradientButtonClasses} px-4`} disabled={isBusy}>
-                          {isEditingUser ? "Update user" : "Save user"}
-                        </Button>
-                      </div>
-                    </form>
+                    </>
                   )}
 
                   <div className="space-y-3 overflow-y-auto pr-2">
@@ -3207,6 +3335,9 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                               <div className="text-left">
                                 <h4 className="text-sm font-semibold text-white">{user.fullName || user.email}</h4>
                                 <p className="text-xs text-slate-400">{user.email}</p>
+                                {user.jobTitle && (
+                                  <p className="text-xs text-slate-500 italic">{user.jobTitle}</p>
+                                )}
                                 <p className="text-[11px] text-slate-500">
                                   {user.clientName || "No client assigned"}
                                   {viewingClientId && user.clientId && user.clientId !== viewingClientId
