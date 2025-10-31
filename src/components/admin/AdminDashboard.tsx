@@ -32,6 +32,8 @@ import { ProjectJourneyBoard } from "@/components/project/ProjectJourneyBoard";
 import { AskRelationshipCanvas } from "./AskRelationshipCanvas";
 import { FormDateTimeField } from "./FormDateTimeField";
 import { useAdminResources } from "./useAdminResources";
+import { useAuth } from "@/components/auth/AuthProvider";
+import { UserSearchCombobox } from "@/components/ui/user-search-combobox";
 import type { AskSessionRecord, ChallengeRecord, ClientRecord, ManagedUser, ProjectRecord } from "@/types";
 
 interface AdminDashboardProps {
@@ -100,14 +102,14 @@ const askFormSchema = z.object({
   spokespersonId: z.string().uuid().optional().or(z.literal(""))
 });
 
-const userRoles = ["full_admin", "project_admin", "facilitator", "manager", "participant", "user"] as const;
+const userRoles = ["full_admin", "admin", "moderator", "facilitator", "participant", "sponsor", "observer", "guest"] as const;
 
 const userFormSchema = z.object({
   email: z.string().trim().email("Invalid email").max(255),
   fullName: z.string().trim().max(200).optional().or(z.literal("")),
   firstName: z.string().trim().max(100).optional().or(z.literal("")),
   lastName: z.string().trim().max(100).optional().or(z.literal("")),
-  role: z.enum(userRoles).default("user"),
+  role: z.enum(userRoles).default("participant"),
   clientId: z.string().trim().optional().or(z.literal("")),
   isActive: z.boolean().default(true),
   jobTitle: z.string().trim().max(255).optional().or(z.literal(""))
@@ -166,7 +168,7 @@ const defaultUserFormValues: UserFormInput = {
   fullName: "",
   firstName: "",
   lastName: "",
-  role: "user",
+  role: "participant",
   clientId: "",
   isActive: true,
   jobTitle: ""
@@ -471,6 +473,7 @@ function AskDetailDialog({ ask, projectName, challengeName, onClose }: AskDetail
 
 export function AdminDashboard({ initialProjectId = null, mode = "default" }: AdminDashboardProps = {}) {
   const router = useRouter();
+  const { profile, status, user } = useAuth();
   const {
     clients,
     users,
@@ -510,9 +513,7 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
   const [showAskForm, setShowAskForm] = useState(false);
   const [showUserForm, setShowUserForm] = useState(false);
   const [manualAskKey, setManualAskKey] = useState(false);
-  const [emailLookup, setEmailLookup] = useState("");
-  const [emailLookupResult, setEmailLookupResult] = useState<ManagedUser | null>(null);
-  const [isLookingUpEmail, setIsLookingUpEmail] = useState(false);
+  const [selectedUserForProject, setSelectedUserForProject] = useState<ManagedUser | null>(null);
   const [showJourneyBoard, setShowJourneyBoard] = useState(false);
   const [activeSection, setActiveSection] = useState<SectionLabel>(navigationItems[0].label);
   const [columnWidths, setColumnWidths] = useState<ColumnWidths>(defaultColumnWidths);
@@ -1678,54 +1679,47 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
       fullName: user.fullName ?? "",
       firstName: user.firstName ?? "",
       lastName: user.lastName ?? "",
-      role: (user.role as UserFormInput["role"]) || "user",
+      role: (user.role as UserFormInput["role"]) || "participant",
       clientId: user.clientId ?? "",
       isActive: user.isActive,
       jobTitle: user.jobTitle ?? ""
     });
   };
 
-  const handleEmailLookup = async (email: string) => {
-    if (!email || !email.includes("@")) {
-      setEmailLookupResult(null);
+  const handleUserSelectedForProject = async (user: ManagedUser | null) => {
+    if (!user || !selectedProjectId) {
+      setSelectedUserForProject(null);
       return;
     }
-    setIsLookingUpEmail(true);
-    try {
-      const user = await findUserByEmail(email);
-      setEmailLookupResult(user);
-    } catch (error) {
-      setEmailLookupResult(null);
-    } finally {
-      setIsLookingUpEmail(false);
-    }
-  };
 
-  const handleAddUserToProjectFromEmail = async () => {
-    if (!selectedProjectId || !emailLookupResult) {
-      return;
-    }
-    await addUserToProject(emailLookupResult.id, selectedProjectId);
-    setEmailLookup("");
-    setEmailLookupResult(null);
+    // User exists, add to project
+    await addUserToProject(user.id, selectedProjectId);
+    setSelectedUserForProject(null);
     setShowUserForm(false);
   };
 
-  const handleCreateAndAddUserToProject = async () => {
+  const handleCreateNewUserForProject = async (email: string) => {
     if (!selectedProjectId) {
+      console.error("No project selected");
       return;
     }
+    console.log("Creating new user for project:", { email, selectedProjectId });
     const clientId = selectedProject?.clientId ?? selectedClientId ?? undefined;
-    await createUserAndAddToProject(emailLookup, selectedProjectId, clientId);
-    setEmailLookup("");
-    setEmailLookupResult(null);
-    setShowUserForm(false);
+    console.log("Client ID:", clientId);
+    const newUser = await createUserAndAddToProject(email, selectedProjectId, clientId);
+    if (newUser) {
+      console.log("User created successfully, selecting:", newUser);
+      // Select the newly created user - it should now be in the refreshed users list
+      setSelectedUserForProject(newUser);
+      setShowUserForm(false);
+    } else {
+      console.error("Failed to create user");
+    }
   };
 
   const cancelUserEdit = () => {
     resetUserForm();
-    setEmailLookup("");
-    setEmailLookupResult(null);
+    setSelectedUserForProject(null);
     setEditingUserId(null);
     setShowUserForm(false);
   };
@@ -1857,6 +1851,116 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
 
     return sorted;
   }, [users, selectedClientId, selectedProjectId, selectedProject]);
+
+  const normalizedRole = useMemo(() => {
+    const rawRole =
+      profile?.role ??
+      user?.profile?.role ??
+      user?.role ??
+      "";
+    return rawRole.toLowerCase();
+  }, [profile?.role, user?.profile?.role, user?.role]);
+
+  const isProfileActive = profile?.isActive ?? user?.profile?.isActive ?? true;
+
+  const accessState = useMemo<"checking" | "signed-out" | "inactive" | "forbidden" | "granted">(() => {
+    if (status === "loading") {
+      return "checking";
+    }
+
+    if (status === "signed-out") {
+      return "signed-out";
+    }
+
+    if (!normalizedRole) {
+      return "forbidden";
+    }
+
+    const allowedRoles = ["full_admin", "project_admin", "facilitator", "manager", "admin"];
+    if (!allowedRoles.includes(normalizedRole)) {
+      return "forbidden";
+    }
+
+    if (!isProfileActive) {
+      return "inactive";
+    }
+
+    return "granted";
+  }, [status, normalizedRole, isProfileActive]);
+
+  // Filter users based on role for search
+  // Use profile.id and profile.role instead of profile object to avoid unnecessary recalculations
+  const profileRole = profile?.role?.toLowerCase() ?? user?.profile?.role?.toLowerCase() ?? "";
+  const profileClientId = profile?.clientId ?? user?.profile?.clientId ?? null;
+  
+  const availableUsersForSearch = useMemo(() => {
+    if (!profile && !user?.profile) {
+      return [];
+    }
+    
+    // Full admins see all users
+    if (profileRole === "full_admin") {
+      return users;
+    }
+    
+    // Project admins, facilitators, managers see only users from their client
+    if (["project_admin", "facilitator", "manager"].includes(profileRole)) {
+      if (!profileClientId) return [];
+      return users.filter(user => user.clientId === profileClientId);
+    }
+    
+    return [];
+  }, [users, profileRole, profileClientId]);
+
+  // Check if we're in dev mode
+  const isDevMode = useMemo(() => {
+    if (typeof window === "undefined") return false;
+    const rawValue = (process.env.NEXT_PUBLIC_IS_DEV ?? "").toString().toLowerCase();
+    return rawValue === "true" || rawValue === "1";
+  }, []);
+
+  // Redirect if no access (only once) - but skip in dev mode
+  const hasRedirectedRef = useRef(false);
+  useEffect(() => {
+    // In dev mode, don't redirect - let the user choose via DevUserSwitcher
+    if (isDevMode) {
+      return;
+    }
+    if (accessState === "signed-out" && !hasRedirectedRef.current) {
+      hasRedirectedRef.current = true;
+      router.replace("/auth/login?redirectTo=/admin");
+    }
+  }, [accessState, router, isDevMode]);
+
+  if (accessState === "checking" || accessState === "signed-out") {
+    return (
+      <div className="flex h-screen items-center justify-center">
+        <div className="text-center">
+          <p className="text-slate-400">Vérification des accès...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (accessState === "forbidden" || accessState === "inactive") {
+    return (
+      <div className="flex h-screen items-center justify-center">
+        <div className="max-w-md rounded-2xl border border-red-500/40 bg-red-500/10 p-6 text-center text-slate-100">
+          <h2 className="text-xl font-semibold text-white">Accès refusé</h2>
+          <p className="mt-3 text-sm text-slate-200">
+            Vous n&apos;avez pas les droits nécessaires pour accéder à cet espace. Contactez un administrateur si vous pensez que c&apos;est une erreur.
+          </p>
+          <Button
+            className="mt-6"
+            onClick={() => router.replace("/auth/login?redirectTo=/admin")}
+            variant="secondary"
+          >
+            Retour à l&apos;accueil
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   const viewingClientId = selectedClientId ?? selectedProject?.clientId ?? null;
 
@@ -2614,11 +2718,21 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
             {feedback && (
               <Alert
                 variant={feedback.type === "error" ? "destructive" : "default"}
-                className="border-white/10 bg-white/5 text-foreground"
+                className={
+                  feedback.type === "error"
+                    ? "border-red-500/40 bg-red-500/20 backdrop-blur-sm text-red-50 shadow-lg"
+                    : "border-white/10 bg-white/5 text-foreground"
+                }
               >
                 <div className="flex w-full items-start justify-between gap-4">
-                  <AlertDescription>{feedback.message}</AlertDescription>
-                  <button type="button" onClick={() => setFeedback(null)} className="text-sm text-slate-200 underline">
+                  <AlertDescription className={feedback.type === "error" ? "text-red-50 font-medium" : ""}>
+                    {feedback.message}
+                  </AlertDescription>
+                  <button
+                    type="button"
+                    onClick={() => setFeedback(null)}
+                    className={feedback.type === "error" ? "text-sm text-red-50/90 underline hover:text-red-50" : "text-sm text-slate-200 underline"}
+                  >
                     Close
                   </button>
                 </div>
@@ -3251,52 +3365,21 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                       ) : selectedProjectId ? (
                         <div className="space-y-3 rounded-2xl border border-white/10 bg-slate-900/40 p-4">
                           <div className="flex flex-col gap-2">
-                            <Label htmlFor="add-user-email">Email</Label>
-                            <Input
-                              id="add-user-email"
-                              type="email"
-                              placeholder="user@company.com"
-                              value={emailLookup}
-                              onChange={(e) => {
-                                const email = e.target.value;
-                                setEmailLookup(email);
-                                void handleEmailLookup(email);
-                              }}
-                              disabled={isBusy || isLookingUpEmail}
+                            <Label htmlFor="add-user-search">Rechercher un utilisateur</Label>
+                            <UserSearchCombobox
+                              users={availableUsersForSearch}
+                              selectedUserId={selectedUserForProject?.id ?? null}
+                              onSelect={handleUserSelectedForProject}
+                              onCreateNew={handleCreateNewUserForProject}
+                              placeholder="Rechercher par nom, email ou job title..."
+                              disabled={isBusy}
                             />
-                            {isLookingUpEmail && (
-                              <p className="text-xs text-slate-400">Recherche...</p>
-                            )}
                           </div>
-                          {emailLookupResult ? (
-                            <div className="rounded-lg border border-indigo-500/30 bg-indigo-500/10 p-3">
-                              <p className="text-sm font-medium text-white">{emailLookupResult.fullName || emailLookupResult.email}</p>
-                              <p className="text-xs text-slate-400">{emailLookupResult.email}</p>
-                              {emailLookupResult.jobTitle && (
-                                <p className="text-xs text-slate-500 mt-1">{emailLookupResult.jobTitle}</p>
-                              )}
-                              <Button
-                                type="button"
-                                className={`${gradientButtonClasses} mt-3 w-full`}
-                                onClick={handleAddUserToProjectFromEmail}
-                                disabled={isBusy}
-                              >
-                                Ajouter au projet
-                              </Button>
-                            </div>
-                          ) : emailLookup && !isLookingUpEmail && emailLookup.includes("@") ? (
-                            <div className="rounded-lg border border-slate-500/30 bg-slate-500/10 p-3">
-                              <p className="text-xs text-slate-400 mb-3">Cet utilisateur n'existe pas encore.</p>
-                              <Button
-                                type="button"
-                                className={`${gradientButtonClasses} w-full`}
-                                onClick={handleCreateAndAddUserToProject}
-                                disabled={isBusy}
-                              >
-                                Créer et ajouter au projet
-                              </Button>
-                            </div>
-                          ) : null}
+                          {availableUsersForSearch.length === 0 && (
+                            <p className="text-xs text-slate-400">
+                              Aucun utilisateur disponible. Vous devez avoir accès à un client pour voir ses utilisateurs.
+                            </p>
+                          )}
                         </div>
                       ) : (
                         <form
@@ -3363,24 +3446,22 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                                     ? `Assigned to ${selectedProject?.name ?? "project"}`
                                     : "Not assigned to this project"}
                                 </span>
-                                {canManageMembership && (
-                                  <Button
-                                    type="button"
-                                    variant={isMemberOfSelectedProject ? "glassDark" : "secondary"}
-                                    size="sm"
-                                    className="h-7 px-3 text-[11px]"
-                                    onClick={() => {
-                                      if (isMemberOfSelectedProject) {
-                                        void handleRemoveUserFromProject(user.id);
-                                      } else {
-                                        void handleAddUserToProject(user.id);
-                                      }
-                                    }}
-                                    disabled={isBusy}
-                                  >
-                                    {isMemberOfSelectedProject ? "Remove from project" : "Add to project"}
-                                  </Button>
-                                )}
+                                <Button
+                                  type="button"
+                                  variant={isMemberOfSelectedProject ? "glassDark" : "secondary"}
+                                  size="sm"
+                                  className="h-7 px-3 text-[11px]"
+                                  onClick={() => {
+                                    if (isMemberOfSelectedProject) {
+                                      void handleRemoveUserFromProject(user.id);
+                                    } else {
+                                      void handleAddUserToProject(user.id);
+                                    }
+                                  }}
+                                  disabled={isBusy}
+                                >
+                                  {isMemberOfSelectedProject ? "Remove from project" : "Add to project"}
+                                </Button>
                               </div>
                             )}
                             <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">

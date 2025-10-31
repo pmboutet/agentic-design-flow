@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { type ClientFormValues } from "./ClientManager";
 import { type UserFormValues } from "./UserManager";
 import { type ProjectFormValues } from "./ProjectManager";
@@ -32,7 +32,14 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
 
   const payload = await response.json();
   if (!response.ok || !payload.success) {
-    throw new Error(payload.error || payload.message || "Request failed");
+    const errorMessage = payload.error || payload.message || `Request failed with status ${response.status}`;
+    console.error("Request error:", {
+      url,
+      status: response.status,
+      payload,
+      errorMessage
+    });
+    throw new Error(errorMessage);
   }
   return payload.data as T;
 }
@@ -46,8 +53,15 @@ export function useAdminResources() {
   const [feedback, setFeedback] = useState<FeedbackState | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isBusy, setIsBusy] = useState(false);
+  const isLoadingRef = useRef(false);
 
   useEffect(() => {
+    // Prevent multiple simultaneous loads
+    if (isLoadingRef.current) {
+      return;
+    }
+    isLoadingRef.current = true;
+
     const loadInitial = async () => {
       try {
         const results = await Promise.allSettled([
@@ -134,6 +148,7 @@ export function useAdminResources() {
         });
       } finally {
         setIsLoading(false);
+        isLoadingRef.current = false;
       }
     };
 
@@ -239,19 +254,41 @@ export function useAdminResources() {
     projectId: string,
     clientId?: string,
     jobTitle?: string
-  ) => {
-    return handleAction(async () => {
+  ): Promise<ManagedUser | null> => {
+    setIsBusy(true);
+    setFeedback(null);
+    try {
+      console.log("Creating user with:", { email, projectId, clientId, jobTitle });
+      
       // Create user with minimal data
+      const payload: {
+        email: string;
+        role: string;
+        isActive: boolean;
+        clientId?: string;
+        jobTitle?: string;
+      } = {
+        email,
+        role: "participant", // Default role that matches the database enum
+        isActive: true
+      };
+      
+      if (clientId) {
+        payload.clientId = clientId;
+      }
+      
+      if (jobTitle && jobTitle.trim()) {
+        payload.jobTitle = jobTitle.trim();
+      }
+      
+      console.log("Payload:", payload);
+      
       const newUser = await request<ManagedUser>("/api/admin/profiles", {
         method: "POST",
-        body: JSON.stringify({
-          email,
-          role: "user",
-          isActive: true,
-          clientId: clientId || "",
-          jobTitle: jobTitle || ""
-        })
+        body: JSON.stringify(payload)
       });
+
+      console.log("User created:", newUser);
 
       // Add to project
       await request(`/api/admin/projects/${projectId}/members`, {
@@ -259,8 +296,44 @@ export function useAdminResources() {
         body: JSON.stringify({ userId: newUser.id, jobTitle: jobTitle || "" })
       });
 
-      await refreshUsers();
-    }, "User created and added to project");
+      console.log("User added to project");
+
+      // Refresh both users and projects to ensure the relationship is visible
+      await Promise.all([refreshUsers(), refreshProjects()]);
+      
+      console.log("Data refreshed");
+      
+      // Update projectIds on the returned user to reflect the new membership
+      const updatedUser: ManagedUser = {
+        ...newUser,
+        projectIds: [...(newUser.projectIds || []), projectId].sort()
+      };
+      
+      setFeedback({ type: "success", message: "User created and added to project" });
+      return updatedUser;
+    } catch (error) {
+      console.error("Error creating user:", error);
+      let errorMessage = "An error occurred";
+      
+      if (error instanceof Error) {
+        errorMessage = error.message;
+      } else if (typeof error === "string") {
+        errorMessage = error;
+      } else if (error && typeof error === "object" && "message" in error) {
+        errorMessage = String(error.message);
+      }
+      
+      console.error("Error message:", errorMessage);
+      console.error("Full error object:", JSON.stringify(error, null, 2));
+      
+      setFeedback({
+        type: "error",
+        message: errorMessage || "Failed to create user. Please check the console for details."
+      });
+      return null;
+    } finally {
+      setIsBusy(false);
+    }
   };
 
   const addUserToClient = (userId: string, clientId: string, jobTitle?: string) =>

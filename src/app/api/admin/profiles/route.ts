@@ -7,13 +7,13 @@ import { parseErrorMessage } from "@/lib/utils";
 import { type ApiResponse, type ManagedUser } from "@/types";
 import { fetchProjectMemberships, mapManagedUser } from "./helpers";
 
-const roleValues = ["full_admin", "project_admin", "facilitator", "manager", "participant", "user"] as const;
+const roleValues = ["full_admin", "admin", "moderator", "facilitator", "participant", "sponsor", "observer", "guest"] as const;
 
 const userSchema = z.object({
   email: z.string().trim().min(3).max(255).email(),
   firstName: z.string().trim().max(100).optional().or(z.literal("")),
   lastName: z.string().trim().max(100).optional().or(z.literal("")),
-  role: z.enum(roleValues).default("user"),
+  role: z.enum(roleValues).default("participant"),
   clientId: z.string().uuid().optional().or(z.literal("")),
   isActive: z.boolean().default(true),
   password: z.string().min(6).optional(), // For creating auth user
@@ -37,6 +37,7 @@ export async function GET(request: NextRequest) {
         .from("profiles")
         .select("*, clients(name)")
         .eq("email", sanitizedEmail)
+        .is("deleted_at", null)
         .maybeSingle();
 
       if (error) {
@@ -58,10 +59,11 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Regular GET all profiles
+    // Regular GET all profiles (exclude deleted users)
     const { data, error } = await supabase
       .from("profiles")
       .select("*, clients(name)")
+      .is("deleted_at", null)
       .order("created_at", { ascending: false });
 
     if (error) {
@@ -86,11 +88,17 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    console.log("[POST /api/admin/profiles] Starting user creation");
+    
     // Verify user is admin
     await requireAdmin();
+    console.log("[POST /api/admin/profiles] Admin verified");
     
     const body = await request.json();
+    console.log("[POST /api/admin/profiles] Request body:", body);
+    
     const payload = userSchema.parse(body);
+    console.log("[POST /api/admin/profiles] Validated payload:", payload);
 
     // Use admin client for auth.admin operations (creating auth users)
     const adminSupabase = getAdminSupabaseClient();
@@ -100,6 +108,30 @@ export async function POST(request: NextRequest) {
     const lastName = sanitizeOptional(payload.lastName || null);
     const fullName = [firstName, lastName].filter(Boolean).join(" ") || null;
     const email = sanitizeText(payload.email.toLowerCase());
+
+    console.log("[POST /api/admin/profiles] Checking for existing email:", email);
+
+    // Check if email already exists
+    const { data: existingProfile, error: checkError } = await supabase
+      .from("profiles")
+      .select("id, email")
+      .eq("email", email)
+      .maybeSingle();
+
+    if (checkError) {
+      console.error("[POST /api/admin/profiles] Error checking email:", checkError);
+      throw new Error(`Failed to check existing email: ${checkError.message}`);
+    }
+
+    if (existingProfile) {
+      console.log("[POST /api/admin/profiles] Email already exists");
+      return NextResponse.json<ApiResponse>({
+        success: false,
+        error: `A user with email ${email} already exists`
+      }, { status: 409 });
+    }
+
+    console.log("[POST /api/admin/profiles] Email is available, proceeding with creation");
 
     // Create user in Supabase Auth first (if password provided)
     let authId: string | null = null;
@@ -129,23 +161,29 @@ export async function POST(request: NextRequest) {
     // Note: If password is not provided, profile is created without auth_id
     // This allows for profiles that will be linked to auth users later
     const jobTitle = sanitizeOptional(payload.jobTitle || null);
+    
+    const insertData = {
+      auth_id: authId,
+      email,
+      first_name: firstName,
+      last_name: lastName,
+      full_name: fullName,
+      role: payload.role,
+      client_id: payload.clientId && payload.clientId !== "" ? payload.clientId : null,
+      is_active: payload.isActive,
+      job_title: jobTitle
+    };
+    
+    console.log("[POST /api/admin/profiles] Inserting profile:", insertData);
+    
     const { data, error } = await supabase
       .from("profiles")
-      .insert({
-        auth_id: authId,
-        email,
-        first_name: firstName,
-        last_name: lastName,
-        full_name: fullName,
-        role: payload.role,
-        client_id: payload.clientId && payload.clientId !== "" ? payload.clientId : null,
-        is_active: payload.isActive,
-        job_title: jobTitle
-      })
+      .insert(insertData)
       .select("*, clients(name)")
       .single();
 
     if (error) {
+      console.error("[POST /api/admin/profiles] Error inserting profile:", error);
       // If profile creation fails but auth user was created, clean up
       if (authId) {
         await adminSupabase.auth.admin.deleteUser(authId);
@@ -153,20 +191,50 @@ export async function POST(request: NextRequest) {
       throw error;
     }
 
+    console.log("[POST /api/admin/profiles] Profile created successfully:", data.id);
+    
     const membershipMap = await fetchProjectMemberships(supabase, [data.id]);
+    console.log("[POST /api/admin/profiles] Membership map:", membershipMap);
+
+    const mappedUser = mapManagedUser(data, membershipMap);
+    console.log("[POST /api/admin/profiles] Mapped user:", mappedUser);
 
     return NextResponse.json<ApiResponse<ManagedUser>>({
       success: true,
-      data: mapManagedUser(data, membershipMap)
+      data: mappedUser
     }, { status: 201 });
   } catch (error) {
     let status = 500;
-    if (error instanceof z.ZodError) status = 400;
-    else if (error instanceof Error && error.message.includes('required')) status = 403;
+    let errorMessage = "An error occurred";
+    
+    if (error instanceof z.ZodError) {
+      status = 400;
+      errorMessage = error.errors[0]?.message || "Invalid payload";
+      console.error("[POST /api/admin/profiles] Validation error:", error.errors);
+    } else if (error instanceof Error) {
+      errorMessage = error.message;
+      if (error.message.includes('required')) {
+        status = 403;
+      }
+      // Check for common database errors
+      if (error.message.includes('duplicate') || error.message.includes('unique')) {
+        status = 409;
+        errorMessage = "A user with this email already exists";
+      }
+      if (error.message.includes('foreign key') || error.message.includes('constraint')) {
+        status = 400;
+        errorMessage = `Invalid data: ${error.message}`;
+      }
+      console.error("[POST /api/admin/profiles] Error:", error);
+      console.error("[POST /api/admin/profiles] Error stack:", error.stack);
+    } else {
+      console.error("[POST /api/admin/profiles] Unknown error:", error);
+      errorMessage = `Unexpected error: ${JSON.stringify(error)}`;
+    }
     
     return NextResponse.json<ApiResponse>({
       success: false,
-      error: error instanceof z.ZodError ? error.errors[0]?.message || "Invalid payload" : parseErrorMessage(error)
+      error: errorMessage
     }, { status });
   }
 }

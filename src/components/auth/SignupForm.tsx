@@ -133,7 +133,7 @@ export function SignupForm() {
       </div>
 
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
+        <div className="bg-red-500 border border-red-600/50 text-white px-4 py-3 rounded-lg font-medium shadow-sm">
           {error}
         </div>
       )}
