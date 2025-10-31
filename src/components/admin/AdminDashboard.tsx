@@ -13,8 +13,10 @@ import {
   Compass,
   FolderKanban,
   LayoutDashboard,
+  Loader2,
   Pencil,
   MessageSquare,
+  Network,
   Search,
   Settings,
   Target,
@@ -31,8 +33,9 @@ import { DateTimePicker } from "@/components/ui/date-time-picker";
 import { ProjectJourneyBoard } from "@/components/project/ProjectJourneyBoard";
 import { AskRelationshipCanvas } from "./AskRelationshipCanvas";
 import { FormDateTimeField } from "./FormDateTimeField";
+import { GraphRAGPanel } from "./GraphRAGPanel";
 import { useAdminResources } from "./useAdminResources";
-import type { AskSessionRecord, ChallengeRecord, ClientRecord, ProjectRecord } from "@/types";
+import type { ApiResponse, AskSessionRecord, ChallengeRecord, ClientRecord, ProjectRecord } from "@/types";
 
 interface AdminDashboardProps {
   initialProjectId?: string | null;
@@ -178,6 +181,7 @@ const navigationItems = [
   { label: "ASK Sessions", icon: MessageSquare, targetId: "section-asks" },
   { label: "Users", icon: Users, targetId: "section-users" },
   { label: "Insights", icon: ClipboardList, targetId: "section-insights" },
+  { label: "Graph RAG", icon: Network, targetId: "section-graph-rag" },
   { label: "Settings", icon: Settings, targetId: "section-settings" }
 ] as const;
 
@@ -513,6 +517,9 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
 
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearchFocused, setIsSearchFocused] = useState(false);
+  const [useVectorSearch, setUseVectorSearch] = useState(false);
+  const [vectorSearchResults, setVectorSearchResults] = useState<Array<{ id: string; type: string; score?: number; method: string }>>([]);
+  const [isVectorSearching, setIsVectorSearching] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const searchBlurTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -535,6 +542,7 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
   const asksRef = useRef<HTMLDivElement>(null);
   const usersRef = useRef<HTMLDivElement>(null);
   const insightsRef = useRef<HTMLDivElement>(null);
+  const graphRagRef = useRef<HTMLDivElement>(null);
   const settingsRef = useRef<HTMLDivElement>(null);
 
   const sectionRefMap = useMemo<Record<SectionId, RefObject<HTMLDivElement>>>(
@@ -546,6 +554,7 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
       "section-asks": asksRef,
       "section-users": usersRef,
       "section-insights": insightsRef,
+      "section-graph-rag": graphRagRef,
       "section-settings": settingsRef
     }),
     []
@@ -870,8 +879,35 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
     challengeById
   ]);
 
-  const hasSearchResults = searchResults.length > 0;
-  const showSearchDropdown = isSearchFocused && normalizedSearchQuery.length > 0;
+  // Enhanced search with vector search option
+  const enhancedSearchResults = useMemo(() => {
+    const allResults: SearchResultItem[] = [...searchResults];
+    
+    // Add vector search results if enabled
+    if (useVectorSearch && vectorSearchResults.length > 0) {
+      for (const vectorResult of vectorSearchResults) {
+        if (vectorResult.type === "insight") {
+          // Try to find matching insight in existing data or add as new result
+          const exists = allResults.some(r => r.id === vectorResult.id);
+          if (!exists) {
+            allResults.push({
+              id: vectorResult.id,
+              type: "challenge", // Map to closest type available
+              title: `Insight ${vectorResult.id.substring(0, 8)}`,
+              subtitle: `Similarité: ${vectorResult.score ? (vectorResult.score * 100).toFixed(0) : 'N/A'}% • ${vectorResult.method}`,
+            });
+          }
+        }
+      }
+    }
+    
+    // Remove duplicates and limit
+    const unique = Array.from(new Map(allResults.map(r => [`${r.type}-${r.id}`, r])).values());
+    return unique.slice(0, 20);
+  }, [searchResults, vectorSearchResults, useVectorSearch]);
+
+  const hasSearchResults = enhancedSearchResults.length > 0;
+  const showSearchDropdown = isSearchFocused && (normalizedSearchQuery.length > 0 || (useVectorSearch && vectorSearchResults.length > 0));
 
   const scrollToSection = useCallback(
     (targetId: SectionId) => {
@@ -986,12 +1022,57 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
     }, 150);
   }, []);
 
+  // Vector search handler
+  const performVectorSearch = useCallback(async () => {
+    if (!searchQuery.trim() || !useVectorSearch) return;
+
+    setIsVectorSearching(true);
+    try {
+      const response = await fetch("/api/admin/graph/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          query: searchQuery,
+          searchType: "graph",
+          projectId: selectedProjectId || undefined,
+          limit: 10,
+          threshold: 0.75,
+        }),
+      });
+
+      const data: ApiResponse<Array<{ id: string; type: string; score?: number; method: string }>> =
+        await response.json();
+
+      if (data.success && data.data) {
+        setVectorSearchResults(data.data);
+      }
+    } catch (error) {
+      console.error("Vector search error:", error);
+    } finally {
+      setIsVectorSearching(false);
+    }
+  }, [searchQuery, useVectorSearch, selectedProjectId]);
+
+  // Debounced vector search
+  useEffect(() => {
+    if (!useVectorSearch || !searchQuery.trim()) {
+      setVectorSearchResults([]);
+      return;
+    }
+
+    const timeoutId = setTimeout(() => {
+      performVectorSearch();
+    }, 500); // Debounce 500ms
+
+    return () => clearTimeout(timeoutId);
+  }, [searchQuery, useVectorSearch, performVectorSearch]);
+
   const handleSearchKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLInputElement>) => {
       if (event.key === "Enter") {
-        if (searchResults[0]) {
+        if (enhancedSearchResults[0]) {
           event.preventDefault();
-          handleSearchSelect(searchResults[0]);
+          handleSearchSelect(enhancedSearchResults[0]);
         }
       } else if (event.key === "Escape") {
         event.preventDefault();
@@ -1000,7 +1081,7 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
         searchInputRef.current?.blur();
       }
     },
-    [handleSearchSelect, searchResults]
+    [handleSearchSelect, enhancedSearchResults]
   );
 
   const handleClearSearch = useCallback(() => {
@@ -2493,17 +2574,29 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                           className="absolute left-0 right-0 top-12 z-50 rounded-2xl border border-white/10 bg-slate-950/90 p-3 shadow-2xl backdrop-blur"
                           role="listbox"
                         >
-                          <div className="mb-2 flex items-center justify-between text-xs uppercase tracking-wide text-slate-400">
-                            <span>Results</span>
-                            <span>
+                          <div className="mb-2 flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              <span className="text-xs uppercase tracking-wide text-slate-400">Results</span>
+                              <label className="flex items-center gap-2 text-xs text-slate-300">
+                                <input
+                                  type="checkbox"
+                                  checked={useVectorSearch}
+                                  onChange={(e) => setUseVectorSearch(e.target.checked)}
+                                  className="h-3 w-3 rounded border-white/20 bg-slate-900"
+                                />
+                                <span>Recherche sémantique</span>
+                                {isVectorSearching && <Loader2 className="h-3 w-3 animate-spin" />}
+                              </label>
+                            </div>
+                            <span className="text-xs uppercase tracking-wide text-slate-400">
                               {hasSearchResults
-                                ? `${searchResults.length} match${searchResults.length > 1 ? "es" : ""}`
+                                ? `${enhancedSearchResults.length} match${enhancedSearchResults.length > 1 ? "es" : ""}`
                                 : "No results"}
                             </span>
                           </div>
                           <div className="space-y-1">
                             {hasSearchResults ? (
-                              searchResults.map(result => {
+                              enhancedSearchResults.map(result => {
                                 const config = searchResultTypeConfig[result.type];
                                 const Icon = config.icon;
                                 return (
@@ -3342,6 +3435,16 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                     : "No upcoming challenge due date for the current project."}
                 </p>
               </div>
+              </section>
+            )}
+
+            {!showOnlyChallengeWorkspace && (
+              <section
+                ref={graphRagRef}
+                id="section-graph-rag"
+                className="space-y-6 rounded-3xl border border-white/10 bg-white/5 p-6 backdrop-blur"
+              >
+                <GraphRAGPanel projectId={selectedProjectId} />
               </section>
             )}
 
