@@ -184,20 +184,53 @@ function buildChallengeTree(
   return roots;
 }
 
+function getProfileFromRow(
+  row: any,
+): { id?: string | null; full_name?: string | null; email?: string | null; role?: string | null } | null {
+  if (row.profiles && typeof row.profiles === "object") {
+    return row.profiles;
+  }
+
+  if (row.users && typeof row.users === "object") {
+    return row.users;
+  }
+
+  return null;
+}
+
+function resolveParticipantId(row: any): string {
+  const userId = row?.user_id ?? getProfileFromRow(row)?.id ?? null;
+  if (userId) {
+    return String(userId);
+  }
+
+  return String(row.id);
+}
+
 function buildParticipantSummary(row: any): ProjectParticipantSummary {
-  const name = row.participant_name || row.users?.full_name || row.users?.email || row.participant_email || "Participant";
+  const profile = getProfileFromRow(row);
+  const name =
+    row.participant_name ||
+    profile?.full_name ||
+    profile?.email ||
+    row.participant_email ||
+    "Participant";
+
+  const role = row.role ?? profile?.role ?? undefined;
+
   return {
-    id: row.id,
+    id: resolveParticipantId(row),
     name,
-    role: row.role ?? undefined,
+    role,
   };
 }
 
 function mapParticipant(row: any): ProjectAskParticipant {
   const summary = buildParticipantSummary(row);
+  const participantId = resolveParticipantId(row);
   return {
-    id: row.id,
-    userId: row.user_id ?? null,
+    id: participantId,
+    userId: row.user_id ? String(row.user_id) : null,
     name: summary.name,
     role: summary.role ?? "participant",
     avatarInitials: initialsFromName(summary.name),
@@ -302,7 +335,7 @@ export async function fetchProjectJourneyContext(
     ),
   );
 
-  const [participantResult, insightResult, challengeInsightResult, ownerResult] = await Promise.all([
+  const [participantResult, insightResult, challengeInsightResult, ownerResult, memberResult] = await Promise.all([
     askIds.length
       ? supabase
           .from("ask_participants")
@@ -329,6 +362,10 @@ export async function fetchProjectJourneyContext(
           .select("id, full_name, email, role")
           .in("id", ownerIds)
       : Promise.resolve({ data: [], error: null }),
+    supabase
+      .from("project_members")
+      .select("user_id, role, profiles(id, full_name, email, role)")
+      .eq("project_id", projectId),
   ]);
   
   // Also fetch insights that are directly linked to challenges (foundation insights)
@@ -356,6 +393,9 @@ export async function fetchProjectJourneyContext(
   if (directInsightResult.error) {
     throw directInsightResult.error;
   }
+  if (memberResult.error) {
+    throw memberResult.error;
+  }
 
   const participantRows = participantResult.data ?? [];
   const askInsightRows = insightResult.data ?? [];
@@ -381,6 +421,7 @@ export async function fetchProjectJourneyContext(
   
   const challengeInsightRows = challengeInsightResult.data ?? [];
   const ownerRows = ownerResult.data ?? [];
+  const memberRows = memberResult.data ?? [];
 
   console.log("🧩 Loader: Related entities fetched", {
     projectId,
@@ -388,6 +429,7 @@ export async function fetchProjectJourneyContext(
     insightCount: insightRows.length,
     challengeInsightLinks: challengeInsightRows.length,
     ownerCount: ownerRows.length,
+    projectMemberCount: memberRows.length,
   });
 
   const ownerMap = new Map<string, ProjectParticipantSummary>();
@@ -431,6 +473,54 @@ export async function fetchProjectJourneyContext(
   const participantsByAskId = new Map<string, ProjectAskParticipant[]>();
   const participantSummaryByUserId = new Map<string, ProjectParticipantSummary>();
   const availableUsers = new Map<string, ProjectParticipantOption>();
+  const profileCache = new Map<
+    string,
+    {
+      name: string;
+      role?: string | null;
+      email?: string | null;
+    }
+  >();
+
+  ownerRows.forEach(row => {
+    if (!row?.id) {
+      return;
+    }
+    const ownerId = String(row.id);
+    profileCache.set(ownerId, {
+      name: row.full_name || row.email || "Owner",
+      role: row.role ?? null,
+      email: row.email ?? null,
+    });
+  });
+
+  const memberUserIds = new Set<string>();
+  memberRows.forEach(row => {
+    const profile = getProfileFromRow(row);
+    const rawUserId = row?.user_id ?? profile?.id ?? null;
+    if (!rawUserId) {
+      return;
+    }
+
+    const userId = String(rawUserId);
+    memberUserIds.add(userId);
+
+    if (profile) {
+      profileCache.set(userId, {
+        name: (profile.full_name || profile.email || "Participant").trim() || "Participant",
+        role: profile.role ?? row.role ?? null,
+        email: profile.email ?? null,
+      });
+    } else if (!profileCache.has(userId)) {
+      profileCache.set(userId, {
+        name: "Participant",
+        role: row.role ?? null,
+        email: null,
+      });
+    }
+  });
+
+  const participantUserIds = new Set<string>();
 
   for (const row of participantRows) {
     const participant = mapParticipant(row);
@@ -439,10 +529,21 @@ export async function fetchProjectJourneyContext(
     participantsByAskId.set(row.ask_session_id, list);
 
     if (row.user_id) {
+      const userId = String(row.user_id);
+      participantUserIds.add(userId);
+
       const summary = buildParticipantSummary(row);
-      participantSummaryByUserId.set(row.user_id, summary);
-      availableUsers.set(row.user_id, {
-        id: row.user_id,
+      participantSummaryByUserId.set(userId, summary);
+      if (!profileCache.has(userId)) {
+        profileCache.set(userId, {
+          name: summary.name,
+          role: summary.role ?? row.role ?? null,
+          email: row.participant_email ?? null,
+        });
+      }
+
+      availableUsers.set(userId, {
+        id: userId,
         name: summary.name,
         role: summary.role ?? "participant",
         avatarInitials: initialsFromName(summary.name),
@@ -452,11 +553,12 @@ export async function fetchProjectJourneyContext(
   }
 
   ownerMap.forEach((summary, userId) => {
-    if (availableUsers.has(userId)) {
+    const normalizedId = String(userId);
+    if (availableUsers.has(normalizedId)) {
       return;
     }
-    availableUsers.set(userId, {
-      id: userId,
+    availableUsers.set(normalizedId, {
+      id: normalizedId,
       name: summary.name,
       role: summary.role ?? "owner",
       avatarInitials: initialsFromName(summary.name),
@@ -464,11 +566,86 @@ export async function fetchProjectJourneyContext(
     });
   });
 
+  const combinedUserIdSet = new Set<string>();
+  memberUserIds.forEach(id => combinedUserIdSet.add(id));
+  participantUserIds.forEach(id => combinedUserIdSet.add(id));
+
+  const profileLookupsNeeded: string[] = [];
+  combinedUserIdSet.forEach(userId => {
+    if (!profileCache.has(userId)) {
+      profileLookupsNeeded.push(userId);
+    }
+  });
+
+  if (profileLookupsNeeded.length > 0) {
+    const { data: profileRows, error: profileError } = await supabase
+      .from("profiles")
+      .select("id, full_name, email, role")
+      .in("id", profileLookupsNeeded);
+
+    if (profileError) {
+      throw profileError;
+    }
+
+    (profileRows ?? []).forEach(profileRow => {
+      if (!profileRow?.id) {
+        return;
+      }
+      const profileId = String(profileRow.id);
+      profileCache.set(profileId, {
+        name: (profileRow.full_name || profileRow.email || "Participant").trim() || "Participant",
+        role: profileRow.role ?? null,
+        email: profileRow.email ?? null,
+      });
+    });
+  }
+
+  memberRows.forEach(row => {
+    const profile = getProfileFromRow(row);
+    const rawUserId = row.user_id ?? profile?.id ?? null;
+    if (!rawUserId) {
+      return;
+    }
+
+    const userId = String(rawUserId);
+    const cachedProfile = profileCache.get(userId);
+    const name = cachedProfile?.name ?? (profile?.full_name || profile?.email || "Participant");
+    const role = cachedProfile?.role ?? row.role ?? profile?.role ?? "member";
+
+    if (availableUsers.has(userId)) {
+      const existing = availableUsers.get(userId)!;
+      const normalizedName = (name || existing.name).trim() || existing.name;
+      availableUsers.set(userId, {
+        ...existing,
+        name: normalizedName,
+        role: role ?? existing.role,
+        avatarInitials: initialsFromName(normalizedName),
+      });
+      return;
+    }
+
+    availableUsers.set(userId, {
+      id: userId,
+      name,
+      role,
+      avatarInitials: initialsFromName(name),
+      avatarColor: undefined,
+    });
+  });
+
+  console.log("🧩 Loader: Participant options prepared", {
+    projectId,
+    cachedProfiles: profileCache.size,
+    participantOptions: availableUsers.size,
+    participantUsersWithAccounts: participantUserIds.size,
+    projectMemberUsers: memberUserIds.size,
+  });
+
   const insightsByAskId = new Map<string, ProjectParticipantInsight[]>();
   const orphanInsights: ProjectParticipantInsight[] = [];
 
   for (const row of insightRows) {
-    const contributor = row.user_id ? participantSummaryByUserId.get(row.user_id) : undefined;
+    const contributor = row.user_id ? participantSummaryByUserId.get(String(row.user_id)) : undefined;
     const relatedChallenges = new Set<string>();
 
     if (row.challenge_id) {
@@ -610,7 +787,9 @@ export async function fetchProjectJourneyContext(
     projectSystemPrompt: projectRow.system_prompt ?? null,
     asks: askOverviews,
     challenges: challengeNodes,
-    availableUsers: Array.from(availableUsers.values()),
+    availableUsers: Array.from(availableUsers.values()).sort((a, b) =>
+      a.name.localeCompare(b.name, undefined, { sensitivity: "base" }),
+    ),
   };
 
   console.log("🧩 Loader: Board data assembled", {
