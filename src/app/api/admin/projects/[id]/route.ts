@@ -18,7 +18,8 @@ const updateSchema = z.object({
   endDate: dateSchema.optional(),
   status: z.enum(statusValues).optional(),
   createdBy: z.string().uuid().optional().or(z.literal("")),
-  systemPrompt: z.string().trim().max(8000).optional().or(z.literal(""))
+  systemPrompt: z.string().trim().max(8000).optional().or(z.literal("")),
+  graphRagScope: z.enum(["project", "client"]).optional(),
 });
 
 function mapProject(row: any): ProjectRecord {
@@ -34,7 +35,8 @@ function mapProject(row: any): ProjectRecord {
     createdBy: row.created_by,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-    systemPrompt: row.system_prompt ?? null
+    systemPrompt: row.system_prompt ?? null,
+    graphRagScope: row.graph_rag_scope ?? "project",
   };
 }
 
@@ -71,7 +73,7 @@ export async function PATCH(
   { params }: { params: { id: string } }
 ) {
   try {
-    await requireAdmin();
+    const { profile } = await requireAdmin();
     const supabase = await createServerSupabaseClient();
     
     const projectId = z.string().uuid().parse(params.id);
@@ -88,6 +90,19 @@ export async function PATCH(
     }
     if (payload.systemPrompt !== undefined) {
       updateData.system_prompt = sanitizeOptional(payload.systemPrompt || null);
+    }
+    if (payload.graphRagScope !== undefined) {
+      // Verify permissions for client-level scope (requires admin/full_admin)
+      if (payload.graphRagScope === "client") {
+        // requireAdmin already checked, but verify role explicitly
+        if (!profile || (profile.role !== "admin" && profile.role !== "full_admin")) {
+          return NextResponse.json<ApiResponse>({
+            success: false,
+            error: "Client-level Graph RAG scope requires admin permissions"
+          }, { status: 403 });
+        }
+      }
+      updateData.graph_rag_scope = payload.graphRagScope;
     }
     if (payload.startDate !== undefined) {
       const startDate = new Date(payload.startDate);

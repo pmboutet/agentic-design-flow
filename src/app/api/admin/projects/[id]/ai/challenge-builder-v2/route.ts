@@ -18,6 +18,7 @@ import { getAdminSupabaseClient } from "@/lib/supabaseAdmin";
 import { parseErrorMessage } from "@/lib/utils";
 import { fetchProjectJourneyContext } from "@/lib/projectJourneyLoader";
 import { executeAgent } from "@/lib/ai/service";
+import { enrichInsightsWithGraphRAG, filterDuplicateInsights } from "@/lib/graphRAG/challengeIntegration";
 import {
   type AiChallengeBuilderResponse,
   type AiChallengeUpdateSuggestion,
@@ -466,6 +467,25 @@ interface ChallengeContextPayload {
     dueDate: string | null;
   }>;
   availableOwners: Array<{ id: string; name: string; role: string }>;
+  graphRAG?: {
+    clusters: Array<{
+      id: string;
+      insightIds: string[];
+      averageSimilarity: number;
+      size: number;
+      frequency: number;
+      impactScore: number;
+      synthesisId?: string;
+      synthesisText?: string;
+      dominantConcepts: string[];
+    }>;
+    syntheses: Array<{
+      id: string;
+      synthesizedText: string;
+      sourceInsightIds: string[];
+      keyConcepts: string[];
+    }>;
+  };
 }
 
 function buildChallengeContext(
@@ -474,6 +494,25 @@ function buildChallengeContext(
   parentMap: Map<string, string | null>,
   insightLookup: Map<string, InsightSummary>,
   asksById: Map<string, { id: string; title: string; summary: string; status: string; dueDate: string | null }>,
+  graphRAGData?: {
+    clusters: Array<{
+      id: string;
+      insightIds: string[];
+      averageSimilarity: number;
+      size: number;
+      frequency: number;
+      impactScore: number;
+      synthesisId?: string;
+      synthesisText?: string;
+      dominantConcepts: string[];
+    }>;
+    syntheses: Array<{
+      id: string;
+      synthesizedText: string;
+      sourceInsightIds: string[];
+      keyConcepts: string[];
+    }>;
+  },
 ): ChallengeContextPayload {
   const insights: InsightSummary[] = [];
   const askIds = new Set<string>();
@@ -485,6 +524,30 @@ function buildChallengeContext(
       if (insight.askId) askIds.add(insight.askId);
     }
   });
+
+  // Find clusters and syntheses related to this challenge's insights
+  const relatedClusters: typeof graphRAGData.clusters = [];
+  const relatedSyntheses: typeof graphRAGData.syntheses = [];
+  
+  if (graphRAGData) {
+    const challengeInsightIds = new Set(challenge.relatedInsightIds);
+    
+    // Find clusters containing challenge insights
+    for (const cluster of graphRAGData.clusters) {
+      const hasChallengeInsights = cluster.insightIds.some(id => challengeInsightIds.has(id));
+      if (hasChallengeInsights) {
+        relatedClusters.push(cluster);
+      }
+    }
+    
+    // Find syntheses containing challenge insights
+    for (const synthesis of graphRAGData.syntheses) {
+      const hasChallengeInsights = synthesis.sourceInsightIds.some(id => challengeInsightIds.has(id));
+      if (hasChallengeInsights) {
+        relatedSyntheses.push(synthesis);
+      }
+    }
+  }
 
   const relatedAsks = Array.from(askIds)
     .map(askId => asksById.get(askId))
@@ -518,6 +581,13 @@ function buildChallengeContext(
     insights,
     relatedAsks,
     availableOwners: buildAvailableOwnerOptions(boardData),
+    // Add Graph RAG data if available
+    ...(graphRAGData && relatedClusters.length > 0 ? {
+      graphRAG: {
+        clusters: relatedClusters,
+        syntheses: relatedSyntheses,
+      },
+    } : {}),
   };
 }
 
@@ -547,6 +617,26 @@ interface ProjectGlobalContext {
     dueDate: string | null;
   }>;
   availableOwners: Array<{ id: string; name: string; role: string }>;
+  graphRAG?: {
+    clusters: Array<{
+      id: string;
+      insightIds: string[];
+      averageSimilarity: number;
+      size: number;
+      frequency: number;
+      impactScore: number;
+      synthesisId?: string;
+      synthesisText?: string;
+      dominantConcepts: string[];
+    }>;
+    syntheses: Array<{
+      id: string;
+      synthesizedText: string;
+      sourceInsightIds: string[];
+      keyConcepts: string[];
+    }>;
+    dominantConcepts: Array<{ concept: string; insightCount: number }>;
+  };
 }
 
 function buildProjectGlobalContext(
@@ -555,6 +645,26 @@ function buildProjectGlobalContext(
   challengeList: ProjectChallengeNode[],
   insightLookup: Map<string, InsightSummary>,
   asksById: Map<string, { id: string; title: string; summary: string; status: string; dueDate: string | null }>,
+  graphRAG?: {
+    clusters: Array<{
+      id: string;
+      insightIds: string[];
+      averageSimilarity: number;
+      size: number;
+      frequency: number;
+      impactScore: number;
+      synthesisId?: string;
+      synthesisText?: string;
+      dominantConcepts: string[];
+    }>;
+    syntheses: Array<{
+      id: string;
+      synthesizedText: string;
+      sourceInsightIds: string[];
+      keyConcepts: string[];
+    }>;
+    dominantConcepts: Array<{ concept: string; insightCount: number }>;
+  },
 ): ProjectGlobalContext {
   return {
     project: {
@@ -576,6 +686,7 @@ function buildProjectGlobalContext(
     allInsights: Array.from(insightLookup.values()),
     allAsks: Array.from(asksById.values()),
     availableOwners: buildAvailableOwnerOptions(boardData),
+    graphRAG,
   };
 }
 
@@ -703,12 +814,76 @@ export async function POST(
     const availableOwnerOptionsJson = JSON.stringify(buildAvailableOwnerOptions(boardData));
 
     // ========================================================================
+    // PHASE 0 : GRAPH RAG ENRICHMENT - Pré-clustering intelligent
+    // ========================================================================
+    
+    console.log('🔗 Phase 0: Graph RAG - Enriching with semantic clustering...');
+    
+    let graphRAGData: {
+      clusters: Array<{
+        id: string;
+        insightIds: string[];
+        averageSimilarity: number;
+        size: number;
+        frequency: number;
+        impactScore: number;
+        synthesisId?: string;
+        synthesisText?: string;
+        dominantConcepts: string[];
+      }>;
+      syntheses: Array<{
+        id: string;
+        synthesizedText: string;
+        sourceInsightIds: string[];
+        keyConcepts: string[];
+      }>;
+      dominantConcepts: Array<{ concept: string; insightCount: number }>;
+    } | undefined;
+
+    try {
+      const enrichment = await enrichInsightsWithGraphRAG(projectId, {
+        minClusterSize: 3,
+        minSimilarity: 0.75,
+        maxClusters: 10,
+      });
+
+      // Convert insightsByConcept Map to array format for JSON serialization
+      const dominantConceptsArray: Array<{ concept: string; insightCount: number }> = [];
+      for (const [concept, insightIds] of enrichment.insightsByConcept.entries()) {
+        dominantConceptsArray.push({
+          concept,
+          insightCount: insightIds.length,
+        });
+      }
+      // Sort by frequency
+      dominantConceptsArray.sort((a, b) => b.insightCount - a.insightCount);
+
+      graphRAGData = {
+        clusters: enrichment.clusters,
+        syntheses: enrichment.syntheses,
+        dominantConcepts: dominantConceptsArray.slice(0, 20), // Top 20 concepts
+      };
+
+      console.log(`✅ Graph RAG: ${graphRAGData.clusters.length} clusters, ${graphRAGData.syntheses.length} syntheses, ${graphRAGData.dominantConcepts.length} concepts`);
+    } catch (error) {
+      console.warn('⚠️ Graph RAG enrichment failed, continuing without it:', error);
+      // Continue without Graph RAG data (graceful degradation)
+    }
+
+    // ========================================================================
     // PHASE 1 : PLANNING - Un seul appel pour analyser tout le projet
     // ========================================================================
     
     console.log('🎯 Phase 1: Planning - Analyzing entire project...');
     
-    const globalContext = buildProjectGlobalContext(boardData, parentMap, challengeList, insightLookup, asksById);
+    const globalContext = buildProjectGlobalContext(
+      boardData,
+      parentMap,
+      challengeList,
+      insightLookup,
+      asksById,
+      graphRAGData
+    );
     
     const planResult = await executeAgent({
       supabase,
@@ -720,6 +895,9 @@ export async function POST(
         project_status: boardData.projectStatus ?? "",
         project_timeframe: boardData.timeframe ?? "",
         challenge_context_json: JSON.stringify(globalContext),
+        graph_clusters_json: graphRAGData ? JSON.stringify(graphRAGData.clusters) : "[]",
+        graph_syntheses_json: graphRAGData ? JSON.stringify(graphRAGData.syntheses) : "[]",
+        dominant_concepts: graphRAGData ? graphRAGData.dominantConcepts.map(c => `${c.concept} (${c.insightCount} insights)`).join(", ") : "",
       },
       maxOutputTokens: options.maxOutputTokens,
       temperature: options.temperature,
@@ -752,8 +930,35 @@ export async function POST(
       }
 
       try {
-        const challengeContext = buildChallengeContext(boardData, challenge, parentMap, insightLookup, asksById);
-        // Backend fallback: if no insights are attached in context but planner provided IDs,
+        // Filter duplicate insights using Graph RAG
+        let insightIds = challenge.relatedInsightIds;
+        if (updateItem.relatedInsightIds && updateItem.relatedInsightIds.length > 0) {
+          insightIds = Array.from(new Set([...insightIds, ...updateItem.relatedInsightIds]));
+        }
+        
+        const { filtered: deduplicatedInsightIds } = await filterDuplicateInsights(
+          insightIds,
+          supabase
+        );
+
+        // Map filtered IDs back to insight summaries
+        const deduplicatedInsights = deduplicatedInsightIds
+          .map(id => insightLookup.get(id))
+          .filter((insight): insight is InsightSummary => Boolean(insight));
+
+        const challengeContext = buildChallengeContext(
+          boardData,
+          challenge,
+          parentMap,
+          insightLookup,
+          asksById,
+          graphRAGData
+        );
+
+        // Use deduplicated insights
+        challengeContext.insights = deduplicatedInsights;
+
+        // Backend fallback: if no insights after deduplication but planner provided IDs,
         // enrich context with those insight summaries (when available)
         if (challengeContext.insights.length === 0 && Array.isArray(updateItem.relatedInsightIds) && updateItem.relatedInsightIds.length > 0) {
           const enriched = updateItem.relatedInsightIds
@@ -809,8 +1014,14 @@ export async function POST(
     // Build parallel promises for creations
     const creationPromises = plan.creations.map(async (creationItem) => {
       try {
-        // Get related insights
-        const relatedInsights = creationItem.relatedInsightIds
+        // Filter duplicate insights using Graph RAG
+        const { filtered: deduplicatedInsightIds } = await filterDuplicateInsights(
+          creationItem.relatedInsightIds,
+          supabase
+        );
+
+        // Get related insights (deduplicated)
+        const relatedInsights = deduplicatedInsightIds
           .map(id => insightLookup.get(id))
           .filter((insight): insight is InsightSummary => Boolean(insight));
 

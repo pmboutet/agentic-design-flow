@@ -3,6 +3,49 @@ import { getAdminSupabaseClient } from "@/lib/supabaseAdmin";
 import { generateEmbedding } from "@/lib/ai/embeddings";
 import type { ApiResponse } from "@/types";
 
+export async function GET(_request: NextRequest) {
+  try {
+    const supabase = getAdminSupabaseClient();
+
+    // Get statistics about embeddings
+    const { count: totalInsights } = await supabase
+      .from("insights")
+      .select("*", { count: "exact", head: true });
+
+    const { count: insightsWithEmbeddings } = await supabase
+      .from("insights")
+      .select("*", { count: "exact", head: true })
+      .not("content_embedding", "is", null);
+
+    const { count: insightsWithoutEmbeddings } = await supabase
+      .from("insights")
+      .select("*", { count: "exact", head: true })
+      .is("content_embedding", null);
+
+    return NextResponse.json<ApiResponse>({
+      success: true,
+      data: {
+        total: totalInsights || 0,
+        withEmbeddings: insightsWithEmbeddings || 0,
+        withoutEmbeddings: insightsWithoutEmbeddings || 0,
+        message: "Use POST method to generate embeddings. Send an empty body to process all insights without embeddings, or include { 'insightId': 'uuid' } to process a specific insight.",
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching embedding statistics:", error);
+    return NextResponse.json<ApiResponse>(
+      {
+        success: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : "Failed to fetch embedding statistics",
+      },
+      { status: 500 }
+    );
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json().catch(() => ({}));
@@ -64,7 +107,7 @@ export async function POST(request: NextRequest) {
       // Batch generate embeddings for insights missing them
       const { data: insights, error: listError } = await supabase
         .from("insights")
-        .select("id, content, summary")
+        .select("id, content, summary, content_embedding, summary_embedding")
         .or("content_embedding.is.null,summary_embedding.is.null")
         .limit(100); // Process in batches
 

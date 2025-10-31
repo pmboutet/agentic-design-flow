@@ -15,10 +15,10 @@ async function createAiConfig() {
       .from('ai_model_configs')
       .upsert({
         id: '550e8400-e29b-41d4-a716-446655440061',
-        code: 'anthropic-claude-3-5-sonnet',
-        name: 'Claude 3.5 Sonnet',
+        code: 'anthropic-claude-sonnet-4-5',
+        name: 'Claude Sonnet 4.5',
         provider: 'anthropic',
-        model: 'claude-3-5-sonnet-20241022',
+        model: 'claude-sonnet-4-5',
         api_key_env_var: 'ANTHROPIC_API_KEY',
         base_url: 'https://api.anthropic.com/v1',
         is_default: true,

@@ -33,24 +33,6 @@ export async function findRelatedInsightClusters(
   threshold: number = 0.75,
   minClusterSize: number = 3
 ): Promise<InsightCluster[]> {
-  // Get all insights for the project
-  const { data: insights, error } = await supabase
-    .from("insights")
-    .select(`
-      id,
-      content,
-      summary,
-      insight_type,
-      category,
-      ask_session_id
-    `)
-    .not("content_embedding", "is", null);
-
-  if (error || !insights) {
-    console.error("Error fetching insights for clustering:", error);
-    return [];
-  }
-
   // Get project's ask sessions to filter insights
   const { data: askSessions } = await supabase
     .from("ask_sessions")
@@ -62,17 +44,44 @@ export async function findRelatedInsightClusters(
   }
 
   const askSessionIds = askSessions.map((s) => s.id);
-  const projectInsights = insights.filter((i) =>
-    askSessionIds.includes(i.ask_session_id)
-  );
 
-  if (projectInsights.length < minClusterSize) {
+  // Get all insights for the project that have embeddings
+  const { data: insights, error } = await supabase
+    .from("insights")
+    .select(`
+      id,
+      content,
+      summary,
+      insight_type_id,
+      insight_types(name),
+      category,
+      ask_session_id
+    `)
+    .in("ask_session_id", askSessionIds)
+    .not("content_embedding", "is", null);
+
+  if (error || !insights) {
+    console.error("Error fetching insights for clustering:", error);
+    return [];
+  }
+
+  if (insights.length < minClusterSize) {
     return [];
   }
 
   // Use graph edges to find clusters
   const clusters: InsightCluster[] = [];
   const processed = new Set<string>();
+
+  // Map insights to Insight type for processing
+  const projectInsights = insights.map((row: any) => ({
+    id: row.id,
+    content: row.content,
+    summary: row.summary,
+    type: row.insight_types?.name || 'idea',
+    category: row.category,
+    askSessionId: row.ask_session_id,
+  })) as Insight[];
 
   for (const insight of projectInsights) {
     if (processed.has(insight.id)) {
@@ -180,10 +189,23 @@ export async function synthesizeInsightCluster(
 
     // Get project and challenge IDs from first insight
     const firstInsight = cluster.insights[0];
+    
+    // Get ask_session_id from the insight row (it should have ask_session_id field)
+    const { data: insightRow } = await supabase
+      .from("insights")
+      .select("ask_session_id")
+      .eq("id", firstInsight.id)
+      .maybeSingle();
+
+    if (!insightRow?.ask_session_id) {
+      console.error("No ask_session_id found for insight:", firstInsight.id);
+      return null;
+    }
+
     const { data: askSession } = await supabase
       .from("ask_sessions")
       .select("project_id, challenge_id")
-      .eq("id", firstInsight.askSessionId)
+      .eq("id", insightRow.ask_session_id)
       .maybeSingle();
 
     // Create synthesis record
@@ -197,7 +219,7 @@ export async function synthesizeInsightCluster(
         key_concepts: [], // Will be populated from key_concepts strings
         embedding: embedding,
       })
-      .select("id")
+      .select("id, synthesized_text, source_insight_ids, key_concepts, created_at")
       .single();
 
     if (insertError || !synthesis) {

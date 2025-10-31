@@ -32,7 +32,7 @@ async function upsertGraphEdge(
   supabase: SupabaseClient,
   edge: GraphEdge
 ): Promise<void> {
-  const { error } = await supabase.from("knowledge_graph_edges").upsert(
+  const { error, data } = await supabase.from("knowledge_graph_edges").upsert(
     {
       source_id: edge.sourceId,
       source_type: edge.sourceType,
@@ -48,11 +48,20 @@ async function upsertGraphEdge(
       onConflict: "source_id,source_type,target_id,target_type,relationship_type",
       ignoreDuplicates: false,
     }
-  );
+  ).select();
 
   if (error) {
-    console.error("Error upserting graph edge:", error);
+    // If error is about unique constraint violation, the edge already exists (which is fine)
+    if (error.code === '23505' || error.message.includes('unique constraint') || error.message.includes('duplicate key')) {
+      console.log(`[Graph RAG] Edge already exists: ${edge.sourceType}:${edge.sourceId} -> ${edge.relationshipType} -> ${edge.targetType}:${edge.targetId}`);
+      return;
+    }
+    console.error(`[Graph RAG] Error upserting graph edge from ${edge.sourceId} to ${edge.targetId}:`, error);
     throw new Error(`Failed to create graph edge: ${error.message}`);
+  }
+  
+  if (data && data.length > 0) {
+    console.log(`[Graph RAG] Created/updated edge: ${edge.sourceType}:${edge.sourceId} -> ${edge.relationshipType} -> ${edge.targetType}:${edge.targetId}`);
   }
 }
 
@@ -94,6 +103,7 @@ export async function buildSimilarityEdges(
   insightId: string,
   embedding: number[]
 ): Promise<void> {
+  console.log(`[Graph RAG] Building similarity edges for insight ${insightId}...`);
   const similarInsights = await findSimilarInsights(
     supabase,
     insightId,
@@ -101,6 +111,12 @@ export async function buildSimilarityEdges(
     0.75,
     10
   );
+
+  console.log(`[Graph RAG] Found ${similarInsights.length} similar insights for ${insightId}`);
+
+  if (similarInsights.length === 0) {
+    return;
+  }
 
   const edges: GraphEdge[] = similarInsights.map((similar) => ({
     sourceId: insightId,
@@ -140,6 +156,7 @@ export async function buildConceptualEdges(
   supabase: SupabaseClient,
   insightId: string
 ): Promise<void> {
+  console.log(`[Graph RAG] Building conceptual edges for insight ${insightId}...`);
   // Get all entities linked to this insight
   const { data: keywords, error } = await supabase
     .from("insight_keywords")
@@ -147,13 +164,16 @@ export async function buildConceptualEdges(
     .eq("insight_id", insightId);
 
   if (error) {
-    console.error("Error fetching insight keywords:", error);
+    console.error(`[Graph RAG] Error fetching insight keywords for ${insightId}:`, error);
     return;
   }
 
   if (!keywords || keywords.length === 0) {
+    console.log(`[Graph RAG] No keywords found for insight ${insightId}, skipping conceptual edges`);
     return;
   }
+
+  console.log(`[Graph RAG] Found ${keywords.length} keywords for insight ${insightId}, creating conceptual edges`);
 
   const edges: GraphEdge[] = keywords.map((kw) => ({
     sourceId: insightId,
@@ -270,21 +290,22 @@ export async function buildChallengeEdges(
  */
 export async function buildAllEdgesForInsight(
   insightId: string,
-  embedding?: number[]
+  embedding?: number[],
+  supabase?: ReturnType<typeof getAdminSupabaseClient>
 ): Promise<void> {
-  const supabase = getAdminSupabaseClient();
+  const client = supabase || getAdminSupabaseClient();
 
   try {
     // Build similarity edges if embedding is provided
     if (embedding) {
-      await buildSimilarityEdges(supabase, insightId, embedding);
+      await buildSimilarityEdges(client, insightId, embedding);
     }
 
     // Build conceptual edges
-    await buildConceptualEdges(supabase, insightId);
+    await buildConceptualEdges(client, insightId);
 
     // Build challenge edges
-    await buildChallengeEdges(supabase, insightId);
+    await buildChallengeEdges(client, insightId);
   } catch (error) {
     console.error(`Error building edges for insight ${insightId}:`, error);
     throw error;

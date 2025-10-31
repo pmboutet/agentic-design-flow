@@ -143,6 +143,8 @@ export async function extractEntitiesFromInsight(
   const supabase = getAdminSupabaseClient();
 
   try {
+    console.log(`[Graph RAG] Calling AI agent for entity extraction on insight ${insight.id}...`);
+    
     // Call Anthropic agent for entity extraction
     const result = await executeAgent({
       supabase,
@@ -156,8 +158,11 @@ export async function extractEntitiesFromInsight(
       },
     });
 
+    console.log(`[Graph RAG] AI agent response received for insight ${insight.id}, content length: ${result.content?.length || 0}`);
+
     // Parse the response
     const extracted = parseEntityExtractionResponse(result.content);
+    console.log(`[Graph RAG] Parsed entities: ${extracted.keywords.length} keywords, ${extracted.concepts.length} concepts, ${extracted.themes.length} themes`);
 
     const entityIds: string[] = [];
     const keywords: Array<{ entityId: string; relevance: number }> = [];
@@ -209,7 +214,13 @@ export async function extractEntitiesFromInsight(
       keywords,
     };
   } catch (error) {
-    console.error("Error extracting entities from insight:", error);
+    console.error(`[Graph RAG] Error extracting entities from insight ${insight.id}:`, error);
+    console.error(`[Graph RAG] Error details:`, {
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+      insightId: insight.id,
+      insightContentLength: insight.content?.length || 0,
+    });
     // Return empty result on error
     return {
       entityIds: [],
@@ -227,11 +238,17 @@ export async function storeInsightKeywords(
   keywords: Array<{ entityId: string; relevance: number }>
 ): Promise<void> {
   if (keywords.length === 0) {
+    console.log(`[Graph RAG] No keywords to store for insight ${insightId}`);
     return;
   }
 
+  console.log(`[Graph RAG] Storing ${keywords.length} keywords for insight ${insightId}`);
+
   // Delete existing keywords for this insight
-  await supabase.from("insight_keywords").delete().eq("insight_id", insightId);
+  const { error: deleteError } = await supabase.from("insight_keywords").delete().eq("insight_id", insightId);
+  if (deleteError) {
+    console.warn(`[Graph RAG] Error deleting existing keywords for insight ${insightId}:`, deleteError);
+  }
 
   // Insert new keywords
   const keywordRows = keywords.map((kw) => ({
@@ -241,12 +258,14 @@ export async function storeInsightKeywords(
     extraction_method: "ai",
   }));
 
-  const { error } = await supabase.from("insight_keywords").insert(keywordRows);
+  const { error, data } = await supabase.from("insight_keywords").insert(keywordRows).select();
 
   if (error) {
-    console.error("Error storing insight keywords:", error);
+    console.error(`[Graph RAG] Error storing insight keywords for ${insightId}:`, error);
     throw new Error(`Failed to store insight keywords: ${error.message}`);
   }
+
+  console.log(`[Graph RAG] Successfully stored ${data?.length || 0} keywords for insight ${insightId}`);
 }
 
 /**

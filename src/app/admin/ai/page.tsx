@@ -6,7 +6,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
-import type { AiAgentRecord, AiModelConfig, PromptVariableDefinition } from "@/types";
+import { Loader2, Network, Sparkles } from "lucide-react";
+import type { AiAgentRecord, AiModelConfig, PromptVariableDefinition, ApiResponse } from "@/types";
 
 interface AgentsResponse {
   success: boolean;
@@ -104,6 +105,18 @@ export default function AiConfigurationPage() {
   const [error, setError] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [newAgent, setNewAgent] = useState<NewAgentDraft>(() => createEmptyNewAgentDraft());
+  
+  // Graph RAG state
+  const [graphStats, setGraphStats] = useState<{
+    totalInsights: number;
+    insightsWithEmbeddings: number;
+    insightsWithEntities: number;
+    graphEdges: number;
+  } | null>(null);
+  const [isLoadingGraphStats, setIsLoadingGraphStats] = useState(false);
+  const [isBuildingGraph, setIsBuildingGraph] = useState(false);
+  const [graphBuildResult, setGraphBuildResult] = useState<string | null>(null);
+  const [graphBuildError, setGraphBuildError] = useState<string | null>(null);
 
   const fetchConfiguration = async () => {
     setIsLoading(true);
@@ -144,7 +157,69 @@ export default function AiConfigurationPage() {
 
   useEffect(() => {
     fetchConfiguration();
+    loadGraphStats();
   }, []);
+
+  const loadGraphStats = async () => {
+    setIsLoadingGraphStats(true);
+    try {
+      const response = await fetch("/api/admin/graph/build", { credentials: "include" });
+      const data: ApiResponse<{
+        totalInsights: number;
+        insightsWithEmbeddings: number;
+        insightsWithEntities: number;
+        graphEdges: number;
+      }> = await response.json();
+
+      if (data.success && data.data) {
+        setGraphStats(data.data);
+      }
+    } catch (err) {
+      console.error("Error loading graph stats:", err);
+    } finally {
+      setIsLoadingGraphStats(false);
+    }
+  };
+
+  const handleBuildGraph = async () => {
+    setIsBuildingGraph(true);
+    setGraphBuildResult(null);
+    setGraphBuildError(null);
+
+    try {
+      const response = await fetch("/api/admin/graph/build", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          limit: 100,
+          skipExisting: false, // Process all insights, even if they have embeddings
+        }),
+      });
+
+      const data: ApiResponse<{
+        processed: number;
+        skipped: number;
+        errors: number;
+        total: number;
+        message: string;
+      }> = await response.json();
+
+      if (data.success && data.data) {
+        setGraphBuildResult(
+          `Traité ${data.data.processed} insights, ${data.data.errors} erreurs. ${data.data.message}`
+        );
+        // Reload stats
+        await loadGraphStats();
+      } else {
+        setGraphBuildError(data.error || "Erreur lors de la construction du graphe");
+      }
+    } catch (err) {
+      setGraphBuildError(err instanceof Error ? err.message : "Erreur inattendue");
+    } finally {
+      setIsBuildingGraph(false);
+    }
+  };
 
   const handleToggleCreateForm = () => {
     setIsCreating(prev => {
@@ -543,6 +618,90 @@ export default function AiConfigurationPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* Graph RAG Section */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <Network className="h-5 w-5" />
+            <CardTitle>Graph RAG - Construction du graphe</CardTitle>
+          </div>
+          <CardDescription>
+            Construire le graphe de connaissances pour les insights existants (embeddings, entités, relations).
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {isLoadingGraphStats ? (
+            <p className="text-sm text-muted-foreground">Chargement des statistiques...</p>
+          ) : graphStats ? (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="rounded-lg border p-3 bg-muted/30">
+                <p className="text-xs text-muted-foreground">Total insights</p>
+                <p className="text-lg font-semibold">{graphStats.totalInsights}</p>
+              </div>
+              <div className="rounded-lg border p-3 bg-muted/30">
+                <p className="text-xs text-muted-foreground">Avec embeddings</p>
+                <p className="text-lg font-semibold">{graphStats.insightsWithEmbeddings}</p>
+              </div>
+              <div className="rounded-lg border p-3 bg-muted/30">
+                <p className="text-xs text-muted-foreground">Avec entités</p>
+                <p className="text-lg font-semibold">{graphStats.insightsWithEntities}</p>
+              </div>
+              <div className="rounded-lg border p-3 bg-muted/30">
+                <p className="text-xs text-muted-foreground">Arêtes du graphe</p>
+                <p className="text-lg font-semibold">{graphStats.graphEdges}</p>
+              </div>
+            </div>
+          ) : null}
+
+          <div className="flex items-center gap-2">
+            <Button
+              onClick={handleBuildGraph}
+              disabled={isBuildingGraph}
+              className="gap-2"
+            >
+              {isBuildingGraph ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Construction en cours...
+                </>
+              ) : (
+                <>
+                  <Sparkles className="h-4 w-4" />
+                  Construire le graphe
+                </>
+              )}
+            </Button>
+            <Button
+              onClick={loadGraphStats}
+              variant="outline"
+              disabled={isLoadingGraphStats}
+              className="gap-2"
+            >
+              {isLoadingGraphStats ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                "Actualiser"
+              )}
+            </Button>
+          </div>
+
+          {graphBuildResult && (
+            <p className="text-sm text-emerald-600">{graphBuildResult}</p>
+          )}
+          {graphBuildError && (
+            <p className="text-sm text-destructive">{graphBuildError}</p>
+          )}
+
+          <div className="rounded-lg border p-4 bg-muted/20">
+            <p className="text-xs text-muted-foreground">
+              <strong>Note :</strong> Cette opération traite les insights sans embeddings par lots de 100.
+              Pour chaque insight, elle génère les embeddings, extrait les entités (mots-clés, concepts, thèmes),
+              et construit les arêtes du graphe (similarités, relations conceptuelles, liens aux challenges).
+            </p>
+          </div>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

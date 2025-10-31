@@ -171,34 +171,49 @@ export async function findInsightsByConcepts(
 
 /**
  * Find insight clusters using graph community detection
+ * @param supabase Supabase client
+ * @param projectIdOrInsightIds Either a projectId (string) or an array of insight IDs
+ * @param minClusterSize Minimum cluster size
  */
 export async function findInsightClusters(
   supabase: SupabaseClient,
-  projectId: string,
+  projectIdOrInsightIds: string | string[],
   minClusterSize: number = 3
 ): Promise<InsightCluster[]> {
-  // Get project's insights
-  const { data: askSessions } = await supabase
-    .from("ask_sessions")
-    .select("id")
-    .eq("project_id", projectId);
+  let insightIds: string[];
 
-  if (!askSessions || askSessions.length === 0) {
-    return [];
+  // If projectId is provided, get insights for that project
+  if (typeof projectIdOrInsightIds === "string") {
+    const projectId = projectIdOrInsightIds;
+    // Get project's insights
+    const { data: askSessions } = await supabase
+      .from("ask_sessions")
+      .select("id")
+      .eq("project_id", projectId);
+
+    if (!askSessions || askSessions.length === 0) {
+      return [];
+    }
+
+    const askSessionIds = askSessions.map((s) => s.id);
+
+    const { data: insights } = await supabase
+      .from("insights")
+      .select("id")
+      .in("ask_session_id", askSessionIds);
+
+    if (!insights || insights.length < minClusterSize) {
+      return [];
+    }
+
+    insightIds = insights.map((i) => i.id);
+  } else {
+    // Use provided insight IDs directly
+    insightIds = projectIdOrInsightIds;
+    if (insightIds.length < minClusterSize) {
+      return [];
+    }
   }
-
-  const askSessionIds = askSessions.map((s) => s.id);
-
-  const { data: insights } = await supabase
-    .from("insights")
-    .select("id")
-    .in("ask_session_id", askSessionIds);
-
-  if (!insights || insights.length < minClusterSize) {
-    return [];
-  }
-
-  const insightIds = insights.map((i) => i.id);
 
   // Get all edges between these insights
   const { data: edges } = await supabase

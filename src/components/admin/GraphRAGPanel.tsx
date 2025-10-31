@@ -158,7 +158,8 @@ export function GraphRAGPanel({ projectId }: GraphRAGPanelProps) {
       const data: ApiResponse<Synthesis[]> = await response.json();
 
       if (data.success && data.data) {
-        setSyntheses(data.data);
+        // Reload syntheses to get the full data structure
+        await loadSyntheses();
       } else {
         setError(data.error || "Failed to generate syntheses");
       }
@@ -167,7 +168,7 @@ export function GraphRAGPanel({ projectId }: GraphRAGPanelProps) {
     } finally {
       setIsGeneratingSyntheses(false);
     }
-  }, [projectId]);
+  }, [projectId, loadSyntheses]);
 
   useEffect(() => {
     if (projectId) {
