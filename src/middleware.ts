@@ -71,7 +71,8 @@ export async function middleware(request: NextRequest) {
   if (request.nextUrl.pathname.startsWith('/admin')) {
     if (!session) {
       const redirectUrl = new URL('/auth/login', request.url)
-      redirectUrl.searchParams.set('redirectTo', request.nextUrl.pathname)
+      const redirectPath = `${request.nextUrl.pathname}${request.nextUrl.search}`
+      redirectUrl.searchParams.set('redirectTo', redirectPath)
       return NextResponse.redirect(redirectUrl)
     }
 
