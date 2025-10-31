@@ -85,7 +85,7 @@ const revisionPlanSchema = z.object({
 
 const foundationInsightSchema = z.object({
   insightId: z.string().trim().min(1),
-  title: z.string().trim().min(1),
+  title: z.string().trim().min(1).optional(),
   reason: z.string().trim().min(1),
   priority: z.enum(["low", "medium", "high", "critical"]),
 });
@@ -98,10 +98,10 @@ const ownerSuggestionSchema = z.object({
 
 const challengeUpdateBlockSchema = z
   .object({
-    title: z.string().trim().min(1).optional(),
-    description: z.string().trim().optional(),
-    status: z.string().trim().min(1).optional(),
-    impact: z.string().trim().min(1).optional(),
+    title: z.string().trim().min(1).nullish(),
+    description: z.string().trim().nullish(),
+    status: z.string().trim().min(1).nullish(),
+    impact: z.string().trim().min(1).nullish(),
     owners: z.array(ownerSuggestionSchema).optional(),
   })
   .partial();
@@ -618,12 +618,14 @@ function mapDetailedUpdate(
     challengeTitle: challenge.title,
     summary: updateData.summary ?? planItem.reason,
     foundationInsights: foundationInsights.length
-      ? foundationInsights.map(insight => ({
-          insightId: insight.insightId,
-          title: insight.title,
-          reason: insight.reason,
-          priority: insight.priority,
-        }))
+      ? foundationInsights
+          .filter(insight => insight.insightId && insight.reason) // Filter out invalid insights
+          .map(insight => ({
+            insightId: insight.insightId,
+            title: insight.title ?? undefined, // Optional: will be fetched from DB if not provided
+            reason: insight.reason,
+            priority: insight.priority,
+          }))
       : undefined,
     updates: normalisedUpdates,
     subChallengeUpdates: subUpdates.length

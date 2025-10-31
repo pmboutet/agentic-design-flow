@@ -115,6 +115,7 @@ export function LoaderInsightConstellation({ progress = 0, className, compact = 
             cy={n.y}
             r={2.6}
             fill={i / nodes.length <= progress / 100 ? "#93c5fd" : "#64748b"}
+            initial={{ r: 2.6 }}
             animate={{ r: [2.6, 3.6, 2.6] }}
             transition={{ duration: 2.2, repeat: Infinity, delay: i * 0.08 }}
           />
