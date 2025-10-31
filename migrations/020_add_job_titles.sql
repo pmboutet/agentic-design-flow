@@ -59,7 +59,7 @@ CREATE POLICY "Users can view accessible client members"
       SELECT 1 FROM public.profiles
       WHERE auth_id = auth.uid()
       AND (
-        role IN ('full_admin', 'project_admin')
+        role IN ('full_admin', 'admin')
         OR (
           id IN (
             SELECT user_id FROM public.project_members pm
@@ -78,7 +78,7 @@ CREATE POLICY "Admins can manage client members"
     EXISTS (
       SELECT 1 FROM public.profiles
       WHERE auth_id = auth.uid()
-      AND role IN ('full_admin', 'project_admin')
+      AND role IN ('full_admin', 'admin')
     )
   );
 
