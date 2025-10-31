@@ -215,7 +215,7 @@ export async function GET(
 
     if (participantUserIds.length > 0) {
       const { data: userRows, error: userError } = await supabase
-        .from('users')
+        .from('profiles')
         .select('id, email, full_name, first_name, last_name')
         .in('id', participantUserIds);
 
