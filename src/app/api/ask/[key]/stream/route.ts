@@ -27,6 +27,7 @@ interface AskSessionRow {
   system_prompt?: string | null;
   project_id?: string | null;
   challenge_id?: string | null;
+  is_anonymous?: boolean | null;
 }
 
 interface ProjectRow {
@@ -205,7 +206,7 @@ export async function POST(
     const { row: askRow, error: askError } = await getAskSessionByKey<AskSessionRow>(
       supabase,
       key,
-      'id, ask_key, question, description, status, system_prompt, project_id, challenge_id'
+      'id, ask_key, question, description, status, system_prompt, project_id, challenge_id, is_anonymous'
     );
 
     if (askError) {
@@ -220,6 +221,9 @@ export async function POST(
     }
 
     if (!isDevBypass && profileId) {
+      const isAnonymous = askRow.is_anonymous === true;
+
+      // Check if user is a participant
       const { data: membership, error: membershipError } = await supabase
         .from('ask_participants')
         .select('id, user_id, role, is_spokesperson')
@@ -234,8 +238,26 @@ export async function POST(
         throw membershipError;
       }
 
-      if (!membership) {
+      // If session allows anonymous participation, allow access even if not in participants list
+      // Otherwise, require explicit participation
+      if (!membership && !isAnonymous) {
         return permissionDeniedResponse();
+      }
+
+      // If anonymous and user is not yet a participant, create one automatically
+      if (isAnonymous && !membership) {
+        const { error: insertError } = await supabase
+          .from('ask_participants')
+          .insert({
+            ask_session_id: askRow.id,
+            user_id: profileId,
+            role: 'participant',
+          });
+
+        if (insertError && !isPermissionDenied(insertError)) {
+          // Log but don't fail - RLS policies will handle access
+          console.warn('Failed to auto-add participant to anonymous session:', insertError);
+        }
       }
     }
 
