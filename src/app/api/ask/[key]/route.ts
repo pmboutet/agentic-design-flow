@@ -114,7 +114,7 @@ export async function GET(
     const supabase = await createServerSupabaseClient();
     const isDevBypass = process.env.IS_DEV === 'true';
 
-    let userId: string | null = null;
+    let profileId: string | null = null;
 
     if (!isDevBypass) {
       const { data: userResult, error: userError } = await supabase.auth.getUser();
@@ -135,7 +135,21 @@ export async function GET(
         }, { status: 401 });
       }
 
-      userId = user.id;
+      // Get profile ID from auth_id (user.id is the auth UUID, we need the profile UUID)
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('auth_id', user.id)
+        .single();
+
+      if (profileError || !profile) {
+        return NextResponse.json<ApiResponse>({
+          success: false,
+          error: "Profil utilisateur introuvable"
+        }, { status: 401 });
+      }
+
+      profileId = profile.id;
     }
 
     const { row: askRow, error: askError } = await getAskSessionByKey<AskSessionRow>(
@@ -158,12 +172,12 @@ export async function GET(
       }, { status: 404 });
     }
 
-    if (!isDevBypass && userId) {
+    if (!isDevBypass && profileId) {
       const { data: membership, error: membershipError } = await supabase
         .from('ask_participants')
         .select('id, user_id, role, is_spokesperson')
         .eq('ask_session_id', askRow.id)
-        .eq('user_id', userId)
+        .eq('user_id', profileId)
         .maybeSingle();
 
       if (membershipError) {
@@ -412,7 +426,7 @@ export async function POST(
     const supabase = await createServerSupabaseClient();
     const isDevBypass = process.env.IS_DEV === 'true';
 
-    let userId: string | null = null;
+    let profileId: string | null = null;
 
     if (!isDevBypass) {
       const { data: userResult, error: userError } = await supabase.auth.getUser();
@@ -433,7 +447,21 @@ export async function POST(
         }, { status: 401 });
       }
 
-      userId = user.id;
+      // Get profile ID from auth_id (user.id is the auth UUID, we need the profile UUID)
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('auth_id', user.id)
+        .single();
+
+      if (profileError || !profile) {
+        return NextResponse.json<ApiResponse>({
+          success: false,
+          error: "Profil utilisateur introuvable"
+        }, { status: 401 });
+      }
+
+      profileId = profile.id;
     }
 
     const { row: askRow, error: askError } = await getAskSessionByKey<Pick<AskSessionRow, 'id' | 'ask_key'>>(
@@ -456,12 +484,12 @@ export async function POST(
       }, { status: 404 });
     }
 
-    if (!isDevBypass && userId) {
+    if (!isDevBypass && profileId) {
       const { data: membership, error: membershipError } = await supabase
         .from('ask_participants')
         .select('id, user_id')
         .eq('ask_session_id', askRow.id)
-        .eq('user_id', userId)
+        .eq('user_id', profileId)
         .maybeSingle();
 
       if (membershipError) {
@@ -492,7 +520,7 @@ export async function POST(
       sender_type: senderType,
       metadata,
       created_at: timestamp,
-      user_id: userId,
+      user_id: profileId,
     };
 
     const { data: insertedRows, error: insertError } = await supabase

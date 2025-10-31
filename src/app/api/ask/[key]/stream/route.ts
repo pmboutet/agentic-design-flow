@@ -170,7 +170,7 @@ export async function POST(
     const supabase = await createServerSupabaseClient();
     const isDevBypass = process.env.IS_DEV === 'true';
 
-    let userId: string | null = null;
+    let profileId: string | null = null;
 
     if (!isDevBypass) {
       const { data: userResult, error: userError } = await supabase.auth.getUser();
@@ -188,7 +188,18 @@ export async function POST(
         return new Response('Authentification requise', { status: 401 });
       }
 
-      userId = user.id;
+      // Get profile ID from auth_id (user.id is the auth UUID, we need the profile UUID)
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('auth_id', user.id)
+        .single();
+
+      if (profileError || !profile) {
+        return new Response('Profil utilisateur introuvable', { status: 401 });
+      }
+
+      profileId = profile.id;
     }
 
     const { row: askRow, error: askError } = await getAskSessionByKey<AskSessionRow>(
@@ -208,12 +219,12 @@ export async function POST(
       return new Response('ASK introuvable pour la clé fournie', { status: 404 });
     }
 
-    if (!isDevBypass && userId) {
+    if (!isDevBypass && profileId) {
       const { data: membership, error: membershipError } = await supabase
         .from('ask_participants')
         .select('id, user_id, role, is_spokesperson')
         .eq('ask_session_id', askRow.id)
-        .eq('user_id', userId)
+        .eq('user_id', profileId)
         .maybeSingle();
 
       if (membershipError) {
