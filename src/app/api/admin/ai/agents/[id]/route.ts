@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAdminSupabaseClient } from '@/lib/supabaseAdmin';
 import { sanitizePromptVariables } from '@/lib/ai/agents';
 import { parseErrorMessage } from '@/lib/utils';
+import { extractTemplateVariables } from '@/lib/ai/templates';
 
 interface AgentUpdatePayload {
   name?: string;
@@ -44,7 +45,31 @@ export async function PUT(
       updatePayload.fallback_model_config_id = body.fallbackModelConfigId ?? null;
     }
 
-    const variables = sanitizePromptVariables(body.availableVariables);
+    // Synchronize variables from prompts if systemPrompt or userPrompt are being updated
+    let variables = sanitizePromptVariables(body.availableVariables);
+    
+    if (typeof body.systemPrompt === 'string' || typeof body.userPrompt === 'string') {
+      // Get current agent to have both prompts for sync
+      const { data: currentAgent } = await supabase
+        .from('ai_agents')
+        .select('system_prompt, user_prompt, available_variables')
+        .eq('id', id)
+        .maybeSingle();
+      
+      const systemPrompt = typeof body.systemPrompt === 'string' ? body.systemPrompt : (currentAgent?.system_prompt ?? '');
+      const userPrompt = typeof body.userPrompt === 'string' ? body.userPrompt : (currentAgent?.user_prompt ?? '');
+      
+      // Extract variables from prompts
+      const systemVars = extractTemplateVariables(systemPrompt);
+      const userVars = extractTemplateVariables(userPrompt);
+      const allDetectedVars = new Set([...systemVars, ...userVars]);
+      
+      // Merge with existing variables (from request or current agent)
+      const existingVars = variables ?? (currentAgent?.available_variables ?? []);
+      const merged = new Set([...existingVars, ...allDetectedVars]);
+      variables = Array.from(merged);
+    }
+    
     if (variables) {
       updatePayload.available_variables = variables;
     }

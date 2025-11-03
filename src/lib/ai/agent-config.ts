@@ -64,9 +64,10 @@ function mapAgentRow(row: AgentQueryRow): AiAgentRecord {
   };
 }
 
-async function fetchAgentByIdOrSlug(
+export async function fetchAgentByIdOrSlug(
   supabase: SupabaseClient,
-  options: { id?: string | null; slug?: string | null }
+  options: { id?: string | null; slug?: string | null },
+  fetchOptions?: { includeModels?: boolean }
 ): Promise<AiAgentRecord | null> {
   let query = supabase.from('ai_agents').select(`
     *,

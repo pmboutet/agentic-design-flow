@@ -1,13 +1,15 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
-import { Loader2, Network, Sparkles } from "lucide-react";
+import { Loader2, Network, Sparkles, ChevronDown, ChevronUp, TestTube2 } from "lucide-react";
 import type { AiAgentRecord, AiModelConfig, PromptVariableDefinition, ApiResponse } from "@/types";
+import { extractTemplateVariables } from "@/lib/ai/templates";
+import { AgentTestMode } from "@/components/admin/AgentTestMode";
 
 interface AgentsResponse {
   success: boolean;
@@ -66,6 +68,220 @@ function slugify(value: string): string {
     .slice(0, 80);
 }
 
+// Auto-resize textarea component
+const AutoResizeTextarea = React.forwardRef<HTMLTextAreaElement, React.TextareaHTMLAttributes<HTMLTextAreaElement>>(
+  ({ value, onChange, ...props }, ref) => {
+    const textareaRef = useRef<HTMLTextAreaElement>(null);
+    const combinedRef = (node: HTMLTextAreaElement | null) => {
+      if (typeof ref === "function") {
+        ref(node);
+      } else if (ref) {
+        ref.current = node;
+      }
+      textareaRef.current = node;
+    };
+
+    useEffect(() => {
+      const textarea = textareaRef.current;
+      if (textarea) {
+        textarea.style.height = "auto";
+        textarea.style.height = `${textarea.scrollHeight}px`;
+      }
+    }, [value]);
+
+    // Also resize on mount
+    useEffect(() => {
+      const textarea = textareaRef.current;
+      if (textarea) {
+        textarea.style.height = "auto";
+        textarea.style.height = `${textarea.scrollHeight}px`;
+      }
+    }, []);
+
+    return (
+      <Textarea
+        ref={combinedRef}
+        value={value}
+        onChange={onChange}
+        {...props}
+        style={{ overflow: "hidden", resize: "none", ...props.style }}
+      />
+    );
+  }
+);
+AutoResizeTextarea.displayName = "AutoResizeTextarea";
+
+// Group agents by category
+type AgentGroup = {
+  key: string;
+  title: string;
+  description: string;
+  agents: AgentDraft[];
+  color: {
+    border: string;
+    bg: string;
+    text: string;
+    badge: string;
+  };
+};
+
+// Define color scheme for each group
+const groupColors: Record<string, AgentGroup["color"]> = {
+  conversation: {
+    border: "border-blue-400/40",
+    bg: "bg-blue-500/10",
+    text: "text-blue-700 dark:text-blue-200",
+    badge: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
+  },
+  "insight-detection": {
+    border: "border-purple-400/40",
+    bg: "bg-purple-500/10",
+    text: "text-purple-700 dark:text-purple-200",
+    badge: "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200",
+  },
+  "ask-generator": {
+    border: "border-emerald-400/40",
+    bg: "bg-emerald-500/10",
+    text: "text-emerald-700 dark:text-emerald-200",
+    badge: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200",
+  },
+  "challenge-builder": {
+    border: "border-indigo-400/40",
+    bg: "bg-indigo-500/10",
+    text: "text-indigo-700 dark:text-indigo-200",
+    badge: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200",
+  },
+  other: {
+    border: "border-gray-400/40",
+    bg: "bg-gray-500/10",
+    text: "text-gray-700 dark:text-gray-200",
+    badge: "bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200",
+  },
+};
+
+function groupAgents(agents: AgentDraft[]): AgentGroup[] {
+  const groups: AgentGroup[] = [
+    {
+      key: "conversation",
+      title: "Conversation",
+      description: "Agents de conversation et de réponse dans les sessions ASK",
+      agents: [],
+      color: groupColors.conversation,
+    },
+    {
+      key: "insight-detection",
+      title: "Détection d'Insights",
+      description: "Agents de détection et d'analyse d'insights dans les conversations",
+      agents: [],
+      color: groupColors["insight-detection"],
+    },
+    {
+      key: "ask-generator",
+      title: "Générateur de Sessions ASK",
+      description: "Agents de génération de nouvelles sessions ASK",
+      agents: [],
+      color: groupColors["ask-generator"],
+    },
+    {
+      key: "challenge-builder",
+      title: "Constructeur de Challenges",
+      description: "Agents de construction et de révision de challenges",
+      agents: [],
+      color: groupColors["challenge-builder"],
+    },
+    {
+      key: "other",
+      title: "Autres Agents",
+      description: "Autres agents du système",
+      agents: [],
+      color: groupColors.other,
+    },
+  ];
+
+  agents.forEach(agent => {
+    const slug = agent.slug.toLowerCase();
+    if (slug.includes("conversation") || slug.includes("chat")) {
+      groups[0].agents.push(agent);
+    } else if (slug.includes("insight-detection") || slug.includes("insight") || slug.includes("detection")) {
+      groups[1].agents.push(agent);
+    } else if (slug.includes("ask-generator") || slug.includes("generator")) {
+      groups[2].agents.push(agent);
+    } else if (slug.includes("challenge") || slug.includes("builder")) {
+      groups[3].agents.push(agent);
+    } else {
+      groups[4].agents.push(agent);
+    }
+  });
+
+  // Filter out empty groups
+  return groups.filter(group => group.agents.length > 0);
+}
+
+// Filter variables by agent type
+function getVariablesForAgent(
+  agentSlug: string,
+  allVariables: PromptVariableDefinition[]
+): PromptVariableDefinition[] {
+  const slug = agentSlug.toLowerCase();
+  
+  // Variables pour agents ASK/conversation
+  const askVariables = [
+    "ask_key",
+    "ask_question",
+    "ask_description",
+    "message_history",
+    "latest_user_message",
+    "latest_ai_response",
+    "participant_name",
+    "participants",
+    "existing_insights_json",
+    "system_prompt_ask",
+    "system_prompt_challenge",
+    "system_prompt_project",
+  ];
+
+  // Variables pour agents challenge-builder et ask-generator
+  const challengeVariables = [
+    "project_name",
+    "project_goal",
+    "project_status",
+    "challenge_id",
+    "challenge_title",
+    "challenge_description",
+    "challenge_status",
+    "challenge_impact",
+    "challenge_context_json",
+    "insights_json",
+    "existing_asks_json",
+    "system_prompt_project",
+    "system_prompt_challenge",
+  ];
+
+  if (slug.includes("conversation") || slug.includes("chat") || slug.includes("ask-conversation")) {
+    return allVariables.filter(v => askVariables.includes(v.key));
+  }
+  
+  if (slug.includes("challenge") || slug.includes("builder")) {
+    return allVariables.filter(v => challengeVariables.includes(v.key));
+  }
+  
+  if (slug.includes("ask-generator") || slug.includes("generator")) {
+    return allVariables.filter(v => challengeVariables.includes(v.key));
+  }
+
+  if (slug.includes("insight-detection") || slug.includes("insight")) {
+    // Variables pour détection d'insights
+    return allVariables.filter(v => 
+      askVariables.includes(v.key) || 
+      v.key === "existing_insights_json" ||
+      v.key === "insight_types"
+    );
+  }
+
+  // Par défaut, toutes les variables
+  return allVariables;
+}
+
 function createEmptyNewAgentDraft(): NewAgentDraft {
   return {
     slug: "",
@@ -105,6 +321,8 @@ export default function AiConfigurationPage() {
   const [error, setError] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [newAgent, setNewAgent] = useState<NewAgentDraft>(() => createEmptyNewAgentDraft());
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+  const [testModeAgentId, setTestModeAgentId] = useState<string | null>(null);
   
   // Graph RAG state
   const [graphStats, setGraphStats] = useState<{
@@ -264,13 +482,26 @@ export default function AiConfigurationPage() {
   };
 
   const handleNewAgentPromptChange = (field: "system" | "user", value: string) => {
-    setNewAgent(prev => ({
-      ...prev,
-      systemPrompt: field === "system" ? value : prev.systemPrompt,
-      userPrompt: field === "user" ? value : prev.userPrompt,
-      error: null,
-      successMessage: null,
-    }));
+    setNewAgent(prev => {
+      const newSystemPrompt = field === "system" ? value : prev.systemPrompt;
+      const newUserPrompt = field === "user" ? value : prev.userPrompt;
+      
+      // Auto-sync variables from prompts
+      const systemVars = extractTemplateVariables(newSystemPrompt);
+      const userVars = extractTemplateVariables(newUserPrompt);
+      const allDetectedVars = new Set([...systemVars, ...userVars]);
+      const merged = new Set([...prev.availableVariables, ...allDetectedVars]);
+      const syncedVariables = Array.from(merged);
+      
+      return {
+        ...prev,
+        systemPrompt: newSystemPrompt,
+        userPrompt: newUserPrompt,
+        availableVariables: syncedVariables,
+        error: null,
+        successMessage: null,
+      };
+    });
   };
 
   const handleNewAgentModelChange = (field: "primary" | "fallback", value: string) => {
@@ -356,15 +587,36 @@ export default function AiConfigurationPage() {
     }));
   };
 
+  // Function to synchronize variables from prompts
+  const syncVariablesFromPrompts = (systemPrompt: string, userPrompt: string, existingVariables: string[]): string[] => {
+    const systemVars = extractTemplateVariables(systemPrompt);
+    const userVars = extractTemplateVariables(userPrompt);
+    const allDetectedVars = new Set([...systemVars, ...userVars]);
+    
+    // Merge with existing variables, avoiding duplicates
+    const merged = new Set([...existingVariables, ...allDetectedVars]);
+    return Array.from(merged);
+  };
+
   const handlePromptChange = (agentId: string, field: "system" | "user", value: string) => {
     setAgents(prev => prev.map(agent => {
       if (agent.id !== agentId) {
         return agent;
       }
+      const newSystemPrompt = field === "system" ? value : agent.systemPromptDraft;
+      const newUserPrompt = field === "user" ? value : agent.userPromptDraft;
+      
+      // Auto-sync variables from prompts
+      const syncedVariables = syncVariablesFromPrompts(
+        newSystemPrompt,
+        newUserPrompt,
+        agent.availableVariablesDraft
+      );
+      
       if (field === "system") {
-        return { ...agent, systemPromptDraft: value, saveSuccess: false };
+        return { ...agent, systemPromptDraft: value, availableVariablesDraft: syncedVariables, saveSuccess: false };
       }
-      return { ...agent, userPromptDraft: value, saveSuccess: false };
+      return { ...agent, userPromptDraft: value, availableVariablesDraft: syncedVariables, saveSuccess: false };
     }));
   };
 
@@ -432,6 +684,22 @@ export default function AiConfigurationPage() {
   const sortedVariables = useMemo(() => {
     return [...variables].sort((a, b) => a.key.localeCompare(b.key));
   }, [variables]);
+
+  const groupedAgents = useMemo(() => {
+    return groupAgents(agents);
+  }, [agents]);
+
+  const toggleGroup = (groupKey: string) => {
+    setCollapsedGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(groupKey)) {
+        next.delete(groupKey);
+      } else {
+        next.add(groupKey);
+      }
+      return next;
+    });
+  };
 
   const isCreateDisabled =
     newAgent.isSaving ||
@@ -503,11 +771,10 @@ export default function AiConfigurationPage() {
 
             <div className="space-y-2">
               <Label htmlFor="new-agent-description">Description</Label>
-              <Textarea
+              <AutoResizeTextarea
                 id="new-agent-description"
                 value={newAgent.description}
                 onChange={event => handleNewAgentDescriptionChange(event.target.value)}
-                rows={3}
                 placeholder="Résumé de l'utilisation de cet agent."
                 disabled={newAgent.isSaving}
               />
@@ -551,21 +818,19 @@ export default function AiConfigurationPage() {
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="new-agent-system">System prompt</Label>
-                <Textarea
+                <AutoResizeTextarea
                   id="new-agent-system"
                   value={newAgent.systemPrompt}
                   onChange={event => handleNewAgentPromptChange("system", event.target.value)}
-                  rows={8}
                   disabled={newAgent.isSaving}
                 />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="new-agent-user">User prompt</Label>
-                <Textarea
+                <AutoResizeTextarea
                   id="new-agent-user"
                   value={newAgent.userPrompt}
                   onChange={event => handleNewAgentPromptChange("user", event.target.value)}
-                  rows={8}
                   disabled={newAgent.isSaving}
                 />
               </div>
@@ -703,132 +968,202 @@ export default function AiConfigurationPage() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Variables disponibles</CardTitle>
-          <CardDescription>
-            Insérez ces variables dans vos prompts via la syntaxe {"{{variable}}"}.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="grid gap-4 md:grid-cols-2">
-          {sortedVariables.map(variable => (
-            <div key={variable.key} className="rounded-lg border p-4 bg-muted/30">
-              <p className="font-semibold">{variable.key}</p>
-              <p className="text-sm text-muted-foreground">{variable.description}</p>
-              {variable.example && (
-                <p className="text-xs text-muted-foreground mt-2">Exemple : {variable.example}</p>
-              )}
-            </div>
-          ))}
-        </CardContent>
-      </Card>
-
-      <div className="grid gap-6">
+      <div className="space-y-6">
         {isLoading && agents.length === 0 ? (
           <p className="text-muted-foreground">Chargement des agents...</p>
         ) : agents.length === 0 ? (
           <p className="text-muted-foreground">Aucun agent configuré pour le moment.</p>
         ) : (
-          agents.map(agent => (
-            <Card key={agent.id} className="border-primary/10">
-              <CardHeader>
-                <CardTitle>{agent.name}</CardTitle>
-                {agent.description && <CardDescription>{agent.description}</CardDescription>}
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label>Modèle principal</Label>
-                    <select
-                      className="w-full rounded border border-input bg-background px-3 py-2 text-sm"
-                      value={agent.modelConfigIdDraft ?? ''}
-                      onChange={event => handleModelChange(agent.id, "primary", event.target.value)}
+          groupedAgents.map(group => {
+            const isCollapsed = collapsedGroups.has(group.key);
+            return (
+              <Card key={group.key} className={`${group.color.border} ${group.color.bg} border`}>
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <div className="flex-1">
+                      <CardTitle className={`flex items-center gap-3 ${group.color.text}`}>
+                        {group.title}
+                        <span className="text-sm font-normal opacity-70">
+                          ({group.agents.length})
+                        </span>
+                      </CardTitle>
+                      <CardDescription className="mt-1">{group.description}</CardDescription>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => toggleGroup(group.key)}
+                      className="shrink-0"
                     >
-                      <option value="">Aucun</option>
-                      {models.map(model => (
-                        <option key={model.id} value={model.id}>
-                          {model.name} — {model.model}
-                        </option>
-                      ))}
-                    </select>
+                      {isCollapsed ? (
+                        <>
+                          <ChevronDown className="h-4 w-4 mr-1" />
+                          Développer
+                        </>
+                      ) : (
+                        <>
+                          <ChevronUp className="h-4 w-4 mr-1" />
+                          Réduire
+                        </>
+                      )}
+                    </Button>
                   </div>
-                  <div className="space-y-2">
-                    <Label>Modèle de secours</Label>
-                    <select
-                      className="w-full rounded border border-input bg-background px-3 py-2 text-sm"
-                      value={agent.fallbackModelConfigIdDraft ?? ''}
-                      onChange={event => handleModelChange(agent.id, "fallback", event.target.value)}
-                    >
-                      <option value="">Aucun</option>
-                      {models.map(model => (
-                        <option key={model.id} value={model.id}>
-                          {model.name} — {model.model}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
+                </CardHeader>
+                {!isCollapsed && (
+                  <CardContent className="space-y-6">
+                    {group.agents.map(agent => (
+                      <Card key={agent.id} className="border-muted bg-card">
+                        <CardHeader>
+                          <div className="flex items-start justify-between gap-4">
+                            <div className="flex-1">
+                              <CardTitle className="text-lg">{agent.name}</CardTitle>
+                              {agent.description && (
+                                <CardDescription className="mt-1">{agent.description}</CardDescription>
+                              )}
+                            </div>
+                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${group.color.badge} border`}>
+                              {agent.slug}
+                            </span>
+                          </div>
+                        </CardHeader>
+                        <CardContent className="space-y-6">
+                          <div className="grid gap-4 md:grid-cols-2">
+                            <div className="space-y-2">
+                              <Label>Modèle principal</Label>
+                              <select
+                                className="w-full rounded border border-input bg-background px-3 py-2 text-sm"
+                                value={agent.modelConfigIdDraft ?? ''}
+                                onChange={event => handleModelChange(agent.id, "primary", event.target.value)}
+                              >
+                                <option value="">Aucun</option>
+                                {models.map(model => (
+                                  <option key={model.id} value={model.id}>
+                                    {model.name} — {model.model}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                            <div className="space-y-2">
+                              <Label>Modèle de secours</Label>
+                              <select
+                                className="w-full rounded border border-input bg-background px-3 py-2 text-sm"
+                                value={agent.fallbackModelConfigIdDraft ?? ''}
+                                onChange={event => handleModelChange(agent.id, "fallback", event.target.value)}
+                              >
+                                <option value="">Aucun</option>
+                                {models.map(model => (
+                                  <option key={model.id} value={model.id}>
+                                    {model.name} — {model.model}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          </div>
 
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label htmlFor={`system-${agent.id}`}>System prompt</Label>
-                    <Textarea
-                      id={`system-${agent.id}`}
-                      value={agent.systemPromptDraft}
-                      onChange={event => handlePromptChange(agent.id, "system", event.target.value)}
-                      rows={8}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor={`user-${agent.id}`}>User prompt</Label>
-                    <Textarea
-                      id={`user-${agent.id}`}
-                      value={agent.userPromptDraft}
-                      onChange={event => handlePromptChange(agent.id, "user", event.target.value)}
-                      rows={8}
-                    />
-                  </div>
-                </div>
+                          <div className="grid gap-4 md:grid-cols-2">
+                            <div className="space-y-2">
+                              <Label htmlFor={`system-${agent.id}`}>System prompt</Label>
+                              <AutoResizeTextarea
+                                id={`system-${agent.id}`}
+                                value={agent.systemPromptDraft}
+                                onChange={event => handlePromptChange(agent.id, "system", event.target.value)}
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <Label htmlFor={`user-${agent.id}`}>User prompt</Label>
+                              <AutoResizeTextarea
+                                id={`user-${agent.id}`}
+                                value={agent.userPromptDraft}
+                                onChange={event => handlePromptChange(agent.id, "user", event.target.value)}
+                              />
+                            </div>
+                          </div>
 
-                <div className="space-y-3">
-                  <Label>Variables actives</Label>
-                  <div className="flex flex-wrap gap-2">
-                    {sortedVariables.map(variable => {
-                      const isActive = agent.availableVariablesDraft.includes(variable.key);
-                      return (
-                        <button
-                          key={variable.key}
-                          type="button"
-                          onClick={() => handleToggleVariable(agent.id, variable.key)}
-                          className={`px-3 py-1 text-sm rounded-full border transition ${
-                            isActive
-                              ? "bg-primary text-primary-foreground border-primary"
-                              : "bg-muted border-muted-foreground/20"
-                          }`}
-                        >
-                          {variable.key}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
+                          <div className="space-y-3">
+                            <Label>Variables actives</Label>
+                            <div className="flex flex-wrap gap-2">
+                              {(() => {
+                                const agentVariables = getVariablesForAgent(agent.slug, sortedVariables);
+                                return agentVariables.map(variable => {
+                                  const isActive = agent.availableVariablesDraft.includes(variable.key);
+                                  return (
+                                    <button
+                                      key={variable.key}
+                                      type="button"
+                                      onClick={() => handleToggleVariable(agent.id, variable.key)}
+                                      className={`px-3 py-1 text-sm rounded-full border transition ${
+                                        isActive
+                                          ? "bg-primary text-primary-foreground border-primary"
+                                          : "bg-muted border-muted-foreground/20"
+                                      }`}
+                                    >
+                                      {variable.key}
+                                    </button>
+                                  );
+                                });
+                              })()}
+                            </div>
+                          </div>
 
-                {agent.saveError && (
-                  <p className="text-sm text-destructive">{agent.saveError}</p>
+                          <div className="space-y-3">
+                            <Label>Variables disponibles</Label>
+                            <CardDescription className="text-xs mb-2">
+                              Variables pertinentes pour cet agent. Insérez-les dans vos prompts via la syntaxe {"{{variable}}"}.
+                            </CardDescription>
+                            <div className="grid gap-3 md:grid-cols-2">
+                              {(() => {
+                                const agentVariables = getVariablesForAgent(agent.slug, sortedVariables);
+                                return agentVariables.map(variable => (
+                                  <div key={variable.key} className="rounded-lg border p-3 bg-muted/30">
+                                    <p className="font-semibold text-sm">{variable.key}</p>
+                                    <p className="text-xs text-muted-foreground mt-1">{variable.description}</p>
+                                    {variable.example && (
+                                      <p className="text-xs text-muted-foreground mt-1">Exemple : {variable.example}</p>
+                                    )}
+                                  </div>
+                                ));
+                              })()}
+                            </div>
+                          </div>
+
+                          {agent.saveError && (
+                            <p className="text-sm text-destructive">{agent.saveError}</p>
+                          )}
+                          {agent.saveSuccess && (
+                            <p className="text-sm text-emerald-600">Modifications enregistrées.</p>
+                          )}
+
+                          <div className="flex gap-2">
+                            <Button
+                              onClick={() => handleSaveAgent(agent.id)}
+                              disabled={agent.isSaving}
+                            >
+                              {agent.isSaving ? 'Enregistrement...' : 'Enregistrer'}
+                            </Button>
+                            <Button
+                              variant="outline"
+                              onClick={() => setTestModeAgentId(agent.id === testModeAgentId ? null : agent.id)}
+                            >
+                              <TestTube2 className="h-4 w-4 mr-2" />
+                              {testModeAgentId === agent.id ? 'Masquer' : 'Mode test'}
+                            </Button>
+                          </div>
+
+                          {testModeAgentId === agent.id && (
+                            <AgentTestMode
+                              agentId={agent.id}
+                              agentSlug={agent.slug}
+                              onClose={() => setTestModeAgentId(null)}
+                            />
+                          )}
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </CardContent>
                 )}
-                {agent.saveSuccess && (
-                  <p className="text-sm text-emerald-600">Modifications enregistrées.</p>
-                )}
-
-                <Button
-                  onClick={() => handleSaveAgent(agent.id)}
-                  disabled={agent.isSaving}
-                >
-                  {agent.isSaving ? 'Enregistrement...' : 'Enregistrer'}
-                </Button>
-              </CardContent>
-            </Card>
-          ))
+              </Card>
+            );
+          })
         )}
       </div>
       </div>
