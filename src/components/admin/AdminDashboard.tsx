@@ -1933,16 +1933,14 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
     return sorted;
   }, [users, selectedClientId, selectedProjectId, selectedProject]);
 
-  const normalizedRole = useMemo(() => {
-    const rawRole =
-      profile?.role ??
-      user?.profile?.role ??
-      user?.role ??
-      "";
-    return rawRole.toLowerCase();
-  }, [profile?.role, user?.profile?.role, user?.role]);
+  // Stabilize profile values to avoid unnecessary re-renders
+  const profileRole = profile?.role ?? user?.profile?.role ?? user?.role ?? "";
+  const profileIsActive = profile?.isActive ?? user?.profile?.isActive ?? true;
+  const hasProfile = !!profile || !!user?.profile;
 
-  const isProfileActive = profile?.isActive ?? user?.profile?.isActive ?? true;
+  const normalizedRole = useMemo(() => {
+    return profileRole.toLowerCase();
+  }, [profileRole]);
 
   const accessState = useMemo<"checking" | "signed-out" | "inactive" | "forbidden" | "profile-missing" | "granted">(() => {
     if (status === "loading") {
@@ -1954,7 +1952,7 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
     }
 
     // Check if profile is missing (user is signed in but profile wasn't loaded)
-    if (status === "signed-in" && !profile && !user?.profile) {
+    if (status === "signed-in" && !hasProfile) {
       return "profile-missing";
     }
 
@@ -1967,16 +1965,16 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
       return "forbidden";
     }
 
-    if (!isProfileActive) {
+    if (!profileIsActive) {
       return "inactive";
     }
 
     return "granted";
-  }, [status, normalizedRole, isProfileActive, profile, user?.profile]);
+  }, [status, normalizedRole, profileIsActive, hasProfile]);
 
   // Filter users based on role for search
   // Use profile.id and profile.role instead of profile object to avoid unnecessary recalculations
-  const profileRole = profile?.role?.toLowerCase() ?? user?.profile?.role?.toLowerCase() ?? "";
+  const profileRoleLower = normalizedRole; // Use normalizedRole which is already lowercase
   const profileClientId = profile?.clientId ?? user?.profile?.clientId ?? null;
   
   const availableUsersForSearch = useMemo(() => {
@@ -1985,18 +1983,18 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
     }
     
     // Full admins see all users
-    if (profileRole === "full_admin") {
+    if (profileRoleLower === "full_admin") {
       return users;
     }
     
     // Project admins, facilitators, managers see only users from their client
-    if (["project_admin", "facilitator", "manager"].includes(profileRole)) {
+    if (["project_admin", "facilitator", "manager"].includes(profileRoleLower)) {
       if (!profileClientId) return [];
       return users.filter(user => user.clientId === profileClientId);
     }
     
     return [];
-  }, [users, profileRole, profileClientId]);
+  }, [users, profileRoleLower, profileClientId]);
 
   // Check if we're in dev mode
   const isDevMode = useMemo(() => {
@@ -2023,6 +2021,16 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
     }
   }, [accessState, router, isDevMode]);
 
+  // All hooks must be called before any conditional returns
+  // Calculate values that depend on filteredUsers and other data
+  const viewingClientId = selectedClientId ?? selectedProject?.clientId ?? null;
+  const activeUserCount = useMemo(
+    () => filteredUsers.filter(user => user.isActive).length,
+    [filteredUsers]
+  );
+  const inactiveUserCount = filteredUsers.length - activeUserCount;
+
+  // Now we can do conditional returns
   if (accessState === "checking") {
     return (
       <div className="flex h-screen items-center justify-center">
@@ -2091,13 +2099,7 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
     );
   }
 
-  const viewingClientId = selectedClientId ?? selectedProject?.clientId ?? null;
-
-  const activeUserCount = useMemo(
-    () => filteredUsers.filter(user => user.isActive).length,
-    [filteredUsers]
-  );
-  const inactiveUserCount = filteredUsers.length - activeUserCount;
+  // Continue with the rest of the component (hooks are already called above)
   const renderChallengeWorkspace = (): JSX.Element => (
     <div
       ref={challengesRef}
