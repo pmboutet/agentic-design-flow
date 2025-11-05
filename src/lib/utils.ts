@@ -327,3 +327,29 @@ export function getAudienceDescription(audience: string | undefined, responseMod
   }
   return scope;
 }
+
+/**
+ * Check if an error is a permission denied error from Supabase
+ */
+export function isPermissionDenied(error: unknown): boolean {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  // Check for PostgrestError with code PGRST301 (permission denied)
+  if ("code" in error && error.code === "PGRST301") {
+    return true;
+  }
+
+  // Check for message containing permission denied
+  if ("message" in error && typeof error.message === "string") {
+    const message = error.message.toLowerCase();
+    return (
+      message.includes("permission denied") ||
+      message.includes("new row violates row-level security policy") ||
+      message.includes("row-level security policy violation")
+    );
+  }
+
+  return false;
+}

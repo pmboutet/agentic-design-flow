@@ -8,7 +8,7 @@ import { ChatComponent } from "@/components/chat/ChatComponent";
 import { InsightPanel } from "@/components/insight/InsightPanel";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { SessionData, Ask, Message, Insight, ApiResponse } from "@/types";
+import { SessionData, Ask, Message, Insight, Challenge, ApiResponse } from "@/types";
 import {
   validateAskKey,
   parseErrorMessage,
@@ -291,21 +291,45 @@ export default function HomePage() {
 
   // Initialize session from URL parameters
   useEffect(() => {
-    // Try multiple ways to get the key
+    // Try multiple ways to get the key or token
     const keyFromSearchParams = searchParams.get('key');
+    const tokenFromSearchParams = searchParams.get('token');
     const keyFromURL = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('key') : null;
+    const tokenFromURL = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('token') : null;
+    
     const key = keyFromSearchParams || keyFromURL;
+    const token = tokenFromSearchParams || tokenFromURL;
     
     console.log('🔍 Debug - Key from searchParams:', keyFromSearchParams);
-    console.log('🔍 Debug - Key from window.location:', keyFromURL);
+    console.log('🔍 Debug - Token from searchParams:', tokenFromSearchParams);
     console.log('🔍 Debug - Final key:', key);
+    console.log('🔍 Debug - Final token:', token);
     console.log('🔍 Debug - All search params:', Object.fromEntries(searchParams.entries()));
     console.log('🔍 Debug - Window location:', typeof window !== 'undefined' ? window.location.href : 'undefined');
+    
+    // If we have a token, use it; otherwise use key
+    if (token) {
+      // Token-based link (unique per participant)
+      setSessionData(prev => ({
+        ...prev,
+        askKey: token, // Store token as askKey for now, but we'll use a different endpoint
+        ask: null,
+        messages: [],
+        insights: [],
+        challenges: [],
+        isLoading: true,
+        error: null
+      }));
+      hasPostedMessageSinceRefreshRef.current = false;
+      // Load session data using token endpoint
+      loadSessionDataByToken(token);
+      return;
+    }
     
     if (!key) {
       setSessionData(prev => ({
         ...prev,
-        error: 'No ASK key provided in URL. Please use a valid ASK link.'
+        error: 'No ASK key or token provided in URL. Please use a valid ASK link.'
       }));
       return;
     }
@@ -355,6 +379,58 @@ export default function HomePage() {
   }, [awaitingAiResponse, cancelResponseTimer, scheduleResponseTimer, cancelInsightDetectionTimer, scheduleInsightDetection]);
 
   // Load session data from external backend via API
+  const loadSessionDataByToken = async (token: string) => {
+    try {
+      setSessionData(prev => ({
+        ...prev,
+        isLoading: true,
+        error: null,
+      }));
+
+      const response = await fetch(`/api/ask/token/${encodeURIComponent(token)}`);
+      const data: ApiResponse<{ ask: Ask; messages: Message[]; insights: Insight[]; challenges?: Challenge[] }> = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to load session data from token');
+      }
+
+      const hasPersistedMessages = (data.data?.messages ?? []).length > 0;
+      hasPostedMessageSinceRefreshRef.current = hasPersistedMessages;
+
+      setSessionData(prev => {
+        const messagesWithClientIds = (data.data?.messages ?? []).map(message => {
+          const existing = prev.messages.find(prevMessage => prevMessage.id === message.id);
+          return {
+            ...message,
+            clientId: existing?.clientId ?? message.clientId ?? message.id,
+          };
+        });
+
+        // Update askKey to the actual ask key from the response
+        const actualAskKey = data.data?.ask?.key || token;
+
+        return {
+          ...prev,
+          askKey: actualAskKey,
+          ask: data.data!.ask,
+          messages: messagesWithClientIds,
+          insights: data.data?.insights ?? [],
+          challenges: data.data?.challenges ?? [],
+          isLoading: false,
+          error: null,
+        };
+      });
+
+    } catch (error) {
+      console.error('Error loading session data by token:', error);
+      setSessionData(prev => ({
+        ...prev,
+        isLoading: false,
+        error: parseErrorMessage(error)
+      }));
+    }
+  };
+
   const loadSessionData = async (key: string) => {
     try {
       console.log('🔍 Debug - loadSessionData called with key:', key);

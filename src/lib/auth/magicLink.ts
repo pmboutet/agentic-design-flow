@@ -1,17 +1,43 @@
 /**
+ * Gets the base URL for magic links, preferring local development over production
+ */
+function getBaseUrl(): string {
+  // In development, prefer localhost
+  if (process.env.NODE_ENV === 'development' || process.env.NEXT_PUBLIC_APP_URL) {
+    return process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+  }
+  
+  // In production, use NEXT_PUBLIC_SITE_URL if set, otherwise fallback
+  if (process.env.NEXT_PUBLIC_SITE_URL) {
+    return process.env.NEXT_PUBLIC_SITE_URL;
+  }
+  
+  // Fallback to localhost for safety
+  return 'http://localhost:3000';
+}
+
+/**
  * Generates a magic link URL for a participant without sending an email.
  * This can be used to display links that admins can copy/paste.
  * 
- * @param email - Email address for the participant
+ * @param email - Email address for the participant (optional, for display purposes)
  * @param askKey - Ask session key for the redirect URL
+ * @param participantToken - Optional unique token for the participant (if provided, uses token instead of key)
  * @returns The magic link URL
  */
-export function generateMagicLinkUrl(email: string, askKey: string): string {
-  const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 
-                  (process.env.NEXT_PUBLIC_SUPABASE_URL?.includes('http') 
-                    ? new URL(process.env.NEXT_PUBLIC_SUPABASE_URL).origin.replace(/\.supabase\.co$/, '')
-                    : null) || 
-                  'http://localhost:3000';
+export function generateMagicLinkUrl(
+  email: string, 
+  askKey: string, 
+  participantToken?: string
+): string {
+  const baseUrl = getBaseUrl();
+  
+  // If we have a participant token, use it for a unique link per participant
+  if (participantToken) {
+    return `${baseUrl}/?token=${participantToken}`;
+  }
+  
+  // Otherwise, use the askKey (backward compatible)
   return `${baseUrl}/?key=${askKey}`;
 }
 
@@ -27,14 +53,15 @@ export function generateMagicLinkUrl(email: string, askKey: string): string {
 export async function sendMagicLink(
   email: string,
   askKey: string,
-  projectId?: string
+  projectId?: string,
+  participantToken?: string
 ): Promise<{ success: boolean; error?: string }> {
   try {
     const normalizedEmail = email.toLowerCase().trim();
 
     // Build the redirect URL - Supabase will redirect here after user clicks magic link
     // The user will be authenticated automatically by Supabase
-    const redirectUrl = generateMagicLinkUrl(normalizedEmail, askKey);
+    const redirectUrl = generateMagicLinkUrl(normalizedEmail, askKey, participantToken);
 
     // Create a client with anon key for sending OTP
     // This will send a magic link email via Supabase's built-in email service

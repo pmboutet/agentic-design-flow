@@ -10,6 +10,7 @@ export interface AskParticipant {
   role?: string | null;
   isSpokesperson?: boolean;
   isActive: boolean;
+  inviteToken?: string | null;
 }
 
 export interface Ask {

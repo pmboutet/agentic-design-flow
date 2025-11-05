@@ -5,7 +5,7 @@ import { parseErrorMessage } from "@/lib/utils";
 import { sendMagicLink } from "@/lib/auth/magicLink";
 import { type ApiResponse } from "@/types";
 
-const askSelect = "*, projects(name), ask_participants(id, user_id, role, participant_name, participant_email, is_spokesperson)";
+const askSelect = "*, projects(name), ask_participants(id, user_id, role, participant_name, participant_email, is_spokesperson, invite_token)";
 
 export async function POST(
   request: NextRequest,
@@ -42,6 +42,7 @@ export async function POST(
       participant_name: string | null;
       participant_email: string | null;
       is_spokesperson: boolean | null;
+      invite_token: string | null;
     };
     
     const userIds = (ask.ask_participants as Participant[] | null | undefined)
@@ -79,7 +80,9 @@ export async function POST(
         }
 
         if (email) {
-          const result = await sendMagicLink(email, ask.ask_key, ask.project_id);
+          // Use participant token if available, otherwise fall back to askKey
+          const participantToken = participant.invite_token || undefined;
+          const result = await sendMagicLink(email, ask.ask_key, ask.project_id, participantToken);
           if (result.success) {
             sentEmails.push(email);
           } else {

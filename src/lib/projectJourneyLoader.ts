@@ -343,7 +343,7 @@ export async function fetchProjectJourneyContext(
       ? supabase
       .from("ask_participants")
       .select(
-        "id, ask_session_id, user_id, participant_name, participant_email, role, is_spokesperson, profiles(id, full_name, email, role, job_title)",
+        "id, ask_session_id, user_id, participant_name, participant_email, role, is_spokesperson, invite_token, profiles(id, full_name, email, role, job_title)",
       )
       .in("ask_session_id", askIds)
       : Promise.resolve({ data: [], error: null }),

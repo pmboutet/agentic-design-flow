@@ -356,10 +356,17 @@ function AskDetailDialog({ ask, projectName, challengeName, onClose }: AskDetail
   const [copiedLinks, setCopiedLinks] = useState<Set<string>>(new Set());
 
   // Dynamically import to avoid SSR issues
-  const generateMagicLinkUrl = (email: string, askKey: string): string => {
+  const generateMagicLinkUrl = (email: string, askKey: string, participantToken?: string | null): string => {
     const baseUrl = typeof window !== "undefined" 
-      ? window.location.origin 
-      : process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
+      ? (process.env.NEXT_PUBLIC_APP_URL || window.location.origin)
+      : process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
+    
+    // If we have a participant token, use it for a unique link per participant
+    if (participantToken) {
+      return `${baseUrl}/?token=${participantToken}`;
+    }
+    
+    // Otherwise, use the askKey (backward compatible)
     return `${baseUrl}/?key=${askKey}`;
   };
 
@@ -564,7 +571,9 @@ function AskDetailDialog({ ask, projectName, challengeName, onClose }: AskDetail
                   <div className="mt-2 space-y-3">
                     {ask.participants.map(participant => {
                       const participantEmail = participant.email;
-                      const magicLink = participantEmail ? generateMagicLinkUrl(participantEmail, ask.askKey) : null;
+                      const magicLink = participantEmail 
+                        ? generateMagicLinkUrl(participantEmail, ask.askKey, participant.inviteToken) 
+                        : (participant.inviteToken ? generateMagicLinkUrl("", ask.askKey, participant.inviteToken) : null);
                       const isCopied = copiedLinks.has(participant.id);
                       
                       return (
@@ -2897,8 +2906,13 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                               if (!user) return null;
                               const email = user.email;
                               const askKey = askForm.watch("askKey");
-                              const magicLink = email && askKey 
-                                ? `${typeof window !== "undefined" ? window.location.origin : ""}/?key=${askKey}`
+                              // Note: For new participants being added, we don't have invite_token yet
+                              // It will be generated when they're saved to the database
+                              const baseUrl = typeof window !== "undefined" 
+                                ? (process.env.NEXT_PUBLIC_APP_URL || window.location.origin)
+                                : process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+                              const magicLink = askKey 
+                                ? `${baseUrl}/?key=${askKey}`
                                 : null;
                               const isCopied = copiedLinks.has(participantId);
                               
@@ -2952,8 +2966,13 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                             {/* Participants from emails */}
                             {participantEmails.length > 0 && participantEmails.map((email, index) => {
                               const askKey = askForm.watch("askKey");
+                              // Note: For new email participants being added, we don't have invite_token yet
+                              // It will be generated when they're saved to the database
+                              const baseUrl = typeof window !== "undefined" 
+                                ? (process.env.NEXT_PUBLIC_APP_URL || window.location.origin)
+                                : process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
                               const magicLink = askKey 
-                                ? `${typeof window !== "undefined" ? window.location.origin : ""}/?key=${askKey}`
+                                ? `${baseUrl}/?key=${askKey}`
                                 : null;
                               const emailKey = `email-${index}`;
                               const isCopied = copiedLinks.has(emailKey);

@@ -1864,18 +1864,27 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
 
   // All hooks must be called before any early returns to avoid React error #310
   const availableUsers = boardData?.availableUsers ?? [];
-  const inviteLinkBase = useMemo(() => {
-    const askKey = askFormValues.askKey?.trim();
+  const generateInviteLink = useCallback((participantId: string, askKey: string): string | null => {
     if (!askKey) {
       return null;
     }
-    const origin =
-      typeof window !== "undefined" && window?.location?.origin
-        ? window.location.origin
-        : process.env.NEXT_PUBLIC_APP_URL ?? "";
-    const base = origin || "";
-    return `${base}/?key=${askKey}`;
-  }, [askFormValues.askKey]);
+    
+    // Try to get the participant token from the editing record
+    const participant = editingAskRecord?.participants?.find(p => p.id === participantId);
+    const participantToken = participant?.inviteToken;
+    
+    const baseUrl = typeof window !== "undefined" 
+      ? (process.env.NEXT_PUBLIC_APP_URL || window.location.origin)
+      : process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+    
+    // If we have a participant token, use it for a unique link per participant
+    if (participantToken) {
+      return `${baseUrl}/?token=${participantToken}`;
+    }
+    
+    // Otherwise, use the askKey (backward compatible)
+    return `${baseUrl}/?key=${askKey}`;
+  }, [editingAskRecord]);
 
   const inviteParticipants = useMemo(() => {
     if (!isEditingAsk || !editingAskId || !boardData) {
@@ -3811,7 +3820,7 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
                           </p>
                         ) : (
                           inviteParticipants.map(participant => {
-                            const link = inviteLinkBase;
+                            const link = generateInviteLink(participant.id, askFormValues.askKey || "");
                             const isCopied = copiedInviteLinks.has(participant.id);
 
                             return (
