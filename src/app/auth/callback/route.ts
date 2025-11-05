@@ -11,7 +11,23 @@ export async function GET(request: NextRequest) {
   const requestUrl = new URL(request.url)
   const code = requestUrl.searchParams.get('code')
   const nextParam = requestUrl.searchParams.get('next')
+  const redirectTo = requestUrl.searchParams.get('redirect_to') || nextParam
   const error_description = requestUrl.searchParams.get('error_description')
+  
+  // Extract askKey from redirect URL (format: /?key=ASK_KEY)
+  let askKey: string | null = null
+  if (redirectTo) {
+    try {
+      const redirectUrl = new URL(redirectTo, requestUrl.origin)
+      askKey = redirectUrl.searchParams.get('key')
+    } catch {
+      // If redirectTo is not a full URL, try parsing it as a path with query
+      const keyMatch = redirectTo.match(/[?&]key=([^&]+)/)
+      if (keyMatch) {
+        askKey = keyMatch[1]
+      }
+    }
+  }
 
   // Handle OAuth errors
   if (error_description) {
@@ -56,6 +72,11 @@ export async function GET(request: NextRequest) {
         new URL(`/auth/login?error=${encodeURIComponent(error.message)}`, request.url)
       )
     }
+  }
+
+  // Priority: If askKey is present, redirect to ask session page
+  if (askKey) {
+    return NextResponse.redirect(new URL(`/?key=${askKey}`, requestUrl.origin))
   }
 
   const fallbackDestination = '/admin'

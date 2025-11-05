@@ -4,6 +4,8 @@ import { createServerSupabaseClient, requireAdmin } from "@/lib/supabaseServer";
 import { sanitizeOptional, sanitizeText } from "@/lib/sanitize";
 import { parseErrorMessage } from "@/lib/utils";
 import { type ApiResponse, type AskSessionRecord } from "@/types";
+import { ensureProfileExists } from "@/lib/profiles";
+import { sendMagicLink } from "@/lib/auth/magicLink";
 
 const statusValues = ["active", "inactive", "draft", "closed"] as const;
 const deliveryModes = ["physical", "digital"] as const;
@@ -30,7 +32,9 @@ const askSchema = z.object({
   audienceScope: z.enum(audienceScopes),
   responseMode: z.enum(responseModes),
   participantIds: z.array(z.string().uuid()).default([]),
-  spokespersonId: z.string().uuid().optional().or(z.literal(""))
+  participantEmails: z.array(z.string().email()).default([]),
+  spokespersonId: z.string().uuid().optional().or(z.literal("")),
+  spokespersonEmail: z.string().email().optional().or(z.literal(""))
 });
 
 function mapAsk(row: any): AskSessionRecord {
@@ -162,17 +166,72 @@ export async function POST(request: NextRequest) {
 
     console.log('✅ ASK created successfully:', data);
 
-    if (payload.participantIds.length > 0) {
-      const spokespersonId = payload.spokespersonId && payload.spokespersonId !== "" ? payload.spokespersonId : null;
-      const participantsPayload = payload.participantIds.map(userId => ({
-        ask_session_id: data.id,
-        user_id: userId,
-        role: spokespersonId && userId === spokespersonId ? "spokesperson" : "participant",
-      }));
+    // Process participants from user IDs
+    const participantRecords: Array<{
+      ask_session_id: string;
+      user_id?: string;
+      participant_email?: string;
+      role: string;
+    }> = [];
 
+    // Determine spokesperson ID/email
+    const spokespersonId = payload.spokespersonId && payload.spokespersonId !== "" ? payload.spokespersonId : null;
+    const spokespersonEmail = payload.spokespersonEmail && payload.spokespersonEmail !== "" ? payload.spokespersonEmail.toLowerCase().trim() : null;
+
+    // Add participants from user IDs
+    if (payload.participantIds.length > 0) {
+      for (const userId of payload.participantIds) {
+        participantRecords.push({
+          ask_session_id: data.id,
+          user_id: userId,
+          role: spokespersonId && userId === spokespersonId ? "spokesperson" : "participant",
+        });
+      }
+    }
+
+    // Process participants from email addresses
+    const emailParticipants: Array<{ email: string; profileId?: string }> = [];
+    
+    if (payload.participantEmails.length > 0) {
+      for (const email of payload.participantEmails) {
+        const normalizedEmail = email.toLowerCase().trim();
+        
+        try {
+          // Ensure profile exists and is added to project
+          const profileId = await ensureProfileExists(normalizedEmail, payload.projectId);
+          
+          // Check if profile already added (from participantIds)
+          const alreadyAdded = participantRecords.some(p => p.user_id === profileId);
+          
+          if (!alreadyAdded) {
+            participantRecords.push({
+              ask_session_id: data.id,
+              user_id: profileId,
+              participant_email: normalizedEmail,
+              role: spokespersonEmail && normalizedEmail === spokespersonEmail ? "spokesperson" : "participant",
+            });
+            
+            emailParticipants.push({ email: normalizedEmail, profileId });
+          }
+        } catch (error) {
+          console.error(`Failed to create profile for ${normalizedEmail}:`, error);
+          // Continue with other emails even if one fails
+          // Still add as email-only participant
+          participantRecords.push({
+            ask_session_id: data.id,
+            participant_email: normalizedEmail,
+            role: spokespersonEmail && normalizedEmail === spokespersonEmail ? "spokesperson" : "participant",
+          });
+          emailParticipants.push({ email: normalizedEmail });
+        }
+      }
+    }
+
+    // Insert all participants
+    if (participantRecords.length > 0) {
       const { error: participantError } = await supabase
         .from("ask_participants")
-        .insert(participantsPayload);
+        .insert(participantRecords);
 
       if (participantError) {
         throw participantError;

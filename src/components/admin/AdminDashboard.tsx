@@ -21,7 +21,10 @@ import {
   Settings,
   Target,
   Users,
-  X
+  X,
+  Mail,
+  Copy,
+  Check
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -102,7 +105,9 @@ const askFormSchema = z.object({
   audienceScope: z.enum(audienceScopes),
   responseMode: z.enum(responseModes),
   participantIds: z.array(z.string().uuid()).default([]),
-  spokespersonId: z.string().uuid().optional().or(z.literal(""))
+  participantEmails: z.array(z.string().email()).default([]),
+  spokespersonId: z.string().uuid().optional().or(z.literal("")),
+  spokespersonEmail: z.string().email().optional().or(z.literal(""))
 });
 
 const userRoles = ["full_admin", "admin", "moderator", "facilitator", "participant", "sponsor", "observer", "guest"] as const;
@@ -163,7 +168,9 @@ const defaultAskFormValues: AskFormInput = {
   audienceScope: "individual",
   responseMode: "collective",
   participantIds: [],
-  spokespersonId: ""
+  participantEmails: [],
+  spokespersonId: "",
+  spokespersonEmail: ""
 };
 
 const defaultUserFormValues: UserFormInput = {
@@ -344,6 +351,69 @@ interface AskDetailDialogProps {
 }
 
 function AskDetailDialog({ ask, projectName, challengeName, onClose }: AskDetailDialogProps) {
+  const [isSendingInvites, setIsSendingInvites] = useState(false);
+  const [sendInvitesResult, setSendInvitesResult] = useState<{ sent: number; failed: number } | null>(null);
+  const [copiedLinks, setCopiedLinks] = useState<Set<string>>(new Set());
+
+  // Dynamically import to avoid SSR issues
+  const generateMagicLinkUrl = (email: string, askKey: string): string => {
+    const baseUrl = typeof window !== "undefined" 
+      ? window.location.origin 
+      : process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
+    return `${baseUrl}/?key=${askKey}`;
+  };
+
+  const handleSendInvites = async () => {
+    if (!ask) return;
+    
+    setIsSendingInvites(true);
+    setSendInvitesResult(null);
+    
+    try {
+      const response = await fetch(`/api/admin/asks/${ask.id}/send-invites`, {
+        method: "POST",
+      });
+      
+      const data = await response.json();
+      
+      if (data.success) {
+        setSendInvitesResult({
+          sent: data.data.sent,
+          failed: data.data.failed,
+        });
+      } else {
+        setSendInvitesResult({
+          sent: 0,
+          failed: ask.participants?.length || 0,
+        });
+      }
+    } catch (error) {
+      console.error("Failed to send invites:", error);
+      setSendInvitesResult({
+        sent: 0,
+        failed: ask.participants?.length || 0,
+      });
+    } finally {
+      setIsSendingInvites(false);
+    }
+  };
+
+  const copyToClipboard = async (text: string, participantId: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedLinks(prev => new Set([...prev, participantId]));
+      setTimeout(() => {
+        setCopiedLinks(prev => {
+          const next = new Set(prev);
+          next.delete(participantId);
+          return next;
+        });
+      }, 2000);
+    } catch (error) {
+      console.error("Failed to copy:", error);
+    }
+  };
+
   return (
     <Dialog.Root open={Boolean(ask)} onOpenChange={open => { if (!open) onClose(); }}>
       <Dialog.Portal>
@@ -451,18 +521,92 @@ function AskDetailDialog({ ask, projectName, challengeName, onClose }: AskDetail
               </div>
 
               <div className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-200">
-                <p className="text-xs uppercase tracking-wide text-slate-400">Participants</p>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-xs uppercase tracking-wide text-slate-400">Participants</p>
+                  {ask.participants && ask.participants.length > 0 && (
+                    <Button
+                      type="button"
+                      variant="glassDark"
+                      size="sm"
+                      onClick={handleSendInvites}
+                      disabled={isSendingInvites}
+                      className="h-8 px-3 text-xs"
+                    >
+                      {isSendingInvites ? (
+                        <>
+                          <Loader2 className="h-3 w-3 mr-2 animate-spin" />
+                          Sending...
+                        </>
+                      ) : (
+                        <>
+                          <Mail className="h-3 w-3 mr-2" />
+                          Send Invites
+                        </>
+                      )}
+                    </Button>
+                  )}
+                </div>
+                {sendInvitesResult && (
+                  <div className={`mb-3 rounded-lg p-2 text-xs ${
+                    sendInvitesResult.failed === 0 
+                      ? "bg-green-500/20 text-green-200" 
+                      : "bg-amber-500/20 text-amber-200"
+                  }`}>
+                    {sendInvitesResult.sent > 0 && (
+                      <p>✓ Sent {sendInvitesResult.sent} invite{sendInvitesResult.sent !== 1 ? "s" : ""}</p>
+                    )}
+                    {sendInvitesResult.failed > 0 && (
+                      <p>⚠ Failed to send {sendInvitesResult.failed} invite{sendInvitesResult.failed !== 1 ? "s" : ""}</p>
+                    )}
+                  </div>
+                )}
                 {ask.participants && ask.participants.length > 0 ? (
-                  <ul className="mt-2 space-y-2">
-                    {ask.participants.map(participant => (
-                      <li key={participant.id} className="flex items-center justify-between gap-3">
-                        <span>{participant.name}</span>
-                        <span className="text-xs text-slate-400">
-                          {participant.isSpokesperson ? "Spokesperson" : participant.role || "Participant"}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
+                  <div className="mt-2 space-y-3">
+                    {ask.participants.map(participant => {
+                      const participantEmail = participant.email;
+                      const magicLink = participantEmail ? generateMagicLinkUrl(participantEmail, ask.askKey) : null;
+                      const isCopied = copiedLinks.has(participant.id);
+                      
+                      return (
+                        <div key={participant.id} className="rounded-lg border border-white/10 bg-slate-900/40 p-3">
+                          <div className="flex items-center justify-between gap-3 mb-2">
+                            <div>
+                              <p className="font-medium text-white">{participant.name}</p>
+                              {participantEmail && (
+                                <p className="text-xs text-slate-400">{participantEmail}</p>
+                              )}
+                            </div>
+                            <span className="text-xs text-slate-400">
+                              {participant.isSpokesperson ? "Spokesperson" : participant.role || "Participant"}
+                            </span>
+                          </div>
+                          {magicLink && (
+                            <div className="mt-2 flex items-center gap-2">
+                              <input
+                                type="text"
+                                readOnly
+                                value={magicLink}
+                                className="flex-1 rounded-lg border border-white/10 bg-slate-900/60 px-3 py-1.5 text-xs text-slate-200 font-mono"
+                                onClick={(e) => (e.target as HTMLInputElement).select()}
+                              />
+                              <button
+                                type="button"
+                                onClick={() => copyToClipboard(magicLink, participant.id)}
+                                className="rounded-lg border border-white/10 bg-slate-900/60 p-1.5 text-slate-300 hover:bg-slate-800/60 hover:text-white transition-colors"
+                                title="Copy link"
+                              >
+                                {isCopied ? (
+                                  <Check className="h-4 w-4 text-green-400" />
+                                ) : (
+                                  <Copy className="h-4 w-4" />
+                                )}
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
                 ) : (
                   <p className="mt-2 text-xs text-slate-400">No participants assigned yet.</p>
                 )}
@@ -640,6 +784,9 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
   const selectedAudience = askForm.watch("audienceScope");
   const selectedParticipants = askForm.watch("participantIds");
   const selectedSpokesperson = askForm.watch("spokespersonId");
+  const participantEmails = askForm.watch("participantEmails") ?? [];
+  const [emailInput, setEmailInput] = useState("");
+  const [copiedLinks, setCopiedLinks] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (initialProjectId) {
@@ -1619,7 +1766,9 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
       audienceScope: values.audienceScope,
       responseMode: values.responseMode,
       participantIds: values.participantIds ?? [],
-      spokespersonId: values.spokespersonId ?? ""
+      participantEmails: values.participantEmails ?? [],
+      spokespersonId: values.spokespersonId ?? "",
+      spokespersonEmail: values.spokespersonEmail ?? ""
     };
 
     if (editingAskId) {
@@ -1671,7 +1820,9 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
         (session.participants && session.participants.length > 1 ? "group" : "individual"),
       responseMode: session.responseMode ?? "collective",
       participantIds: session.participants?.map(participant => participant.id).filter((value): value is string => Boolean(value)) ?? [],
-      spokespersonId: session.participants?.find(participant => participant.isSpokesperson)?.id ?? ""
+      participantEmails: session.participants?.filter(participant => !participant.id && participant.email).map(participant => participant.email!).filter(Boolean) ?? [],
+      spokespersonId: session.participants?.find(participant => participant.isSpokesperson && participant.id)?.id ?? "",
+      spokespersonEmail: session.participants?.find(participant => participant.isSpokesperson && participant.email && !participant.id)?.email ?? ""
     });
   };
 
@@ -2110,9 +2261,6 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
     >
       <header className="flex flex-col gap-1">
         <h3 className="text-lg font-semibold text-white">Challenges & ASK sessions</h3>
-        <p className="text-xs text-slate-400">
-          Select a challenge to update it and orchestrate new ASK conversations.
-        </p>
       </header>
 
 
@@ -2567,9 +2715,81 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                             })
                           )}
                         </div>
+
+                        <div className="space-y-2 rounded-xl border border-white/10 bg-slate-900/40 p-3">
+                          <Label className="text-sm">Add participants by email</Label>
+                          <p className="text-xs text-slate-400">
+                            Add email addresses to invite participants who don't have accounts yet. They will receive a magic link to join.
+                          </p>
+                          <div className="flex gap-2">
+                            <Input
+                              type="email"
+                              placeholder="participant@example.com"
+                              value={emailInput}
+                              onChange={(e) => setEmailInput(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" && emailInput.trim()) {
+                                  e.preventDefault();
+                                  const email = emailInput.trim().toLowerCase();
+                                  if (email && !participantEmails.includes(email)) {
+                                    const current = askForm.getValues("participantEmails") ?? [];
+                                    askForm.setValue("participantEmails", [...current, email], { shouldDirty: true });
+                                    setEmailInput("");
+                                  }
+                                }
+                              }}
+                              disabled={isBusy}
+                              className="flex-1"
+                            />
+                            <Button
+                              type="button"
+                              variant="glassDark"
+                              onClick={() => {
+                                if (emailInput.trim()) {
+                                  const email = emailInput.trim().toLowerCase();
+                                  if (email && !participantEmails.includes(email)) {
+                                    const current = askForm.getValues("participantEmails") ?? [];
+                                    askForm.setValue("participantEmails", [...current, email], { shouldDirty: true });
+                                    setEmailInput("");
+                                  }
+                                }
+                              }}
+                              disabled={isBusy || !emailInput.trim()}
+                            >
+                              Add
+                            </Button>
+                          </div>
+                          {participantEmails.length > 0 && (
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              {participantEmails.map((email, index) => (
+                                <span
+                                  key={index}
+                                  className="flex items-center gap-2 rounded-full bg-indigo-500/20 px-3 py-1 text-xs text-indigo-200"
+                                >
+                                  {email}
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const current = askForm.getValues("participantEmails") ?? [];
+                                      askForm.setValue(
+                                        "participantEmails",
+                                        current.filter((e) => e !== email),
+                                        { shouldDirty: true }
+                                      );
+                                    }}
+                                    disabled={isBusy}
+                                    className="text-indigo-300 hover:text-indigo-100"
+                                  >
+                                    <X className="h-3 w-3" />
+                                  </button>
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
                       </div>
 
-                      {selectedAudience === "group" && selectedParticipants.length > 0 && (
+                      {selectedAudience === "group" && (selectedParticipants.length > 0 || participantEmails.length > 0) && (
                         <div className="flex flex-col gap-2">
                           <Label htmlFor="ask-spokesperson">Spokesperson (optional)</Label>
                           <select
@@ -2588,6 +2808,21 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                               );
                             })}
                           </select>
+                          {participantEmails.length > 0 && (
+                            <select
+                              id="ask-spokesperson-email"
+                              className="mt-2 h-10 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm text-white"
+                              {...askForm.register("spokespersonEmail")}
+                              disabled={isBusy}
+                            >
+                              <option value="">No email spokesperson</option>
+                              {participantEmails.map(email => (
+                                <option key={email} value={email}>
+                                  {email}
+                                </option>
+                              ))}
+                            </select>
+                          )}
                         </div>
                       )}
 
@@ -2602,6 +2837,178 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                           disabled={isBusy}
                         />
                       </div>
+
+                      {/* Participant Invite Links - Only show when editing existing ASK */}
+                      {isEditingAsk && editingAskId && (
+                        <div className="space-y-3 rounded-xl border border-indigo-500/30 bg-indigo-500/10 p-4">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <Label className="text-sm font-semibold text-indigo-200">Participant Invite Links</Label>
+                              <p className="text-xs text-slate-400 mt-1">
+                                Copy individual links or send invites via email
+                              </p>
+                            </div>
+                            <Button
+                              type="button"
+                              variant="glassDark"
+                              size="sm"
+                              onClick={async () => {
+                                if (!editingAskId) return;
+                                setIsBusy(true);
+                                try {
+                                  const response = await fetch(`/api/admin/asks/${editingAskId}/send-invites`, {
+                                    method: "POST",
+                                  });
+                                  const data = await response.json();
+                                  if (data.success) {
+                                    setFeedback({
+                                      type: "success",
+                                      message: `Sent ${data.data.sent} invite${data.data.sent !== 1 ? "s" : ""}${data.data.failed > 0 ? `, ${data.data.failed} failed` : ""}`
+                                    });
+                                  } else {
+                                    setFeedback({
+                                      type: "error",
+                                      message: data.error || "Failed to send invites"
+                                    });
+                                  }
+                                } catch (error) {
+                                  setFeedback({
+                                    type: "error",
+                                    message: "Failed to send invites"
+                                  });
+                                } finally {
+                                  setIsBusy(false);
+                                }
+                              }}
+                              disabled={isBusy}
+                              className="h-8 px-3 text-xs bg-indigo-500/20 hover:bg-indigo-500/30 border-indigo-400/30"
+                            >
+                              <Mail className="h-3 w-3 mr-2" />
+                              Send Invites
+                            </Button>
+                          </div>
+                          
+                          {/* Participants with links */}
+                          <div className="mt-3 space-y-2 max-h-64 overflow-y-auto">
+                            {/* Participants from user IDs */}
+                            {selectedParticipants.length > 0 && selectedParticipants.map(participantId => {
+                              const user = eligibleAskUsers.find(u => u.id === participantId);
+                              if (!user) return null;
+                              const email = user.email;
+                              const askKey = askForm.watch("askKey");
+                              const magicLink = email && askKey 
+                                ? `${typeof window !== "undefined" ? window.location.origin : ""}/?key=${askKey}`
+                                : null;
+                              const isCopied = copiedLinks.has(participantId);
+                              
+                              return (
+                                <div key={participantId} className="rounded-lg border border-white/10 bg-slate-900/60 p-2">
+                                  <div className="flex items-center justify-between mb-1">
+                                    <div>
+                                      <p className="text-sm font-medium text-white">
+                                        {user.fullName || `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim() || user.email}
+                                      </p>
+                                      {email && <p className="text-xs text-slate-400">{email}</p>}
+                                    </div>
+                                  </div>
+                                  {magicLink && (
+                                    <div className="flex items-center gap-2 mt-2">
+                                      <input
+                                        type="text"
+                                        readOnly
+                                        value={magicLink}
+                                        className="flex-1 rounded-lg border border-white/10 bg-slate-900/80 px-2 py-1 text-xs text-slate-200 font-mono"
+                                        onClick={(e) => (e.target as HTMLInputElement).select()}
+                                      />
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          navigator.clipboard.writeText(magicLink);
+                                          setCopiedLinks(prev => new Set([...prev, participantId]));
+                                          setTimeout(() => {
+                                            setCopiedLinks(prev => {
+                                              const next = new Set(prev);
+                                              next.delete(participantId);
+                                              return next;
+                                            });
+                                          }, 2000);
+                                        }}
+                                        className="rounded-lg border border-white/10 bg-slate-900/60 p-1.5 text-slate-300 hover:bg-slate-800/60 hover:text-white transition-colors"
+                                        title="Copy link"
+                                      >
+                                        {isCopied ? (
+                                          <Check className="h-3 w-3 text-green-400" />
+                                        ) : (
+                                          <Copy className="h-3 w-3" />
+                                        )}
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                            
+                            {/* Participants from emails */}
+                            {participantEmails.length > 0 && participantEmails.map((email, index) => {
+                              const askKey = askForm.watch("askKey");
+                              const magicLink = askKey 
+                                ? `${typeof window !== "undefined" ? window.location.origin : ""}/?key=${askKey}`
+                                : null;
+                              const emailKey = `email-${index}`;
+                              const isCopied = copiedLinks.has(emailKey);
+                              
+                              return (
+                                <div key={emailKey} className="rounded-lg border border-white/10 bg-slate-900/60 p-2">
+                                  <div className="flex items-center justify-between mb-1">
+                                    <div>
+                                      <p className="text-sm font-medium text-white">{email}</p>
+                                      <p className="text-xs text-slate-400">Email participant</p>
+                                    </div>
+                                  </div>
+                                  {magicLink && (
+                                    <div className="flex items-center gap-2 mt-2">
+                                      <input
+                                        type="text"
+                                        readOnly
+                                        value={magicLink}
+                                        className="flex-1 rounded-lg border border-white/10 bg-slate-900/80 px-2 py-1 text-xs text-slate-200 font-mono"
+                                        onClick={(e) => (e.target as HTMLInputElement).select()}
+                                      />
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          navigator.clipboard.writeText(magicLink);
+                                          setCopiedLinks(prev => new Set([...prev, emailKey]));
+                                          setTimeout(() => {
+                                            setCopiedLinks(prev => {
+                                              const next = new Set(prev);
+                                              next.delete(emailKey);
+                                              return next;
+                                            });
+                                          }, 2000);
+                                        }}
+                                        className="rounded-lg border border-white/10 bg-slate-900/60 p-1.5 text-slate-300 hover:bg-slate-800/60 hover:text-white transition-colors"
+                                        title="Copy link"
+                                      >
+                                        {isCopied ? (
+                                          <Check className="h-3 w-3 text-green-400" />
+                                        ) : (
+                                          <Copy className="h-3 w-3" />
+                                        )}
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                            
+                            {selectedParticipants.length === 0 && participantEmails.length === 0 && (
+                              <p className="text-xs text-slate-400 text-center py-2">No participants selected yet</p>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
                       <div className="flex justify-end gap-2">
                         {isEditingAsk && (
                           <Button
@@ -2736,8 +3143,8 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
         challengeName={askDetailChallengeName}
         onClose={() => setAskDetailId(null)}
       />
-      <div className="min-h-screen bg-slate-950 text-slate-100">
-      <div className="flex h-full min-h-screen">
+      <div className="h-screen bg-slate-950 text-slate-100">
+      <div className="flex h-full">
         <div className="flex flex-1 flex-col">
           <motion.header
             initial={{ opacity: 0, y: -20 }}
@@ -2855,7 +3262,7 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                 ? "space-y-6 px-4 py-6 sm:px-6 lg:px-10"
                 : showOnlyChallengeWorkspace
                   ? "space-y-6 px-6 py-6 lg:px-10"
-                  : "space-y-8 px-6 py-8"
+                  : "space-y-8 px-6 pt-8 pb-0"
             }`}
           >
             {feedback && (
@@ -2917,7 +3324,7 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                 </div>
               </section>
             ) : (
-              <>
+              <div className="flex flex-1 flex-col min-h-0">
                 {!showOnlyChallengeWorkspace && (
                   <section ref={dashboardRef} id="section-dashboard">
                     <div className="flex items-center justify-between">
@@ -3752,7 +4159,7 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
               </section>
             )}
 
-              </>
+              </div>
             )}
 
           </main>

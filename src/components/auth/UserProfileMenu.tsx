@@ -62,77 +62,79 @@ export function UserProfileMenu() {
           )}
         </Button>
       </DropdownMenu.Trigger>
-      <DropdownMenu.Content className="z-50 mt-2 w-64 rounded-2xl border border-white/60 bg-white/90 p-3 text-sm shadow-xl backdrop-blur">
-        <DropdownMenu.Label className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          Profil utilisateur
-        </DropdownMenu.Label>
-        <div className="rounded-xl bg-white/70 p-3 shadow-inner">
-          {isLoading ? (
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Chargement du profil...
-            </div>
-          ) : isSignedIn ? (
-            <div className="space-y-1">
-              <p className="text-sm font-semibold text-foreground">{fullName}</p>
-              <p className="text-xs text-muted-foreground">{email}</p>
-              {role && (
-                <span className="inline-flex items-center rounded-full bg-primary/10 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
-                  {role}
-                </span>
-              )}
-            </div>
-          ) : (
-            <p className="text-xs text-muted-foreground">
-              Connectez-vous pour synchroniser vos défis, conversations et expériences personnalisées.
-            </p>
-          )}
-        </div>
+      <DropdownMenu.Portal>
+        <DropdownMenu.Content className="z-[9999] mt-2 w-64 rounded-2xl border border-white/60 bg-white/90 p-3 text-sm shadow-xl backdrop-blur">
+          <DropdownMenu.Label className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Profil utilisateur
+          </DropdownMenu.Label>
+          <div className="rounded-xl bg-white/70 p-3 shadow-inner">
+            {isLoading ? (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Chargement du profil...
+              </div>
+            ) : isSignedIn ? (
+              <div className="space-y-1">
+                <p className="text-sm font-semibold text-foreground">{fullName}</p>
+                <p className="text-xs text-muted-foreground">{email}</p>
+                {role && (
+                  <span className="inline-flex items-center rounded-full bg-primary/10 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
+                    {role}
+                  </span>
+                )}
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Connectez-vous pour synchroniser vos défis, conversations et expériences personnalisées.
+              </p>
+            )}
+          </div>
 
-        <DropdownMenu.Separator className="my-3 h-px bg-gradient-to-r from-transparent via-primary/20 to-transparent" />
+          <DropdownMenu.Separator className="my-3 h-px bg-gradient-to-r from-transparent via-primary/20 to-transparent" />
 
-        {isSignedIn ? (
-          <DropdownMenu.Item
-            className="flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-foreground outline-none transition hover:bg-primary/10"
-            onSelect={handleAccountSettings}
-          >
-            <Settings className="h-4 w-4 text-primary" />
-            Paramètres du compte
-          </DropdownMenu.Item>
-        ) : !isLoading ? (
-          <DropdownMenu.Item
-            className="flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-foreground outline-none transition hover:bg-primary/10"
-          >
-            <Settings className="h-4 w-4 text-primary" />
-            Préférences invité
-          </DropdownMenu.Item>
-        ) : null}
-
-        <DropdownMenu.Arrow className="fill-white/70" />
-
-        <div className="mt-3 rounded-xl bg-gradient-to-r from-primary/90 to-accent/90 p-3 text-white">
           {isSignedIn ? (
-            <Button
-              onClick={() => signOut()}
-              variant="glassDark"
-              className="flex w-full items-center justify-center gap-2 rounded-full"
-              disabled={isProcessing}
+            <DropdownMenu.Item
+              className="flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-foreground outline-none transition hover:bg-primary/10"
+              onSelect={handleAccountSettings}
             >
-              {isProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogOut className="h-4 w-4" />}
-              Se déconnecter
-            </Button>
-          ) : (
-            <Button
-              onClick={handleSignIn}
-              className="flex w-full items-center justify-center gap-2 rounded-full bg-white/90 text-primary hover:bg-white"
-              disabled={isProcessing || isLoading}
+              <Settings className="h-4 w-4 text-primary" />
+              Paramètres du compte
+            </DropdownMenu.Item>
+          ) : !isLoading ? (
+            <DropdownMenu.Item
+              className="flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-foreground outline-none transition hover:bg-primary/10"
             >
-              {isProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogIn className="h-4 w-4" />}
-              Se connecter
-            </Button>
-          )}
-        </div>
-      </DropdownMenu.Content>
+              <Settings className="h-4 w-4 text-primary" />
+              Préférences invité
+            </DropdownMenu.Item>
+          ) : null}
+
+          <DropdownMenu.Arrow className="fill-white/70" />
+
+          <div className="mt-3 rounded-xl bg-gradient-to-r from-primary/90 to-accent/90 p-3 text-white">
+            {isSignedIn ? (
+              <Button
+                onClick={() => signOut()}
+                variant="glassDark"
+                className="flex w-full items-center justify-center gap-2 rounded-full"
+                disabled={isProcessing}
+              >
+                {isProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogOut className="h-4 w-4" />}
+                Se déconnecter
+              </Button>
+            ) : (
+              <Button
+                onClick={handleSignIn}
+                className="flex w-full items-center justify-center gap-2 rounded-full bg-white/90 text-primary hover:bg-white"
+                disabled={isProcessing || isLoading}
+              >
+                {isProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogIn className="h-4 w-4" />}
+                Se connecter
+              </Button>
+            )}
+          </div>
+        </DropdownMenu.Content>
+      </DropdownMenu.Portal>
     </DropdownMenu.Root>
   );
 }

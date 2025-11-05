@@ -130,7 +130,7 @@ export function DevUserSwitcher() {
     
     // Show a small button to enable dev mode if on localhost
     return (
-      <div className="fixed top-0 right-0 z-50 m-2">
+      <div className="fixed top-0 right-0 z-40 m-2">
         <button
           onClick={() => {
             localStorage.setItem("dev_mode_override", "true");
@@ -181,7 +181,7 @@ export function DevUserSwitcher() {
     : null;
 
   return (
-    <div className="fixed top-0 left-0 right-0 z-50 bg-yellow-400 border-b-2 border-yellow-500 shadow-lg">
+    <div className="fixed top-0 left-0 right-0 z-40 bg-yellow-400 border-b-2 border-yellow-500 shadow-lg">
       <div className="max-w-7xl mx-auto px-4 py-2">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
