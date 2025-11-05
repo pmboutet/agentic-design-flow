@@ -71,7 +71,7 @@ function slugify(value: string): string {
 // Auto-resize textarea component
 const AutoResizeTextarea = React.forwardRef<HTMLTextAreaElement, React.TextareaHTMLAttributes<HTMLTextAreaElement>>(
   ({ value, onChange, ...props }, ref) => {
-    const textareaRef = useRef<HTMLTextAreaElement>(null);
+    const textareaRef = useRef<HTMLTextAreaElement | null>(null) as React.MutableRefObject<HTMLTextAreaElement | null>;
     const combinedRef = (node: HTMLTextAreaElement | null) => {
       if (typeof ref === "function") {
         ref(node);
