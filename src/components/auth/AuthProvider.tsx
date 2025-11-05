@@ -63,11 +63,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return null;
     }
     try {
-      const { data, error } = await supabase
+      // Add timeout to prevent indefinite hanging
+      const profilePromise = supabase
         .from("profiles")
         .select("*, clients(name)")
         .eq("auth_id", authUser.id)
         .single();
+
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error("Profile fetch timeout")), 8000);
+      });
+
+      const { data, error } = await Promise.race([profilePromise, timeoutPromise]);
 
       if (error) {
         console.error("Error fetching profile:", error);
@@ -177,13 +184,48 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     let isMounted = true;
 
+    // Set a timeout to prevent indefinite loading state
+    const timeoutId = setTimeout(() => {
+      if (isMounted) {
+        console.warn("Session check timed out, treating as signed-out");
+        setSession(null);
+        setUser(null);
+        setProfile(null);
+        setStatus("signed-out");
+      }
+    }, 10000); // 10 seconds timeout
+
     // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      clearTimeout(timeoutId);
       if (!isMounted) {
         return;
       }
-      setSession(session);
-      updateUserFromSession(session);
+      try {
+        setSession(session);
+        await updateUserFromSession(session);
+      } catch (error) {
+        console.error("Error updating user from session:", error);
+        if (!isMounted) {
+          return;
+        }
+        // On error, treat as signed-out
+        setSession(null);
+        setUser(null);
+        setProfile(null);
+        setStatus("signed-out");
+      }
+    }).catch((error) => {
+      clearTimeout(timeoutId);
+      console.error("Error getting session:", error);
+      if (!isMounted) {
+        return;
+      }
+      // On error, treat as signed-out
+      setSession(null);
+      setUser(null);
+      setProfile(null);
+      setStatus("signed-out");
     });
 
     // Listen for auth changes
@@ -193,12 +235,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!isMounted) {
         return;
       }
-      setSession(session);
-      await updateUserFromSession(session);
+      try {
+        setSession(session);
+        await updateUserFromSession(session);
+      } catch (error) {
+        console.error("Error in auth state change:", error);
+        if (!isMounted) {
+          return;
+        }
+        // On error, treat as signed-out
+        setSession(null);
+        setUser(null);
+        setProfile(null);
+        setStatus("signed-out");
+      }
     });
 
     return () => {
       isMounted = false;
+      clearTimeout(timeoutId);
       subscription.unsubscribe();
     };
   }, [isDevBypass, updateUserFromSession]);
