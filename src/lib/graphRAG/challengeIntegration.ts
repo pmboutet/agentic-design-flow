@@ -78,7 +78,7 @@ async function getScopeInsightIds(
   projectId: string,
   scope: "project" | "client"
 ): Promise<string[]> {
-  let askSessionIds: string[];
+  let askSessionIds: string[] | undefined;
 
   if (scope === "client") {
     // Get all projects for the same client

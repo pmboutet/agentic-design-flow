@@ -526,8 +526,8 @@ function buildChallengeContext(
   });
 
   // Find clusters and syntheses related to this challenge's insights
-  const relatedClusters: typeof graphRAGData.clusters = [];
-  const relatedSyntheses: typeof graphRAGData.syntheses = [];
+  const relatedClusters: NonNullable<typeof graphRAGData>['clusters'] = [];
+  const relatedSyntheses: NonNullable<typeof graphRAGData>['syntheses'] = [];
   
   if (graphRAGData) {
     const challengeInsightIds = new Set(challenge.relatedInsightIds);

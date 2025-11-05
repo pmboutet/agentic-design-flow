@@ -45,17 +45,25 @@ export async function POST(request: NextRequest) {
         const queryEmbedding = await generateEmbedding(query);
 
         // Use vector similarity search
-        const { data: similarInsights, error: vectorError } = await supabase.rpc(
-          "find_similar_insights",
-          {
-            query_embedding: queryEmbedding, // Pass array directly
-            match_threshold: threshold,
-            match_count: limit,
-          }
-        ).catch(() => {
+        let similarInsights: any[] | null = null;
+        let vectorError: any = null;
+        
+        try {
+          const result = await supabase.rpc(
+            "find_similar_insights",
+            {
+              query_embedding: queryEmbedding, // Pass array directly
+              match_threshold: threshold,
+              match_count: limit,
+            }
+          );
+          similarInsights = result.data;
+          vectorError = result.error;
+        } catch (rpcError) {
           // Fallback: return empty if function doesn't exist yet
-          return { data: [], error: null };
-        });
+          similarInsights = [];
+          vectorError = null;
+        }
 
         if (!vectorError && similarInsights) {
           for (const insight of similarInsights) {
