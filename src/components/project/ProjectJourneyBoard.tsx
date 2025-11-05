@@ -1862,6 +1862,42 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
     );
   };
 
+  // All hooks must be called before any early returns to avoid React error #310
+  const availableUsers = boardData?.availableUsers ?? [];
+  const inviteLinkBase = useMemo(() => {
+    const askKey = askFormValues.askKey?.trim();
+    if (!askKey) {
+      return null;
+    }
+    const origin =
+      typeof window !== "undefined" && window?.location?.origin
+        ? window.location.origin
+        : process.env.NEXT_PUBLIC_APP_URL ?? "";
+    const base = origin || "";
+    return `${base}/?key=${askKey}`;
+  }, [askFormValues.askKey]);
+
+  const inviteParticipants = useMemo(() => {
+    if (!isEditingAsk || !editingAskId || !boardData) {
+      return [];
+    }
+
+    const participants = editingAskRecord?.participants ?? [];
+    return askFormValues.participantIds.map(participantId => {
+      const recordParticipant = participants.find(item => item.id === participantId);
+      const fallbackUser = availableUsers.find(user => user.id === participantId);
+      return {
+        id: participantId,
+        name: recordParticipant?.name ?? fallbackUser?.name ?? participantId,
+        email: recordParticipant?.email ?? null,
+      };
+    });
+  }, [askFormValues.participantIds, availableUsers, editingAskRecord, editingAskId, isEditingAsk, boardData]);
+
+  useEffect(() => {
+    setCopiedInviteLinks(new Set());
+  }, [editingAskId, askFormValues.participantIds, askFormValues.askKey]);
+
   if (!boardData && isLoading) {
     return (
       <div className="flex flex-col items-center justify-center gap-3 py-16 text-slate-300">
@@ -1883,41 +1919,6 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
       </div>
     );
   }
-
-  const availableUsers = boardData.availableUsers ?? [];
-  const inviteLinkBase = useMemo(() => {
-    const askKey = askFormValues.askKey?.trim();
-    if (!askKey) {
-      return null;
-    }
-    const origin =
-      typeof window !== "undefined" && window?.location?.origin
-        ? window.location.origin
-        : process.env.NEXT_PUBLIC_APP_URL ?? "";
-    const base = origin || "";
-    return `${base}/?key=${askKey}`;
-  }, [askFormValues.askKey]);
-
-  const inviteParticipants = useMemo(() => {
-    if (!isEditingAsk || !editingAskId) {
-      return [];
-    }
-
-    const participants = editingAskRecord?.participants ?? [];
-    return askFormValues.participantIds.map(participantId => {
-      const recordParticipant = participants.find(item => item.id === participantId);
-      const fallbackUser = availableUsers.find(user => user.id === participantId);
-      return {
-        id: participantId,
-        name: recordParticipant?.name ?? fallbackUser?.name ?? participantId,
-        email: recordParticipant?.email ?? null,
-      };
-    });
-  }, [askFormValues.participantIds, availableUsers, editingAskRecord, editingAskId, isEditingAsk]);
-
-  useEffect(() => {
-    setCopiedInviteLinks(new Set());
-  }, [editingAskId, askFormValues.participantIds, askFormValues.askKey]);
 
   const projectStart = formatFullDate(boardData.projectStartDate);
   const projectEnd = formatFullDate(boardData.projectEndDate);
