@@ -490,7 +490,7 @@ export default function AiConfigurationPage() {
       const systemVars = extractTemplateVariables(newSystemPrompt);
       const userVars = extractTemplateVariables(newUserPrompt);
       const allDetectedVars = new Set([...systemVars, ...userVars]);
-      const merged = new Set([...prev.availableVariables, ...allDetectedVars]);
+      const merged = new Set([...prev.availableVariables, ...Array.from(allDetectedVars)]);
       const syncedVariables = Array.from(merged);
       
       return {
@@ -594,7 +594,7 @@ export default function AiConfigurationPage() {
     const allDetectedVars = new Set([...systemVars, ...userVars]);
     
     // Merge with existing variables, avoiding duplicates
-    const merged = new Set([...existingVariables, ...allDetectedVars]);
+    const merged = new Set([...existingVariables, ...Array.from(allDetectedVars)]);
     return Array.from(merged);
   };
 
