@@ -35,7 +35,9 @@ import { AskRelationshipCanvas } from "./AskRelationshipCanvas";
 import { FormDateTimeField } from "./FormDateTimeField";
 import { GraphRAGPanel } from "./GraphRAGPanel";
 import { useAdminResources } from "./useAdminResources";
-import type { ApiResponse, AskSessionRecord, ChallengeRecord, ClientRecord, ProjectRecord } from "@/types";
+import { useAuth } from "@/components/auth/AuthProvider";
+import { UserSearchCombobox } from "@/components/ui/user-search-combobox";
+import type { ApiResponse, AskSessionRecord, ChallengeRecord, ClientRecord, ManagedUser, ProjectRecord } from "@/types";
 
 interface AdminDashboardProps {
   initialProjectId?: string | null;
@@ -103,16 +105,17 @@ const askFormSchema = z.object({
   spokespersonId: z.string().uuid().optional().or(z.literal(""))
 });
 
-const userRoles = ["full_admin", "project_admin", "facilitator", "manager", "participant", "user"] as const;
+const userRoles = ["full_admin", "admin", "moderator", "facilitator", "participant", "sponsor", "observer", "guest"] as const;
 
 const userFormSchema = z.object({
   email: z.string().trim().email("Invalid email").max(255),
   fullName: z.string().trim().max(200).optional().or(z.literal("")),
   firstName: z.string().trim().max(100).optional().or(z.literal("")),
   lastName: z.string().trim().max(100).optional().or(z.literal("")),
-  role: z.enum(userRoles).default("user"),
+  role: z.enum(userRoles).default("participant"),
   clientId: z.string().trim().optional().or(z.literal("")),
-  isActive: z.boolean().default(true)
+  isActive: z.boolean().default(true),
+  jobTitle: z.string().trim().max(255).optional().or(z.literal(""))
 });
 
 type ClientFormInput = z.infer<typeof clientFormSchema>;
@@ -168,9 +171,10 @@ const defaultUserFormValues: UserFormInput = {
   fullName: "",
   firstName: "",
   lastName: "",
-  role: "user",
+  role: "participant",
   clientId: "",
-  isActive: true
+  isActive: true,
+  jobTitle: ""
 };
 
 const navigationItems = [
@@ -473,6 +477,7 @@ function AskDetailDialog({ ask, projectName, challengeName, onClose }: AskDetail
 
 export function AdminDashboard({ initialProjectId = null, mode = "default" }: AdminDashboardProps = {}) {
   const router = useRouter();
+  const { profile, status, user } = useAuth();
   const {
     clients,
     users,
@@ -498,7 +503,9 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
     deleteChallenge,
     deleteAsk,
     addUserToProject,
-    removeUserFromProject
+    removeUserFromProject,
+    findUserByEmail,
+    createUserAndAddToProject
   } = useAdminResources();
 
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
@@ -510,6 +517,7 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
   const [showAskForm, setShowAskForm] = useState(false);
   const [showUserForm, setShowUserForm] = useState(false);
   const [manualAskKey, setManualAskKey] = useState(false);
+  const [selectedUserForProject, setSelectedUserForProject] = useState<ManagedUser | null>(null);
   const [showJourneyBoard, setShowJourneyBoard] = useState(false);
   const [activeSection, setActiveSection] = useState<SectionLabel>(navigationItems[0].label);
   const [columnWidths, setColumnWidths] = useState<ColumnWidths>(defaultColumnWidths);
@@ -1719,7 +1727,8 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
   };
 
   const handleSubmitUser = async (values: UserFormInput) => {
-    const payload = { ...values };
+    // Remove fullName as it's not accepted by the API - it's computed from firstName/lastName
+    const { fullName, ...payload } = values;
     if (editingUserId) {
       payload.clientId = values.clientId ?? "";
       await updateUser(editingUserId, payload);
@@ -1735,6 +1744,7 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
       await createUser(payload);
     }
     resetUserForm();
+    setEditingUserId(null);
     setShowUserForm(false);
   };
 
@@ -1750,14 +1760,48 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
       fullName: user.fullName ?? "",
       firstName: user.firstName ?? "",
       lastName: user.lastName ?? "",
-      role: (user.role as UserFormInput["role"]) || "user",
+      role: (user.role as UserFormInput["role"]) || "participant",
       clientId: user.clientId ?? "",
-      isActive: user.isActive
+      isActive: user.isActive,
+      jobTitle: user.jobTitle ?? ""
     });
+  };
+
+  const handleUserSelectedForProject = async (user: ManagedUser | null) => {
+    if (!user || !selectedProjectId) {
+      setSelectedUserForProject(null);
+      return;
+    }
+
+    // User exists, add to project
+    await addUserToProject(user.id, selectedProjectId);
+    setSelectedUserForProject(null);
+    setShowUserForm(false);
+  };
+
+  const handleCreateNewUserForProject = async (email: string) => {
+    if (!selectedProjectId) {
+      console.error("No project selected");
+      return;
+    }
+    console.log("Creating new user for project:", { email, selectedProjectId });
+    const clientId = selectedProject?.clientId ?? selectedClientId ?? undefined;
+    console.log("Client ID:", clientId);
+    const newUser = await createUserAndAddToProject(email, selectedProjectId, clientId);
+    if (newUser) {
+      console.log("User created successfully, selecting:", newUser);
+      // Select the newly created user - it should now be in the refreshed users list
+      setSelectedUserForProject(newUser);
+      setShowUserForm(false);
+    } else {
+      console.error("Failed to create user");
+    }
   };
 
   const cancelUserEdit = () => {
     resetUserForm();
+    setSelectedUserForProject(null);
+    setEditingUserId(null);
     setShowUserForm(false);
   };
 
@@ -1826,16 +1870,25 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
     const projectClientId = selectedProject?.clientId ?? null;
     const targetClientId = selectedClientId ?? projectClientId ?? null;
 
+    // If a project is selected, only show users who are members of that project
+    if (selectedProjectId) {
+      return users.filter(user => {
+        const userProjectIds = user.projectIds ?? [];
+        return userProjectIds.includes(selectedProjectId);
+      }).sort((a, b) => {
+        const aLabel = (a.fullName || a.email || "").toLowerCase();
+        const bLabel = (b.fullName || b.email || "").toLowerCase();
+        return aLabel.localeCompare(bLabel);
+      });
+    }
+
+    // When no project is selected, show all users (original behavior)
     const filtered = users.filter(user => {
       const normalizedRole = user.role?.toLowerCase?.() ?? "";
       const isGlobal = normalizedRole.includes("admin") || normalizedRole.includes("owner");
       const userProjectIds = user.projectIds ?? [];
 
       if (targetClientId && user.clientId === targetClientId) {
-        return true;
-      }
-
-      if (selectedProjectId && userProjectIds.includes(selectedProjectId)) {
         return true;
       }
 
@@ -1879,6 +1932,116 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
 
     return sorted;
   }, [users, selectedClientId, selectedProjectId, selectedProject]);
+
+  const normalizedRole = useMemo(() => {
+    const rawRole =
+      profile?.role ??
+      user?.profile?.role ??
+      user?.role ??
+      "";
+    return rawRole.toLowerCase();
+  }, [profile?.role, user?.profile?.role, user?.role]);
+
+  const isProfileActive = profile?.isActive ?? user?.profile?.isActive ?? true;
+
+  const accessState = useMemo<"checking" | "signed-out" | "inactive" | "forbidden" | "granted">(() => {
+    if (status === "loading") {
+      return "checking";
+    }
+
+    if (status === "signed-out") {
+      return "signed-out";
+    }
+
+    if (!normalizedRole) {
+      return "forbidden";
+    }
+
+    const allowedRoles = ["full_admin", "project_admin", "facilitator", "manager", "admin"];
+    if (!allowedRoles.includes(normalizedRole)) {
+      return "forbidden";
+    }
+
+    if (!isProfileActive) {
+      return "inactive";
+    }
+
+    return "granted";
+  }, [status, normalizedRole, isProfileActive]);
+
+  // Filter users based on role for search
+  // Use profile.id and profile.role instead of profile object to avoid unnecessary recalculations
+  const profileRole = profile?.role?.toLowerCase() ?? user?.profile?.role?.toLowerCase() ?? "";
+  const profileClientId = profile?.clientId ?? user?.profile?.clientId ?? null;
+  
+  const availableUsersForSearch = useMemo(() => {
+    if (!profile && !user?.profile) {
+      return [];
+    }
+    
+    // Full admins see all users
+    if (profileRole === "full_admin") {
+      return users;
+    }
+    
+    // Project admins, facilitators, managers see only users from their client
+    if (["project_admin", "facilitator", "manager"].includes(profileRole)) {
+      if (!profileClientId) return [];
+      return users.filter(user => user.clientId === profileClientId);
+    }
+    
+    return [];
+  }, [users, profileRole, profileClientId]);
+
+  // Check if we're in dev mode
+  const isDevMode = useMemo(() => {
+    if (typeof window === "undefined") return false;
+    const rawValue = (process.env.NEXT_PUBLIC_IS_DEV ?? "").toString().toLowerCase();
+    return rawValue === "true" || rawValue === "1";
+  }, []);
+
+  // Redirect if no access (only once) - but skip in dev mode
+  const hasRedirectedRef = useRef(false);
+  useEffect(() => {
+    // In dev mode, don't redirect - let the user choose via DevUserSwitcher
+    if (isDevMode) {
+      return;
+    }
+    if (accessState === "signed-out" && !hasRedirectedRef.current) {
+      hasRedirectedRef.current = true;
+      router.replace("/auth/login?redirectTo=/admin");
+    }
+  }, [accessState, router, isDevMode]);
+
+  if (accessState === "checking" || accessState === "signed-out") {
+    return (
+      <div className="flex h-screen items-center justify-center">
+        <div className="text-center">
+          <p className="text-slate-400">Vérification des accès...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (accessState === "forbidden" || accessState === "inactive") {
+    return (
+      <div className="flex h-screen items-center justify-center">
+        <div className="max-w-md rounded-2xl border border-red-500/40 bg-red-500/10 p-6 text-center text-slate-100">
+          <h2 className="text-xl font-semibold text-white">Accès refusé</h2>
+          <p className="mt-3 text-sm text-slate-200">
+            Vous n&apos;avez pas les droits nécessaires pour accéder à cet espace. Contactez un administrateur si vous pensez que c&apos;est une erreur.
+          </p>
+          <Button
+            className="mt-6"
+            onClick={() => router.replace("/auth/login?redirectTo=/admin")}
+            variant="secondary"
+          >
+            Retour à l&apos;accueil
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   const viewingClientId = selectedClientId ?? selectedProject?.clientId ?? null;
 
@@ -2648,11 +2811,21 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
             {feedback && (
               <Alert
                 variant={feedback.type === "error" ? "destructive" : "default"}
-                className="border-white/10 bg-white/5 text-foreground"
+                className={
+                  feedback.type === "error"
+                    ? "border-red-500/40 bg-red-500/20 backdrop-blur-sm text-red-50 shadow-lg"
+                    : "border-white/10 bg-white/5 text-foreground"
+                }
               >
                 <div className="flex w-full items-start justify-between gap-4">
-                  <AlertDescription>{feedback.message}</AlertDescription>
-                  <button type="button" onClick={() => setFeedback(null)} className="text-sm text-slate-200 underline">
+                  <AlertDescription className={feedback.type === "error" ? "text-red-50 font-medium" : ""}>
+                    {feedback.message}
+                  </AlertDescription>
+                  <button
+                    type="button"
+                    onClick={() => setFeedback(null)}
+                    className={feedback.type === "error" ? "text-sm text-red-50/90 underline hover:text-red-50" : "text-sm text-slate-200 underline"}
+                  >
                     Close
                   </button>
                 </div>
@@ -3195,83 +3368,121 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                   </header>
 
                   {showUserForm && (
-                    <form
-                      onSubmit={userForm.handleSubmit(handleSubmitUser)}
-                      className="space-y-3 rounded-2xl border border-white/10 bg-slate-900/40 p-4"
-                    >
-                      {isEditingUser && (
-                        <p className="text-xs font-medium text-amber-300">
-                          Editing {users.find(user => user.id === editingUserId)?.fullName || users.find(user => user.id === editingUserId)?.email}
-                        </p>
+                    <>
+                      {editingUserId ? (
+                        <form
+                          onSubmit={userForm.handleSubmit(handleSubmitUser)}
+                          className="space-y-3 rounded-2xl border border-white/10 bg-slate-900/40 p-4"
+                        >
+                          <p className="text-xs font-medium text-amber-300">
+                            Editing {users.find(user => user.id === editingUserId)?.fullName || users.find(user => user.id === editingUserId)?.email}
+                          </p>
+                          <div className="grid gap-3 md:grid-cols-2">
+                            <div className="flex flex-col gap-2">
+                              <Label htmlFor="user-email-admin">Email</Label>
+                              <Input
+                                id="user-email-admin"
+                                type="email"
+                                placeholder="user@company.com"
+                                {...userForm.register("email")}
+                                disabled={isBusy}
+                              />
+                              {userForm.formState.errors.email && (
+                                <p className="text-xs text-red-400">{userForm.formState.errors.email.message}</p>
+                              )}
+                            </div>
+                            <div className="flex flex-col gap-2">
+                              <Label htmlFor="user-firstname-admin">First name</Label>
+                              <Input
+                                id="user-firstname-admin"
+                                placeholder="John"
+                                {...userForm.register("firstName")}
+                                disabled={isBusy}
+                              />
+                              {userForm.formState.errors.firstName && (
+                                <p className="text-xs text-red-400">{userForm.formState.errors.firstName.message}</p>
+                              )}
+                            </div>
+                            <div className="flex flex-col gap-2">
+                              <Label htmlFor="user-lastname-admin">Last name</Label>
+                              <Input
+                                id="user-lastname-admin"
+                                placeholder="Doe"
+                                {...userForm.register("lastName")}
+                                disabled={isBusy}
+                              />
+                              {userForm.formState.errors.lastName && (
+                                <p className="text-xs text-red-400">{userForm.formState.errors.lastName.message}</p>
+                              )}
+                            </div>
+                            <div className="flex flex-col gap-2">
+                              <Label htmlFor="user-job-title-admin">Job Title</Label>
+                              <Input
+                                id="user-job-title-admin"
+                                placeholder="e.g. Product Manager"
+                                {...userForm.register("jobTitle")}
+                                disabled={isBusy}
+                              />
+                            </div>
+                            <div className="flex flex-col gap-2">
+                              <Label htmlFor="user-role-admin">Role</Label>
+                              <select
+                                id="user-role-admin"
+                                className="h-10 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm text-white"
+                                {...userForm.register("role")}
+                                disabled={isBusy}
+                              >
+                                <option value="full_admin">Full Admin</option>
+                                <option value="project_admin">Project Admin</option>
+                                <option value="facilitator">Facilitator</option>
+                                <option value="manager">Manager</option>
+                                <option value="participant">Participant</option>
+                                <option value="user">User</option>
+                              </select>
+                            </div>
+                          </div>
+                          <div className="flex justify-end gap-2">
+                            <Button
+                              type="button"
+                              variant="glassDark"
+                              onClick={cancelUserEdit}
+                              disabled={isBusy}
+                            >
+                              Cancel
+                            </Button>
+                            <Button type="submit" className={`${gradientButtonClasses} px-4`} disabled={isBusy}>
+                              Update user
+                            </Button>
+                          </div>
+                        </form>
+                      ) : selectedProjectId ? (
+                        <div className="space-y-3 rounded-2xl border border-white/10 bg-slate-900/40 p-4">
+                          <div className="flex flex-col gap-2">
+                            <Label htmlFor="add-user-search">Rechercher un utilisateur</Label>
+                            <UserSearchCombobox
+                              users={availableUsersForSearch}
+                              selectedUserId={selectedUserForProject?.id ?? null}
+                              onSelect={handleUserSelectedForProject}
+                              onCreateNew={handleCreateNewUserForProject}
+                              placeholder="Rechercher par nom, email ou job title..."
+                              disabled={isBusy}
+                            />
+                          </div>
+                          {availableUsersForSearch.length === 0 && (
+                            <p className="text-xs text-slate-400">
+                              Aucun utilisateur disponible. Vous devez avoir accès à un client pour voir ses utilisateurs.
+                            </p>
+                          )}
+                        </div>
+                      ) : (
+                        <form
+                          onSubmit={userForm.handleSubmit(handleSubmitUser)}
+                          className="space-y-3 rounded-2xl border border-white/10 bg-slate-900/40 p-4"
+                        >
+                          <p className="text-xs text-slate-400">Sélectionnez un projet pour ajouter des utilisateurs par email.</p>
+                        </form>
                       )}
-                      <div className="grid gap-3 md:grid-cols-2">
-                        <div className="flex flex-col gap-2">
-                          <Label htmlFor="user-email-admin">Email</Label>
-                          <Input
-                            id="user-email-admin"
-                            type="email"
-                            placeholder="user@company.com"
-                            {...userForm.register("email")}
-                            disabled={isBusy}
-                          />
-                          {userForm.formState.errors.email && (
-                            <p className="text-xs text-red-400">{userForm.formState.errors.email.message}</p>
-                          )}
-                        </div>
-                        <div className="flex flex-col gap-2">
-                          <Label htmlFor="user-firstname-admin">First name</Label>
-                          <Input
-                            id="user-firstname-admin"
-                            placeholder="John"
-                            {...userForm.register("firstName")}
-                            disabled={isBusy}
-                          />
-                          {userForm.formState.errors.firstName && (
-                            <p className="text-xs text-red-400">{userForm.formState.errors.firstName.message}</p>
-                          )}
-                        </div>
-                        <div className="flex flex-col gap-2">
-                          <Label htmlFor="user-lastname-admin">Last name</Label>
-                          <Input
-                            id="user-lastname-admin"
-                            placeholder="Doe"
-                            {...userForm.register("lastName")}
-                            disabled={isBusy}
-                          />
-                          {userForm.formState.errors.lastName && (
-                            <p className="text-xs text-red-400">{userForm.formState.errors.lastName.message}</p>
-                          )}
-                        </div>
-                        <div className="flex flex-col gap-2">
-                          <Label htmlFor="user-role-admin">Role</Label>
-                          <select
-                            id="user-role-admin"
-                            className="h-10 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm text-white"
-                            {...userForm.register("role")}
-                            disabled={isBusy}
-                          >
-                            <option value="facilitator">Facilitator</option>
-                            <option value="participant">Participant</option>
-                            <option value="admin">Admin</option>
-                          </select>
-                        </div>
-                      </div>
-                      <div className="flex justify-end gap-2">
-                        {isEditingUser && (
-                          <Button
-                            type="button"
-                            variant="glassDark"
-                            onClick={cancelUserEdit}
-                            disabled={isBusy}
-                          >
-                            Cancel
-                          </Button>
-                        )}
-                        <Button type="submit" className={`${gradientButtonClasses} px-4`} disabled={isBusy}>
-                          {isEditingUser ? "Update user" : "Save user"}
-                        </Button>
-                      </div>
-                    </form>
+                    </>
                   )}
 
                   <div className="space-y-3 overflow-y-auto pr-2">
@@ -3300,6 +3511,9 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                               <div className="text-left">
                                 <h4 className="text-sm font-semibold text-white">{user.fullName || user.email}</h4>
                                 <p className="text-xs text-slate-400">{user.email}</p>
+                                {user.jobTitle && (
+                                  <p className="text-xs text-slate-500 italic">{user.jobTitle}</p>
+                                )}
                                 <p className="text-[11px] text-slate-500">
                                   {user.clientName || "No client assigned"}
                                   {viewingClientId && user.clientId && user.clientId !== viewingClientId
@@ -3325,24 +3539,22 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                                     ? `Assigned to ${selectedProject?.name ?? "project"}`
                                     : "Not assigned to this project"}
                                 </span>
-                                {canManageMembership && (
-                                  <Button
-                                    type="button"
-                                    variant={isMemberOfSelectedProject ? "glassDark" : "secondary"}
-                                    size="sm"
-                                    className="h-7 px-3 text-[11px]"
-                                    onClick={() => {
-                                      if (isMemberOfSelectedProject) {
-                                        void handleRemoveUserFromProject(user.id);
-                                      } else {
-                                        void handleAddUserToProject(user.id);
-                                      }
-                                    }}
-                                    disabled={isBusy}
-                                  >
-                                    {isMemberOfSelectedProject ? "Remove from project" : "Add to project"}
-                                  </Button>
-                                )}
+                                <Button
+                                  type="button"
+                                  variant={isMemberOfSelectedProject ? "glassDark" : "secondary"}
+                                  size="sm"
+                                  className="h-7 px-3 text-[11px]"
+                                  onClick={() => {
+                                    if (isMemberOfSelectedProject) {
+                                      void handleRemoveUserFromProject(user.id);
+                                    } else {
+                                      void handleAddUserToProject(user.id);
+                                    }
+                                  }}
+                                  disabled={isBusy}
+                                >
+                                  {isMemberOfSelectedProject ? "Remove from project" : "Add to project"}
+                                </Button>
                               </div>
                             )}
                             <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">

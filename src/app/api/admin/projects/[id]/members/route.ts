@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getAdminSupabaseClient } from "@/lib/supabaseAdmin";
+import { sanitizeOptional } from "@/lib/sanitize";
 import { parseErrorMessage } from "@/lib/utils";
 import { type ApiResponse } from "@/types";
 
 const payloadSchema = z.object({
   userId: z.string().uuid("Invalid user id"),
-  role: z.string().trim().max(50).optional()
+  role: z.string().trim().max(50).optional(),
+  jobTitle: z.string().trim().max(255).optional().or(z.literal(""))
 });
 
 export async function POST(
@@ -19,17 +21,21 @@ export async function POST(
     const payload = payloadSchema.parse(body);
 
     const supabase = getAdminSupabaseClient();
+    const jobTitle = payload.jobTitle ? sanitizeOptional(payload.jobTitle || null) : undefined;
+    
+    const upsertData: Record<string, unknown> = {
+      project_id: projectId,
+      user_id: payload.userId,
+      role: payload.role ?? "member"
+    };
+    
+    if (jobTitle !== undefined) {
+      upsertData.job_title = jobTitle;
+    }
 
     const { error } = await supabase
       .from("project_members")
-      .upsert(
-        {
-          project_id: projectId,
-          user_id: payload.userId,
-          role: payload.role ?? "member"
-        },
-        { onConflict: "project_id,user_id" }
-      );
+      .upsert(upsertData, { onConflict: "project_id,user_id" });
 
     if (error) {
       throw error;

@@ -28,11 +28,22 @@ function LoginPageContent() {
     return requestedRedirect;
   }, [requestedRedirect]);
 
+  // Check if we're in dev mode
+  const isDevMode = useMemo(() => {
+    if (typeof window === "undefined") return false;
+    const rawValue = (process.env.NEXT_PUBLIC_IS_DEV ?? "").toString().toLowerCase();
+    return rawValue === "true" || rawValue === "1";
+  }, []);
+
   useEffect(() => {
+    // In dev mode, don't auto-redirect - let user choose via DevUserSwitcher
+    if (isDevMode) {
+      return;
+    }
     if (status === "signed-in") {
       router.push(redirectTo);
     }
-  }, [status, router, redirectTo]);
+  }, [status, router, redirectTo, isDevMode]);
 
   if (status === "loading") {
     return (
@@ -47,6 +58,12 @@ function LoginPageContent() {
         <div className="text-center mb-8">
           <h1 className="text-3xl font-bold text-gray-900 mb-2">Sign In</h1>
           <p className="text-gray-600">Welcome back! Please sign in to continue.</p>
+          {isDevMode && (
+            <div className="mt-4 rounded-lg bg-yellow-50 border border-yellow-200 p-3 text-sm text-yellow-800">
+              <p className="font-medium">🛠️ Mode développement activé</p>
+              <p className="mt-1">Utilisez le bandeau en haut de la page pour choisir un utilisateur sans vous connecter.</p>
+            </div>
+          )}
         </div>
 
         <div className="bg-white shadow-lg rounded-lg p-8">

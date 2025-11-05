@@ -2,6 +2,8 @@ import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/components/auth/AuthProvider";
+import { DevUserSwitcher } from "@/components/dev/DevUserSwitcher";
+import { DevUserSwitcherSpacer } from "@/components/dev/DevUserSwitcherSpacer";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -30,6 +32,8 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <body className={inter.className}>
         <AuthProvider>
+          <DevUserSwitcher />
+          <DevUserSwitcherSpacer />
           {children}
         </AuthProvider>
       </body>

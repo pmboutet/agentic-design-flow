@@ -101,14 +101,13 @@ function getSSLConfig() {
   const sslMode = (process.env.PGSSLMODE || '').toLowerCase();
   if (sslMode === 'disable') return false;
 
-  const ssl = {};
-
+  // For Supabase and other cloud providers, default to accepting self-signed certificates
+  // unless explicitly configured otherwise
   const rejectFromEnv =
     parseBoolean(process.env.PGSSLREJECTUNAUTHORIZED) ??
     parseBoolean(process.env.DATABASE_SSL_REJECT_UNAUTHORIZED);
-  if (rejectFromEnv !== undefined) {
-    ssl.rejectUnauthorized = rejectFromEnv;
-  }
+
+  const ssl = {};
 
   const ca =
     resolveSSLMaterial('PGSSLROOTCERT', 'PGSSLROOTCERT_BASE64') ||
@@ -130,26 +129,55 @@ function getSSLConfig() {
     ssl.key = key;
   }
 
+  // If no explicit SSL material is provided, default to rejecting unauthorized certificates
+  // only if explicitly set. Otherwise, allow self-signed certificates for cloud providers.
   if (Object.keys(ssl).length === 0) {
+    // No SSL material provided - default to accepting self-signed certs for Supabase compatibility
     return { rejectUnauthorized: false };
   }
 
-  if (ssl.rejectUnauthorized === undefined) {
-    ssl.rejectUnauthorized = true;
+  // If SSL material is provided, use the explicit rejectUnauthorized setting
+  // If not set, default to false (accept self-signed) for cloud providers
+  if (rejectFromEnv !== undefined) {
+    ssl.rejectUnauthorized = rejectFromEnv;
+  } else {
+    // Default to false (accept self-signed) unless explicit SSL material with CA is provided
+    ssl.rejectUnauthorized = false;
   }
 
   return ssl;
 }
 
+function normalizeConnectionString(connectionString) {
+  if (!connectionString) return connectionString;
+  
+  try {
+    const url = new URL(connectionString);
+    // Remove sslmode from query params as we handle SSL via the ssl config option
+    // This prevents conflicts between URL params and explicit SSL config
+    if (url.searchParams.has('sslmode')) {
+      url.searchParams.delete('sslmode');
+    }
+    return url.toString();
+  } catch (e) {
+    // If parsing fails, try to remove sslmode manually
+    return connectionString.replace(/[&?]sslmode=[^&]*/g, '');
+  }
+}
+
 async function getClient() {
-  const connectionString =
+  let connectionString =
     process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.SUPABASE_MIGRATIONS_URL;
 
   if (!connectionString) {
     throw new Error('DATABASE_URL (or POSTGRES_URL / SUPABASE_MIGRATIONS_URL) must be set to run migrations.');
   }
 
-  const client = new Client({ connectionString, ssl: getSSLConfig() });
+  // Normalize connection string to remove conflicting SSL parameters
+  connectionString = normalizeConnectionString(connectionString);
+  
+  const sslConfig = getSSLConfig();
+  const client = new Client({ connectionString, ssl: sslConfig });
   client.on('error', (error) => {
     throw error;
   });

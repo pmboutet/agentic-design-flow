@@ -27,6 +27,7 @@ type AuthContextValue = {
   signInWithGoogle: (redirectTo?: string) => Promise<{ error?: string }>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
+  setDevUser?: (profile: Profile) => void; // Only available in dev mode
 };
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -90,6 +91,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         avatarUrl: data.avatar_url,
         isActive: data.is_active,
         lastLogin: data.last_login,
+        jobTitle: data.job_title ?? null,
         createdAt: data.created_at,
         updatedAt: data.updated_at,
       };
@@ -133,13 +135,42 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [fetchProfile, isDevBypass]
   );
 
+  // Function to set dev user (only in dev mode)
+  const setDevUser = useCallback((profile: Profile) => {
+    if (!isDevBypass) return;
+    
+    setProfile(profile);
+    setUser({
+      id: profile.authId || profile.id,
+      email: profile.email,
+      fullName: profile.fullName || `${profile.firstName || ""} ${profile.lastName || ""}`.trim() || profile.email,
+      avatarUrl: profile.avatarUrl,
+      role: profile.role,
+      profile: profile,
+    });
+    setStatus("signed-in");
+    setSession(null);
+  }, [isDevBypass]);
+
   // Initialize auth state
   useEffect(() => {
     if (isDevBypass) {
-      setStatus("signed-in");
-      setUser(DEV_BYPASS_USER);
-      setProfile(null);
-      setSession(null);
+      // Try to load user from localStorage
+      const storedUserId = typeof window !== "undefined" ? localStorage.getItem("dev_selected_user") : null;
+      
+      if (storedUserId) {
+        // User will be loaded by DevUserSwitcher component
+        // For now, use default dev user
+        setStatus("signed-in");
+        setUser(DEV_BYPASS_USER);
+        setProfile(null);
+        setSession(null);
+      } else {
+        setStatus("signed-in");
+        setUser(DEV_BYPASS_USER);
+        setProfile(null);
+        setSession(null);
+      }
       setIsProcessing(false);
       return;
     }
@@ -392,8 +423,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       signInWithGoogle,
       signOut,
       refreshProfile,
+      setDevUser: isDevBypass ? setDevUser : undefined,
     }),
-    [status, user, session, profile, isProcessing, signIn, signUp, signInWithGoogle, signOut, refreshProfile]
+    [status, user, session, profile, isProcessing, signIn, signUp, signInWithGoogle, signOut, refreshProfile, isDevBypass, setDevUser]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

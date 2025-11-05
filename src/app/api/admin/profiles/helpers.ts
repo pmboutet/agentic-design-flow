@@ -58,6 +58,7 @@ export function mapManagedUser(
     projectIds,
     isActive: row.is_active,
     lastLogin: row.last_login,
+    jobTitle: row.job_title ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };

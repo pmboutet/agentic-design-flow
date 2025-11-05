@@ -291,6 +291,15 @@ export interface ClientRecord {
   updatedAt: string;
 }
 
+export interface ClientMember {
+  id: string;
+  clientId: string;
+  userId: string;
+  jobTitle?: string | null; // Client-specific job title
+  createdAt: string;
+  updatedAt: string;
+}
+
 // Auth types - Supabase Auth integration
 export interface AuthUser {
   id: string; // auth.users.id from Supabase Auth
@@ -312,6 +321,7 @@ export interface Profile {
   avatarUrl?: string | null;
   isActive: boolean;
   lastLogin?: string | null;
+  jobTitle?: string | null; // Global job title from profiles table
   createdAt: string;
   updatedAt: string;
 }
@@ -418,6 +428,7 @@ export interface ProjectParticipantSummary {
   id: string;
   name: string;
   role?: string;
+  jobTitle?: string | null; // Global, client-specific, or project-specific job title
 }
 
 export interface ProjectParticipantInsight {

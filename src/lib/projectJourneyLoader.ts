@@ -217,11 +217,14 @@ function buildParticipantSummary(row: any): ProjectParticipantSummary {
     "Participant";
 
   const role = row.role ?? profile?.role ?? undefined;
+  // Priority: project-specific > client-specific > global job title
+  const jobTitle = row.job_title ?? profile?.job_title ?? undefined;
 
   return {
     id: resolveParticipantId(row),
     name,
     role,
+    jobTitle: jobTitle || undefined,
   };
 }
 
@@ -338,11 +341,11 @@ export async function fetchProjectJourneyContext(
   const [participantResult, insightResult, challengeInsightResult, ownerResult, memberResult] = await Promise.all([
     askIds.length
       ? supabase
-          .from("ask_participants")
-          .select(
-            "id, ask_session_id, user_id, participant_name, participant_email, role, is_spokesperson, profiles(id, full_name, email, role)",
-          )
-          .in("ask_session_id", askIds)
+      .from("ask_participants")
+      .select(
+        "id, ask_session_id, user_id, participant_name, participant_email, role, is_spokesperson, profiles(id, full_name, email, role, job_title)",
+      )
+      .in("ask_session_id", askIds)
       : Promise.resolve({ data: [], error: null }),
     askIds.length
       ? supabase
@@ -359,12 +362,12 @@ export async function fetchProjectJourneyContext(
     ownerIds.length
       ? supabase
           .from("profiles")
-          .select("id, full_name, email, role")
+          .select("id, full_name, email, role, job_title")
           .in("id", ownerIds)
       : Promise.resolve({ data: [], error: null }),
     supabase
       .from("project_members")
-      .select("user_id, role, profiles(id, full_name, email, role)")
+      .select("user_id, role, job_title, profiles(id, full_name, email, role, job_title)")
       .eq("project_id", projectId),
   ]);
   
@@ -438,6 +441,7 @@ export async function fetchProjectJourneyContext(
       id: row.id,
       name: row.full_name || row.email || "Owner",
       role: row.role ?? undefined,
+      jobTitle: row.job_title ?? undefined,
     });
   }
 
@@ -580,7 +584,7 @@ export async function fetchProjectJourneyContext(
   if (profileLookupsNeeded.length > 0) {
     const { data: profileRows, error: profileError } = await supabase
       .from("profiles")
-      .select("id, full_name, email, role")
+      .select("id, full_name, email, role, job_title")
       .in("id", profileLookupsNeeded);
 
     if (profileError) {
@@ -611,19 +615,30 @@ export async function fetchProjectJourneyContext(
     const cachedProfile = profileCache.get(userId);
     const name = cachedProfile?.name ?? (profile?.full_name || profile?.email || "Participant");
     const role = cachedProfile?.role ?? row.role ?? profile?.role ?? "member";
+    // Priority: project-specific > global job title
+    const jobTitle = row.job_title ?? profile?.job_title ?? cachedProfile?.jobTitle ?? undefined;
 
     if (availableUsers.has(userId)) {
       const existing = availableUsers.get(userId)!;
       const normalizedName = (name || existing.name).trim() || existing.name;
+      const summary = participantSummaryByUserId.get(userId);
       availableUsers.set(userId, {
         ...existing,
         name: normalizedName,
         role: role ?? existing.role,
         avatarInitials: initialsFromName(normalizedName),
       });
+      // Update participant summary with job title if available
+      if (summary) {
+        participantSummaryByUserId.set(userId, {
+          ...summary,
+          jobTitle,
+        });
+      }
       return;
     }
 
+    const summary = buildParticipantSummary({ ...row, job_title: jobTitle });
     availableUsers.set(userId, {
       id: userId,
       name,
@@ -631,6 +646,7 @@ export async function fetchProjectJourneyContext(
       avatarInitials: initialsFromName(name),
       avatarColor: undefined,
     });
+    participantSummaryByUserId.set(userId, summary);
   });
 
   console.log("🧩 Loader: Participant options prepared", {
