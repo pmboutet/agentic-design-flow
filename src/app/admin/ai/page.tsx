@@ -75,8 +75,8 @@ const AutoResizeTextarea = React.forwardRef<HTMLTextAreaElement, React.TextareaH
     const combinedRef = (node: HTMLTextAreaElement | null) => {
       if (typeof ref === "function") {
         ref(node);
-      } else if (ref) {
-        ref.current = node;
+      } else if (ref && typeof ref === "object" && "current" in ref) {
+        (ref as React.MutableRefObject<HTMLTextAreaElement | null>).current = node;
       }
       textareaRef.current = node;
     };
