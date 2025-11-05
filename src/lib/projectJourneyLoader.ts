@@ -186,7 +186,7 @@ function buildChallengeTree(
 
 function getProfileFromRow(
   row: any,
-): { id?: string | null; full_name?: string | null; email?: string | null; role?: string | null } | null {
+): { id?: string | null; full_name?: string | null; email?: string | null; role?: string | null; job_title?: string | null } | null {
   if (row.profiles && typeof row.profiles === "object") {
     return row.profiles;
   }
@@ -483,6 +483,7 @@ export async function fetchProjectJourneyContext(
       name: string;
       role?: string | null;
       email?: string | null;
+      jobTitle?: string | null;
     }
   >();
 
@@ -495,6 +496,7 @@ export async function fetchProjectJourneyContext(
       name: row.full_name || row.email || "Owner",
       role: row.role ?? null,
       email: row.email ?? null,
+      jobTitle: row.job_title ?? null,
     });
   });
 
@@ -514,12 +516,14 @@ export async function fetchProjectJourneyContext(
         name: (profile.full_name || profile.email || "Participant").trim() || "Participant",
         role: profile.role ?? row.role ?? null,
         email: profile.email ?? null,
+        jobTitle: profile.job_title ?? row.job_title ?? null,
       });
     } else if (!profileCache.has(userId)) {
       profileCache.set(userId, {
         name: "Participant",
         role: row.role ?? null,
         email: null,
+        jobTitle: row.job_title ?? null,
       });
     }
   });
@@ -543,6 +547,7 @@ export async function fetchProjectJourneyContext(
           name: summary.name,
           role: summary.role ?? row.role ?? null,
           email: row.participant_email ?? null,
+          jobTitle: summary.jobTitle ?? null,
         });
       }
 
@@ -600,6 +605,7 @@ export async function fetchProjectJourneyContext(
         name: (profileRow.full_name || profileRow.email || "Participant").trim() || "Participant",
         role: profileRow.role ?? null,
         email: profileRow.email ?? null,
+        jobTitle: profileRow.job_title ?? null,
       });
     });
   }

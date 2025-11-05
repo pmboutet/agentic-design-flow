@@ -44,7 +44,7 @@ export function UserManager({ clients, users, onCreate, isLoading }: UserManager
 
   const handleSubmit = async (values: UserFormValues) => {
     await onCreate(values);
-    form.reset({ email: "", firstName: "", lastName: "", role: "user", clientId: "", isActive: true });
+    form.reset({ email: "", firstName: "", lastName: "", role: "participant", clientId: "", isActive: true });
   };
 
   return (
