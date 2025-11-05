@@ -14,17 +14,23 @@ export async function GET(request: NextRequest) {
   const redirectTo = requestUrl.searchParams.get('redirect_to') || nextParam
   const error_description = requestUrl.searchParams.get('error_description')
   
-  // Extract askKey from redirect URL (format: /?key=ASK_KEY)
+  // Extract askKey or token from redirect URL (format: /?key=ASK_KEY or /?token=TOKEN)
   let askKey: string | null = null
+  let token: string | null = null
   if (redirectTo) {
     try {
       const redirectUrl = new URL(redirectTo, requestUrl.origin)
       askKey = redirectUrl.searchParams.get('key')
+      token = redirectUrl.searchParams.get('token')
     } catch {
       // If redirectTo is not a full URL, try parsing it as a path with query
       const keyMatch = redirectTo.match(/[?&]key=([^&]+)/)
+      const tokenMatch = redirectTo.match(/[?&]token=([^&]+)/)
       if (keyMatch) {
         askKey = keyMatch[1]
+      }
+      if (tokenMatch) {
+        token = tokenMatch[1]
       }
     }
   }
@@ -72,6 +78,11 @@ export async function GET(request: NextRequest) {
         new URL(`/auth/login?error=${encodeURIComponent(error.message)}`, request.url)
       )
     }
+  }
+
+  // Priority: If token is present, redirect to ask session page with token
+  if (token) {
+    return NextResponse.redirect(new URL(`/?token=${token}`, requestUrl.origin))
   }
 
   // Priority: If askKey is present, redirect to ask session page

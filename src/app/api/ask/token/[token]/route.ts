@@ -50,44 +50,8 @@ export async function GET(
     const supabase = await createServerSupabaseClient();
     const isDevBypass = process.env.IS_DEV === 'true';
 
-    let profileId: string | null = null;
-
-    if (!isDevBypass) {
-      const { data: userResult, error: userError } = await supabase.auth.getUser();
-
-      if (userError) {
-        if (isPermissionDenied(userError as unknown as PostgrestError)) {
-          return permissionDeniedResponse();
-        }
-        throw userError;
-      }
-
-      const user = userResult?.user;
-
-      if (!user) {
-        return NextResponse.json<ApiResponse>({
-          success: false,
-          error: "Authentification requise"
-        }, { status: 401 });
-      }
-
-      // Get profile ID from auth_id
-      const { data: profile, error: profileError } = await supabase
-        .from('profiles')
-        .select('id')
-        .eq('auth_id', user.id)
-        .single();
-
-      if (profileError || !profile) {
-        return NextResponse.json<ApiResponse>({
-          success: false,
-          error: "Profil utilisateur introuvable"
-        }, { status: 401 });
-      }
-
-      profileId = profile.id;
-    }
-
+    // First, verify the token and get the ASK session
+    // This allows access even without authentication if token is valid
     const { row: askRow, participantId, error: askError } = await getAskSessionByToken<AskSessionRow>(
       supabase,
       token,
@@ -108,37 +72,61 @@ export async function GET(
       }, { status: 404 });
     }
 
-    // Verify that the user is the participant associated with this token
-    if (!isDevBypass && profileId && participantId) {
-      const { data: participant, error: participantError } = await supabase
+    // Get participant info to check if they have an email
+    let participantInfo: { user_id: string | null; participant_email: string | null; participant_name: string | null } | null = null;
+    if (participantId) {
+      const { data: participantData, error: participantError } = await supabase
         .from('ask_participants')
-        .select('user_id, invite_token')
+        .select('user_id, participant_email, participant_name, invite_token')
         .eq('id', participantId)
         .eq('invite_token', token)
         .maybeSingle();
 
-      if (participantError) {
-        if (isPermissionDenied(participantError)) {
-          return permissionDeniedResponse();
-        }
+      if (participantError && !isPermissionDenied(participantError)) {
         throw participantError;
       }
 
-      if (!participant) {
-        return NextResponse.json<ApiResponse>({
-          success: false,
-          error: 'Token invalide ou participant introuvable'
-        }, { status: 404 });
-      }
-
-      // If participant has a user_id, verify it matches the current user
-      if (participant.user_id && participant.user_id !== profileId) {
-        return NextResponse.json<ApiResponse>({
-          success: false,
-          error: 'Ce lien est associé à un autre participant'
-        }, { status: 403 });
-      }
+      participantInfo = participantData;
     }
+
+    // Try to get authenticated user (optional - token access doesn't require auth)
+    let profileId: string | null = null;
+    let isAuthenticated = false;
+
+    if (!isDevBypass) {
+      const { data: userResult, error: userError } = await supabase.auth.getUser();
+
+      if (!userError && userResult?.user) {
+        isAuthenticated = true;
+        
+        // Get profile ID from auth_id
+        const { data: profile, error: profileError } = await supabase
+          .from('profiles')
+          .select('id')
+          .eq('auth_id', userResult.user.id)
+          .single();
+
+        if (!profileError && profile) {
+          profileId = profile.id;
+
+          // If participant has a user_id, verify it matches the current user
+          if (participantInfo?.user_id && participantInfo.user_id !== profileId) {
+            return NextResponse.json<ApiResponse>({
+              success: false,
+              error: 'Ce lien est associé à un autre participant'
+            }, { status: 403 });
+          }
+        }
+      }
+    } else {
+      isAuthenticated = true; // Dev bypass
+    }
+
+    // Token is valid - allow access to view the ASK
+    // The token itself is proof of authorization
+    // Authentication is optional but recommended for full participation
+    // If participant has user_id but user is not authenticated, we still allow access
+    // but the frontend can prompt for authentication if needed
 
     // Get participants
     const { data: participantRows, error: participantError } = await supabase

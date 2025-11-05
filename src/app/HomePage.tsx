@@ -391,6 +391,15 @@ export default function HomePage() {
       const data: ApiResponse<{ ask: Ask; messages: Message[]; insights: Insight[]; challenges?: Challenge[] }> = await response.json();
 
       if (!response.ok || !data.success) {
+        // If authentication is required, redirect to login with token preserved
+        if (response.status === 401) {
+          const currentUrl = typeof window !== 'undefined' ? window.location.href : '';
+          const loginUrl = `/auth/login?redirectTo=${encodeURIComponent(currentUrl)}`;
+          if (typeof window !== 'undefined') {
+            window.location.href = loginUrl;
+            return;
+          }
+        }
         throw new Error(data.error || 'Failed to load session data from token');
       }
 
