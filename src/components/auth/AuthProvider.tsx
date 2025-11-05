@@ -184,10 +184,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     let isMounted = true;
 
+    // Verify Supabase configuration
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    
+    if (!supabaseUrl || !supabaseAnonKey) {
+      console.error("Supabase configuration missing:", {
+        hasUrl: !!supabaseUrl,
+        hasAnonKey: !!supabaseAnonKey
+      });
+      setSession(null);
+      setUser(null);
+      setProfile(null);
+      setStatus("signed-out");
+      return;
+    }
+
     // Set a timeout to prevent indefinite loading state
     const timeoutId = setTimeout(() => {
       if (isMounted) {
-        console.warn("Session check timed out, treating as signed-out");
+        console.warn("Session check timed out after 10s, treating as signed-out. This may indicate:", {
+          issue: "getSession() is not responding",
+          possibleCauses: [
+            "Network connectivity issues",
+            "Supabase URL/Key misconfiguration",
+            "CORS issues",
+            "Cookie/session storage problems"
+          ]
+        });
         setSession(null);
         setUser(null);
         setProfile(null);
@@ -195,17 +219,54 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     }, 10000); // 10 seconds timeout
 
-    // Get initial session
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      clearTimeout(timeoutId);
-      if (!isMounted) {
-        return;
-      }
-      try {
-        setSession(session);
-        await updateUserFromSession(session);
-      } catch (error) {
-        console.error("Error updating user from session:", error);
+    // Get initial session with better error handling
+    const startTime = Date.now();
+    supabase.auth.getSession()
+      .then(async ({ data: { session }, error }) => {
+        const elapsed = Date.now() - startTime;
+        clearTimeout(timeoutId);
+        
+        if (!isMounted) {
+          return;
+        }
+
+        if (error) {
+          console.error("Error in getSession response:", error);
+          setSession(null);
+          setUser(null);
+          setProfile(null);
+          setStatus("signed-out");
+          return;
+        }
+
+        console.log(`Session check completed in ${elapsed}ms`, {
+          hasSession: !!session,
+          hasUser: !!session?.user
+        });
+
+        try {
+          setSession(session);
+          await updateUserFromSession(session);
+        } catch (error) {
+          console.error("Error updating user from session:", error);
+          if (!isMounted) {
+            return;
+          }
+          // On error, treat as signed-out
+          setSession(null);
+          setUser(null);
+          setProfile(null);
+          setStatus("signed-out");
+        }
+      })
+      .catch((error) => {
+        const elapsed = Date.now() - startTime;
+        clearTimeout(timeoutId);
+        console.error(`Error getting session after ${elapsed}ms:`, {
+          error,
+          message: error?.message,
+          stack: error?.stack
+        });
         if (!isMounted) {
           return;
         }
@@ -214,19 +275,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(null);
         setProfile(null);
         setStatus("signed-out");
-      }
-    }).catch((error) => {
-      clearTimeout(timeoutId);
-      console.error("Error getting session:", error);
-      if (!isMounted) {
-        return;
-      }
-      // On error, treat as signed-out
-      setSession(null);
-      setUser(null);
-      setProfile(null);
-      setStatus("signed-out");
-    });
+      });
 
     // Listen for auth changes
     const {

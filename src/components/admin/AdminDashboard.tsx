@@ -2009,15 +2009,31 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
     }
     if (accessState === "signed-out" && !hasRedirectedRef.current) {
       hasRedirectedRef.current = true;
-      router.replace("/auth/login?redirectTo=/admin");
+      // Use window.location for immediate redirect in production
+      if (typeof window !== "undefined") {
+        window.location.href = "/auth/login?redirectTo=/admin";
+      } else {
+        router.replace("/auth/login?redirectTo=/admin");
+      }
     }
   }, [accessState, router, isDevMode]);
 
-  if (accessState === "checking" || accessState === "signed-out") {
+  if (accessState === "checking") {
     return (
       <div className="flex h-screen items-center justify-center">
         <div className="text-center">
           <p className="text-slate-400">Vérification des accès...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (accessState === "signed-out") {
+    // Show redirecting message while redirecting
+    return (
+      <div className="flex h-screen items-center justify-center">
+        <div className="text-center">
+          <p className="text-slate-400">Redirection vers la connexion...</p>
         </div>
       </div>
     );
