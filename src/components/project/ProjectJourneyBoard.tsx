@@ -1898,6 +1898,40 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
     setCopiedInviteLinks(new Set());
   }, [editingAskId, askFormValues.participantIds, askFormValues.askKey]);
 
+  const handleSendAskInvites = useCallback(async () => {
+    if (!editingAskId) {
+      return;
+    }
+
+    setIsSendingAskInvites(true);
+    try {
+      const response = await fetch(`/api/admin/asks/${editingAskId}/send-invites`, {
+        method: "POST",
+      });
+      const payload = await response.json();
+
+      if (!response.ok || !payload.success) {
+        throw new Error(payload.error || "Unable to send invites.");
+      }
+
+      const sent = payload.data?.sent ?? 0;
+      const failed = payload.data?.failed ?? 0;
+      const suffix = failed > 0 ? `, ${failed} failed` : "";
+      setAskFeedback({
+        type: "success",
+        message: `Sent ${sent} invite${sent === 1 ? "" : "s"}${suffix}`,
+      });
+    } catch (error) {
+      console.error("Failed to send ASK invites", error);
+      setAskFeedback({
+        type: "error",
+        message: error instanceof Error ? error.message : "Unable to send invites.",
+      });
+    } finally {
+      setIsSendingAskInvites(false);
+    }
+  }, [editingAskId]);
+
   if (!boardData && isLoading) {
     return (
       <div className="flex flex-col items-center justify-center gap-3 py-16 text-slate-300">
@@ -2376,40 +2410,6 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
     const { value } = event.target;
     setAskFormValues(current => ({ ...current, spokespersonId: value }));
   };
-
-  const handleSendAskInvites = useCallback(async () => {
-    if (!editingAskId) {
-      return;
-    }
-
-    setIsSendingAskInvites(true);
-    try {
-      const response = await fetch(`/api/admin/asks/${editingAskId}/send-invites`, {
-        method: "POST",
-      });
-      const payload = await response.json();
-
-      if (!response.ok || !payload.success) {
-        throw new Error(payload.error || "Unable to send invites.");
-      }
-
-      const sent = payload.data?.sent ?? 0;
-      const failed = payload.data?.failed ?? 0;
-      const suffix = failed > 0 ? `, ${failed} failed` : "";
-      setAskFeedback({
-        type: "success",
-        message: `Sent ${sent} invite${sent === 1 ? "" : "s"}${suffix}`,
-      });
-    } catch (error) {
-      console.error("Failed to send ASK invites", error);
-      setAskFeedback({
-        type: "error",
-        message: error instanceof Error ? error.message : "Unable to send invites.",
-      });
-    } finally {
-      setIsSendingAskInvites(false);
-    }
-  }, [editingAskId]);
 
   const handleAskFormSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
