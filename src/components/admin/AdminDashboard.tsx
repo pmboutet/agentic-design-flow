@@ -682,6 +682,7 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [challengeDetailId, setChallengeDetailId] = useState<string | null>(null);
   const [askDetailId, setAskDetailId] = useState<string | null>(null);
+  const [isSendingInvites, setIsSendingInvites] = useState(false);
 
   const showOnlyChallengeWorkspace = mode === "project-relationships";
 
@@ -2854,7 +2855,7 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                               size="sm"
                               onClick={async () => {
                                 if (!editingAskId) return;
-                                setIsBusy(true);
+                                setIsSendingInvites(true);
                                 try {
                                   const response = await fetch(`/api/admin/asks/${editingAskId}/send-invites`, {
                                     method: "POST",
@@ -2877,10 +2878,10 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                                     message: "Failed to send invites"
                                   });
                                 } finally {
-                                  setIsBusy(false);
+                                  setIsSendingInvites(false);
                                 }
                               }}
-                              disabled={isBusy}
+                              disabled={isSendingInvites}
                               className="h-8 px-3 text-xs bg-indigo-500/20 hover:bg-indigo-500/30 border-indigo-400/30"
                             >
                               <Mail className="h-3 w-3 mr-2" />
@@ -3319,7 +3320,7 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                   </div>
                 </div>
 
-                <div className="flex-1 overflow-hidden rounded-3xl border border-white/10 bg-slate-900/60 p-4">
+                <div className="rounded-3xl border border-white/10 bg-slate-900/60 p-4">
                   {selectedProjectId && <ProjectJourneyBoard projectId={selectedProjectId} />}
                 </div>
               </section>

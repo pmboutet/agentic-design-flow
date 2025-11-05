@@ -5,10 +5,13 @@ import Link from "next/link";
 import * as Dialog from "@radix-ui/react-dialog";
 import {
   Calendar,
+  Check,
   ChevronRight,
-  MessageSquare,
+  Copy,
   Lightbulb,
   Loader2,
+  Mail,
+  MessageSquare,
   Pencil,
   Plus,
   Save,
@@ -413,6 +416,8 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
   const [hasManualAskKey, setHasManualAskKey] = useState(false);
   const [askDetails, setAskDetails] = useState<Record<string, AskSessionRecord>>({});
   const [isLoadingAskDetails, setIsLoadingAskDetails] = useState(false);
+  const [isSendingAskInvites, setIsSendingAskInvites] = useState(false);
+  const [copiedInviteLinks, setCopiedInviteLinks] = useState<Set<string>>(new Set());
   const [activeChallengeId, setActiveChallengeId] = useState<string | null>(null);
   const rightColumnRef = useRef<HTMLDivElement | null>(null);
   const [editValues, setEditValues] = useState<ProjectEditState>({
@@ -625,6 +630,10 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
   );
 
   const allChallenges = useMemo(() => flattenChallenges(boardData?.challenges), [boardData]);
+  const editingAskRecord = useMemo(
+    () => (editingAskId ? askDetails[editingAskId] ?? null : null),
+    [askDetails, editingAskId],
+  );
 
   const challengeById = useMemo(() => {
     const map = new Map<string, ProjectChallengeNode>();
@@ -1876,6 +1885,40 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
   }
 
   const availableUsers = boardData.availableUsers ?? [];
+  const inviteLinkBase = useMemo(() => {
+    const askKey = askFormValues.askKey?.trim();
+    if (!askKey) {
+      return null;
+    }
+    const origin =
+      typeof window !== "undefined" && window?.location?.origin
+        ? window.location.origin
+        : process.env.NEXT_PUBLIC_APP_URL ?? "";
+    const base = origin || "";
+    return `${base}/?key=${askKey}`;
+  }, [askFormValues.askKey]);
+
+  const inviteParticipants = useMemo(() => {
+    if (!isEditingAsk || !editingAskId) {
+      return [];
+    }
+
+    const participants = editingAskRecord?.participants ?? [];
+    return askFormValues.participantIds.map(participantId => {
+      const recordParticipant = participants.find(item => item.id === participantId);
+      const fallbackUser = availableUsers.find(user => user.id === participantId);
+      return {
+        id: participantId,
+        name: recordParticipant?.name ?? fallbackUser?.name ?? participantId,
+        email: recordParticipant?.email ?? null,
+      };
+    });
+  }, [askFormValues.participantIds, availableUsers, editingAskRecord, editingAskId, isEditingAsk]);
+
+  useEffect(() => {
+    setCopiedInviteLinks(new Set());
+  }, [editingAskId, askFormValues.participantIds, askFormValues.askKey]);
+
   const projectStart = formatFullDate(boardData.projectStartDate);
   const projectEnd = formatFullDate(boardData.projectEndDate);
 
@@ -2332,6 +2375,40 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
     const { value } = event.target;
     setAskFormValues(current => ({ ...current, spokespersonId: value }));
   };
+
+  const handleSendAskInvites = useCallback(async () => {
+    if (!editingAskId) {
+      return;
+    }
+
+    setIsSendingAskInvites(true);
+    try {
+      const response = await fetch(`/api/admin/asks/${editingAskId}/send-invites`, {
+        method: "POST",
+      });
+      const payload = await response.json();
+
+      if (!response.ok || !payload.success) {
+        throw new Error(payload.error || "Unable to send invites.");
+      }
+
+      const sent = payload.data?.sent ?? 0;
+      const failed = payload.data?.failed ?? 0;
+      const suffix = failed > 0 ? `, ${failed} failed` : "";
+      setAskFeedback({
+        type: "success",
+        message: `Sent ${sent} invite${sent === 1 ? "" : "s"}${suffix}`,
+      });
+    } catch (error) {
+      console.error("Failed to send ASK invites", error);
+      setAskFeedback({
+        type: "error",
+        message: error instanceof Error ? error.message : "Unable to send invites.",
+      });
+    } finally {
+      setIsSendingAskInvites(false);
+    }
+  }, [editingAskId]);
 
   const handleAskFormSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -3697,6 +3774,117 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
                             </option>
                           ))}
                       </select>
+                    </div>
+                  ) : null}
+
+                  {isEditingAsk && editingAskId && askFormValues.participantIds.length > 0 ? (
+                    <div className="space-y-3 rounded-xl border border-indigo-500/30 bg-indigo-500/10 p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <Label className="text-sm font-semibold text-indigo-200">Participant invite links</Label>
+                          <p className="mt-1 text-xs text-indigo-100/70">
+                            Copy personal links or send them by email directly.
+                          </p>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={handleSendAskInvites}
+                          disabled={isSavingAsk || isLoadingAskDetails || isSendingAskInvites}
+                          className="h-8 gap-2 border-indigo-400/40 bg-indigo-500/20 text-indigo-100 hover:bg-indigo-500/30"
+                        >
+                          {isSendingAskInvites ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : (
+                            <Mail className="h-3 w-3" />
+                          )}
+                          {isSendingAskInvites ? "Sending…" : "Send invites"}
+                        </Button>
+                      </div>
+
+                      <div className="max-h-64 space-y-2 overflow-y-auto">
+                        {inviteParticipants.length === 0 ? (
+                          <p className="text-xs text-indigo-100/70">
+                            Invite links appear once participant details are available.
+                          </p>
+                        ) : (
+                          inviteParticipants.map(participant => {
+                            const link = inviteLinkBase;
+                            const isCopied = copiedInviteLinks.has(participant.id);
+
+                            return (
+                              <div
+                                key={participant.id}
+                                className="rounded-lg border border-white/10 bg-slate-950/70 p-3"
+                              >
+                                <div className="flex items-center justify-between gap-3">
+                                  <div>
+                                    <p className="text-sm font-semibold text-white">{participant.name}</p>
+                                    {participant.email ? (
+                                      <p className="text-xs text-slate-400">{participant.email}</p>
+                                    ) : (
+                                      <p className="text-xs text-slate-500">No email on record</p>
+                                    )}
+                                  </div>
+                                </div>
+                                {link ? (
+                                  <div className="mt-2 flex items-center gap-2">
+                                    <input
+                                      type="text"
+                                      readOnly
+                                      value={link}
+                                      className="flex-1 rounded-md border border-white/10 bg-slate-900/80 px-2 py-1 text-xs text-slate-100"
+                                      onClick={event => (event.target as HTMLInputElement).select()}
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={async () => {
+                                        try {
+                                          if (!navigator?.clipboard?.writeText) {
+                                            throw new Error("Clipboard copy not supported in this browser.");
+                                          }
+                                          await navigator.clipboard.writeText(link);
+                                          setCopiedInviteLinks(prev => {
+                                            const next = new Set(prev);
+                                            next.add(participant.id);
+                                            return next;
+                                          });
+                                          setTimeout(() => {
+                                            setCopiedInviteLinks(prev => {
+                                              const next = new Set(prev);
+                                              next.delete(participant.id);
+                                              return next;
+                                            });
+                                          }, 2000);
+                                        } catch (error) {
+                                          console.error("Failed to copy invite link", error);
+                                          setAskFeedback({
+                                            type: "error",
+                                            message: "Unable to copy invite link. Please copy manually.",
+                                          });
+                                        }
+                                      }}
+                                      className="rounded-lg border border-white/10 bg-slate-900/60 p-1.5 text-slate-300 transition hover:bg-slate-800/60 hover:text-white"
+                                      title="Copy invite link"
+                                    >
+                                      {isCopied ? (
+                                        <Check className="h-3 w-3 text-emerald-400" />
+                                      ) : (
+                                        <Copy className="h-3 w-3" />
+                                      )}
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <p className="mt-2 text-xs text-slate-400">
+                                    Provide an ASK key to generate a shareable link.
+                                  </p>
+                                )}
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
                     </div>
                   ) : null}
 

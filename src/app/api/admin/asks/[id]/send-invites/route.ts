@@ -35,9 +35,18 @@ export async function POST(
     const failedEmails: Array<{ email: string; error: string }> = [];
 
     // Get participant emails - fetch profiles for user_id participants
-    const userIds = ask.ask_participants
-      ?.filter(p => p.user_id)
-      .map(p => p.user_id)
+    type Participant = {
+      id: string;
+      user_id: string | null;
+      role: string | null;
+      participant_name: string | null;
+      participant_email: string | null;
+      is_spokesperson: boolean | null;
+    };
+    
+    const userIds = (ask.ask_participants as Participant[] | null | undefined)
+      ?.filter((p: Participant) => p.user_id)
+      .map((p: Participant) => p.user_id)
       .filter((id): id is string => Boolean(id)) || [];
 
     let profileEmails = new Map<string, string>();
@@ -57,8 +66,9 @@ export async function POST(
     }
 
     // Send magic links to all participants
-    if (ask.ask_participants && ask.ask_participants.length > 0) {
-      for (const participant of ask.ask_participants) {
+    const participants = ask.ask_participants as Participant[] | null | undefined;
+    if (participants && participants.length > 0) {
+      for (const participant of participants) {
         let email: string | null = null;
 
         // Get email from participant_email or from profile
