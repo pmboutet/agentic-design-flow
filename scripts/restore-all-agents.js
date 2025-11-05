@@ -42,10 +42,10 @@ async function getDefaultModelConfig() {
     const { data: newConfig, error: createError } = await supabase
       .from('ai_model_configs')
       .upsert({
-        code: 'anthropic-claude-3-5-sonnet',
-        name: 'Claude 3.5 Sonnet',
+        code: 'anthropic-claude-sonnet-4-5',
+        name: 'Claude Sonnet 4.5',
         provider: 'anthropic',
-        model: 'claude-3-5-sonnet-20241022',
+        model: 'claude-sonnet-4-5',
         api_key_env_var: 'ANTHROPIC_API_KEY',
         is_default: true,
         is_fallback: false

@@ -48,6 +48,7 @@ import {
 } from "@/types";
 import { AiChallengeBuilderPanel } from "@/components/project/AiChallengeBuilderPanel";
 import { AiAskGeneratorPanel } from "@/components/project/AiAskGeneratorPanel";
+import { GraphRAGPanel } from "@/components/admin/GraphRAGPanel";
 
 interface ProjectJourneyBoardProps {
   projectId: string;
@@ -3038,6 +3039,22 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
                         No insights are linked to this challenge yet.
                       </div>
                     )}
+                  </CardContent>
+                </Card>
+
+                {/* Graph RAG Syntheses Panel */}
+                <Card className="border border-purple-400/40 bg-purple-500/10">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="flex items-center gap-2 text-lg font-semibold text-white">
+                      <Sparkles className="h-5 w-5 text-purple-300" />
+                      Synthèses d'insights
+                    </CardTitle>
+                    <p className="text-sm text-slate-300">
+                      Synthèses automatiques regroupant les insights connexes du projet.
+                    </p>
+                  </CardHeader>
+                  <CardContent>
+                    <GraphRAGPanel projectId={projectId} />
                   </CardContent>
                 </Card>
 

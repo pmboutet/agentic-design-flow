@@ -46,10 +46,10 @@ async function getDefaultModelConfig() {
     const { data: newConfig, error: createError } = await supabase
       .from('ai_model_configs')
       .upsert({
-        code: 'anthropic-claude-3-5-sonnet',
-        name: 'Claude 3.5 Sonnet',
+        code: 'anthropic-claude-sonnet-4-5',
+        name: 'Claude Sonnet 4.5',
         provider: 'anthropic',
-        model: 'claude-3-5-sonnet-20241022',
+        model: 'claude-sonnet-4-5',
         api_key_env_var: 'ANTHROPIC_API_KEY',
         is_default: true,
         is_fallback: false
@@ -189,15 +189,48 @@ Voici l'intégralité du contexte du projet :
 
 {{challenge_context_json}}
 
+## DONNÉES GRAPH RAG (Similarités sémantiques)
+
+### Clusters d'insights similaires (prioriser ceux à fort impact) :
+{{graph_clusters_json}}
+
+Les clusters contiennent :
+- **insightIds** : IDs des insights similaires du cluster
+- **frequency** : Nombre d'insights = indicateur d'impact (plus élevé = plus impactant)
+- **impactScore** : Score calculé (similarity × frequency) - prioriser les scores élevés
+- **synthesisText** : Synthèse du cluster si disponible (insights déjà validés sémantiquement)
+- **dominantConcepts** : Concepts/thèmes extraits automatiquement
+
+### Synthèses existantes (résumés validés de groupes d'insights) :
+{{graph_syntheses_json}}
+
+### Concepts dominants du projet :
+{{dominant_concepts}}
+
 ## INSTRUCTIONS
 
 Analyse ces données et produis un plan d'action structuré selon le format JSON spécifié.
 
-Concentre-toi sur :
+**Priorités stratégiques avec Graph RAG :**
+1. **Utiliser les clusters du graphe comme base de regroupement** : Les insights similaires détectés par le graphe doivent être considérés comme des groupes cohérents
+2. **Prioriser les clusters à fort impact** : 
+   - Clusters avec frequency élevée (insights trouvés plusieurs fois = plus impactants)
+   - Clusters avec synthesisText (déjà validés sémantiquement)
+   - Clusters avec impactScore élevé
+3. **Éviter les doublons** : Si des insights sont dans un cluster du graphe, ne les regroupe pas différemment
+4. **Ignorer les insights isolés** : Si un insight n'appartient à aucun cluster avec similarity > 0.75, il est probablement moins prioritaire
+
+**Instructions spécifiques :**
 1. Identifier les challenges qui ont reçu de nouveaux insights significatifs
-2. Détecter les patterns d'insights orphelins qui justifient de nouveaux challenges
-3. Évaluer la cohérence globale de la structure des challenges
-4. Prioriser les actions à fort impact
+2. **Utiliser les clusters Graph RAG pour détecter les patterns** : Les clusters pré-identifiés sont des candidats naturels pour de nouveaux challenges
+3. **Prioriser les créations basées sur clusters à fort impact** : frequency élevée = insights récurrents = priorité haute
+4. Évaluer la cohérence globale de la structure des challenges
+5. Prioriser les actions à fort impact (impactScore élevé)
+
+**Règles de qualité :**
+- Ne crée pas de challenge pour un groupe d'insights déjà dans un cluster du graphe avec synthesisText (synthèse disponible)
+- Un cluster avec frequency ≥ 5 est un candidat fort pour un nouveau challenge
+- Un insight isolé (pas dans cluster) est moins prioritaire qu'un insight fréquent (dans cluster)
 
 Génère maintenant le plan de révision en JSON.`;
 
@@ -212,13 +245,16 @@ Génère maintenant le plan de révision en JSON.`;
         model_config_id: modelConfig.id,
         system_prompt: plannerSystemPrompt,
         user_prompt: plannerUserPrompt,
-        available_variables: [
-          'project_name',
-          'project_goal',
-          'project_status',
-          'project_timeframe',
-          'challenge_context_json'
-        ],
+      available_variables: [
+        'project_name',
+        'project_goal',
+        'project_status',
+        'project_timeframe',
+        'challenge_context_json',
+        'graph_clusters_json',
+        'graph_syntheses_json',
+        'dominant_concepts'
+      ],
         metadata: {
           version: '2.0',
           optimized: true,

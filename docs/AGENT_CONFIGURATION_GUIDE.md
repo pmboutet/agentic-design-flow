@@ -256,7 +256,7 @@ INSERT INTO ai_model_configs (
   'anthropic-claude-3-5-sonnet',
   'Claude 3.5 Sonnet',
   'anthropic',
-  'claude-3-5-sonnet-20241022',
+  'claude-3-5-sonnet-20240620',
   'ANTHROPIC_API_KEY',
   'https://api.anthropic.com/v1',
   true

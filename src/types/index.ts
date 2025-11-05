@@ -344,6 +344,7 @@ export interface ProjectRecord {
   createdAt: string;
   updatedAt: string;
   systemPrompt?: string | null;
+  graphRagScope?: "project" | "client";
 }
 
 export interface ChallengeRecord {

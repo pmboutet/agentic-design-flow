@@ -16,13 +16,15 @@ async function initAiData() {
 
   try {
     // Create model configurations
+    // Use the existing configuration code to maintain consistency
     const modelConfigs = [
       {
-        code: 'anthropic-claude-3-5-sonnet',
-        name: 'Claude 3.5 Sonnet',
+        code: 'anthropic-claude-sonnet-4-5',
+        name: 'Claude Sonnet 4.5',
         provider: 'anthropic',
-        model: 'claude-3-5-sonnet-20241022',
+        model: 'claude-sonnet-4-5',
         api_key_env_var: 'ANTHROPIC_API_KEY',
+        base_url: 'https://api.anthropic.com/v1',
         is_default: true,
         is_fallback: false
       },
@@ -55,7 +57,7 @@ async function initAiData() {
     const { data: defaultModel, error: defaultModelError } = await supabase
       .from('ai_model_configs')
       .select('id')
-      .eq('code', 'anthropic-claude-3-5-sonnet')
+      .eq('code', 'anthropic-claude-sonnet-4-5')
       .single();
 
     if (defaultModelError || !defaultModel) {
@@ -294,6 +296,111 @@ Génère la sortie en respectant le format JSON demandé.`,
           'insights_by_ask_json',
           'existing_child_challenges_json',
           'analysis_date'
+        ]
+      },
+      {
+        slug: 'insight-entity-extraction',
+        name: 'Insight Entity Extraction Agent',
+        description: 'Agent responsible for extracting keywords, concepts, and themes from insights',
+        model_config_id: defaultModel.id,
+        system_prompt: `Tu es un expert en extraction d'entités et d'analyse sémantique.
+
+Ton rôle est d'extraire de manière structurée :
+- Les mots-clés pertinents (noms, concepts clés)
+- Les thèmes généraux abordés
+- Les concepts métier identifiés
+
+## FORMAT DE SORTIE STRICT
+
+Retourne UNIQUEMENT un objet JSON valide, sans texte additionnel, sans balises markdown, sans backticks.
+
+Structure attendue :
+{
+  "keywords": [
+    {
+      "text": "réunions",
+      "relevance": 0.9,
+      "type": "concept"
+    },
+    {
+      "text": "productivité",
+      "relevance": 0.85,
+      "type": "theme"
+    }
+  ],
+  "concepts": ["gestion du temps", "communication équipe"],
+  "themes": ["organisation", "efficacité"]
+}
+
+## RÈGLES
+
+1. Extrais 5-15 mots-clés par insight selon sa longueur
+2. Le score de relevance (0-1) reflète l'importance du concept dans le texte
+3. Les "concepts" sont des phrases courtes décrivant des idées abstraites
+4. Les "themes" sont des catégories générales
+5. Normalise les termes (pas de doublons, formes similaires regroupées)
+6. Retourne des arrays vides si aucun élément pertinent n'est trouvé`,
+        user_prompt: `Extrais les entités (mots-clés, concepts, thèmes) de cet insight :
+
+Contenu : {{content}}
+Résumé : {{summary}}
+Type : {{type}}
+Catégorie : {{category}}
+
+Retourne le JSON structuré avec les entités extraites.`,
+        available_variables: [
+          'content',
+          'summary',
+          'type',
+          'category'
+        ]
+      },
+      {
+        slug: 'insight-synthesis',
+        name: 'Insight Synthesis Agent',
+        description: 'Agent responsible for synthesizing related insights into unified concepts',
+        model_config_id: defaultModel.id,
+        system_prompt: `Tu es un expert en synthèse d'informations et en consolidation d'idées.
+
+Ton rôle est de :
+1. Analyser un groupe d'insights connexes
+2. Identifier les thèmes communs et points de convergence
+3. Créer une synthèse cohérente qui résume l'essence des insights tout en préservant les nuances importantes
+4. Extraire les concepts clés qui unifient ces insights
+
+## FORMAT DE SORTIE STRICT
+
+Retourne UNIQUEMENT un objet JSON valide, sans texte additionnel, sans balises markdown, sans backticks.
+
+Structure attendue :
+{
+  "synthesized_text": "Synthèse complète qui résume les insights connexes en 3-5 phrases, en identifiant les patterns communs et les points clés.",
+  "key_concepts": ["concept principal 1", "concept principal 2", "concept principal 3"],
+  "common_themes": ["thème 1", "thème 2"],
+  "summary": "Résumé en une phrase de la synthèse"
+}
+
+## RÈGLES
+
+1. La synthèse doit être cohérente et fluide, pas juste une liste d'insights
+2. Identifie les convergences mais aussi les points de divergence importants
+3. Les concepts clés doivent être les idées centrales qui unifient les insights
+4. La synthèse doit apporter de la valeur ajoutée, pas juste répéter les insights
+5. Garde les détails quantitatifs et qualitatifs pertinents`,
+        user_prompt: `Synthétise ces insights connexes :
+
+Contexte projet : {{project_name}}
+Challenge associé : {{challenge_name}}
+
+Insights à synthétiser ({{insight_count}} insights) :
+{{insights_json}}
+
+Crée une synthèse unifiée qui fait émerger les patterns et concepts communs.`,
+        available_variables: [
+          'project_name',
+          'challenge_name',
+          'insights_json',
+          'insight_count'
         ]
       }
     ];

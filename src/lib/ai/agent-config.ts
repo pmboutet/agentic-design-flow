@@ -64,9 +64,10 @@ function mapAgentRow(row: AgentQueryRow): AiAgentRecord {
   };
 }
 
-async function fetchAgentByIdOrSlug(
+export async function fetchAgentByIdOrSlug(
   supabase: SupabaseClient,
-  options: { id?: string | null; slug?: string | null }
+  options: { id?: string | null; slug?: string | null },
+  fetchOptions?: { includeModels?: boolean }
 ): Promise<AiAgentRecord | null> {
   let query = supabase.from('ai_agents').select(`
     *,
@@ -191,10 +192,10 @@ export async function getDefaultModelConfig(
     // Fallback to a hardcoded default if no default is configured
     return {
       id: crypto.randomUUID(),
-      code: 'anthropic-claude-3-5-sonnet',
-      name: 'Claude 3.5 Sonnet',
+      code: 'anthropic-claude-sonnet-4-5',
+      name: 'Claude Sonnet 4.5',
       provider: 'anthropic',
-      model: 'claude-3-5-sonnet-20241022',
+      model: 'claude-sonnet-4-5',
       apiKeyEnvVar: 'ANTHROPIC_API_KEY',
       baseUrl: 'https://api.anthropic.com/v1',
       additionalHeaders: {},
