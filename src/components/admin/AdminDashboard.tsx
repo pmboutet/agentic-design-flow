@@ -1944,13 +1944,18 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
 
   const isProfileActive = profile?.isActive ?? user?.profile?.isActive ?? true;
 
-  const accessState = useMemo<"checking" | "signed-out" | "inactive" | "forbidden" | "granted">(() => {
+  const accessState = useMemo<"checking" | "signed-out" | "inactive" | "forbidden" | "profile-missing" | "granted">(() => {
     if (status === "loading") {
       return "checking";
     }
 
     if (status === "signed-out") {
       return "signed-out";
+    }
+
+    // Check if profile is missing (user is signed in but profile wasn't loaded)
+    if (status === "signed-in" && !profile && !user?.profile) {
+      return "profile-missing";
     }
 
     if (!normalizedRole) {
@@ -1967,7 +1972,7 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
     }
 
     return "granted";
-  }, [status, normalizedRole, isProfileActive]);
+  }, [status, normalizedRole, isProfileActive, profile, user?.profile]);
 
   // Filter users based on role for search
   // Use profile.id and profile.role instead of profile object to avoid unnecessary recalculations
@@ -2034,6 +2039,33 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
       <div className="flex h-screen items-center justify-center">
         <div className="text-center">
           <p className="text-slate-400">Redirection vers la connexion...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (accessState === "profile-missing") {
+    return (
+      <div className="flex h-screen items-center justify-center">
+        <div className="max-w-md rounded-2xl border border-yellow-500/40 bg-yellow-500/10 p-6 text-center text-slate-100">
+          <h2 className="text-xl font-semibold text-white">Profil non disponible</h2>
+          <p className="mt-3 text-sm text-slate-200">
+            Impossible de charger votre profil utilisateur. Cela peut être dû à un problème de connexion ou de réseau.
+          </p>
+          <div className="mt-6 flex gap-3 justify-center">
+            <Button
+              onClick={() => window.location.reload()}
+              variant="secondary"
+            >
+              Réessayer
+            </Button>
+            <Button
+              onClick={() => router.replace("/auth/login?redirectTo=/admin")}
+              variant="outline"
+            >
+              Se reconnecter
+            </Button>
+          </div>
         </div>
       </div>
     );

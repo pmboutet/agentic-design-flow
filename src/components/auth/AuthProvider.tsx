@@ -62,48 +62,71 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (isDevBypass) {
       return null;
     }
+    
+    const startTime = Date.now();
+    
     try {
       // Add timeout to prevent indefinite hanging
+      // Use Promise.race to implement timeout
       const profilePromise = supabase
         .from("profiles")
         .select("*, clients(name)")
         .eq("auth_id", authUser.id)
         .single();
 
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error("Profile fetch timeout")), 8000);
+      const timeoutPromise = new Promise<{ data: null; error: { message: string } }>((resolve) => {
+        setTimeout(() => {
+          resolve({ data: null, error: { message: "Profile fetch timeout" } });
+        }, 8000);
       });
 
-      const { data, error } = await Promise.race([profilePromise, timeoutPromise]);
+      // Race between the actual request and timeout
+      const result = await Promise.race([profilePromise, timeoutPromise]);
+      const elapsed = Date.now() - startTime;
 
-      if (error) {
-        console.error("Error fetching profile:", error);
+      // Handle timeout
+      if (result.error?.message === "Profile fetch timeout") {
+        console.warn(`Profile fetch timed out after ${elapsed}ms. Continuing without profile.`);
         return null;
       }
 
-      if (!data) {
+      // Handle Supabase errors
+      if (result.error) {
+        console.error("Error fetching profile:", result.error);
         return null;
       }
 
+      // Handle missing data
+      if (!result.data) {
+        console.log(`Profile fetch completed in ${elapsed}ms, but no data returned`);
+        return null;
+      }
+
+      console.log(`Profile fetch completed successfully in ${elapsed}ms`);
       return {
-        id: data.id,
-        authId: data.auth_id,
-        email: data.email,
-        firstName: data.first_name,
-        lastName: data.last_name,
-        fullName: data.full_name,
-        role: data.role,
-        clientId: data.client_id,
-        clientName: data.clients?.name ?? null,
-        avatarUrl: data.avatar_url,
-        isActive: data.is_active,
-        lastLogin: data.last_login,
-        jobTitle: data.job_title ?? null,
-        createdAt: data.created_at,
-        updatedAt: data.updated_at,
+        id: result.data.id,
+        authId: result.data.auth_id,
+        email: result.data.email,
+        firstName: result.data.first_name,
+        lastName: result.data.last_name,
+        fullName: result.data.full_name,
+        role: result.data.role,
+        clientId: result.data.client_id,
+        clientName: result.data.clients?.name ?? null,
+        avatarUrl: result.data.avatar_url,
+        isActive: result.data.is_active,
+        lastLogin: result.data.last_login,
+        jobTitle: result.data.job_title ?? null,
+        createdAt: result.data.created_at,
+        updatedAt: result.data.updated_at,
       };
-    } catch (error) {
-      console.error("Exception fetching profile:", error);
+    } catch (error: any) {
+      const elapsed = Date.now() - startTime;
+      console.error(`Exception fetching profile after ${elapsed}ms:`, {
+        error: error?.message || error,
+        name: error?.name,
+      });
+      // Always return null to prevent crashes - the app can work without profile
       return null;
     }
   }, [isDevBypass]);
@@ -128,6 +151,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const authUser = session.user;
       const userProfile = await fetchProfile(authUser);
 
+      // If profile is null (timeout or error), we still set the user but without profile
+      // The AdminDashboard will check for profile and deny access if missing
       setProfile(userProfile);
       setUser({
         id: authUser.id,
@@ -137,6 +162,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         role: userProfile?.role ?? null,
         profile: userProfile,
       });
+      
+      // Always set to signed-in even if profile is missing
+      // The access control will handle missing profile by denying access
       setStatus("signed-in");
     },
     [fetchProfile, isDevBypass]
