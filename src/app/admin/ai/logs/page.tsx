@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import dynamic from "next/dynamic";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
   RefreshCw, 
@@ -16,6 +17,83 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { AiAgentLog } from "@/types";
+
+// Import dynamique pour éviter les problèmes SSR
+const SyntaxHighlighter = dynamic(
+  () => import("react-syntax-highlighter").then((mod) => mod.Prism),
+  { ssr: false }
+);
+
+// Composant wrapper pour le style
+function JsonSyntaxHighlighter({ children }: { children: string }) {
+  const [style, setStyle] = useState<any>(null);
+
+  useEffect(() => {
+    import("react-syntax-highlighter/dist/esm/styles/prism").then((mod) => {
+      setStyle(mod.vscDarkPlus);
+    });
+    
+    // Injecter des styles CSS globaux pour forcer le retour à la ligne
+    const styleId = "json-syntax-highlighter-wrap";
+    if (!document.getElementById(styleId)) {
+      const styleElement = document.createElement("style");
+      styleElement.id = styleId;
+      styleElement.textContent = `
+        .json-highlighter-container pre,
+        .json-highlighter-container code {
+          white-space: pre-wrap !important;
+          word-break: break-word !important;
+          overflow-wrap: break-word !important;
+          max-width: 100% !important;
+        }
+      `;
+      document.head.appendChild(styleElement);
+    }
+  }, []);
+
+  if (!style) {
+    // Fallback pendant le chargement
+    return (
+      <pre 
+        className="whitespace-pre-wrap break-words rounded border bg-slate-900 p-3 text-xs text-white"
+        style={{ wordBreak: "break-word", overflowWrap: "anywhere" }}
+      >
+        {children}
+      </pre>
+    );
+  }
+
+  return (
+    <div className="json-highlighter-container">
+      <SyntaxHighlighter
+        language="json"
+        style={style}
+        customStyle={{
+          margin: 0,
+          padding: "12px",
+          fontSize: "12px",
+          lineHeight: "1.5",
+          borderRadius: "0.375rem",
+          whiteSpace: "pre-wrap",
+          wordBreak: "break-word",
+          overflowWrap: "break-word",
+          maxWidth: "100%",
+        }}
+        wrapLines={true}
+        wrapLongLines={true}
+        codeTagProps={{
+          style: {
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-word",
+            overflowWrap: "break-word",
+          }
+        }}
+      >
+        {children}
+      </SyntaxHighlighter>
+    </div>
+  );
+}
 
 interface LogsResponse {
   success: boolean;
@@ -47,9 +125,30 @@ export default function AiLogsPage() {
   const [filters, setFilters] = useState({
     status: "",
     interactionType: "",
-    search: ""
+    search: "",
+    dateFrom: "",
+    dateTo: ""
   });
   const [expandedLogs, setExpandedLogs] = useState<Set<string>>(new Set());
+
+  // Initialiser avec la date du jour par défaut
+  useEffect(() => {
+    setFilters(prev => {
+      if (prev.dateFrom && prev.dateTo) {
+        return prev; // Déjà initialisé
+      }
+      const today = new Date();
+      const startOfDay = new Date(today);
+      startOfDay.setHours(0, 0, 0, 0);
+      const endOfDay = new Date(today);
+      endOfDay.setHours(23, 59, 59, 999);
+      return {
+        ...prev,
+        dateFrom: startOfDay.toISOString(),
+        dateTo: endOfDay.toISOString()
+      };
+    });
+  }, []);
 
   const fetchLogs = async () => {
     try {
@@ -57,8 +156,11 @@ export default function AiLogsPage() {
       setError(null);
 
       const params = new URLSearchParams();
+      params.append('limit', '200'); // Augmenter la limite pour voir plus de logs
       if (filters.status) params.append('status', filters.status);
       if (filters.interactionType) params.append('interactionType', filters.interactionType);
+      if (filters.dateFrom) params.append('dateFrom', filters.dateFrom);
+      if (filters.dateTo) params.append('dateTo', filters.dateTo);
       
       const response = await fetch(`/api/admin/ai/logs?${params.toString()}`);
       const data: LogsResponse = await response.json();
@@ -78,7 +180,7 @@ export default function AiLogsPage() {
 
   useEffect(() => {
     fetchLogs();
-  }, [filters.status, filters.interactionType]);
+  }, [filters.status, filters.interactionType, filters.dateFrom, filters.dateTo]);
 
   const filteredLogs = logs.filter(log => {
     if (filters.search) {
@@ -172,7 +274,7 @@ export default function AiLogsPage() {
                 </div>
               </CardHeader>
               <CardContent>
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-3 lg:grid-cols-4">
                   <div>
                     <Label htmlFor="search">Recherche</Label>
                     <div className="relative">
@@ -212,20 +314,77 @@ export default function AiLogsPage() {
                       className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm"
                     >
                       <option value="">Tous les types</option>
-                      <option value="ask.chat.response">Réponse Chat</option>
-                      <option value="ask.chat.response.streaming">Réponse Chat Streaming</option>
-                      <option value="ask.insight.generation">Génération d'Insights</option>
-                      <option value="challenge.creation">Création de défi</option>
+                      <optgroup label="Chat & Conversations">
+                        <option value="ask.chat.response">Réponse Chat</option>
+                        <option value="ask.chat.response.streaming">Réponse Chat Streaming</option>
+                      </optgroup>
+                      <optgroup label="Insights">
+                        <option value="ask.insight.detection">Détection d'Insights</option>
+                        <option value="insight.synthesis">Synthèse d'Insights</option>
+                        <option value="insight.entity.extraction">Extraction d'Entités</option>
+                      </optgroup>
+                      <optgroup label="Défis & Questions">
+                        <option value="challenge.ask.generator">Générateur de Questions</option>
+                      </optgroup>
+                      <optgroup label="Gestion de Défis (Challenge Builder)">
+                        <option value="project_challenge_planning">Planification de Révision</option>
+                        <option value="project_challenge_update_detailed">Mise à Jour Détaillée</option>
+                        <option value="project_challenge_creation_detailed">Création Détaillée</option>
+                      </optgroup>
                     </select>
                   </div>
 
-                  <div className="flex items-end">
-                    <Button
-                      onClick={() => setFilters({ status: "", interactionType: "", search: "" })}
-                      variant="outline"
+                  <div>
+                    <Label htmlFor="dateFrom">Date début</Label>
+                    <Input
+                      id="dateFrom"
+                      type="datetime-local"
+                      value={filters.dateFrom ? new Date(filters.dateFrom).toISOString().slice(0, 16) : ""}
+                      onChange={event => {
+                        const date = event.target.value ? new Date(event.target.value).toISOString() : "";
+                        setFilters(prev => ({ ...prev, dateFrom: date }));
+                      }}
                       className="w-full"
+                    />
+                  </div>
+
+                  <div>
+                    <Label htmlFor="dateTo">Date fin</Label>
+                    <Input
+                      id="dateTo"
+                      type="datetime-local"
+                      value={filters.dateTo ? new Date(filters.dateTo).toISOString().slice(0, 16) : ""}
+                      onChange={event => {
+                        const date = event.target.value ? new Date(event.target.value).toISOString() : "";
+                        setFilters(prev => ({ ...prev, dateTo: date }));
+                      }}
+                      className="w-full"
+                    />
+                  </div>
+
+                  <div className="flex items-end gap-2 md:col-span-2 lg:col-span-1">
+                    <Button
+                      onClick={() => {
+                        const today = new Date();
+                        const startOfDay = new Date(today);
+                        startOfDay.setHours(0, 0, 0, 0);
+                        const endOfDay = new Date(today);
+                        endOfDay.setHours(23, 59, 59, 999);
+                        setFilters(prev => ({ ...prev, dateFrom: startOfDay.toISOString(), dateTo: endOfDay.toISOString() }));
+                      }}
+                      variant="outline"
+                      size="sm"
+                      className="flex-1"
                     >
-                      Effacer les filtres
+                      Aujourd'hui
+                    </Button>
+                    <Button
+                      onClick={() => setFilters({ status: "", interactionType: "", search: "", dateFrom: "", dateTo: "" })}
+                      variant="outline"
+                      size="sm"
+                      className="flex-1"
+                    >
+                      Effacer
                     </Button>
                   </div>
                 </div>
@@ -368,17 +527,21 @@ export default function AiLogsPage() {
                                   <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
                                     <div>
                                       <h4 className="mb-2 text-sm font-medium text-slate-700">Payload de requête</h4>
-                                      <pre className="overflow-x-auto rounded border bg-white p-3 text-xs">
-                                        {JSON.stringify(log.requestPayload, null, 2)}
-                                      </pre>
+                                      <div className="overflow-x-auto rounded border border-slate-200">
+                                        <JsonSyntaxHighlighter>
+                                          {JSON.stringify(log.requestPayload, null, 2)}
+                                        </JsonSyntaxHighlighter>
+                                      </div>
                                     </div>
 
                                     {log.responsePayload && (
                                       <div>
                                         <h4 className="mb-2 text-sm font-medium text-slate-700">Payload de réponse</h4>
-                                        <pre className="overflow-x-auto rounded border bg-white p-3 text-xs">
-                                          {JSON.stringify(log.responsePayload, null, 2)}
-                                        </pre>
+                                        <div className="overflow-x-auto rounded border border-slate-200">
+                                          <JsonSyntaxHighlighter>
+                                            {JSON.stringify(log.responsePayload, null, 2)}
+                                          </JsonSyntaxHighlighter>
+                                        </div>
                                       </div>
                                     )}
                                   </div>

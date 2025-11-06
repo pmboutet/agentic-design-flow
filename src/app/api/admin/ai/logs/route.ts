@@ -8,14 +8,16 @@ export async function GET(request: NextRequest) {
   try {
     const supabase = getAdminSupabaseClient();
     const url = new URL(request.url);
-    const limit = parseInt(url.searchParams.get('limit') || '50');
+    const limit = parseInt(url.searchParams.get('limit') || '200');
     const offset = parseInt(url.searchParams.get('offset') || '0');
     const status = url.searchParams.get('status');
     const interactionType = url.searchParams.get('interactionType');
+    const dateFrom = url.searchParams.get('dateFrom');
+    const dateTo = url.searchParams.get('dateTo');
 
     let query = supabase
       .from("ai_agent_logs")
-      .select("*")
+      .select("*", { count: 'exact' })
       .order("created_at", { ascending: false })
       .range(offset, offset + limit - 1);
 
@@ -27,7 +29,15 @@ export async function GET(request: NextRequest) {
       query = query.eq("interaction_type", interactionType);
     }
 
-    const { data, error } = await query;
+    // Filtre par date
+    if (dateFrom) {
+      query = query.gte("created_at", dateFrom);
+    }
+    if (dateTo) {
+      query = query.lte("created_at", dateTo);
+    }
+
+    const { data, error, count } = await query;
 
     if (error) {
       throw error;
@@ -52,7 +62,7 @@ export async function GET(request: NextRequest) {
       success: true,
       data: {
         logs,
-        total: logs.length,
+        total: count ?? logs.length,
       }
     });
 

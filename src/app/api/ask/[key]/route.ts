@@ -556,6 +556,30 @@ export async function POST(
 
     const senderType: Message['senderType'] = 'user';
 
+    // En mode dev, si profileId est null, on essaie de récupérer ou créer un profil par défaut
+    let finalProfileId = profileId;
+    if (isDevBypass && !finalProfileId) {
+      // En mode dev, chercher un profil admin par défaut
+      const { data: devProfile } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('role', 'admin')
+        .eq('is_active', true)
+        .limit(1)
+        .maybeSingle();
+      
+      if (devProfile) {
+        finalProfileId = devProfile.id;
+      }
+    }
+
+    // Récupérer parent_message_id si fourni
+    const parentMessageId = typeof body.parentMessageId === 'string' && body.parentMessageId.trim().length > 0
+      ? body.parentMessageId
+      : typeof body.parent_message_id === 'string' && body.parent_message_id.trim().length > 0
+      ? body.parent_message_id
+      : null;
+
     const insertPayload = {
       ask_session_id: askRow.id,
       content: body.content,
@@ -563,13 +587,14 @@ export async function POST(
       sender_type: senderType,
       metadata,
       created_at: timestamp,
-      user_id: profileId,
+      user_id: finalProfileId,
+      parent_message_id: parentMessageId,
     };
 
     const { data: insertedRows, error: insertError } = await supabase
       .from('messages')
       .insert(insertPayload)
-      .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at')
+      .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at, parent_message_id')
       .limit(1);
 
     if (insertError) {

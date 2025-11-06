@@ -49,10 +49,18 @@ Ton rôle est de :
 4. Synthétiser les échanges pour faire émerger des insights
 5. Maintenir un ton professionnel mais accessible
 
-Réponds de manière concise et pertinente pour faire avancer la discussion.`,
-        user_prompt: `Basé sur l'historique de la conversation et le dernier message de l'utilisateur, fournis une réponse qui :
+Contexte de la session :
+- Question ASK : {{ask_question}}
+- Description : {{ask_description}}
+- Participants : {{participants}}
 
-1. Reconnaît le contenu du dernier message
+Historique des messages (format JSON) :
+{{messages_json}}
+
+Réponds de manière concise et pertinente pour faire avancer la discussion.`,
+        user_prompt: `Basé sur l'historique de la conversation, fournis une réponse qui :
+
+1. Reconnaît le contenu du dernier message utilisateur
 2. Fait le lien avec les échanges précédents si pertinent
 3. Pose une question ou fait une observation qui fait avancer la discussion
 4. Reste concis (2-3 phrases maximum)
@@ -62,10 +70,8 @@ Réponds maintenant :`,
           'ask_key',
           'ask_question',
           'ask_description',
-          'message_history',
-          'latest_user_message',
-          'participants',
-          'participant_name'
+          'messages_json',
+          'participants'
         ]
       }, { onConflict: 'slug' })
       .select()

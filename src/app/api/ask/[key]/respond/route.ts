@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { ApiResponse, Insight, Message } from '@/types';
 import { getAdminSupabaseClient } from '@/lib/supabaseAdmin';
+import { createServerSupabaseClient, getCurrentUser } from '@/lib/supabaseServer';
 import { isValidAskKey, parseErrorMessage } from '@/lib/utils';
 import { getAskSessionByKey } from '@/lib/asks';
 import { normaliseMessageMetadata } from '@/lib/messages';
@@ -391,6 +392,7 @@ async function replaceInsightAuthors(
   supabase: ReturnType<typeof getAdminSupabaseClient>,
   insightId: string,
   authors: NormalisedIncomingAuthor[],
+  currentUserId?: string | null,
 ) {
   const { error: deleteError } = await supabase
     .from('insight_authors')
@@ -401,6 +403,45 @@ async function replaceInsightAuthors(
     throw deleteError;
   }
 
+  // Filtrer les auteurs valides : doivent avoir un user_id qui correspond à un profil existant
+  const validUserIds = new Set<string>();
+  
+  // Récupérer tous les user_ids uniques des auteurs
+  const authorUserIds = authors
+    .map(a => a.userId)
+    .filter((id): id is string => typeof id === 'string' && id.length > 0);
+
+  // Vérifier que ces user_ids correspondent à des profils existants et actifs
+  if (authorUserIds.length > 0) {
+    const { data: profiles, error: profilesError } = await supabase
+      .from('profiles')
+      .select('id')
+      .in('id', authorUserIds)
+      .eq('is_active', true);
+
+    if (profilesError) {
+      throw profilesError;
+    }
+
+    (profiles ?? []).forEach(profile => {
+      validUserIds.add(profile.id);
+    });
+  }
+
+  // Si un currentUserId est fourni, l'ajouter aux IDs valides
+  if (currentUserId && typeof currentUserId === 'string') {
+    const { data: currentUserProfile } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('id', currentUserId)
+      .eq('is_active', true)
+      .single();
+
+    if (currentUserProfile) {
+      validUserIds.add(currentUserId);
+    }
+  }
+
   type InsightAuthorInsert = {
     insight_id: string;
     user_id: string | null;
@@ -408,21 +449,32 @@ async function replaceInsightAuthors(
   };
 
   const rows = authors.reduce<InsightAuthorInsert[]>((acc, author) => {
-    const name = typeof author.name === 'string' && author.name ? author.name : null;
     const userId = typeof author.userId === 'string' && author.userId ? author.userId : null;
-
-    if (!name && !userId) {
+    
+    // Ne garder que les auteurs avec un user_id valide qui correspond à un profil
+    if (!userId || !validUserIds.has(userId)) {
       return acc;
     }
 
+    // Récupérer le nom du profil pour l'afficher
+    // On ne stocke pas le display_name car on veut toujours utiliser le nom du profil
     acc.push({
       insight_id: insightId,
       user_id: userId,
-      display_name: name,
+      display_name: null, // Toujours null, on récupère le nom depuis le profil
     });
 
     return acc;
   }, []);
+
+  // Si aucun auteur valide mais qu'on a un currentUserId, l'utiliser comme auteur par défaut
+  if (rows.length === 0 && currentUserId && validUserIds.has(currentUserId)) {
+    rows.push({
+      insight_id: insightId,
+      user_id: currentUserId,
+      display_name: null,
+    });
+  }
 
   if (rows.length === 0) {
     return;
@@ -455,7 +507,7 @@ function normaliseIncomingKpis(kpis: unknown, fallback: Array<Record<string, unk
   });
 }
 
-function parseIncomingAuthor(value: unknown): NormalisedIncomingAuthor | null {
+function parseIncomingAuthor(value: unknown, currentUserId?: string | null): NormalisedIncomingAuthor | null {
   if (typeof value !== 'object' || value === null) {
     return null;
   }
@@ -473,7 +525,31 @@ function parseIncomingAuthor(value: unknown): NormalisedIncomingAuthor | null {
   };
 
   const userId = getString('userId', 'user_id', 'authorId', 'author_id');
-  const name = getString('name', 'authorName', 'author_name', 'displayName', 'display_name');
+  let name = getString('name', 'authorName', 'author_name', 'displayName', 'display_name');
+
+  // Rejeter les noms qui indiquent "vous" ou des agents
+  const normalizedName = name?.toLowerCase().trim() ?? '';
+  const isVous = normalizedName === 'vous' || normalizedName === 'you' || normalizedName === 'yourself';
+  const isAgent = normalizedName === 'agent' || normalizedName === 'ai' || normalizedName === 'assistant' || 
+                  normalizedName.includes('agent') || normalizedName.includes('ai');
+
+  // Si c'est "vous" ou un agent, utiliser l'ID de l'utilisateur connecté
+  if ((isVous || isAgent) && currentUserId) {
+    return {
+      userId: currentUserId,
+      name: null, // Ne pas stocker "vous" ou "Agent" comme nom
+    };
+  }
+
+  // Si c'est un agent sans ID utilisateur, rejeter
+  if (isAgent && !currentUserId) {
+    return null;
+  }
+
+  // Si c'est "vous" sans ID utilisateur, rejeter
+  if (isVous && !currentUserId) {
+    return null;
+  }
 
   if (!userId && !name) {
     return null;
@@ -485,7 +561,7 @@ function parseIncomingAuthor(value: unknown): NormalisedIncomingAuthor | null {
   };
 }
 
-function normaliseIncomingInsights(value: unknown): { types: Insight['type'][]; items: NormalisedIncomingInsight[] } {
+function normaliseIncomingInsights(value: unknown, currentUserId?: string | null): { types: Insight['type'][]; items: NormalisedIncomingInsight[] } {
   const envelope = (typeof value === 'object' && value !== null && !Array.isArray(value))
     ? (value as Record<string, unknown>)
     : {};
@@ -536,13 +612,13 @@ function normaliseIncomingInsights(value: unknown): { types: Insight['type'][]; 
     if (Array.isArray(rawAuthors)) {
       authorsProvided = true;
       for (const entry of rawAuthors) {
-        const parsed = parseIncomingAuthor(entry);
+        const parsed = parseIncomingAuthor(entry, currentUserId);
         if (parsed) {
           authors.push(parsed);
         }
       }
     } else if (rawAuthors) {
-      const parsed = parseIncomingAuthor(rawAuthors);
+      const parsed = parseIncomingAuthor(rawAuthors, currentUserId);
       if (parsed) {
         authorsProvided = true;
         authors.push(parsed);
@@ -550,11 +626,25 @@ function normaliseIncomingInsights(value: unknown): { types: Insight['type'][]; 
     }
 
     if (!authorsProvided && (fallbackAuthorId || fallbackAuthorName)) {
-      authorsProvided = true;
-      authors.push({
-        userId: fallbackAuthorId ?? null,
-        name: fallbackAuthorName ?? null,
-      });
+      // Vérifier si le nom de fallback est "vous" ou un agent
+      const normalizedFallbackName = fallbackAuthorName?.toLowerCase().trim() ?? '';
+      const isVous = normalizedFallbackName === 'vous' || normalizedFallbackName === 'you' || normalizedFallbackName === 'yourself';
+      const isAgent = normalizedFallbackName === 'agent' || normalizedFallbackName === 'ai' || normalizedFallbackName === 'assistant' || 
+                      normalizedFallbackName.includes('agent') || normalizedFallbackName.includes('ai');
+
+      if ((isVous || isAgent) && currentUserId) {
+        authorsProvided = true;
+        authors.push({
+          userId: currentUserId,
+          name: null,
+        });
+      } else if (!isAgent && !isVous) {
+        authorsProvided = true;
+        authors.push({
+          userId: fallbackAuthorId ?? null,
+          name: fallbackAuthorName ?? null,
+        });
+      }
     }
 
     const primaryAuthor = authors[0] ?? null;
@@ -692,6 +782,7 @@ async function persistInsights(
   askSessionId: string,
   incomingInsights: NormalisedIncomingInsight[],
   insightRows: InsightRow[],
+  currentUserId?: string | null,
 ) {
   if (incomingInsights.length === 0) {
     return;
@@ -806,7 +897,7 @@ async function persistInsights(
 
       await supabase.from('kpi_estimations').delete().eq('insight_id', targetRow.id);
       if (incoming.authorsProvided) {
-        await replaceInsightAuthors(supabase, targetRow.id, incoming.authors);
+        await replaceInsightAuthors(supabase, targetRow.id, incoming.authors, currentUserId);
       }
 
       const mergedRow = await fetchInsightRowById(supabase, targetRow.id);
@@ -859,7 +950,7 @@ async function persistInsights(
       }
 
       if (incoming.authorsProvided) {
-        await replaceInsightAuthors(supabase, existing.id, incoming.authors);
+        await replaceInsightAuthors(supabase, existing.id, incoming.authors, currentUserId);
       }
 
       const updatedRow = await fetchInsightRowById(supabase, existing.id);
@@ -913,7 +1004,7 @@ async function persistInsights(
       }
 
       if (incoming.authorsProvided) {
-        await replaceInsightAuthors(supabase, desiredId, incoming.authors);
+        await replaceInsightAuthors(supabase, desiredId, incoming.authors, currentUserId);
       }
 
       const createdRow = await fetchInsightRowById(supabase, desiredId);
@@ -1065,6 +1156,7 @@ async function triggerInsightDetection(
     variables: Record<string, string | null | undefined>;
   },
   existingInsights: InsightRow[],
+  currentUserId?: string | null,
 ): Promise<Insight[]> {
   const activeJob = await findActiveInsightJob(supabase, options.askSessionId);
   if (activeJob) {
@@ -1110,8 +1202,8 @@ async function triggerInsightDetection(
       ? (parsedPayload as Record<string, unknown>).insights
       : parsedPayload;
 
-    const incoming = normaliseIncomingInsights(insightsSource);
-    await persistInsights(supabase, options.askSessionId, incoming.items, existingInsights);
+    const incoming = normaliseIncomingInsights(insightsSource, currentUserId);
+    await persistInsights(supabase, options.askSessionId, incoming.items, existingInsights, currentUserId);
 
     await completeInsightJob(supabase, job.id, { modelConfigId: result.modelConfig.id });
 
@@ -1199,6 +1291,29 @@ export async function POST(
     const insightsOnly = modeValue === 'insights-only';
 
     const supabase = getAdminSupabaseClient();
+    
+    // Récupérer l'utilisateur connecté pour les auteurs d'insights
+    let currentUserId: string | null = null;
+    try {
+      const serverSupabase = await createServerSupabaseClient();
+      const user = await getCurrentUser();
+      if (user) {
+        // Récupérer le profil pour obtenir l'ID du profil (pas l'auth_id)
+        const { data: profile } = await serverSupabase
+          .from('profiles')
+          .select('id')
+          .eq('auth_id', user.id)
+          .eq('is_active', true)
+          .single();
+        
+        if (profile) {
+          currentUserId = profile.id;
+        }
+      }
+    } catch (error) {
+      // Si on ne peut pas récupérer l'utilisateur, on continue sans (pour les sessions anonymes)
+      console.warn('Could not retrieve current user for insight authors:', error);
+    }
 
     const { row: askRow, error: askError } = await getAskSessionByKey<AskSessionRow>(
       supabase,
@@ -1426,6 +1541,7 @@ export async function POST(
             variables: detectionVariables,
           },
           insightRows,
+          currentUserId,
         );
 
         return NextResponse.json<ApiResponse<{ insights: Insight[] }>>({
@@ -1468,6 +1584,10 @@ export async function POST(
         latestAiResponse = aiResult.content.trim();
         const aiMetadata = { senderName: 'Agent' } satisfies Record<string, unknown>;
 
+        // Trouver le dernier message utilisateur pour le lier comme parent
+        const lastUserMessage = [...messages].reverse().find(msg => msg.senderType === 'user');
+        const parentMessageId = lastUserMessage?.id ?? null;
+
         const { data: insertedRows, error: insertError } = await supabase
           .from('messages')
           .insert({
@@ -1476,6 +1596,7 @@ export async function POST(
             sender_type: 'ai',
             message_type: 'text',
             metadata: aiMetadata,
+            parent_message_id: parentMessageId,
           })
           .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at')
           .limit(1);
@@ -1536,6 +1657,7 @@ export async function POST(
           variables: detectionVariables,
         },
         insightRows,
+        currentUserId,
       );
     } catch (error) {
       console.error('Insight detection failed', error);

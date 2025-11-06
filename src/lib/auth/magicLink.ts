@@ -1,18 +1,28 @@
 /**
  * Gets the base URL for magic links, preferring local development over production
+ * 
+ * Priority:
+ * 1. NEXT_PUBLIC_APP_URL (explicit local dev URL)
+ * 2. NEXT_PUBLIC_SITE_URL (production URL)
+ * 3. localhost:3000 (fallback for local dev)
  */
 function getBaseUrl(): string {
-  // In development, prefer localhost
-  if (process.env.NODE_ENV === 'development' || process.env.NEXT_PUBLIC_APP_URL) {
-    return process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+  // Explicit app URL (for local dev or custom domain)
+  if (process.env.NEXT_PUBLIC_APP_URL) {
+    return process.env.NEXT_PUBLIC_APP_URL;
   }
   
-  // In production, use NEXT_PUBLIC_SITE_URL if set, otherwise fallback
+  // Production site URL
   if (process.env.NEXT_PUBLIC_SITE_URL) {
     return process.env.NEXT_PUBLIC_SITE_URL;
   }
   
-  // Fallback to localhost for safety
+  // In development, use localhost
+  if (process.env.NODE_ENV === 'development') {
+    return 'http://localhost:3000';
+  }
+  
+  // Last resort fallback
   return 'http://localhost:3000';
 }
 

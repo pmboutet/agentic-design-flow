@@ -5,7 +5,7 @@ import HomePage from "./HomePage";
 export default async function Page({
   searchParams,
 }: {
-  searchParams: Promise<{ key?: string }> | { key?: string };
+  searchParams: Promise<{ key?: string; token?: string }> | { key?: string; token?: string };
 }) {
   // Dans Next.js 14+, searchParams peut être une Promise
   // Gérer les deux cas pour la compatibilité
@@ -13,9 +13,9 @@ export default async function Page({
     ? await searchParams 
     : searchParams;
   
-  // Si un paramètre 'key' est présent, afficher la HomePage
+  // Si un paramètre 'key' ou 'token' est présent, afficher la HomePage
   // (HomePage utilisera useSearchParams() côté client pour lire les params)
-  if (params?.key) {
+  if (params?.key || params?.token) {
     return (
       <Suspense fallback={
         <div className="min-h-screen bg-gradient-to-br from-indigo-100 via-white to-indigo-200 flex items-center justify-center">

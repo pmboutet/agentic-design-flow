@@ -86,30 +86,24 @@ Contexte de la session :
 - Description : {{ask_description}}
 - Participants : {{participants}}
 
-Historique des messages :
-{{message_history}}
-
-Dernier message utilisateur : {{latest_user_message}}
+Historique des messages (format JSON) :
+{{messages_json}}
 
 Réponds de manière concise et pertinente pour faire avancer la discussion.`,
-        user_prompt: `Basé sur l'historique de la conversation et le dernier message de l'utilisateur, fournis une réponse qui :
+        user_prompt: `Basé sur l'historique de la conversation, fournis une réponse qui :
 
-1. Reconnaît le contenu du dernier message
+1. Reconnaît le contenu du dernier message utilisateur
 2. Fait le lien avec les échanges précédents si pertinent
 3. Pose une question ou fait une observation qui fait avancer la discussion
 4. Reste concis (2-3 phrases maximum)
-
-Dernier message : {{latest_user_message}}
 
 Réponds maintenant :`,
         available_variables: [
           'ask_key',
           'ask_question',
           'ask_description',
-          'message_history',
-          'latest_user_message',
-          'participants',
-          'participant_name'
+          'messages_json',
+          'participants'
         ]
       },
       {

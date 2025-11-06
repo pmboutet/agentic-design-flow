@@ -442,6 +442,7 @@ export async function POST(
       participants: participantSummaries,
     });
 
+    // Construire le payload JSON des messages (format optimisé, sans redondance)
     const conversationMessagesPayload = messages.map(message => ({
       id: message.id,
       senderType: message.senderType,
@@ -450,23 +451,17 @@ export async function POST(
       timestamp: message.timestamp,
     }));
 
+    // Variables optimisées : suppression des redondances
+    // - messages_json remplace message_history + previous_messages + latest_user_message
+    // - participants remplace participants_count + participant_name
+    // - Suppression de current_timestamp (inutile)
+    // - Suppression de challenge_name et project_name (non utilisés dans les prompts)
     const agentVariables: PromptVariables = {
       ask_key: askRow.ask_key,
       ask_question: promptVariables.ask_question || askRow.question,
       ask_description: promptVariables.ask_description || askRow.description || '',
-      participant_name: promptVariables.participant_name || '',
-      project_name: projectData?.name || '',
-      challenge_name: challengeData?.name || '',
-      previous_messages: promptVariables.message_history || '',
-      message_history: promptVariables.message_history || '',
-      latest_user_message: promptVariables.latest_user_message || '',
       participants: promptVariables.participants || '',
-      participants_count: String(participantSummaries.length),
-      delivery_mode: 'digital',
-      audience_scope: 'individual',
-      response_mode: 'simultaneous',
       messages_json: JSON.stringify(conversationMessagesPayload),
-      current_timestamp: new Date().toISOString(),
     };
 
     let agentConfig: AgentConfigResult;
@@ -481,6 +476,8 @@ export async function POST(
       console.log('System prompt length:', agentConfig.systemPrompt?.length || 0);
       console.log('User prompt length:', agentConfig.userPrompt?.length || 0);
       console.log('Model config:', agentConfig.modelConfig.provider);
+      console.log('Agent object exists:', !!agentConfig.agent);
+      console.log('Agent availableVariables:', agentConfig.agent?.availableVariables ?? 'NOT FOUND');
     } catch (error) {
       if (isPermissionDenied(error)) {
         return permissionDeniedResponse();
@@ -524,27 +521,46 @@ export async function POST(
 
     console.log('Using agent config:', agentConfig.modelConfig.provider);
 
-    const agentContext = {
-      ask: {
-        id: askRow.id,
-        key: askRow.ask_key,
-        question: askRow.question,
-        description: askRow.description ?? null,
-        projectId: askRow.project_id ?? null,
-        challengeId: askRow.challenge_id ?? null,
-      },
-      participants: participantSummaries,
-      latestUserMessage: agentVariables.latest_user_message,
-      messages: conversationMessagesPayload,
-    } satisfies Record<string, unknown>;
+    // Payload optimisé pour le logging : on garde seulement les variables actives (available_variables)
+    // Les prompts sont déjà résolus avec toutes les variables, mais on garde les variables brutes
+    // pour référence/debug, en filtrant seulement celles qui sont déclarées comme disponibles
+    const availableVariables = agentConfig.agent?.availableVariables ?? [];
+    
+    const activeVariables: Record<string, string | undefined> = {};
+    
+    // Si availableVariables est vide, on inclut toutes les variables pour éviter de perdre des données
+    // Sinon, on filtre selon availableVariables
+    if (availableVariables.length === 0) {
+      console.warn('⚠️  No availableVariables found in agent config, including all variables');
+      // Si pas de availableVariables défini, on inclut toutes les variables pour le debugging
+      Object.assign(activeVariables, agentVariables);
+    } else {
+      // Ajouter seulement les variables qui sont dans available_variables ET dans agentVariables
+      for (const varKey of availableVariables) {
+        if (varKey in agentVariables) {
+          activeVariables[varKey] = agentVariables[varKey];
+        }
+      }
+      
+      // Toujours ajouter ask_key pour référence si présent dans agentVariables
+      // (même s'il n'est pas dans available_variables, c'est utile pour le debugging)
+      if (agentVariables.ask_key && !('ask_key' in activeVariables)) {
+        activeVariables.ask_key = agentVariables.ask_key;
+      }
+    }
+    
+    console.log('📊 Variables filtering result:');
+    console.log('  - Available variables from agent:', availableVariables);
+    console.log('  - Active variables in payload:', Object.keys(activeVariables));
 
     const agentRequestPayload = {
       agentSlug: CHAT_AGENT_SLUG,
       modelConfigId: agentConfig.modelConfig.id,
+      // Prompts résolus (contiennent déjà toutes les infos via substitution de variables)
       systemPrompt: prompts.system,
       userPrompt: prompts.user,
-      variables: agentVariables,
-      context: agentContext,
+      // Variables actives sélectionnées (seulement celles dans available_variables)
+      variables: activeVariables,
     } satisfies Record<string, unknown>;
 
     // Create a log entry for tracking
@@ -612,6 +628,18 @@ export async function POST(
               if (fullContent.trim()) {
                 const aiMetadata = { senderName: 'Agent' } satisfies Record<string, unknown>;
 
+                // Trouver le dernier message utilisateur pour le lier comme parent
+                // On récupère les messages depuis la base pour trouver le dernier message utilisateur
+                const { data: recentMessages } = await supabase
+                  .from('messages')
+                  .select('id, sender_type')
+                  .eq('ask_session_id', askRow.id)
+                  .order('created_at', { ascending: false })
+                  .limit(10);
+                
+                const lastUserMessage = (recentMessages ?? []).find(msg => msg.sender_type === 'user');
+                const parentMessageId = lastUserMessage?.id ?? null;
+
                 const { data: insertedRows, error: insertError } = await supabase
                   .from('messages')
                   .insert({
@@ -620,6 +648,7 @@ export async function POST(
                     sender_type: 'ai',
                     message_type: 'text',
                     metadata: aiMetadata,
+                    parent_message_id: parentMessageId,
                   })
                   .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at')
                   .limit(1);

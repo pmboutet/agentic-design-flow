@@ -111,6 +111,27 @@ export async function executeAgent(options: ExecuteAgentOptions): Promise<AgentE
     user: resolvePrompt(options.overridePrompts?.user, agent.userPrompt),
   };
 
+  // Payload optimisé pour le logging : on garde seulement les variables actives (available_variables)
+  // Les prompts sont déjà résolus avec toutes les variables, mais on garde les variables brutes
+  // pour référence/debug, en filtrant seulement celles qui sont déclarées comme disponibles
+  const availableVariables = agent.availableVariables ?? [];
+  const activeVariables: Record<string, string | undefined> = {};
+  
+  // Ajouter seulement les variables qui sont dans available_variables ET dans options.variables
+  // On inclut ask_key seulement s'il est dans available_variables
+  for (const varKey of availableVariables) {
+    if (varKey in options.variables) {
+      const value = options.variables[varKey];
+      activeVariables[varKey] = value ?? undefined;
+    }
+  }
+  
+  // Toujours ajouter ask_key pour référence si présent dans options.variables
+  // (même s'il n'est pas dans available_variables, c'est utile pour le debugging)
+  if (options.variables.ask_key && !('ask_key' in activeVariables)) {
+    activeVariables.ask_key = options.variables.ask_key ?? undefined;
+  }
+
   const log = await createAgentLog(options.supabase, {
     agentId: agent.id,
     askSessionId: options.askSessionId ?? null,
@@ -118,7 +139,8 @@ export async function executeAgent(options: ExecuteAgentOptions): Promise<AgentE
     interactionType: options.interactionType,
     requestPayload: {
       ...buildRequestPayload(agent, prompts),
-      variables: options.variables,
+      // Variables actives sélectionnées (seulement celles dans available_variables)
+      variables: activeVariables,
     },
   });
 
