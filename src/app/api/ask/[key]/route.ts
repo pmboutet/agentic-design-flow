@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import type { PostgrestError } from '@supabase/supabase-js';
+import type { PostgrestError, SupabaseClient } from '@supabase/supabase-js';
 import { ApiResponse, Ask, AskParticipant, Insight, Message } from '@/types';
 import { isValidAskKey, parseErrorMessage } from '@/lib/utils';
 import { mapInsightRowToInsight } from '@/lib/insights';
@@ -448,6 +448,17 @@ export async function POST(
     const supabase = await createServerSupabaseClient();
     const isDevBypass = process.env.IS_DEV === 'true';
 
+    let adminClient: SupabaseClient | null = null;
+    const getAdminClient = async () => {
+      if (!adminClient) {
+        const { getAdminSupabaseClient } = await import('@/lib/supabaseAdmin');
+        adminClient = getAdminSupabaseClient();
+      }
+      return adminClient;
+    };
+
+    let dataClient: SupabaseClient = supabase;
+
     // Check for invite token in headers (allows anonymous participation)
     const inviteToken = request.headers.get('X-Invite-Token');
 
@@ -460,8 +471,7 @@ export async function POST(
         console.log(`🔑 POST /api/ask/[key]: Attempting authentication via invite token ${inviteToken.substring(0, 8)}...`);
 
         // Use admin client to validate token and get participant info
-        const { getAdminSupabaseClient } = await import('@/lib/supabaseAdmin');
-        const admin = getAdminSupabaseClient();
+        const admin = await getAdminClient();
 
         const { data: participant, error: tokenError } = await admin
           .from('ask_participants')
@@ -475,6 +485,7 @@ export async function POST(
           console.log(`✅ Valid invite token for participant ${participant.id}`);
           participantId = participant.id;
           profileId = participant.user_id; // May be null for anonymous participants
+          dataClient = admin;
         } else {
           console.warn('⚠️  Invite token not found in database');
         }
@@ -519,7 +530,7 @@ export async function POST(
     }
 
     const { row: askRow, error: askError } = await getAskSessionByKey<Pick<AskSessionRow, 'id' | 'ask_key' | 'is_anonymous'>>(
-      supabase,
+      dataClient,
       key,
       'id, ask_key, is_anonymous'
     );
@@ -543,8 +554,7 @@ export async function POST(
 
       // If authenticated via invite token, verify participant belongs to this ASK
       if (participantId) {
-        const { getAdminSupabaseClient } = await import('@/lib/supabaseAdmin');
-        const admin = getAdminSupabaseClient();
+        const admin = await getAdminClient();
 
         const { data: participantCheck, error: checkError } = await admin
           .from('ask_participants')
@@ -648,7 +658,7 @@ export async function POST(
       parent_message_id: parentMessageId,
     };
 
-    const { data: insertedRows, error: insertError } = await supabase
+    const { data: insertedRows, error: insertError } = await dataClient
       .from('messages')
       .insert(insertPayload)
       .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at, parent_message_id')
