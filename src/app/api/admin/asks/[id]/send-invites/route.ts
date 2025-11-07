@@ -9,13 +9,13 @@ const askSelect = "*, projects(name), ask_participants(id, user_id, role, partic
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     await requireAdmin();
     const supabase = await createServerSupabaseClient();
-    
-    const askId = z.string().uuid().parse(params.id);
+    const resolvedParams = await params;
+    const askId = z.string().uuid().parse(resolvedParams.id);
 
     // Get the ask session with participants
     const { data: ask, error: askError } = await supabase

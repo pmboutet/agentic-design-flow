@@ -23,10 +23,11 @@ function mapClientMember(row: any): ClientMember {
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const clientId = z.string().uuid("Invalid client id").parse(params.id);
+    const resolvedParams = await params;
+    const clientId = z.string().uuid("Invalid client id").parse(resolvedParams.id);
     const supabase = getAdminSupabaseClient();
 
     const { data, error } = await supabase
@@ -54,10 +55,11 @@ export async function GET(
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const clientId = z.string().uuid("Invalid client id").parse(params.id);
+    const resolvedParams = await params;
+    const clientId = z.string().uuid("Invalid client id").parse(resolvedParams.id);
     const body = await request.json();
     const payload = payloadSchema.parse(body);
 

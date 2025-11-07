@@ -5,10 +5,10 @@ import type { ApiResponse } from '@/types';
 
 export async function GET(
   _request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id: projectId } = params;
+    const { id: projectId } = await params;
     const supabase = getAdminSupabaseClient();
 
     const { data, error } = await supabase

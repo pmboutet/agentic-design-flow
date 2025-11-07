@@ -25,10 +25,10 @@ type AskSessionRow = {
 
 export async function GET(
   _request: NextRequest,
-  { params }: { params: { token: string } }
+  { params }: { params: Promise<{ token: string }> }
 ) {
   try {
-    const { token } = params;
+    const { token } = await params;
 
     if (!token || token.trim().length === 0) {
       return NextResponse.json<ApiResponse>({

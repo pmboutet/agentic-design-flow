@@ -6,11 +6,12 @@ import { type ApiResponse } from "@/types";
 
 export async function DELETE(
   _request: Request,
-  { params }: { params: { id: string; userId: string } }
+  { params }: { params: Promise<{ id: string; userId: string }> }
 ) {
   try {
-    const projectId = z.string().uuid("Invalid project id").parse(params.id);
-    const userId = z.string().uuid("Invalid user id").parse(params.userId);
+    const resolvedParams = await params;
+    const projectId = z.string().uuid("Invalid project id").parse(resolvedParams.id);
+    const userId = z.string().uuid("Invalid user id").parse(resolvedParams.userId);
 
     const supabase = getAdminSupabaseClient();
     const { error } = await supabase

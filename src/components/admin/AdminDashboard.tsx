@@ -707,7 +707,7 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
   const graphRagRef = useRef<HTMLDivElement>(null);
   const settingsRef = useRef<HTMLDivElement>(null);
 
-  const sectionRefMap = useMemo<Record<SectionId, RefObject<HTMLDivElement>>>(
+  const sectionRefMap = useMemo<Record<SectionId, RefObject<HTMLDivElement | null>>>(
     () => ({
       "section-dashboard": dashboardRef,
       "section-clients": clientsRef,
@@ -2261,7 +2261,7 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
   }
 
   // Continue with the rest of the component (hooks are already called above)
-  const renderChallengeWorkspace = (): JSX.Element => (
+  const renderChallengeWorkspace = () => (
     <div
       ref={challengesRef}
       id="section-challenges"

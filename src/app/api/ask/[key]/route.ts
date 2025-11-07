@@ -100,10 +100,10 @@ function permissionDeniedResponse(): NextResponse<ApiResponse> {
 
 export async function GET(
   _request: NextRequest,
-  { params }: { params: { key: string } }
+  { params }: { params: Promise<{ key: string }> }
 ) {
   try {
-    const { key } = params;
+    const { key } = await params;
 
     if (!key || !isValidAskKey(key)) {
       return NextResponse.json<ApiResponse>({
@@ -424,10 +424,10 @@ export async function GET(
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { key: string } }
+  { params }: { params: Promise<{ key: string }> }
 ) {
   try {
-    const { key } = params;
+    const { key } = await params;
 
     if (!key || !isValidAskKey(key)) {
       return NextResponse.json<ApiResponse>({

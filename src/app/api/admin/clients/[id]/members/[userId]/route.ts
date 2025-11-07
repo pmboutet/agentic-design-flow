@@ -22,11 +22,12 @@ function mapClientMember(row: any): ClientMember {
 
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { id: string; userId: string } }
+  { params }: { params: Promise<{ id: string; userId: string }> }
 ) {
   try {
-    const clientId = z.string().uuid("Invalid client id").parse(params.id);
-    const userId = z.string().uuid("Invalid user id").parse(params.userId);
+    const resolvedParams = await params;
+    const clientId = z.string().uuid("Invalid client id").parse(resolvedParams.id);
+    const userId = z.string().uuid("Invalid user id").parse(resolvedParams.userId);
     const body = await request.json();
     const payload = updateSchema.parse(body);
 
@@ -71,11 +72,12 @@ export async function PATCH(
 
 export async function DELETE(
   _request: Request,
-  { params }: { params: { id: string; userId: string } }
+  { params }: { params: Promise<{ id: string; userId: string }> }
 ) {
   try {
-    const clientId = z.string().uuid("Invalid client id").parse(params.id);
-    const userId = z.string().uuid("Invalid user id").parse(params.userId);
+    const resolvedParams = await params;
+    const clientId = z.string().uuid("Invalid client id").parse(resolvedParams.id);
+    const userId = z.string().uuid("Invalid user id").parse(resolvedParams.userId);
 
     const supabase = getAdminSupabaseClient();
     const { error } = await supabase

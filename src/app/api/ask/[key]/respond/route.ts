@@ -1267,10 +1267,10 @@ function buildPromptVariables(options: {
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { key: string } }
+  { params }: { params: Promise<{ key: string }> }
 ) {
   try {
-    const { key } = params;
+    const { key } = await params;
     const body = await request.json().catch(() => ({}));
     const typedBody = body as {
       detectInsights?: boolean;

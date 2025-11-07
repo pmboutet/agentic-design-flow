@@ -28,13 +28,13 @@ function mapClient(row: any): ClientRecord {
 
 export async function DELETE(
   _request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     await requireAdmin();
     const supabase = await createServerSupabaseClient();
-    
-    const clientId = z.string().uuid().parse(params.id);
+    const resolvedParams = await params;
+    const clientId = z.string().uuid().parse(resolvedParams.id);
     const { error } = await supabase.from("clients").delete().eq("id", clientId);
 
     if (error) {
@@ -56,13 +56,13 @@ export async function DELETE(
 
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     await requireAdmin();
     const supabase = await createServerSupabaseClient();
-    
-    const clientId = z.string().uuid().parse(params.id);
+    const resolvedParams = await params;
+    const clientId = z.string().uuid().parse(resolvedParams.id);
     const body = await request.json();
     const payload = updateSchema.parse(body);
 

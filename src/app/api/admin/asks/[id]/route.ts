@@ -71,13 +71,13 @@ function mapAsk(row: any): AskSessionRecord {
 
 export async function GET(
   _request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     await requireAdmin();
     const supabase = await createServerSupabaseClient();
-    
-    const askId = z.string().uuid().parse(params.id);
+    const resolvedParams = await params;
+    const askId = z.string().uuid().parse(resolvedParams.id);
 
     const { data, error, status } = await supabase
       .from("ask_sessions")
@@ -124,13 +124,13 @@ export async function GET(
 
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     await requireAdmin();
     const supabase = await createServerSupabaseClient();
-    
-    const askId = z.string().uuid().parse(params.id);
+    const resolvedParams = await params;
+    const askId = z.string().uuid().parse(resolvedParams.id);
     const body = await request.json();
     const payload = updateSchema.parse(body);
 
@@ -306,13 +306,13 @@ export async function PATCH(
 
 export async function DELETE(
   _request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     await requireAdmin();
     const supabase = await createServerSupabaseClient();
-    
-    const askId = z.string().uuid().parse(params.id);
+    const resolvedParams = await params;
+    const askId = z.string().uuid().parse(resolvedParams.id);
     const { error } = await supabase.from("ask_sessions").delete().eq("id", askId);
 
     if (error) {

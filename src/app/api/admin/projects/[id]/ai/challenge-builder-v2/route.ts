@@ -797,10 +797,11 @@ function mapDetailedCreation(
 
 export async function POST(
   request: Request,
-  { params }: { params: { id: string } },
+  { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const projectId = z.string().uuid().parse(params.id);
+    const resolvedParams = await params;
+    const projectId = z.string().uuid().parse(resolvedParams.id);
     const options = requestSchema?.parse(await request.json().catch(() => ({}))) ?? {};
 
     const supabase = getAdminSupabaseClient();

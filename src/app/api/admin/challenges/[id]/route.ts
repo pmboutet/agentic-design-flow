@@ -40,13 +40,13 @@ function mapChallenge(row: any): ChallengeRecord {
 
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     await requireAdmin();
     const supabase = await createServerSupabaseClient();
-    
-    const challengeId = z.string().uuid().parse(params.id);
+    const resolvedParams = await params;
+    const challengeId = z.string().uuid().parse(resolvedParams.id);
     const body = await request.json();
     console.log('🔧 Challenge update request:', { challengeId, body });
     
@@ -119,13 +119,13 @@ export async function PATCH(
 
 export async function DELETE(
   _request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     await requireAdmin();
     const supabase = await createServerSupabaseClient();
-    
-    const challengeId = z.string().uuid().parse(params.id);
+    const resolvedParams = await params;
+    const challengeId = z.string().uuid().parse(resolvedParams.id);
     const { error } = await supabase.from("challenges").delete().eq("id", challengeId);
 
     if (error) {

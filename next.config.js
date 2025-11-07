@@ -1,14 +1,19 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Enable experimental features for better performance
-  experimental: {
-    serverComponentsExternalPackages: ["jsonrepair"],
-  },
-  // Configure image domains if needed
+  // Server external packages (moved from experimental in Next.js 16)
+  serverExternalPackages: ["jsonrepair"],
+  // Configure image remote patterns (replaces domains in Next.js 16)
   images: {
-    domains: ['localhost'],
+    remotePatterns: [
+      {
+        protocol: 'http',
+        hostname: 'localhost',
+      },
+    ],
   },
-  // Webpack configuration for file uploads (still needed for Turbopack compatibility)
+  // Turbopack configuration (empty to use default behavior)
+  turbopack: {},
+  // Webpack configuration for file uploads (fallback for non-Turbopack builds)
   webpack: (config) => {
     config.resolve.fallback = {
       ...config.resolve.fallback,
@@ -16,7 +21,6 @@ const nextConfig = {
     };
     return config;
   },
-  // Turbopack is now default in Next.js 16, but webpack config is still supported
 };
 
 module.exports = nextConfig;

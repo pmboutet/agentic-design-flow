@@ -34,10 +34,11 @@ function isResourceNotFound(error: unknown): boolean {
 
 export async function GET(
   _request: Request,
-  { params }: { params: { id: string } },
+  { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const projectId = z.string().uuid().parse(params.id);
+    const resolvedParams = await params;
+    const projectId = z.string().uuid().parse(resolvedParams.id);
 
     console.log("🛠️ API: Loading journey data", { projectId });
 

@@ -20,13 +20,13 @@ const updateSchema = z.object({
 
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     await requireAdmin();
     const supabase = await createServerSupabaseClient();
-    
-    const userId = z.string().uuid().parse(params.id);
+    const resolvedParams = await params;
+    const userId = z.string().uuid().parse(resolvedParams.id);
     const body = await request.json();
     const payload = updateSchema.parse(body);
 
@@ -135,13 +135,13 @@ export async function PATCH(
 
 export async function DELETE(
   _request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     await requireAdmin();
     const supabase = await createServerSupabaseClient();
-    
-    const userId = z.string().uuid().parse(params.id);
+    const resolvedParams = await params;
+    const userId = z.string().uuid().parse(resolvedParams.id);
 
     // Check if user exists and is not already deleted
     const { data: existing, error: fetchError } = await supabase

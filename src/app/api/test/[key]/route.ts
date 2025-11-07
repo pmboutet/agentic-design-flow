@@ -6,9 +6,9 @@ import { NextRequest, NextResponse } from 'next/server';
  */
 export async function GET(
   request: NextRequest,
-  { params }: { params: { key: string } }
+  { params }: { params: Promise<{ key: string }> }
 ) {
-  const { key } = params;
+  const { key } = await params;
 
   const askSessionId = `ask-session-${key}`;
   const nowIso = new Date().toISOString();
@@ -102,9 +102,9 @@ export async function GET(
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { key: string } }
+  { params }: { params: Promise<{ key: string }> }
 ) {
-  const { key } = params;
+  const { key } = await params;
   const body = await request.json();
 
   console.log(`[TEST] Received message for key: ${key}`, body);

@@ -9,10 +9,10 @@ import type { ApiResponse } from "@/types";
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { projectId: string } }
+  { params }: { params: Promise<{ projectId: string }> }
 ) {
   try {
-    const { projectId } = params;
+    const { projectId } = await params;
     const supabase = getAdminSupabaseClient();
 
     // Get all syntheses for the project
@@ -45,10 +45,10 @@ export async function GET(
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { projectId: string } }
+  { params }: { params: Promise<{ projectId: string }> }
 ) {
   try {
-    const { projectId } = params;
+    const { projectId } = await params;
     const supabase = getAdminSupabaseClient();
 
     // Force generation of syntheses

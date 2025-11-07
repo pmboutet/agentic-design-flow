@@ -50,10 +50,11 @@ const applySuggestionSchema = z.object({
 
 export async function POST(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const projectId = z.string().uuid().parse(params.id);
+    const resolvedParams = await params;
+    const projectId = z.string().uuid().parse(resolvedParams.id);
     const body = await request.json();
     
     console.log('🔍 Apply API - Received body:', JSON.stringify(body, null, 2));
