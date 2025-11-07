@@ -1862,29 +1862,8 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
     );
   };
 
-  if (!boardData && isLoading) {
-    return (
-      <div className="flex flex-col items-center justify-center gap-3 py-16 text-slate-300">
-        <Loader2 className="h-6 w-6 animate-spin text-indigo-300" />
-        <p>Loading project journey…</p>
-      </div>
-    );
-  }
-
-  if (!boardData) {
-    return (
-      <div className="space-y-3 rounded-xl border border-white/10 bg-slate-900/70 p-6 text-center text-slate-200">
-        <p>Unable to display project data.</p>
-        {error ? (
-          <p className="text-sm text-red-300">{error}</p>
-        ) : (
-          <p className="text-sm text-slate-400">Please refresh the page or verify the project configuration.</p>
-        )}
-      </div>
-    );
-  }
-
-  const availableUsers = boardData.availableUsers ?? [];
+  // Hooks must be called before any early returns
+  const availableUsers = boardData?.availableUsers ?? [];
   const inviteLinkBase = useMemo(() => {
     const askKey = askFormValues.askKey?.trim();
     if (!askKey) {
@@ -1921,6 +1900,62 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
   useEffect(() => {
     setCopiedInviteLinks(new Set());
   }, [editingAskId, askFormValues.participantIds, askFormValues.askKey]);
+
+  const handleSendAskInvites = useCallback(async () => {
+    if (!editingAskId) {
+      return;
+    }
+
+    setIsSendingAskInvites(true);
+    try {
+      const response = await fetch(`/api/admin/asks/${editingAskId}/send-invites`, {
+        method: "POST",
+      });
+      const payload = await response.json();
+
+      if (!response.ok || !payload.success) {
+        throw new Error(payload.error || "Unable to send invites.");
+      }
+
+      const sent = payload.data?.sent ?? 0;
+      const failed = payload.data?.failed ?? 0;
+      const suffix = failed > 0 ? `, ${failed} failed` : "";
+      setAskFeedback({
+        type: "success",
+        message: `Sent ${sent} invite${sent === 1 ? "" : "s"}${suffix}`,
+      });
+    } catch (error) {
+      console.error("Failed to send ASK invites", error);
+      setAskFeedback({
+        type: "error",
+        message: error instanceof Error ? error.message : "Unable to send invites.",
+      });
+    } finally {
+      setIsSendingAskInvites(false);
+    }
+  }, [editingAskId]);
+
+  if (!boardData && isLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-3 py-16 text-slate-300">
+        <Loader2 className="h-6 w-6 animate-spin text-indigo-300" />
+        <p>Loading project journey…</p>
+      </div>
+    );
+  }
+
+  if (!boardData) {
+    return (
+      <div className="space-y-3 rounded-xl border border-white/10 bg-slate-900/70 p-6 text-center text-slate-200">
+        <p>Unable to display project data.</p>
+        {error ? (
+          <p className="text-sm text-red-300">{error}</p>
+        ) : (
+          <p className="text-sm text-slate-400">Please refresh the page or verify the project configuration.</p>
+        )}
+      </div>
+    );
+  }
 
   const projectStart = formatFullDate(boardData.projectStartDate);
   const projectEnd = formatFullDate(boardData.projectEndDate);
@@ -2378,40 +2413,6 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
     const { value } = event.target;
     setAskFormValues(current => ({ ...current, spokespersonId: value }));
   };
-
-  const handleSendAskInvites = useCallback(async () => {
-    if (!editingAskId) {
-      return;
-    }
-
-    setIsSendingAskInvites(true);
-    try {
-      const response = await fetch(`/api/admin/asks/${editingAskId}/send-invites`, {
-        method: "POST",
-      });
-      const payload = await response.json();
-
-      if (!response.ok || !payload.success) {
-        throw new Error(payload.error || "Unable to send invites.");
-      }
-
-      const sent = payload.data?.sent ?? 0;
-      const failed = payload.data?.failed ?? 0;
-      const suffix = failed > 0 ? `, ${failed} failed` : "";
-      setAskFeedback({
-        type: "success",
-        message: `Sent ${sent} invite${sent === 1 ? "" : "s"}${suffix}`,
-      });
-    } catch (error) {
-      console.error("Failed to send ASK invites", error);
-      setAskFeedback({
-        type: "error",
-        message: error instanceof Error ? error.message : "Unable to send invites.",
-      });
-    } finally {
-      setIsSendingAskInvites(false);
-    }
-  }, [editingAskId]);
 
   const handleAskFormSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();

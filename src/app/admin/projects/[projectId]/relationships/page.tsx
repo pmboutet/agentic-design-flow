@@ -1,11 +1,12 @@
 import { AdminDashboard } from "@/components/admin/AdminDashboard";
 
 type ProjectRelationshipsPageProps = {
-  params: {
+  params: Promise<{
     projectId: string;
-  };
+  }>;
 };
 
-export default function ProjectRelationshipsPage({ params }: ProjectRelationshipsPageProps) {
-  return <AdminDashboard mode="project-relationships" initialProjectId={params.projectId} />;
+export default async function ProjectRelationshipsPage({ params }: ProjectRelationshipsPageProps) {
+  const { projectId } = await params;
+  return <AdminDashboard mode="project-relationships" initialProjectId={projectId} />;
 }

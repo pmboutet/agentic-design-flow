@@ -1,11 +1,12 @@
 import { ProjectJourneyBoard } from "@/components/project/ProjectJourneyBoard";
 
 type ProjectPageProps = {
-  params: {
+  params: Promise<{
     projectId: string;
-  };
+  }>;
 };
 
-export default function ProjectPage({ params }: ProjectPageProps) {
-  return <ProjectJourneyBoard projectId={params.projectId} />;
+export default async function ProjectPage({ params }: ProjectPageProps) {
+  const { projectId } = await params;
+  return <ProjectJourneyBoard projectId={projectId} />;
 }

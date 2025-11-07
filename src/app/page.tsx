@@ -5,13 +5,10 @@ import HomePage from "./HomePage";
 export default async function Page({
   searchParams,
 }: {
-  searchParams: Promise<{ key?: string; token?: string }> | { key?: string; token?: string };
+  searchParams: Promise<{ key?: string; token?: string }>;
 }) {
-  // Dans Next.js 14+, searchParams peut être une Promise
-  // Gérer les deux cas pour la compatibilité
-  const params = searchParams instanceof Promise 
-    ? await searchParams 
-    : searchParams;
+  // Dans Next.js 16, searchParams est toujours une Promise
+  const params = await searchParams;
   
   // Si un paramètre 'key' ou 'token' est présent, afficher la HomePage
   // (HomePage utilisera useSearchParams() côté client pour lire les params)

@@ -8,7 +8,7 @@ const nextConfig = {
   images: {
     domains: ['localhost'],
   },
-  // Webpack configuration for file uploads
+  // Webpack configuration for file uploads (still needed for Turbopack compatibility)
   webpack: (config) => {
     config.resolve.fallback = {
       ...config.resolve.fallback,
@@ -16,6 +16,7 @@ const nextConfig = {
     };
     return config;
   },
+  // Turbopack is now default in Next.js 16, but webpack config is still supported
 };
 
 module.exports = nextConfig;
