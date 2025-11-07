@@ -313,9 +313,19 @@ function mergeAgentWithDraft(agent: AiAgentRecord): AgentDraft {
   };
 }
 
+type ModelDraft = AiModelConfig & {
+  deepgramLlmModelDraft?: string;
+  deepgramLlmProviderDraft?: "anthropic" | "openai";
+  deepgramSttModelDraft?: string;
+  deepgramTtsModelDraft?: string;
+  isSaving?: boolean;
+  saveError?: string | null;
+  saveSuccess?: boolean;
+};
+
 export default function AiConfigurationPage() {
   const [agents, setAgents] = useState<AgentDraft[]>([]);
-  const [models, setModels] = useState<AiModelConfig[]>([]);
+  const [models, setModels] = useState<ModelDraft[]>([]);
   const [variables, setVariables] = useState<PromptVariableDefinition[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -364,7 +374,17 @@ export default function AiConfigurationPage() {
 
       setAgents(agentsJson.data?.agents.map(mergeAgentWithDraft) ?? []);
       setVariables(agentsJson.data?.variables ?? []);
-      setModels(modelsJson.data ?? []);
+      // Initialize models with drafts matching current values
+      setModels((modelsJson.data ?? []).map(model => ({
+        ...model,
+        deepgramLlmModelDraft: model.deepgramLlmModel,
+        deepgramLlmProviderDraft: model.deepgramLlmProvider,
+        deepgramSttModelDraft: model.deepgramSttModel,
+        deepgramTtsModelDraft: model.deepgramTtsModel,
+        isSaving: false,
+        saveError: null,
+        saveSuccess: false,
+      })));
     } catch (err) {
       console.error(err);
       setError(err instanceof Error ? err.message : "Erreur inattendue lors du chargement");
@@ -1013,29 +1033,14 @@ export default function AiConfigurationPage() {
                           <Input
                             id={`deepgram-llm-model-${model.id}`}
                             placeholder="ex: claude-3-5-sonnet-20241022"
-                            value={model.deepgramLlmModel || ''}
-                            onChange={async (e) => {
-                              const value = e.target.value.trim() || null;
-                              try {
-                                const response = await fetch(`/api/admin/ai/models/${model.id}`, {
-                                  method: 'PUT',
-                                  headers: { 'Content-Type': 'application/json' },
-                                  credentials: 'include',
-                                  body: JSON.stringify({ deepgramVoiceAgentModel: value }),
-                                });
-                                if (response.ok) {
-                                  const result = await response.json();
-                                  if (result.success) {
-                                    setModels(prev => prev.map(m => 
-                                      m.id === model.id 
-                                        ? { ...m, deepgramLlmModel: value || undefined }
-                                        : m
-                                    ));
-                                  }
-                                }
-                              } catch (err) {
-                                console.error('Error updating model:', err);
-                              }
+                            value={model.deepgramLlmModelDraft || ''}
+                            onChange={(e) => {
+                              const value = e.target.value.trim() || undefined;
+                              setModels(prev => prev.map(m => 
+                                m.id === model.id 
+                                  ? { ...m, deepgramLlmModelDraft: value, saveSuccess: false }
+                                  : m
+                              ));
                             }}
                           />
                           <p className="text-xs text-muted-foreground">
@@ -1049,29 +1054,14 @@ export default function AiConfigurationPage() {
                           <select
                             id={`deepgram-llm-provider-${model.id}`}
                             className="w-full rounded border border-input bg-background px-3 py-2 text-sm"
-                            value={model.deepgramLlmProvider || ''}
-                            onChange={async (e) => {
-                              const value = e.target.value || null;
-                              try {
-                                const response = await fetch(`/api/admin/ai/models/${model.id}`, {
-                                  method: 'PUT',
-                                  headers: { 'Content-Type': 'application/json' },
-                                  credentials: 'include',
-                                  body: JSON.stringify({ deepgramLlmProvider: value }),
-                                });
-                                if (response.ok) {
-                                  const result = await response.json();
-                                  if (result.success) {
-                                    setModels(prev => prev.map(m => 
-                                      m.id === model.id 
-                                        ? { ...m, deepgramLlmProvider: (value as "anthropic" | "openai") || undefined }
-                                        : m
-                                    ));
-                                  }
-                                }
-                              } catch (err) {
-                                console.error('Error updating model:', err);
-                              }
+                            value={model.deepgramLlmProviderDraft || ''}
+                            onChange={(e) => {
+                              const value = e.target.value || undefined;
+                              setModels(prev => prev.map(m => 
+                                m.id === model.id 
+                                  ? { ...m, deepgramLlmProviderDraft: (value as "anthropic" | "openai") || undefined, saveSuccess: false }
+                                  : m
+                              ));
                             }}
                           >
                             <option value="">Aucun</option>
@@ -1086,29 +1076,14 @@ export default function AiConfigurationPage() {
                           <Input
                             id={`deepgram-stt-${model.id}`}
                             placeholder="ex: nova-2"
-                            value={model.deepgramSttModel || ''}
-                            onChange={async (e) => {
-                              const value = e.target.value.trim() || null;
-                              try {
-                                const response = await fetch(`/api/admin/ai/models/${model.id}`, {
-                                  method: 'PUT',
-                                  headers: { 'Content-Type': 'application/json' },
-                                  credentials: 'include',
-                                  body: JSON.stringify({ deepgramSttModel: value }),
-                                });
-                                if (response.ok) {
-                                  const result = await response.json();
-                                  if (result.success) {
-                                    setModels(prev => prev.map(m => 
-                                      m.id === model.id 
-                                        ? { ...m, deepgramSttModel: value || undefined }
-                                        : m
-                                    ));
-                                  }
-                                }
-                              } catch (err) {
-                                console.error('Error updating model:', err);
-                              }
+                            value={model.deepgramSttModelDraft || ''}
+                            onChange={(e) => {
+                              const value = e.target.value.trim() || undefined;
+                              setModels(prev => prev.map(m => 
+                                m.id === model.id 
+                                  ? { ...m, deepgramSttModelDraft: value, saveSuccess: false }
+                                  : m
+                              ));
                             }}
                           />
                         </div>
@@ -1119,32 +1094,84 @@ export default function AiConfigurationPage() {
                           <Input
                             id={`deepgram-tts-${model.id}`}
                             placeholder="ex: aura-thalia-en"
-                            value={model.deepgramTtsModel || ''}
-                            onChange={async (e) => {
-                              const value = e.target.value.trim() || null;
-                              try {
-                                const response = await fetch(`/api/admin/ai/models/${model.id}`, {
-                                  method: 'PUT',
-                                  headers: { 'Content-Type': 'application/json' },
-                                  credentials: 'include',
-                                  body: JSON.stringify({ deepgramTtsModel: value }),
-                                });
-                                if (response.ok) {
-                                  const result = await response.json();
-                                  if (result.success) {
-                                    setModels(prev => prev.map(m => 
-                                      m.id === model.id 
-                                        ? { ...m, deepgramTtsModel: value || undefined }
-                                        : m
-                                    ));
-                                  }
-                                }
-                              } catch (err) {
-                                console.error('Error updating model:', err);
-                              }
+                            value={model.deepgramTtsModelDraft || ''}
+                            onChange={(e) => {
+                              const value = e.target.value.trim() || undefined;
+                              setModels(prev => prev.map(m => 
+                                m.id === model.id 
+                                  ? { ...m, deepgramTtsModelDraft: value, saveSuccess: false }
+                                  : m
+                              ));
                             }}
                           />
                         </div>
+                      </div>
+                      
+                      <div className="flex items-center gap-2 mt-4">
+                        <Button
+                          onClick={async () => {
+                            setModels(prev => prev.map(m => 
+                              m.id === model.id 
+                                ? { ...m, isSaving: true, saveError: null, saveSuccess: false }
+                                : m
+                            ));
+
+                            try {
+                              const response = await fetch(`/api/admin/ai/models/${model.id}`, {
+                                method: 'PUT',
+                                headers: { 'Content-Type': 'application/json' },
+                                credentials: 'include',
+                                body: JSON.stringify({
+                                  deepgramVoiceAgentModel: model.deepgramLlmModelDraft || null,
+                                  deepgramLlmProvider: model.deepgramLlmProviderDraft || null,
+                                  deepgramSttModel: model.deepgramSttModelDraft || null,
+                                  deepgramTtsModel: model.deepgramTtsModelDraft || null,
+                                }),
+                              });
+
+                              if (!response.ok) {
+                                throw new Error('Failed to save');
+                              }
+
+                              const result = await response.json();
+                              if (!result.success) {
+                                throw new Error(result.error || 'Failed to save');
+                              }
+
+                              // Update saved values
+                              setModels(prev => prev.map(m => 
+                                m.id === model.id 
+                                  ? {
+                                      ...m,
+                                      deepgramLlmModel: m.deepgramLlmModelDraft,
+                                      deepgramLlmProvider: m.deepgramLlmProviderDraft,
+                                      deepgramSttModel: m.deepgramSttModelDraft,
+                                      deepgramTtsModel: m.deepgramTtsModelDraft,
+                                      isSaving: false,
+                                      saveSuccess: true,
+                                      saveError: null,
+                                    }
+                                  : m
+                              ));
+                            } catch (err) {
+                              const message = err instanceof Error ? err.message : 'Erreur lors de l\'enregistrement';
+                              setModels(prev => prev.map(m => 
+                                m.id === model.id 
+                                  ? { ...m, isSaving: false, saveError: message }
+                                  : m
+                              ));
+                            }
+                          }}
+                          disabled={model.isSaving}
+                        >
+                          {model.isSaving ? 'Enregistrement...' : 'Enregistrer'}
+                        </Button>
+                        {model.saveError && (
+                          <p className="text-sm text-destructive">{model.saveError}</p>
+                        )}
+                        {model.saveSuccess && (
+                          <p className="text-sm text-emerald-600">Modifications enregistrées.</p>
+                        )}
                       </div>
                     </div>
                   </CardContent>
