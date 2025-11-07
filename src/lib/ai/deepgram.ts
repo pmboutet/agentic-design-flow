@@ -156,7 +156,7 @@ export class DeepgramVoiceAgent {
           think: {
             provider: {
               type: config.llmProvider || "anthropic",
-              model: config.llmModel || (config.llmProvider === "openai" ? "gpt-4o" : "claude-3-5-sonnet-20241022")
+              model: config.llmModel || (config.llmProvider === "openai" ? "gpt-4o" : "claude-3-5-haiku-latest")
             },
             prompt: config.systemPrompt
           }
@@ -236,8 +236,19 @@ export class DeepgramVoiceAgent {
         console.error('[Deepgram] ❌ Error event:', error);
         const errorMessage = error.description || error.message || 'Unknown error';
         const errorCode = error.code || 'UNKNOWN';
-        const err = new Error(`Deepgram Agent error (${errorCode}): ${errorMessage}`);
+        
+        // Provide helpful error message for model not available
+        let enhancedMessage = errorMessage;
+        if (errorCode === 'INVALID_SETTINGS' && errorMessage.includes('model not available')) {
+          enhancedMessage = `${errorMessage}. Please check the Deepgram documentation for supported model names. For Anthropic, try: claude-3-5-haiku-latest or claude-sonnet-4-20250514. Current model: ${config.llmModel || 'not set'}`;
+        }
+        
+        const err = new Error(`Deepgram Agent error (${errorCode}): ${enhancedMessage}`);
         console.error('[Deepgram] ❌ Full error details:', JSON.stringify(error, null, 2));
+        console.error('[Deepgram] ❌ Current model configuration:', {
+          provider: config.llmProvider,
+          model: config.llmModel
+        });
         this.onErrorCallback?.(err);
         clearTimeout(timeout);
         clearTimeout(settingsAppliedTimeout);

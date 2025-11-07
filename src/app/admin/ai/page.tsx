@@ -1032,7 +1032,7 @@ export default function AiConfigurationPage() {
                           </Label>
                           <Input
                             id={`deepgram-llm-model-${model.id}`}
-                            placeholder="ex: claude-3-5-sonnet-20241022"
+                            placeholder="ex: claude-3-5-haiku-latest, claude-sonnet-4-20250514"
                             value={model.deepgramLlmModelDraft || ''}
                             onChange={(e) => {
                               const value = e.target.value.trim() || undefined;
@@ -1044,7 +1044,7 @@ export default function AiConfigurationPage() {
                             }}
                           />
                           <p className="text-xs text-muted-foreground">
-                            Nom exact du modèle LLM requis par Deepgram API
+                            Nom exact du modèle LLM requis par Deepgram API. Anthropic: claude-3-5-haiku-latest, claude-sonnet-4-20250514. OpenAI: gpt-4o, gpt-4o-mini
                           </p>
                         </div>
                         <div className="space-y-2">

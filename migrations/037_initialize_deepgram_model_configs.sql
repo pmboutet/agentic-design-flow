@@ -3,9 +3,11 @@
 BEGIN;
 
 -- Update Anthropic models with Deepgram configuration
+-- Note: Deepgram supports "claude-3-5-haiku-latest" and "claude-sonnet-4-20250514"
+-- Using haiku as default as it's more commonly available
 UPDATE public.ai_model_configs
 SET 
-  deepgram_voice_agent_model = 'claude-3-5-sonnet-20241022',
+  deepgram_voice_agent_model = 'claude-3-5-haiku-latest',
   deepgram_llm_provider = 'anthropic',
   deepgram_stt_model = 'nova-2',
   deepgram_tts_model = 'aura-thalia-en'
