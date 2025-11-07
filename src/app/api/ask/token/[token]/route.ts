@@ -60,6 +60,7 @@ type TokenDataBundle = {
     summary: string | null;
     challenge_id: string | null;
     status: string | null;
+    category: string | null;
     insight_type_name: string | null;
     created_at: string;
     updated_at: string;
@@ -126,7 +127,7 @@ async function loadTokenDataWithAdmin(token: string): Promise<TokenDataBundle | 
         .order("created_at", { ascending: true }),
       admin
         .from("insights")
-        .select("id, ask_session_id, challenge_id, content, summary, status, insight_type_id, created_at, updated_at, insight_types(name)")
+        .select("id, ask_session_id, challenge_id, content, summary, status, category, insight_type_id, created_at, updated_at, insight_types(name)")
         .eq("ask_session_id", askRow.ask_session_id),
       askRow.project_id
         ? admin.from("projects").select("id, name").eq("id", askRow.project_id).maybeSingle()
@@ -241,6 +242,7 @@ async function loadTokenDataWithAdmin(token: string): Promise<TokenDataBundle | 
           summary: row.summary,
           challenge_id: row.challenge_id,
           status: row.status,
+          category: row.category ?? null,
           insight_type_name: (row.insight_types as unknown as { name: string } | null)?.name ?? null,
           created_at: row.created_at,
           updated_at: row.updated_at,
@@ -490,7 +492,7 @@ export async function GET(
       content: row.content,
       summary: row.summary,
       type: (row.insight_type_name || 'pain') as any,
-      category: null,
+      category: row.category ?? null,
       status: row.status || 'new',
       priority: null,
       createdAt: row.created_at,

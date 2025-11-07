@@ -64,6 +64,10 @@ function InsightCard({ insight, onLink }: { insight: Insight; onLink?: (insightI
     .map((author) => (author?.name ?? '').trim())
     .filter((name): name is string => name.length > 0);
   const authorLabel = authorNames.length > 0 ? authorNames.join(', ') : (insight.authorName ?? undefined);
+  const categoryLabel = (() => {
+    const raw = (insight.category ?? '').trim();
+    return raw.length > 0 ? raw : "Analyse IA";
+  })();
 
   return (
     <motion.div
@@ -80,11 +84,9 @@ function InsightCard({ insight, onLink }: { insight: Insight; onLink?: (insightI
             <span className="inline-flex items-center rounded-full border border-primary/50 bg-white/80 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-primary">
               {getInsightTypeLabel(insight.type)}
             </span>
-            {insight.category && (
-              <span className="inline-flex items-center rounded-full bg-amber-100 px-3 py-1 text-[11px] font-medium text-amber-900">
-                {insight.category}
-              </span>
-            )}
+            <span className="inline-flex items-center rounded-full bg-amber-100 px-3 py-1 text-[11px] font-medium text-amber-900">
+              {categoryLabel}
+            </span>
             {insight.status !== "new" && (
               <span className="inline-flex items-center rounded-full bg-emerald-100 px-3 py-1 text-[11px] font-medium uppercase tracking-wide text-emerald-900">
                 {insight.status}

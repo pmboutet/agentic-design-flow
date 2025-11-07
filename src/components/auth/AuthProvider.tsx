@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useMemo, useState, useEffect, useCallback } from "react";
+import React, { createContext, useContext, useMemo, useState, useEffect, useCallback, useRef } from "react";
 import { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabaseClient";
 import type { Profile } from "@/types";
@@ -41,6 +41,11 @@ const DEV_BYPASS_USER: AuthUser = {
   profile: null,
 };
 
+// Constants for retry and cache logic
+const MAX_RETRIES = 3;
+const MAX_CACHE_FAILURES = 3; // Number of calls that can fail before showing error
+const MAX_TOTAL_FAILURES = MAX_CACHE_FAILURES * MAX_RETRIES; // 9 total failures
+
 /**
  * AuthProvider with Supabase Auth integration.
  * Manages authentication state, session, and user profile synchronization.
@@ -57,8 +62,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
 
-  // Fetch user profile from public.profiles
-  const fetchProfile = useCallback(async (authUser: User): Promise<Profile | null> => {
+  // Cache and failure tracking
+  const cachedProfileRef = useRef<Profile | null>(null);
+  const failureCountRef = useRef<number>(0);
+  const lastSuccessfulAuthIdRef = useRef<string | null>(null);
+
+  // Single attempt to fetch profile
+  const fetchProfileAttempt = useCallback(async (authUser: User): Promise<Profile | null> => {
     if (isDevBypass) {
       return null;
     }
@@ -86,7 +96,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       // Handle timeout
       if (result.error?.message === "Profile fetch timeout") {
-        console.warn(`Profile fetch timed out after ${elapsed}ms. Continuing without profile.`);
+        console.warn(`Profile fetch timed out after ${elapsed}ms`);
         return null;
       }
 
@@ -126,10 +136,67 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         error: error?.message || error,
         name: error?.name,
       });
-      // Always return null to prevent crashes - the app can work without profile
       return null;
     }
   }, [isDevBypass]);
+
+  // Fetch user profile with retry logic and cache
+  const fetchProfile = useCallback(async (authUser: User): Promise<Profile | null> => {
+    if (isDevBypass) {
+      return null;
+    }
+
+    // Reset failure count and cache if auth user changed
+    if (lastSuccessfulAuthIdRef.current !== null && lastSuccessfulAuthIdRef.current !== authUser.id) {
+      console.log(`Auth user changed from ${lastSuccessfulAuthIdRef.current} to ${authUser.id}, resetting cache and failure count`);
+      failureCountRef.current = 0;
+      cachedProfileRef.current = null;
+      lastSuccessfulAuthIdRef.current = null;
+    }
+
+    // Try up to MAX_RETRIES times
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      const result = await fetchProfileAttempt(authUser);
+      
+      if (result) {
+        // Success! Reset failure count and update cache
+        failureCountRef.current = 0;
+        cachedProfileRef.current = result;
+        lastSuccessfulAuthIdRef.current = authUser.id;
+        console.log(`Profile fetch succeeded on attempt ${attempt}/${MAX_RETRIES}`);
+        return result;
+      }
+      
+      // If not the last attempt, wait a bit before retrying
+      if (attempt < MAX_RETRIES) {
+        const delay = attempt * 500; // Exponential backoff: 500ms, 1000ms
+        console.warn(`Profile fetch attempt ${attempt}/${MAX_RETRIES} failed, retrying in ${delay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+
+    // All retries failed - increment failure count
+    failureCountRef.current += 1;
+    console.warn(`Profile fetch failed after ${MAX_RETRIES} attempts. Failure count: ${failureCountRef.current}/${MAX_TOTAL_FAILURES}`);
+
+    // If we've exceeded the max failures, return null (will show error)
+    if (failureCountRef.current >= MAX_TOTAL_FAILURES) {
+      console.error(`Profile fetch failed ${failureCountRef.current} times. Clearing cache and showing error.`);
+      cachedProfileRef.current = null;
+      lastSuccessfulAuthIdRef.current = null;
+      return null;
+    }
+
+    // Otherwise, return cached profile if available and matches current user
+    if (cachedProfileRef.current && lastSuccessfulAuthIdRef.current === authUser.id) {
+      console.log(`Returning cached profile (failure count: ${failureCountRef.current}/${MAX_TOTAL_FAILURES})`);
+      return cachedProfileRef.current;
+    }
+
+    // No cache available, but we haven't hit the limit yet
+    console.warn(`No cached profile available, but failure count (${failureCountRef.current}) is below limit`);
+    return null;
+  }, [isDevBypass, fetchProfileAttempt]);
 
   // Update user state from session
   const updateUserFromSession = useCallback(
@@ -145,13 +212,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(null);
         setProfile(null);
         setStatus("signed-out");
+        // Reset cache when signing out
+        cachedProfileRef.current = null;
+        failureCountRef.current = 0;
+        lastSuccessfulAuthIdRef.current = null;
         return;
       }
 
       const authUser = session.user;
       const userProfile = await fetchProfile(authUser);
 
-      // If profile is null (timeout or error), we still set the user but without profile
+      // If profile is null and we've exceeded failures, we still set the user but without profile
       // The AdminDashboard will check for profile and deny access if missing
       setProfile(userProfile);
       setUser({
@@ -516,6 +587,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(null);
       setProfile(null);
       setStatus("signed-out");
+      // Reset cache on sign out
+      cachedProfileRef.current = null;
+      failureCountRef.current = 0;
+      lastSuccessfulAuthIdRef.current = null;
     } catch (error) {
       console.error("Error signing out:", error);
     } finally {
