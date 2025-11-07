@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import type { PostgrestError } from '@supabase/supabase-js';
+import type { PostgrestError, SupabaseClient } from '@supabase/supabase-js';
 import { isValidAskKey, parseErrorMessage } from '@/lib/utils';
 import { getAskSessionByKey } from '@/lib/asks';
 import { normaliseMessageMetadata } from '@/lib/messages';
@@ -171,9 +171,46 @@ export async function POST(
     const supabase = await createServerSupabaseClient();
     const isDevBypass = process.env.IS_DEV === 'true';
 
-    let profileId: string | null = null;
+    let dataClient: SupabaseClient = supabase;
+    let adminClient: SupabaseClient | null = null;
+    const getAdminClient = async () => {
+      if (!adminClient) {
+        const { getAdminSupabaseClient } = await import('@/lib/supabaseAdmin');
+        adminClient = getAdminSupabaseClient();
+      }
+      return adminClient;
+    };
 
-    if (!isDevBypass) {
+    const inviteToken = request.headers.get('X-Invite-Token');
+    let profileId: string | null = null;
+    let tokenAskSessionId: string | null = null;
+    let authenticatedViaToken = false;
+
+    if (!isDevBypass && inviteToken) {
+      const admin = await getAdminClient();
+      const { data: participant, error: tokenError } = await admin
+        .from('ask_participants')
+        .select('id, user_id, ask_session_id')
+        .eq('invite_token', inviteToken)
+        .maybeSingle();
+
+      if (tokenError) {
+        console.error('❌ Error validating invite token for streaming:', tokenError);
+        return new Response('Token invalide', { status: 403 });
+      }
+
+      if (!participant || !participant.user_id) {
+        console.error('❌ Invite token missing linked user profile for streaming');
+        return new Response("Ce lien d'invitation n'est associé à aucun profil utilisateur. Contactez votre administrateur.", { status: 403 });
+      }
+
+      profileId = participant.user_id;
+      tokenAskSessionId = participant.ask_session_id;
+      dataClient = admin;
+      authenticatedViaToken = true;
+    }
+
+    if (!isDevBypass && !profileId) {
       const { data: userResult, error: userError } = await supabase.auth.getUser();
 
       if (userError) {
@@ -189,7 +226,6 @@ export async function POST(
         return new Response('Authentification requise', { status: 401 });
       }
 
-      // Get profile ID from auth_id (user.id is the auth UUID, we need the profile UUID)
       const { data: profile, error: profileError } = await supabase
         .from('profiles')
         .select('id')
@@ -204,7 +240,7 @@ export async function POST(
     }
 
     const { row: askRow, error: askError } = await getAskSessionByKey<AskSessionRow>(
-      supabase,
+      dataClient,
       key,
       'id, ask_key, question, description, status, system_prompt, project_id, challenge_id, is_anonymous'
     );
@@ -220,7 +256,12 @@ export async function POST(
       return new Response('ASK introuvable pour la clé fournie', { status: 404 });
     }
 
-    if (!isDevBypass && profileId) {
+    if (authenticatedViaToken && tokenAskSessionId && tokenAskSessionId !== askRow.id) {
+      console.error('Invite token does not belong to this ASK session', { tokenAskSessionId, requestedId: askRow.id });
+      return permissionDeniedResponse();
+    }
+
+    if (!isDevBypass && profileId && !authenticatedViaToken) {
       const isAnonymous = askRow.is_anonymous === true;
 
       // Check if user is a participant
@@ -262,7 +303,7 @@ export async function POST(
     }
 
     // Fetch participants
-    const { data: participantRows, error: participantError } = await supabase
+    const { data: participantRows, error: participantError } = await dataClient
       .from('ask_participants')
       .select('*')
       .eq('ask_session_id', askRow.id)
@@ -282,7 +323,7 @@ export async function POST(
     let usersById: Record<string, UserRow> = {};
 
     if (participantUserIds.length > 0) {
-      const { data: userRows, error: userError } = await supabase
+      const { data: userRows, error: userError } = await dataClient
         .from('profiles')
         .select('id, email, full_name, first_name, last_name')
         .in('id', participantUserIds);
@@ -313,7 +354,7 @@ export async function POST(
     });
 
     // Fetch messages
-    const { data: messageRows, error: messageError } = await supabase
+    const { data: messageRows, error: messageError } = await dataClient
       .from('messages')
       .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at')
       .eq('ask_session_id', askRow.id)
@@ -333,7 +374,7 @@ export async function POST(
     const additionalUserIds = messageUserIds.filter(id => !usersById[id]);
 
     if (additionalUserIds.length > 0) {
-      const { data: extraUsers, error: extraUsersError } = await supabase
+      const { data: extraUsers, error: extraUsersError } = await dataClient
         .from('profiles')
         .select('id, email, full_name, first_name, last_name')
         .in('id', additionalUserIds);
@@ -398,7 +439,7 @@ export async function POST(
     // Fetch project and challenge data
     let projectData: ProjectRow | null = null;
     if (askRow.project_id) {
-      const { data, error } = await supabase
+      const { data, error } = await dataClient
         .from('projects')
         .select('id, name, system_prompt')
         .eq('id', askRow.project_id)
@@ -416,7 +457,7 @@ export async function POST(
 
     let challengeData: ChallengeRow | null = null;
     if (askRow.challenge_id) {
-      const { data, error } = await supabase
+      const { data, error } = await dataClient
         .from('challenges')
         .select('id, name, system_prompt')
         .eq('id', askRow.challenge_id)
@@ -470,7 +511,7 @@ export async function POST(
       console.log('Agent slug:', DEFAULT_CHAT_AGENT_SLUG);
       console.log('Variables:', agentVariables);
 
-      agentConfig = await getChatAgentConfig(supabase, agentVariables);
+      agentConfig = await getChatAgentConfig(dataClient, agentVariables);
 
       console.log('✅ Chat agent config loaded successfully');
       console.log('System prompt length:', agentConfig.systemPrompt?.length || 0);
@@ -566,7 +607,7 @@ export async function POST(
     // Create a log entry for tracking
     let log: AiAgentLog | null = null;
     try {
-      log = await createAgentLog(supabase, {
+      log = await createAgentLog(dataClient, {
         agentId: agentConfig.agent?.id || null,
         askSessionId: askRow.id,
         messageId: null,
@@ -595,7 +636,7 @@ export async function POST(
           // Mark log as processing
           if (log) {
             try {
-              await markAgentLogProcessing(supabase, log.id, { modelConfigId: agentConfig.modelConfig.id });
+              await markAgentLogProcessing(dataClient, log.id, { modelConfigId: agentConfig.modelConfig.id });
             } catch (error) {
               console.error('Unable to mark agent log processing:', error);
             }
@@ -630,7 +671,7 @@ export async function POST(
 
                 // Trouver le dernier message utilisateur pour le lier comme parent
                 // On récupère les messages depuis la base pour trouver le dernier message utilisateur
-                const { data: recentMessages } = await supabase
+                const { data: recentMessages } = await dataClient
                   .from('messages')
                   .select('id, sender_type')
                   .eq('ask_session_id', askRow.id)
@@ -640,7 +681,7 @@ export async function POST(
                 const lastUserMessage = (recentMessages ?? []).find(msg => msg.sender_type === 'user');
                 const parentMessageId = lastUserMessage?.id ?? null;
 
-                const { data: insertedRows, error: insertError } = await supabase
+                const { data: insertedRows, error: insertError } = await dataClient
                   .from('messages')
                   .insert({
                     ask_session_id: askRow.id,
@@ -691,12 +732,18 @@ export async function POST(
                 respondUrl.pathname = `/api/ask/${encodeURIComponent(key)}/respond`;
                 respondUrl.search = '';
 
+                const detectionHeaders: Record<string, string> = {
+                  'Content-Type': 'application/json',
+                  ...(request.headers.get('cookie') ? { Cookie: request.headers.get('cookie')! } : {}),
+                };
+
+                if (inviteToken) {
+                  detectionHeaders['X-Invite-Token'] = inviteToken;
+                }
+
                 const detectionResponse = await fetch(respondUrl.toString(), {
                   method: 'POST',
-                  headers: {
-                    'Content-Type': 'application/json',
-                    ...(request.headers.get('cookie') ? { Cookie: request.headers.get('cookie')! } : {}),
-                  },
+                  headers: detectionHeaders,
                   body: JSON.stringify({
                     detectInsights: true,
                     askSessionId: askRow.id,
@@ -731,7 +778,7 @@ export async function POST(
               // Complete the log
               if (log) {
                 try {
-                  await completeAgentLog(supabase, log.id, {
+                  await completeAgentLog(dataClient, log.id, {
                     responsePayload: { content: fullContent, streaming: true },
                     latencyMs: Date.now() - startTime,
                   });
@@ -749,7 +796,7 @@ export async function POST(
             // Fail the log
             if (log) {
               try {
-                await failAgentLog(supabase, log.id, parseErrorMessage(streamError));
+                await failAgentLog(dataClient, log.id, parseErrorMessage(streamError));
               } catch (failError) {
                 console.error('Unable to mark agent log as failed:', failError);
               }
@@ -769,7 +816,7 @@ export async function POST(
           // Fail the log
           if (log) {
             try {
-              await failAgentLog(supabase, log.id, parseErrorMessage(error));
+              await failAgentLog(dataClient, log.id, parseErrorMessage(error));
             } catch (failError) {
               console.error('Unable to mark agent log as failed:', failError);
             }

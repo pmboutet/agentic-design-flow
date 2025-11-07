@@ -149,11 +149,17 @@ export default function HomePage() {
         return;
       }
 
+      const insightHeaders: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+
+      if (sessionData.inviteToken) {
+        insightHeaders['X-Invite-Token'] = sessionData.inviteToken;
+      }
+
       const response = await fetch(`/api/ask/${sessionData.askKey}/respond`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: insightHeaders,
         body: JSON.stringify({ mode: 'insights-only' }),
       });
 
@@ -201,7 +207,7 @@ export default function HomePage() {
         error: parseErrorMessage(error)
       }));
     }
-  }, [cancelResponseTimer, sessionData.ask?.askSessionId, sessionData.askKey, isTestMode]);
+  }, [cancelResponseTimer, sessionData.ask?.askSessionId, sessionData.askKey, sessionData.inviteToken, isTestMode]);
 
   const scheduleResponseTimer = useCallback(() => {
     cancelResponseTimer();
@@ -224,11 +230,17 @@ export default function HomePage() {
     try {
       setIsDetectingInsights(true);
       
+      const detectionHeaders: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+
+      if (sessionData.inviteToken) {
+        detectionHeaders['X-Invite-Token'] = sessionData.inviteToken;
+      }
+
       const response = await fetch(`/api/ask/${sessionData.askKey}/respond`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: detectionHeaders,
         body: JSON.stringify({
           detectInsights: true,
           askSessionId: sessionData.ask.askSessionId,
@@ -248,7 +260,7 @@ export default function HomePage() {
     } finally {
       setIsDetectingInsights(false);
     }
-  }, [sessionData.askKey, sessionData.ask?.askSessionId]);
+  }, [sessionData.askKey, sessionData.ask?.askSessionId, sessionData.inviteToken]);
 
   const scheduleInsightDetection = useCallback(() => {
     if (
@@ -639,11 +651,17 @@ export default function HomePage() {
       const currentAskKey = sessionData.askKey;
       const currentAskSessionId = sessionData.ask?.askSessionId || '';
 
+      const streamHeaders: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+
+      if (sessionData.inviteToken) {
+        streamHeaders['X-Invite-Token'] = sessionData.inviteToken;
+      }
+
       const response = await fetch(`/api/ask/${currentAskKey}/stream`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: streamHeaders,
         body: JSON.stringify({
           message: sessionData.messages[sessionData.messages.length - 1]?.content || '',
           model: 'anthropic', // Par défaut Anthropic, peut être changé
