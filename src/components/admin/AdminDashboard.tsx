@@ -2900,131 +2900,214 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                           
                           {/* Participants with links */}
                           <div className="mt-3 space-y-2 max-h-64 overflow-y-auto">
-                            {/* Participants from user IDs */}
-                            {selectedParticipants.length > 0 && selectedParticipants.map(participantId => {
-                              const user = eligibleAskUsers.find(u => u.id === participantId);
-                              if (!user) return null;
-                              const email = user.email;
-                              const askKey = askForm.watch("askKey");
-                              // Note: For new participants being added, we don't have invite_token yet
-                              // It will be generated when they're saved to the database
-                              const baseUrl = typeof window !== "undefined" 
-                                ? (process.env.NEXT_PUBLIC_APP_URL || window.location.origin)
-                                : process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-                              const magicLink = askKey 
-                                ? `${baseUrl}/?key=${askKey}`
-                                : null;
-                              const isCopied = copiedLinks.has(participantId);
+                            {/* Use existing ASK participants with their tokens when editing */}
+                            {(() => {
+                              const currentAsk = editingAskId ? asks.find(a => a.id === editingAskId) : null;
+                              const existingParticipants = currentAsk?.participants || [];
                               
-                              return (
-                                <div key={participantId} className="rounded-lg border border-white/10 bg-slate-900/60 p-2">
-                                  <div className="flex items-center justify-between mb-1">
-                                    <div>
-                                      <p className="text-sm font-medium text-white">
-                                        {user.fullName || `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim() || user.email}
-                                      </p>
-                                      {email && <p className="text-xs text-slate-400">{email}</p>}
-                                    </div>
-                                  </div>
-                                  {magicLink && (
-                                    <div className="flex items-center gap-2 mt-2">
-                                      <input
-                                        type="text"
-                                        readOnly
-                                        value={magicLink}
-                                        className="flex-1 rounded-lg border border-white/10 bg-slate-900/80 px-2 py-1 text-xs text-slate-200 font-mono"
-                                        onClick={(e) => (e.target as HTMLInputElement).select()}
-                                      />
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          navigator.clipboard.writeText(magicLink);
-                                          setCopiedLinks(prev => new Set([...prev, participantId]));
-                                          setTimeout(() => {
-                                            setCopiedLinks(prev => {
-                                              const next = new Set(prev);
-                                              next.delete(participantId);
-                                              return next;
-                                            });
-                                          }, 2000);
-                                        }}
-                                        className="rounded-lg border border-white/10 bg-slate-900/60 p-1.5 text-slate-300 hover:bg-slate-800/60 hover:text-white transition-colors"
-                                        title="Copy link"
-                                      >
-                                        {isCopied ? (
-                                          <Check className="h-3 w-3 text-green-400" />
-                                        ) : (
-                                          <Copy className="h-3 w-3" />
-                                        )}
-                                      </button>
-                                    </div>
-                                  )}
-                                </div>
-                              );
-                            })}
-                            
-                            {/* Participants from emails */}
-                            {participantEmails.length > 0 && participantEmails.map((email, index) => {
-                              const askKey = askForm.watch("askKey");
-                              // Note: For new email participants being added, we don't have invite_token yet
-                              // It will be generated when they're saved to the database
-                              const baseUrl = typeof window !== "undefined" 
-                                ? (process.env.NEXT_PUBLIC_APP_URL || window.location.origin)
-                                : process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-                              const magicLink = askKey 
-                                ? `${baseUrl}/?key=${askKey}`
-                                : null;
-                              const emailKey = `email-${index}`;
-                              const isCopied = copiedLinks.has(emailKey);
+                              // Generate magic link URL helper
+                              const generateMagicLinkUrl = (email: string, askKey: string, participantToken?: string | null): string => {
+                                const baseUrl = typeof window !== "undefined" 
+                                  ? (process.env.NEXT_PUBLIC_APP_URL || window.location.origin)
+                                  : process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+                                
+                                // If we have a participant token, use it for a unique link per participant
+                                if (participantToken) {
+                                  return `${baseUrl}/?token=${participantToken}`;
+                                }
+                                
+                                // Otherwise, use the askKey (backward compatible)
+                                return `${baseUrl}/?key=${askKey}`;
+                              };
                               
+                              if (existingParticipants.length > 0) {
+                                return existingParticipants.map(participant => {
+                                  const participantEmail = participant.email;
+                                  const askKey = askForm.watch("askKey");
+                                  const magicLink = participantEmail 
+                                    ? generateMagicLinkUrl(participantEmail, askKey, participant.inviteToken) 
+                                    : (participant.inviteToken ? generateMagicLinkUrl("", askKey, participant.inviteToken) : (askKey ? generateMagicLinkUrl("", askKey) : null));
+                                  const participantKey = participant.id || participant.email || `participant-${Math.random()}`;
+                                  const isCopied = copiedLinks.has(participantKey);
+                                  
+                                  return (
+                                    <div key={participantKey} className="rounded-lg border border-white/10 bg-slate-900/60 p-2">
+                                      <div className="flex items-center justify-between mb-1">
+                                        <div>
+                                          <p className="text-sm font-medium text-white">{participant.name}</p>
+                                          {participantEmail && <p className="text-xs text-slate-400">{participantEmail}</p>}
+                                          {!participantEmail && <p className="text-xs text-slate-400">No email on record</p>}
+                                        </div>
+                                      </div>
+                                      {magicLink && (
+                                        <div className="flex items-center gap-2 mt-2">
+                                          <input
+                                            type="text"
+                                            readOnly
+                                            value={magicLink}
+                                            className="flex-1 rounded-lg border border-white/10 bg-slate-900/80 px-2 py-1 text-xs text-slate-200 font-mono"
+                                            onClick={(e) => (e.target as HTMLInputElement).select()}
+                                          />
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              navigator.clipboard.writeText(magicLink);
+                                              setCopiedLinks(prev => new Set([...prev, participantKey]));
+                                              setTimeout(() => {
+                                                setCopiedLinks(prev => {
+                                                  const next = new Set(prev);
+                                                  next.delete(participantKey);
+                                                  return next;
+                                                });
+                                              }, 2000);
+                                            }}
+                                            className="rounded-lg border border-white/10 bg-slate-900/60 p-1.5 text-slate-300 hover:bg-slate-800/60 hover:text-white transition-colors"
+                                            title="Copy link"
+                                          >
+                                            {isCopied ? (
+                                              <Check className="h-3 w-3 text-green-400" />
+                                            ) : (
+                                              <Copy className="h-3 w-3" />
+                                            )}
+                                          </button>
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                });
+                              }
+                              
+                              // Fallback to form participants if no existing participants found
                               return (
-                                <div key={emailKey} className="rounded-lg border border-white/10 bg-slate-900/60 p-2">
-                                  <div className="flex items-center justify-between mb-1">
-                                    <div>
-                                      <p className="text-sm font-medium text-white">{email}</p>
-                                      <p className="text-xs text-slate-400">Email participant</p>
-                                    </div>
-                                  </div>
-                                  {magicLink && (
-                                    <div className="flex items-center gap-2 mt-2">
-                                      <input
-                                        type="text"
-                                        readOnly
-                                        value={magicLink}
-                                        className="flex-1 rounded-lg border border-white/10 bg-slate-900/80 px-2 py-1 text-xs text-slate-200 font-mono"
-                                        onClick={(e) => (e.target as HTMLInputElement).select()}
-                                      />
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          navigator.clipboard.writeText(magicLink);
-                                          setCopiedLinks(prev => new Set([...prev, emailKey]));
-                                          setTimeout(() => {
-                                            setCopiedLinks(prev => {
-                                              const next = new Set(prev);
-                                              next.delete(emailKey);
-                                              return next;
-                                            });
-                                          }, 2000);
-                                        }}
-                                        className="rounded-lg border border-white/10 bg-slate-900/60 p-1.5 text-slate-300 hover:bg-slate-800/60 hover:text-white transition-colors"
-                                        title="Copy link"
-                                      >
-                                        {isCopied ? (
-                                          <Check className="h-3 w-3 text-green-400" />
-                                        ) : (
-                                          <Copy className="h-3 w-3" />
+                                <>
+                                  {/* Participants from user IDs */}
+                                  {selectedParticipants.length > 0 && selectedParticipants.map(participantId => {
+                                    const user = eligibleAskUsers.find(u => u.id === participantId);
+                                    if (!user) return null;
+                                    const email = user.email;
+                                    const askKey = askForm.watch("askKey");
+                                    // Note: For new participants being added, we don't have invite_token yet
+                                    // It will be generated when they're saved to the database
+                                    const baseUrl = typeof window !== "undefined" 
+                                      ? (process.env.NEXT_PUBLIC_APP_URL || window.location.origin)
+                                      : process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+                                    const magicLink = askKey 
+                                      ? `${baseUrl}/?key=${askKey}`
+                                      : null;
+                                    const isCopied = copiedLinks.has(participantId);
+                                    
+                                    return (
+                                      <div key={participantId} className="rounded-lg border border-white/10 bg-slate-900/60 p-2">
+                                        <div className="flex items-center justify-between mb-1">
+                                          <div>
+                                            <p className="text-sm font-medium text-white">
+                                              {user.fullName || `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim() || user.email}
+                                            </p>
+                                            {email && <p className="text-xs text-slate-400">{email}</p>}
+                                          </div>
+                                        </div>
+                                        {magicLink && (
+                                          <div className="flex items-center gap-2 mt-2">
+                                            <input
+                                              type="text"
+                                              readOnly
+                                              value={magicLink}
+                                              className="flex-1 rounded-lg border border-white/10 bg-slate-900/80 px-2 py-1 text-xs text-slate-200 font-mono"
+                                              onClick={(e) => (e.target as HTMLInputElement).select()}
+                                            />
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                navigator.clipboard.writeText(magicLink);
+                                                setCopiedLinks(prev => new Set([...prev, participantId]));
+                                                setTimeout(() => {
+                                                  setCopiedLinks(prev => {
+                                                    const next = new Set(prev);
+                                                    next.delete(participantId);
+                                                    return next;
+                                                  });
+                                                }, 2000);
+                                              }}
+                                              className="rounded-lg border border-white/10 bg-slate-900/60 p-1.5 text-slate-300 hover:bg-slate-800/60 hover:text-white transition-colors"
+                                              title="Copy link"
+                                            >
+                                              {isCopied ? (
+                                                <Check className="h-3 w-3 text-green-400" />
+                                              ) : (
+                                                <Copy className="h-3 w-3" />
+                                              )}
+                                            </button>
+                                          </div>
                                         )}
-                                      </button>
-                                    </div>
+                                      </div>
+                                    );
+                                  })}
+                                  
+                                  {/* Participants from emails */}
+                                  {participantEmails.length > 0 && participantEmails.map((email, index) => {
+                                    const askKey = askForm.watch("askKey");
+                                    // Note: For new email participants being added, we don't have invite_token yet
+                                    // It will be generated when they're saved to the database
+                                    const baseUrl = typeof window !== "undefined" 
+                                      ? (process.env.NEXT_PUBLIC_APP_URL || window.location.origin)
+                                      : process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+                                    const magicLink = askKey 
+                                      ? `${baseUrl}/?key=${askKey}`
+                                      : null;
+                                    const emailKey = `email-${index}`;
+                                    const isCopied = copiedLinks.has(emailKey);
+                                    
+                                    return (
+                                      <div key={emailKey} className="rounded-lg border border-white/10 bg-slate-900/60 p-2">
+                                        <div className="flex items-center justify-between mb-1">
+                                          <div>
+                                            <p className="text-sm font-medium text-white">{email}</p>
+                                            <p className="text-xs text-slate-400">Email participant</p>
+                                          </div>
+                                        </div>
+                                        {magicLink && (
+                                          <div className="flex items-center gap-2 mt-2">
+                                            <input
+                                              type="text"
+                                              readOnly
+                                              value={magicLink}
+                                              className="flex-1 rounded-lg border border-white/10 bg-slate-900/80 px-2 py-1 text-xs text-slate-200 font-mono"
+                                              onClick={(e) => (e.target as HTMLInputElement).select()}
+                                            />
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                navigator.clipboard.writeText(magicLink);
+                                                setCopiedLinks(prev => new Set([...prev, emailKey]));
+                                                setTimeout(() => {
+                                                  setCopiedLinks(prev => {
+                                                    const next = new Set(prev);
+                                                    next.delete(emailKey);
+                                                    return next;
+                                                  });
+                                                }, 2000);
+                                              }}
+                                              className="rounded-lg border border-white/10 bg-slate-900/60 p-1.5 text-slate-300 hover:bg-slate-800/60 hover:text-white transition-colors"
+                                              title="Copy link"
+                                            >
+                                              {isCopied ? (
+                                                <Check className="h-3 w-3 text-green-400" />
+                                              ) : (
+                                                <Copy className="h-3 w-3" />
+                                              )}
+                                            </button>
+                                          </div>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
+                                  
+                                  {selectedParticipants.length === 0 && participantEmails.length === 0 && (
+                                    <p className="text-xs text-slate-400 text-center py-2">No participants selected yet</p>
                                   )}
-                                </div>
+                                </>
                               );
-                            })}
-                            
-                            {selectedParticipants.length === 0 && participantEmails.length === 0 && (
-                              <p className="text-xs text-slate-400 text-center py-2">No participants selected yet</p>
-                            )}
+                            })()}
                           </div>
                         </div>
                       )}
