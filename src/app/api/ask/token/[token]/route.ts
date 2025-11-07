@@ -176,7 +176,7 @@ async function loadTokenDataWithAdmin(token: string): Promise<TokenDataBundle | 
           summary: row.summary,
           challenge_id: row.challenge_id,
           status: row.status,
-          insight_type_name: row.insight_types?.name ?? null,
+          insight_type_name: (row.insight_types as unknown as { name: string } | null)?.name ?? null,
           created_at: row.created_at,
           updated_at: row.updated_at,
         })) ?? [],
