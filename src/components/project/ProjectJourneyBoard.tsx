@@ -1862,85 +1862,6 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
     );
   };
 
-  // All hooks must be called before any early returns to avoid React error #310
-  const availableUsers = boardData?.availableUsers ?? [];
-  const generateInviteLink = useCallback((participantId: string, askKey: string): string | null => {
-    if (!askKey) {
-      return null;
-    }
-    
-    // Try to get the participant token from the editing record
-    const participant = editingAskRecord?.participants?.find(p => p.id === participantId);
-    const participantToken = participant?.inviteToken;
-    
-    const baseUrl = typeof window !== "undefined" 
-      ? (process.env.NEXT_PUBLIC_APP_URL || window.location.origin)
-      : process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-    
-    // If we have a participant token, use it for a unique link per participant
-    if (participantToken) {
-      return `${baseUrl}/?token=${participantToken}`;
-    }
-    
-    // Otherwise, use the askKey (backward compatible)
-    return `${baseUrl}/?key=${askKey}`;
-  }, [editingAskRecord]);
-
-  const inviteParticipants = useMemo(() => {
-    if (!isEditingAsk || !editingAskId || !boardData) {
-      return [];
-    }
-
-    const participants = editingAskRecord?.participants ?? [];
-    return askFormValues.participantIds.map(participantId => {
-      const recordParticipant = participants.find(item => item.id === participantId);
-      const fallbackUser = availableUsers.find(user => user.id === participantId);
-      return {
-        id: participantId,
-        name: recordParticipant?.name ?? fallbackUser?.name ?? participantId,
-        email: recordParticipant?.email ?? null,
-      };
-    });
-  }, [askFormValues.participantIds, availableUsers, editingAskRecord, editingAskId, isEditingAsk, boardData]);
-
-  useEffect(() => {
-    setCopiedInviteLinks(new Set());
-  }, [editingAskId, askFormValues.participantIds, askFormValues.askKey]);
-
-  const handleSendAskInvites = useCallback(async () => {
-    if (!editingAskId) {
-      return;
-    }
-
-    setIsSendingAskInvites(true);
-    try {
-      const response = await fetch(`/api/admin/asks/${editingAskId}/send-invites`, {
-        method: "POST",
-      });
-      const payload = await response.json();
-
-      if (!response.ok || !payload.success) {
-        throw new Error(payload.error || "Unable to send invites.");
-      }
-
-      const sent = payload.data?.sent ?? 0;
-      const failed = payload.data?.failed ?? 0;
-      const suffix = failed > 0 ? `, ${failed} failed` : "";
-      setAskFeedback({
-        type: "success",
-        message: `Sent ${sent} invite${sent === 1 ? "" : "s"}${suffix}`,
-      });
-    } catch (error) {
-      console.error("Failed to send ASK invites", error);
-      setAskFeedback({
-        type: "error",
-        message: error instanceof Error ? error.message : "Unable to send invites.",
-      });
-    } finally {
-      setIsSendingAskInvites(false);
-    }
-  }, [editingAskId]);
-
   if (!boardData && isLoading) {
     return (
       <div className="flex flex-col items-center justify-center gap-3 py-16 text-slate-300">
@@ -1962,6 +1883,44 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
       </div>
     );
   }
+
+  const availableUsers = boardData.availableUsers ?? [];
+  const inviteLinkBase = useMemo(() => {
+    const askKey = askFormValues.askKey?.trim();
+    if (!askKey) {
+      return null;
+    }
+    const origin =
+      typeof window !== "undefined" && window?.location?.origin
+        ? window.location.origin
+        : process.env.NEXT_PUBLIC_APP_URL ?? "";
+    const base = origin || "";
+    return `${base}/?key=${askKey}`;
+  }, [askFormValues.askKey]);
+
+  const inviteParticipants = useMemo(() => {
+    if (!isEditingAsk || !editingAskId) {
+      return [];
+    }
+
+    const participants = editingAskRecord?.participants ?? [];
+    return askFormValues.participantIds.map(participantId => {
+      const user = availableUsers.find(u => u.id === participantId);
+      const recordParticipant = participants.find(item => item.id === participantId);
+      // Use availableUsers as primary source for name (same as Participants section above)
+      // Fallback to recordParticipant name if user not found in availableUsers
+      const name = user?.name ?? recordParticipant?.name ?? participantId;
+      return {
+        id: participantId,
+        name,
+        email: recordParticipant?.email ?? null,
+      };
+    });
+  }, [askFormValues.participantIds, availableUsers, editingAskRecord, editingAskId, isEditingAsk]);
+
+  useEffect(() => {
+    setCopiedInviteLinks(new Set());
+  }, [editingAskId, askFormValues.participantIds, askFormValues.askKey]);
 
   const projectStart = formatFullDate(boardData.projectStartDate);
   const projectEnd = formatFullDate(boardData.projectEndDate);
@@ -2419,6 +2378,40 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
     const { value } = event.target;
     setAskFormValues(current => ({ ...current, spokespersonId: value }));
   };
+
+  const handleSendAskInvites = useCallback(async () => {
+    if (!editingAskId) {
+      return;
+    }
+
+    setIsSendingAskInvites(true);
+    try {
+      const response = await fetch(`/api/admin/asks/${editingAskId}/send-invites`, {
+        method: "POST",
+      });
+      const payload = await response.json();
+
+      if (!response.ok || !payload.success) {
+        throw new Error(payload.error || "Unable to send invites.");
+      }
+
+      const sent = payload.data?.sent ?? 0;
+      const failed = payload.data?.failed ?? 0;
+      const suffix = failed > 0 ? `, ${failed} failed` : "";
+      setAskFeedback({
+        type: "success",
+        message: `Sent ${sent} invite${sent === 1 ? "" : "s"}${suffix}`,
+      });
+    } catch (error) {
+      console.error("Failed to send ASK invites", error);
+      setAskFeedback({
+        type: "error",
+        message: error instanceof Error ? error.message : "Unable to send invites.",
+      });
+    } finally {
+      setIsSendingAskInvites(false);
+    }
+  }, [editingAskId]);
 
   const handleAskFormSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -3820,7 +3813,7 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
                           </p>
                         ) : (
                           inviteParticipants.map(participant => {
-                            const link = generateInviteLink(participant.id, askFormValues.askKey || "");
+                            const link = inviteLinkBase;
                             const isCopied = copiedInviteLinks.has(participant.id);
 
                             return (
