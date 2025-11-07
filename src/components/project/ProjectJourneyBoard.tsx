@@ -1864,17 +1864,20 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
 
   // Hooks must be called before any early returns
   const availableUsers = boardData?.availableUsers ?? [];
-  const inviteLinkBase = useMemo(() => {
-    const askKey = askFormValues.askKey?.trim();
-    if (!askKey) {
-      return null;
-    }
+  const inviteLinkConfig = useMemo(() => {
     const origin =
       typeof window !== "undefined" && window?.location?.origin
         ? window.location.origin
         : process.env.NEXT_PUBLIC_APP_URL ?? "";
-    const base = origin || "";
-    return `${base}/?key=${askKey}`;
+    const baseUrl = origin || "";
+    if (!baseUrl) {
+      return null;
+    }
+    const askKey = askFormValues.askKey?.trim();
+    return {
+      baseUrl,
+      askKey: askKey && askKey.length > 0 ? askKey : null,
+    };
   }, [askFormValues.askKey]);
 
   const inviteParticipants = useMemo(() => {
@@ -1893,6 +1896,7 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
         id: participantId,
         name,
         email: recordParticipant?.email ?? null,
+        inviteToken: recordParticipant?.inviteToken ?? null,
       };
     });
   }, [askFormValues.participantIds, availableUsers, editingAskRecord, editingAskId, isEditingAsk]);
@@ -3814,7 +3818,14 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
                           </p>
                         ) : (
                           inviteParticipants.map(participant => {
-                            const link = inviteLinkBase;
+                            const inviteToken = participant.inviteToken?.trim() || null;
+                            const link = inviteLinkConfig
+                              ? inviteToken
+                                ? `${inviteLinkConfig.baseUrl}/?token=${inviteToken}`
+                                : inviteLinkConfig.askKey
+                                ? `${inviteLinkConfig.baseUrl}/?key=${inviteLinkConfig.askKey}`
+                                : null
+                              : null;
                             const isCopied = copiedInviteLinks.has(participant.id);
 
                             return (
