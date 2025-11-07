@@ -658,7 +658,8 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
     addUserToProject,
     removeUserFromProject,
     findUserByEmail,
-    createUserAndAddToProject
+    createUserAndAddToProject,
+    refreshAsks
   } = useAdminResources();
 
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
@@ -729,6 +730,27 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
       }
     };
   }, []);
+
+  // Reload ASK data when editing to ensure tokens are generated
+  useEffect(() => {
+    if (editingAskId && showAskForm) {
+      const reloadAsk = async () => {
+        try {
+          // First, fetch the specific ASK to trigger token generation
+          const response = await fetch(`/api/admin/asks/${editingAskId}`, {
+            credentials: "include",
+          });
+          if (response.ok) {
+            // Then refresh all asks to update the cache
+            await refreshAsks();
+          }
+        } catch (error) {
+          console.error("Error reloading ASK:", error);
+        }
+      };
+      reloadAsk();
+    }
+  }, [editingAskId, showAskForm, refreshAsks]);
 
   const navigationMenu = useMemo(() => {
     if (showOnlyChallengeWorkspace) {
