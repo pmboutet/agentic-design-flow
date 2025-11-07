@@ -19,6 +19,19 @@ import {
 import { UserProfileMenu } from "@/components/auth/UserProfileMenu";
 import { supabase } from "@/lib/supabaseClient";
 
+type TokenSessionPayload = {
+  ask: Ask;
+  messages: Message[];
+  insights: Insight[];
+  challenges?: Challenge[];
+  viewer?: {
+    participantId?: string | null;
+    profileId?: string | null;
+    name?: string | null;
+    email?: string | null;
+  } | null;
+};
+
 /**
  * Main application page with beautiful glassmorphic design
  * Displays chat on 1/3 of screen and challenges on 2/3
@@ -41,7 +54,8 @@ export default function HomePage() {
   const [awaitingAiResponse, setAwaitingAiResponse] = useState(false);
   const [isDetectingInsights, setIsDetectingInsights] = useState(false);
   const participantFromUrl = searchParams.get('participant') || searchParams.get('participantName');
-  const currentParticipantName = participantFromUrl?.trim() ? participantFromUrl.trim() : null;
+  const derivedParticipantName = participantFromUrl?.trim() ? participantFromUrl.trim() : null;
+  const [currentParticipantName, setCurrentParticipantName] = useState<string | null>(derivedParticipantName);
   const isTestMode = searchParams.get('mode') === 'test';
   const [isDetailsCollapsed, setIsDetailsCollapsed] = useState(false);
   const autoCollapseTriggeredRef = useRef(false);
@@ -389,7 +403,7 @@ export default function HomePage() {
       }));
 
       const response = await fetch(`/api/ask/token/${encodeURIComponent(token)}`);
-      const data: ApiResponse<{ ask: Ask; messages: Message[]; insights: Insight[]; challenges?: Challenge[] }> = await response.json();
+      const data: ApiResponse<TokenSessionPayload> = await response.json();
 
       if (!response.ok || !data.success) {
         // If authentication is required, redirect to login with token preserved
@@ -431,6 +445,9 @@ export default function HomePage() {
           error: null,
         };
       });
+
+      const viewerName = data.data?.viewer?.name ?? data.data?.viewer?.email ?? derivedParticipantName ?? null;
+      setCurrentParticipantName(viewerName);
 
     } catch (error) {
       console.error('Error loading session data by token:', error);
@@ -485,6 +502,8 @@ export default function HomePage() {
           error: null,
         };
       });
+
+      setCurrentParticipantName(derivedParticipantName);
 
     } catch (error) {
       console.error('Error loading session data:', error);
@@ -909,7 +928,13 @@ export default function HomePage() {
                 )}
               </div>
             </motion.div>
-            <div className="flex justify-end">
+            <div className="flex flex-col items-end gap-2">
+              {currentParticipantName && (
+                <div className="inline-flex items-center gap-2 rounded-full border border-white/40 bg-white/80 px-3 py-1 text-xs font-medium text-foreground shadow-sm">
+                  <span className="text-muted-foreground/80">Profil</span>
+                  <span className="font-semibold text-foreground">{currentParticipantName}</span>
+                </div>
+              )}
               <UserProfileMenu />
             </div>
           </div>

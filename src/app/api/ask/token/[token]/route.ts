@@ -28,6 +28,7 @@ type AskSessionRow = {
 type TokenDataBundle = {
   askRow: AskSessionRow;
   participantInfo: {
+    participant_id: string | null;
     user_id: string | null;
     participant_email: string | null;
     participant_name: string | null;
@@ -174,6 +175,7 @@ async function loadTokenDataWithAdmin(token: string): Promise<TokenDataBundle | 
     return {
       askRow,
       participantInfo: {
+        participant_id: participantInfoRow.id,
         user_id: participantInfoRow.user_id,
         participant_email: participantInfoRow.participant_email,
         participant_name: participantInfoRow.participant_name,
@@ -327,7 +329,7 @@ export async function GET(
         console.error('Error getting participant by token:', participantInfoError);
       }
       participantInfo = participantInfoRows && participantInfoRows.length > 0
-        ? participantInfoRows[0] as { user_id: string | null; participant_email: string | null; participant_name: string | null; invite_token: string | null }
+        ? participantInfoRows[0] as { participant_id: string | null; user_id: string | null; participant_email: string | null; participant_name: string | null; invite_token: string | null }
         : null;
 
       if (participantError) {
@@ -501,6 +503,34 @@ export async function GET(
     // Get challenges if any
     const challenges: any[] = [];
 
+    let viewer: {
+      participantId: string | null;
+      profileId: string | null;
+      name: string | null;
+      email: string | null;
+    } | null = null;
+
+    if (participantInfo?.user_id) {
+      const participantRow = (participantRows ?? []).find((row: any) => row.participant_id === participantInfo?.participant_id) ?? null;
+      const viewerUser = usersById[participantInfo.user_id] ?? null;
+      const fallbackNameFromUser = viewerUser
+        ? [viewerUser.first_name, viewerUser.last_name].filter(Boolean).join(' ')
+        : '';
+      const resolvedName = participantRow?.participant_name
+        || viewerUser?.full_name
+        || fallbackNameFromUser
+        || participantRow?.participant_email
+        || viewerUser?.email
+        || null;
+
+      viewer = {
+        participantId: participantRow?.participant_id ?? participantInfo.participant_id ?? null,
+        profileId: participantInfo.user_id,
+        name: resolvedName,
+        email: participantRow?.participant_email ?? viewerUser?.email ?? participantInfo.participant_email ?? null,
+      };
+    }
+
     return NextResponse.json<ApiResponse>({
       success: true,
       data: {
@@ -525,6 +555,7 @@ export async function GET(
         messages,
         insights,
         challenges,
+        viewer,
       }
     });
   } catch (error) {

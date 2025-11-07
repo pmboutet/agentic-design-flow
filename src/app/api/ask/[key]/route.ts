@@ -482,9 +482,16 @@ export async function POST(
         if (tokenError) {
           console.error('❌ Error validating invite token:', tokenError);
         } else if (participant) {
+          if (!participant.user_id) {
+            console.error('❌ Invite token is not linked to a user profile', { participantId: participant.id });
+            return NextResponse.json<ApiResponse>({
+              success: false,
+              error: "Ce lien d'invitation n'est associé à aucun profil utilisateur. Contactez votre administrateur."
+            }, { status: 403 });
+          }
           console.log(`✅ Valid invite token for participant ${participant.id}`);
           participantId = participant.id;
-          profileId = participant.user_id; // May be null for anonymous participants
+          profileId = participant.user_id;
           dataClient = admin;
         } else {
           console.warn('⚠️  Invite token not found in database');
