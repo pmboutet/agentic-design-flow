@@ -753,7 +753,11 @@ export default function HomePage() {
                 } else if (parsed.type === 'done') {
                   setAwaitingAiResponse(false);
                   // Recharger les messages pour afficher le message persisté
-                  await loadSessionData(sessionData.askKey);
+                  if (sessionData.inviteToken) {
+                    await loadSessionDataByToken(sessionData.inviteToken);
+                  } else if (sessionData.askKey) {
+                    await loadSessionData(sessionData.askKey);
+                  }
                   if (insightsUpdatedDuringStream) {
                     cancelInsightDetectionTimer();
                     setIsDetectingInsights(false);
@@ -782,7 +786,9 @@ export default function HomePage() {
 
   // Retry loading session data
   const retryLoad = () => {
-    if (sessionData.askKey) {
+    if (sessionData.inviteToken) {
+      loadSessionDataByToken(sessionData.inviteToken);
+    } else if (sessionData.askKey) {
       loadSessionData(sessionData.askKey);
     }
   };
