@@ -3867,17 +3867,6 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                                   Explorer
                                 </div>
                               </Button>
-                              <Button
-                                type="button"
-                                size="sm"
-                                className="h-8 rounded-full bg-indigo-500/80 px-3 text-[11px] font-semibold uppercase tracking-wide text-white shadow hover:bg-indigo-500"
-                                onClick={() => {
-                                  setSelectedProjectId(project.id);
-                                  router.push(`/admin/projects/${project.id}/relationships`);
-                                }}
-                              >
-                                Ouvrir
-                              </Button>
                               <button
                                 type="button"
                                 onClick={() => startProjectEdit(project.id)}

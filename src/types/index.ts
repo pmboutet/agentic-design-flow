@@ -263,6 +263,7 @@ export interface ChatComponentProps {
   isLoading: boolean;
   onHumanTyping?: (isTyping: boolean) => void;
   currentParticipantName?: string | null;
+  currentUserId?: string | null;
   isMultiUser?: boolean;
   showAgentTyping?: boolean;
 }
