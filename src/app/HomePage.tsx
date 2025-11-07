@@ -65,10 +65,10 @@ export default function HomePage() {
   // Voice mode configuration
   const [voiceModeSystemPrompt, setVoiceModeSystemPrompt] = useState<string | null>(null);
   const [voiceModeModelConfig, setVoiceModeModelConfig] = useState<{
-    sttModel?: string;
-    ttsModel?: string;
-    llmProvider?: "anthropic" | "openai";
-    llmModel?: string;
+    deepgramSttModel?: string;
+    deepgramTtsModel?: string;
+    deepgramLlmProvider?: "anthropic" | "openai";
+    deepgramLlmModel?: string;
   } | null>(null);
   
   useEffect(() => {
@@ -795,20 +795,21 @@ export default function HomePage() {
         if (data.success && data.data) {
           setVoiceModeSystemPrompt(data.data.systemPrompt || null);
           // Extract Deepgram config from model config if available
-          if (data.data.modelConfig?.provider === 'deepgram') {
+          // These fields are now stored directly in the database columns
+          if (data.data.modelConfig) {
             setVoiceModeModelConfig({
-              sttModel: data.data.modelConfig.deepgramSttModel || 'nova-2',
-              ttsModel: data.data.modelConfig.deepgramTtsModel || 'aura-thalia-en',
-              llmProvider: data.data.modelConfig.deepgramLlmProvider || 'anthropic',
-              llmModel: data.data.modelConfig.deepgramLlmModel || 'claude-3-5-sonnet-20241022',
+              deepgramSttModel: data.data.modelConfig.deepgramSttModel || 'nova-2',
+              deepgramTtsModel: data.data.modelConfig.deepgramTtsModel || 'aura-thalia-en',
+              deepgramLlmProvider: data.data.modelConfig.deepgramLlmProvider || 'anthropic',
+              deepgramLlmModel: data.data.modelConfig.deepgramLlmModel, // Use exact model from DB, no fallback
             });
           } else {
-            // Use default config with agent's LLM settings
+            // Use default config when no model config is available
             setVoiceModeModelConfig({
-              sttModel: 'nova-2',
-              ttsModel: 'aura-thalia-en',
-              llmProvider: data.data.modelConfig?.provider === 'openai' ? 'openai' : 'anthropic',
-              llmModel: data.data.modelConfig?.model || (data.data.modelConfig?.provider === 'openai' ? 'gpt-4o' : 'claude-3-5-sonnet-20241022'),
+              deepgramSttModel: 'nova-2',
+              deepgramTtsModel: 'aura-thalia-en',
+              deepgramLlmProvider: 'anthropic',
+              deepgramLlmModel: undefined, // No fallback - must be configured in database
             });
           }
         }

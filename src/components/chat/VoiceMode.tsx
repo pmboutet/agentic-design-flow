@@ -11,10 +11,10 @@ interface VoiceModeProps {
   askSessionId?: string;
   systemPrompt: string;
   modelConfig?: {
-    sttModel?: string;
-    ttsModel?: string;
-    llmProvider?: "anthropic" | "openai";
-    llmModel?: string;
+    deepgramSttModel?: string;
+    deepgramTtsModel?: string;
+    deepgramLlmProvider?: "anthropic" | "openai";
+    deepgramLlmModel?: string;
   };
   onMessage: (message: DeepgramMessageEvent) => void;
   onError: (error: Error) => void;
@@ -34,6 +34,7 @@ export function VoiceMode({
   const [isMicrophoneActive, setIsMicrophoneActive] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isConnecting, setIsConnecting] = useState(false);
   const agentRef = useRef<DeepgramVoiceAgent | null>(null);
 
   const handleMessage = useCallback((message: DeepgramMessageEvent) => {
@@ -54,7 +55,9 @@ export function VoiceMode({
 
   const connect = useCallback(async () => {
     try {
+      console.log('[VoiceMode] 🔌 Starting connection...');
       setError(null);
+      setIsConnecting(true);
       const agent = new DeepgramVoiceAgent();
       agentRef.current = agent;
 
@@ -66,16 +69,23 @@ export function VoiceMode({
 
       const config: DeepgramConfig = {
         systemPrompt,
-        sttModel: modelConfig?.sttModel || "nova-2",
-        ttsModel: modelConfig?.ttsModel || "aura-thalia-en",
-        llmProvider: modelConfig?.llmProvider || "anthropic",
-        llmModel: modelConfig?.llmModel || "claude-3-5-sonnet-20241022",
+        sttModel: modelConfig?.deepgramSttModel || "nova-2",
+        ttsModel: modelConfig?.deepgramTtsModel || "aura-thalia-en",
+        llmProvider: (modelConfig?.deepgramLlmProvider as "anthropic" | "openai") || "anthropic",
+        llmModel: modelConfig?.deepgramLlmModel, // Use exact model name from database, no fallback
       };
 
+      console.log('[VoiceMode] Configuration:', config);
+      console.log('[VoiceMode] Calling agent.connect()...');
       await agent.connect(config);
+      console.log('[VoiceMode] ✅ Connection established, starting microphone...');
       await agent.startMicrophone();
+      console.log('[VoiceMode] ✅ Microphone started');
       setIsMicrophoneActive(true);
+      setIsConnecting(false);
     } catch (err) {
+      console.error('[VoiceMode] ❌ Connection error:', err);
+      setIsConnecting(false);
       const errorMessage = err instanceof Error ? err.message : 'Failed to connect to voice agent';
       setError(errorMessage);
       handleError(err instanceof Error ? err : new Error(errorMessage));
@@ -121,7 +131,7 @@ export function VoiceMode({
             isConnected ? "bg-green-500 animate-pulse" : "bg-gray-400"
           )} />
           <span className="text-sm font-medium">
-            {isConnected ? 'Voice Mode Active' : 'Connecting...'}
+            {isConnected ? 'Voice Mode Active' : isConnecting ? 'Connecting to voice agent...' : 'Ready to connect'}
           </span>
         </div>
         <Button
@@ -145,7 +155,7 @@ export function VoiceMode({
           variant={isMicrophoneActive ? "default" : "outline"}
           size="sm"
           onClick={isConnected ? disconnect : connect}
-          disabled={!isConnected && !error}
+          disabled={isConnecting}
         >
           {isConnected ? (
             <>
@@ -188,8 +198,11 @@ export function VoiceMode({
         {isMuted && (
           <p>Microphone is muted. Unmute to continue speaking.</p>
         )}
-        {!isConnected && (
-          <p>Connecting to voice agent...</p>
+        {isConnecting && (
+          <p className="text-blue-600 dark:text-blue-400">Connecting to voice agent... Check console for details.</p>
+        )}
+        {!isConnected && !isConnecting && (
+          <p>Click Connect to start voice mode.</p>
         )}
       </div>
     </div>

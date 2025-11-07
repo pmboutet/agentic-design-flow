@@ -14,6 +14,11 @@ interface AiModelConfigRow {
   is_fallback?: boolean | null;
   created_at?: string | null;
   updated_at?: string | null;
+  // Deepgram-specific columns
+  deepgram_voice_agent_model?: string | null;
+  deepgram_stt_model?: string | null;
+  deepgram_tts_model?: string | null;
+  deepgram_llm_provider?: string | null;
 }
 
 export function mapModelRow(row: AiModelConfigRow): AiModelConfig {
@@ -30,6 +35,11 @@ export function mapModelRow(row: AiModelConfigRow): AiModelConfig {
     isFallback: Boolean(row.is_fallback),
     createdAt: row.created_at ?? undefined,
     updatedAt: row.updated_at ?? undefined,
+    // Map Deepgram columns from database
+    deepgramLlmModel: row.deepgram_voice_agent_model ?? undefined,
+    deepgramSttModel: row.deepgram_stt_model ?? undefined,
+    deepgramTtsModel: row.deepgram_tts_model ?? undefined,
+    deepgramLlmProvider: (row.deepgram_llm_provider as "anthropic" | "openai" | undefined) ?? undefined,
   };
 }
 

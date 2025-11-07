@@ -276,10 +276,10 @@ export interface ChatComponentProps {
   voiceModeEnabled?: boolean;
   voiceModeSystemPrompt?: string;
   voiceModeModelConfig?: {
-    sttModel?: string;
-    ttsModel?: string;
-    llmProvider?: "anthropic" | "openai";
-    llmModel?: string;
+    deepgramSttModel?: string;
+    deepgramTtsModel?: string;
+    deepgramLlmProvider?: "anthropic" | "openai";
+    deepgramLlmModel?: string;
   };
   onVoiceMessage?: (role: 'user' | 'agent', content: string) => void;
 }
