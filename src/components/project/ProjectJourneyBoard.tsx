@@ -1865,11 +1865,12 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
   // Hooks must be called before any early returns
   const availableUsers = boardData?.availableUsers ?? [];
   const inviteLinkConfig = useMemo(() => {
+    const envBase = (process.env.NEXT_PUBLIC_APP_URL ?? "").trim().replace(/\/+$/, "");
     const origin =
       typeof window !== "undefined" && window?.location?.origin
-        ? window.location.origin
-        : process.env.NEXT_PUBLIC_APP_URL ?? "";
-    const baseUrl = origin || "";
+        ? window.location.origin.replace(/\/+$/, "")
+        : "";
+    const baseUrl = envBase || origin;
     if (!baseUrl) {
       return null;
     }
@@ -3819,13 +3820,20 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
                         ) : (
                           inviteParticipants.map(participant => {
                             const inviteToken = participant.inviteToken?.trim() || null;
-                            const link = inviteLinkConfig
-                              ? inviteToken
-                                ? `${inviteLinkConfig.baseUrl}/?token=${inviteToken}`
-                                : inviteLinkConfig.askKey
-                                ? `${inviteLinkConfig.baseUrl}/?key=${inviteLinkConfig.askKey}`
-                                : null
-                              : null;
+                            const link =
+                              inviteLinkConfig &&
+                              (inviteToken || inviteLinkConfig.askKey)
+                                ? (() => {
+                                    const params = new URLSearchParams();
+                                    if (inviteToken) {
+                                      params.set("token", inviteToken);
+                                    } else if (inviteLinkConfig.askKey) {
+                                      params.set("key", inviteLinkConfig.askKey);
+                                    }
+                                    const query = params.toString();
+                                    return query ? `${inviteLinkConfig.baseUrl}/?${query}` : null;
+                                  })()
+                                : null;
                             const isCopied = copiedInviteLinks.has(participant.id);
 
                             return (
