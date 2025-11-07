@@ -231,7 +231,7 @@ export async function GET(
         updated_at,
         insight_types(name),
         challenge_id,
-        insight_authors(user_id, name)
+        insight_authors(user_id, display_name)
       `)
       .eq('ask_session_id', askRow.id)
       .order('created_at', { ascending: false });
@@ -250,7 +250,7 @@ export async function GET(
       authors: (row.insight_authors ?? []).map((author: any) => ({
         id: author.user_id || '',
         userId: author.user_id,
-        name: author.name,
+        name: author.display_name,
       })),
       content: row.content,
       summary: row.summary,
