@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Send, Paperclip, Mic, Image, FileText, X } from "lucide-react";
+import { Send, Paperclip, Mic, Image, FileText, X, Radio } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -16,6 +16,8 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import "highlight.js/styles/github-dark.css";
+import { VoiceMode } from "./VoiceMode";
+import { DeepgramMessageEvent } from "@/lib/ai/deepgram";
 
 /**
  * Chat component that handles all conversation interactions
@@ -32,11 +34,16 @@ export function ChatComponent({
   currentParticipantName,
   isMultiUser,
   showAgentTyping,
+  voiceModeEnabled = false,
+  voiceModeSystemPrompt,
+  voiceModeModelConfig,
+  onVoiceMessage,
 }: ChatComponentProps) {
   const [inputValue, setInputValue] = useState("");
   const [selectedFiles, setSelectedFiles] = useState<FileUpload[]>([]);
   const [isRecording, setIsRecording] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [isVoiceMode, setIsVoiceMode] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -208,6 +215,18 @@ export function ChatComponent({
     }
   };
 
+  // Handle voice mode messages
+  const handleVoiceMessage = (message: DeepgramMessageEvent) => {
+    if (onVoiceMessage) {
+      onVoiceMessage(message.role, message.content);
+    }
+  };
+
+  const handleVoiceError = (error: Error) => {
+    console.error('Voice mode error:', error);
+    // Optionally show error to user
+  };
+
   // Check if ASK is closed
   const isAskClosed = ask && !ask.isActive;
   const participants = ask?.participants ?? [];
@@ -307,7 +326,7 @@ export function ChatComponent({
         </AnimatePresence>
 
         {/* File preview area */}
-        {selectedFiles.length > 0 && (
+        {selectedFiles.length > 0 && !isVoiceMode && (
           <div className="border rounded-lg p-3 mb-3 bg-muted/50">
             <div className="flex flex-wrap gap-2">
               {selectedFiles.map((fileUpload, index) => (
@@ -321,73 +340,105 @@ export function ChatComponent({
           </div>
         )}
 
+        {/* Voice Mode */}
+        {isVoiceMode && voiceModeEnabled && voiceModeSystemPrompt && (
+          <div className="mb-3">
+            <VoiceMode
+              askKey={askKey}
+              askSessionId={ask?.askSessionId}
+              systemPrompt={voiceModeSystemPrompt}
+              modelConfig={voiceModeModelConfig}
+              onMessage={handleVoiceMessage}
+              onError={handleVoiceError}
+              onClose={() => setIsVoiceMode(false)}
+            />
+          </div>
+        )}
+
         {/* Input area */}
-        <div 
-          className={cn(
-            "relative border rounded-lg p-3 transition-colors",
-            isDragOver && "border-primary bg-primary/5"
-          )}
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
-          onDrop={handleDrop}
-        >
-          <div className="flex items-end gap-2">
-            <div className="flex-1">
-              <Textarea
-                value={inputValue}
-                onChange={(e) => handleInputChange(e.target.value)}
-                placeholder="Type your response..."
-                className="border-0 shadow-none resize-none min-h-[60px] focus-visible:ring-0"
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    handleSendMessage();
-                  }
-                }}
-                onFocus={() => notifyTyping(true)}
-                onBlur={() => notifyTyping(false)}
-              />
+        {!isVoiceMode && (
+          <div 
+            className={cn(
+              "relative border rounded-lg p-3 transition-colors",
+              isDragOver && "border-primary bg-primary/5"
+            )}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+          >
+            <div className="flex items-end gap-2">
+              <div className="flex-1">
+                <Textarea
+                  value={inputValue}
+                  onChange={(e) => handleInputChange(e.target.value)}
+                  placeholder="Type your response..."
+                  className="border-0 shadow-none resize-none min-h-[60px] focus-visible:ring-0"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      handleSendMessage();
+                    }
+                  }}
+                  onFocus={() => notifyTyping(true)}
+                  onBlur={() => notifyTyping(false)}
+                />
+              </div>
+              
+              <div className="flex items-center gap-1">
+                {/* File upload button */}
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="h-9 w-9"
+                >
+                  <Paperclip className="h-4 w-4" />
+                </Button>
+                
+                {/* Voice mode toggle button */}
+                {voiceModeEnabled && voiceModeSystemPrompt && (
+                  <Button
+                    variant={isVoiceMode ? "default" : "ghost"}
+                    size="icon"
+                    onClick={() => setIsVoiceMode(!isVoiceMode)}
+                    className={cn("h-9 w-9", isVoiceMode && "bg-primary text-primary-foreground")}
+                    title={isVoiceMode ? "Exit voice mode" : "Enter voice mode"}
+                  >
+                    <Radio className="h-4 w-4" />
+                  </Button>
+                )}
+                
+                {/* Audio recording button (only show if voice mode not enabled) */}
+                {!voiceModeEnabled && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={isRecording ? stopRecording : startRecording}
+                    className={cn("h-9 w-9", isRecording && "text-red-500")}
+                  >
+                    <Mic className="h-4 w-4" />
+                  </Button>
+                )}
+                
+                {/* Send button */}
+                <Button
+                  onClick={handleSendMessage}
+                  disabled={isLoading || (!inputValue.trim() && selectedFiles.length === 0)}
+                  size="icon"
+                  className="h-9 w-9"
+                >
+                  <Send className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
             
-            <div className="flex items-center gap-1">
-              {/* File upload button */}
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => fileInputRef.current?.click()}
-                className="h-9 w-9"
-              >
-                <Paperclip className="h-4 w-4" />
-              </Button>
-              
-              {/* Audio recording button */}
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={isRecording ? stopRecording : startRecording}
-                className={cn("h-9 w-9", isRecording && "text-red-500")}
-              >
-                <Mic className="h-4 w-4" />
-              </Button>
-              
-              {/* Send button */}
-              <Button
-                onClick={handleSendMessage}
-                disabled={isLoading || (!inputValue.trim() && selectedFiles.length === 0)}
-                size="icon"
-                className="h-9 w-9"
-              >
-                <Send className="h-4 w-4" />
-              </Button>
-            </div>
+            {isDragOver && (
+              <div className="absolute inset-0 flex items-center justify-center bg-primary/5 rounded-lg border-2 border-dashed border-primary">
+                <p className="text-primary font-medium">Drop files here</p>
+              </div>
+            )}
           </div>
-          
-          {isDragOver && (
-            <div className="absolute inset-0 flex items-center justify-center bg-primary/5 rounded-lg border-2 border-dashed border-primary">
-              <p className="text-primary font-medium">Drop files here</p>
-            </div>
-          )}
-        </div>
+        )}
 
         {/* Hidden file input */}
         <input

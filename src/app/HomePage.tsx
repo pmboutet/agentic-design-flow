@@ -62,6 +62,14 @@ export default function HomePage() {
   const previousMessageCountRef = useRef(0);
   // DEBUG: Afficher auth ID temporairement
   const [debugAuthId, setDebugAuthId] = useState<string | null>(null);
+  // Voice mode configuration
+  const [voiceModeSystemPrompt, setVoiceModeSystemPrompt] = useState<string | null>(null);
+  const [voiceModeModelConfig, setVoiceModeModelConfig] = useState<{
+    sttModel?: string;
+    ttsModel?: string;
+    llmProvider?: "anthropic" | "openai";
+    llmModel?: string;
+  } | null>(null);
   
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
@@ -639,6 +647,184 @@ export default function HomePage() {
     }
   };
 
+  // Handle voice mode messages
+  const handleVoiceMessage = useCallback(async (
+    role: 'user' | 'agent',
+    content: string
+  ) => {
+    if (!sessionData.askKey || !content.trim()) return;
+
+    const timestamp = new Date().toISOString();
+    const optimisticId = `temp-${Date.now()}`;
+    
+    if (role === 'user') {
+      // Create user message from transcribed speech (without triggering text streaming)
+      const senderName = currentParticipantName || 'Vous';
+      const optimisticMessage: Message = {
+        clientId: optimisticId,
+        id: optimisticId,
+        askKey: sessionData.askKey,
+        askSessionId: sessionData.ask?.askSessionId,
+        content,
+        type: 'text',
+        senderType: 'user',
+        senderId: null,
+        senderName,
+        timestamp,
+        metadata: {
+          voiceTranscribed: true,
+          senderName,
+        },
+      };
+
+      setSessionData(prev => ({
+        ...prev,
+        messages: [...prev.messages, optimisticMessage],
+      }));
+
+      // Persist the message to database (without triggering AI response)
+      try {
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+        };
+
+        if (sessionData.inviteToken) {
+          headers['X-Invite-Token'] = sessionData.inviteToken;
+        }
+
+        const endpoint = isTestMode ? `/api/test/${sessionData.askKey}` : `/api/ask/${sessionData.askKey}`;
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            content,
+            type: 'text',
+            metadata: { voiceTranscribed: true },
+            senderName,
+            timestamp,
+          }),
+        });
+
+        const data: ApiResponse<{ message: Message }> = await response.json();
+
+        if (response.ok && data.success && data.data?.message) {
+          markMessagePosted();
+          setSessionData(prev => ({
+            ...prev,
+            messages: prev.messages.map(msg =>
+              msg.clientId === optimisticId
+                ? { ...data.data!.message!, clientId: msg.clientId ?? optimisticId }
+                : msg
+            ),
+          }));
+        }
+      } catch (error) {
+        console.error('Error persisting voice user message:', error);
+      }
+    } else {
+      // Create AI message from agent response
+      const optimisticMessage: Message = {
+        clientId: optimisticId,
+        id: optimisticId,
+        askKey: sessionData.askKey,
+        askSessionId: sessionData.ask?.askSessionId,
+        content: content,
+        type: 'text',
+        senderType: 'ai',
+        senderId: null,
+        senderName: 'Agent',
+        timestamp: timestamp,
+        metadata: {
+          voiceGenerated: true,
+        },
+      };
+
+      markMessagePosted();
+      setSessionData(prev => ({
+        ...prev,
+        messages: [...prev.messages, optimisticMessage],
+      }));
+
+      // Persist the message to database
+      try {
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+        };
+
+        if (sessionData.inviteToken) {
+          headers['X-Invite-Token'] = sessionData.inviteToken;
+        }
+
+        const response = await fetch(`/api/ask/${sessionData.askKey}/respond`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            message: content,
+            type: 'text',
+            metadata: { voiceGenerated: true },
+          }),
+        });
+
+        const data: ApiResponse<{ message?: Message; insights?: Insight[] }> = await response.json();
+
+        if (response.ok && data.success && data.data?.message) {
+          setSessionData(prev => ({
+            ...prev,
+            messages: prev.messages.map(msg =>
+              msg.clientId === optimisticId
+                ? { ...data.data!.message!, clientId: msg.clientId ?? optimisticId }
+                : msg
+            ),
+            insights: data.data?.insights ?? prev.insights,
+          }));
+        }
+      } catch (error) {
+        console.error('Error persisting voice message:', error);
+      }
+    }
+  }, [sessionData.askKey, sessionData.ask?.askSessionId, sessionData.inviteToken, markMessagePosted, currentParticipantName, isTestMode]);
+
+  // Load voice mode configuration
+  const loadVoiceModeConfig = useCallback(async () => {
+    if (!sessionData.ask?.askSessionId) return;
+
+    try {
+      const response = await fetch(`/api/ask/${sessionData.askKey}/agent-config`);
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success && data.data) {
+          setVoiceModeSystemPrompt(data.data.systemPrompt || null);
+          // Extract Deepgram config from model config if available
+          if (data.data.modelConfig?.provider === 'deepgram') {
+            setVoiceModeModelConfig({
+              sttModel: data.data.modelConfig.deepgramSttModel || 'nova-2',
+              ttsModel: data.data.modelConfig.deepgramTtsModel || 'aura-thalia-en',
+              llmProvider: data.data.modelConfig.deepgramLlmProvider || 'anthropic',
+              llmModel: data.data.modelConfig.deepgramLlmModel || 'claude-3-5-sonnet-20241022',
+            });
+          } else {
+            // Use default config with agent's LLM settings
+            setVoiceModeModelConfig({
+              sttModel: 'nova-2',
+              ttsModel: 'aura-thalia-en',
+              llmProvider: data.data.modelConfig?.provider === 'openai' ? 'openai' : 'anthropic',
+              llmModel: data.data.modelConfig?.model || (data.data.modelConfig?.provider === 'openai' ? 'gpt-4o' : 'claude-3-5-sonnet-20241022'),
+            });
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error loading voice mode config:', error);
+    }
+  }, [sessionData.askKey, sessionData.ask?.askSessionId]);
+
+  // Load voice mode config when session loads
+  useEffect(() => {
+    if (sessionData.ask?.askSessionId) {
+      loadVoiceModeConfig();
+    }
+  }, [sessionData.ask?.askSessionId, loadVoiceModeConfig]);
+
   // Handle streaming AI response
   const handleStreamingResponse = async (): Promise<boolean> => {
     if (!sessionData.askKey || awaitingAiResponse) return false;
@@ -1107,6 +1293,10 @@ export default function HomePage() {
               currentParticipantName={currentParticipantName}
               isMultiUser={Boolean(sessionData.ask && sessionData.ask.participants.length > 1)}
               showAgentTyping={awaitingAiResponse}
+              voiceModeEnabled={!!voiceModeSystemPrompt}
+              voiceModeSystemPrompt={voiceModeSystemPrompt || undefined}
+              voiceModeModelConfig={voiceModeModelConfig || undefined}
+              onVoiceMessage={handleVoiceMessage}
             />
           </div>
         </motion.div>

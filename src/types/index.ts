@@ -179,6 +179,7 @@ export type AiModelProvider =
   | "vertex_anthropic"
   | "mistral"
   | "openai"
+  | "deepgram"
   | "custom";
 
 export interface AiModelConfig {
@@ -194,6 +195,11 @@ export interface AiModelConfig {
   isFallback?: boolean;
   createdAt?: string;
   updatedAt?: string;
+  // Deepgram-specific fields (stored in additionalHeaders or metadata)
+  deepgramSttModel?: string; // e.g., "nova-2"
+  deepgramTtsModel?: string; // e.g., "aura-thalia-en"
+  deepgramLlmProvider?: "anthropic" | "openai"; // LLM provider for Deepgram Agent
+  deepgramLlmModel?: string; // LLM model name
 }
 
 export interface AiAgentRecord {
@@ -266,6 +272,16 @@ export interface ChatComponentProps {
   currentUserId?: string | null;
   isMultiUser?: boolean;
   showAgentTyping?: boolean;
+  // Voice mode props
+  voiceModeEnabled?: boolean;
+  voiceModeSystemPrompt?: string;
+  voiceModeModelConfig?: {
+    sttModel?: string;
+    ttsModel?: string;
+    llmProvider?: "anthropic" | "openai";
+    llmModel?: string;
+  };
+  onVoiceMessage?: (role: 'user' | 'agent', content: string) => void;
 }
 
 export interface ChallengeComponentProps {
