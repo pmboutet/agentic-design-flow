@@ -164,6 +164,7 @@ export interface FileUpload {
 // Types for session data
 export interface SessionData {
   askKey: string;
+  inviteToken?: string | null; // Token for invite-based access (allows anonymous participation)
   ask: Ask | null;
   messages: Message[];
   insights: Insight[];

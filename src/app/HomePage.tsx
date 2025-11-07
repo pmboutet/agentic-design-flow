@@ -312,7 +312,8 @@ export default function HomePage() {
       // Token-based link (unique per participant)
       setSessionData(prev => ({
         ...prev,
-        askKey: token, // Store token as askKey for now, but we'll use a different endpoint
+        askKey: '', // Will be set after loading
+        inviteToken: token, // Store the invite token for authentication
         ask: null,
         messages: [],
         insights: [],
@@ -421,6 +422,7 @@ export default function HomePage() {
         return {
           ...prev,
           askKey: actualAskKey,
+          inviteToken: token, // Keep the token for subsequent API calls
           ask: data.data!.ask,
           messages: messagesWithClientIds,
           insights: data.data?.insights ?? [],
@@ -534,11 +536,18 @@ export default function HomePage() {
       // First, save the user message
       const endpoint = isTestMode ? `/api/test/${sessionData.askKey}` : `/api/ask/${sessionData.askKey}`;
 
+      // Include invite token in headers if available (for anonymous/invite-based access)
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+
+      if (sessionData.inviteToken) {
+        headers['X-Invite-Token'] = sessionData.inviteToken;
+      }
+
       const response = await fetch(endpoint, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers,
         body: JSON.stringify({
           content,
           type,

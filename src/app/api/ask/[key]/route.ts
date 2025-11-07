@@ -448,42 +448,74 @@ export async function POST(
     const supabase = await createServerSupabaseClient();
     const isDevBypass = process.env.IS_DEV === 'true';
 
+    // Check for invite token in headers (allows anonymous participation)
+    const inviteToken = request.headers.get('X-Invite-Token');
+
     let profileId: string | null = null;
+    let participantId: string | null = null;
 
     if (!isDevBypass) {
-      const { data: userResult, error: userError } = await supabase.auth.getUser();
+      // Try to authenticate via invite token first
+      if (inviteToken) {
+        console.log(`🔑 POST /api/ask/[key]: Attempting authentication via invite token ${inviteToken.substring(0, 8)}...`);
 
-      if (userError) {
-        if (isPermissionDenied(userError as unknown as PostgrestError)) {
-          return permissionDeniedResponse();
+        // Use admin client to validate token and get participant info
+        const { getAdminSupabaseClient } = await import('@/lib/supabaseAdmin');
+        const admin = getAdminSupabaseClient();
+
+        const { data: participant, error: tokenError } = await admin
+          .from('ask_participants')
+          .select('id, user_id, ask_session_id')
+          .eq('invite_token', inviteToken)
+          .maybeSingle();
+
+        if (tokenError) {
+          console.error('❌ Error validating invite token:', tokenError);
+        } else if (participant) {
+          console.log(`✅ Valid invite token for participant ${participant.id}`);
+          participantId = participant.id;
+          profileId = participant.user_id; // May be null for anonymous participants
+        } else {
+          console.warn('⚠️  Invite token not found in database');
         }
-        throw userError;
       }
 
-      const user = userResult?.user;
+      // If no valid token, try regular auth
+      if (!inviteToken || !participantId) {
+        const { data: userResult, error: userError } = await supabase.auth.getUser();
 
-      if (!user) {
-        return NextResponse.json<ApiResponse>({
-          success: false,
-          error: "Authentification requise"
-        }, { status: 401 });
+        if (userError) {
+          if (isPermissionDenied(userError as unknown as PostgrestError)) {
+            return permissionDeniedResponse();
+          }
+          throw userError;
+        }
+
+        const user = userResult?.user;
+
+        if (!user) {
+          return NextResponse.json<ApiResponse>({
+            success: false,
+            error: "Authentification requise. Veuillez vous connecter ou utiliser un lien d'invitation valide."
+          }, { status: 401 });
+        }
+
+        // Get profile ID from auth_id (user.id is the auth UUID, we need the profile UUID)
+        const { data: profile, error: profileError } = await supabase
+          .from('profiles')
+          .select('id')
+          .eq('auth_id', user.id)
+          .single();
+
+        if (profileError || !profile) {
+          return NextResponse.json<ApiResponse>({
+            success: false,
+            error: "Profil utilisateur introuvable"
+          }, { status: 401 });
+        }
+
+        profileId = profile.id;
       }
-
-      // Get profile ID from auth_id (user.id is the auth UUID, we need the profile UUID)
-      const { data: profile, error: profileError } = await supabase
-        .from('profiles')
-        .select('id')
-        .eq('auth_id', user.id)
-        .single();
-
-      if (profileError || !profile) {
-        return NextResponse.json<ApiResponse>({
-          success: false,
-          error: "Profil utilisateur introuvable"
-        }, { status: 401 });
-      }
-
-      profileId = profile.id;
     }
 
     const { row: askRow, error: askError } = await getAskSessionByKey<Pick<AskSessionRow, 'id' | 'ask_key' | 'is_anonymous'>>(
@@ -506,43 +538,68 @@ export async function POST(
       }, { status: 404 });
     }
 
-    if (!isDevBypass && profileId) {
+    if (!isDevBypass && (profileId || participantId)) {
       const isAnonymous = askRow.is_anonymous === true;
 
-      // Check if user is a participant
-      const { data: membership, error: membershipError } = await supabase
-        .from('ask_participants')
-        .select('id, user_id')
-        .eq('ask_session_id', askRow.id)
-        .eq('user_id', profileId)
-        .maybeSingle();
+      // If authenticated via invite token, verify participant belongs to this ASK
+      if (participantId) {
+        const { getAdminSupabaseClient } = await import('@/lib/supabaseAdmin');
+        const admin = getAdminSupabaseClient();
 
-      if (membershipError) {
-        if (isPermissionDenied(membershipError)) {
+        const { data: participantCheck, error: checkError } = await admin
+          .from('ask_participants')
+          .select('id, ask_session_id')
+          .eq('id', participantId)
+          .eq('ask_session_id', askRow.id)
+          .maybeSingle();
+
+        if (checkError || !participantCheck) {
+          console.error('❌ Participant does not belong to this ASK session');
           return permissionDeniedResponse();
         }
-        throw membershipError;
-      }
 
-      // If session allows anonymous participation, allow access even if not in participants list
-      // Otherwise, require explicit participation
-      if (!membership && !isAnonymous) {
-        return permissionDeniedResponse();
-      }
-
-      // If anonymous and user is not yet a participant, create one automatically
-      if (isAnonymous && !membership) {
-        const { error: insertError } = await supabase
+        console.log(`✅ Participant ${participantId} verified for ASK ${askRow.id}`);
+      } else if (profileId) {
+        // Check if user is a participant (regular auth flow)
+        const { data: membership, error: membershipError } = await supabase
           .from('ask_participants')
-          .insert({
-            ask_session_id: askRow.id,
-            user_id: profileId,
-            role: 'participant',
-          });
+          .select('id, user_id')
+          .eq('ask_session_id', askRow.id)
+          .eq('user_id', profileId)
+          .maybeSingle();
 
-        if (insertError && !isPermissionDenied(insertError)) {
-          // Log but don't fail - RLS policies will handle access
-          console.warn('Failed to auto-add participant to anonymous session:', insertError);
+        if (membershipError) {
+          if (isPermissionDenied(membershipError)) {
+            return permissionDeniedResponse();
+          }
+          throw membershipError;
+        }
+
+        // If session allows anonymous participation, allow access even if not in participants list
+        // Otherwise, require explicit participation
+        if (!membership && !isAnonymous) {
+          return permissionDeniedResponse();
+        }
+
+        // Store the membership ID for later use
+        if (membership) {
+          participantId = membership.id;
+        }
+
+        // If anonymous and user is not yet a participant, create one automatically
+        if (isAnonymous && !membership) {
+          const { error: insertError } = await supabase
+            .from('ask_participants')
+            .insert({
+              ask_session_id: askRow.id,
+              user_id: profileId,
+              role: 'participant',
+            });
+
+          if (insertError && !isPermissionDenied(insertError)) {
+            // Log but don't fail - RLS policies will handle access
+            console.warn('Failed to auto-add participant to anonymous session:', insertError);
+          }
         }
       }
     }
