@@ -4,6 +4,7 @@ import { createServerSupabaseClient, requireAdmin } from "@/lib/supabaseServer";
 import { sanitizeOptional, sanitizeText } from "@/lib/sanitize";
 import { parseErrorMessage } from "@/lib/utils";
 import { type ApiResponse, type AskSessionRecord } from "@/types";
+import { randomBytes } from "crypto";
 
 const statusValues = ["active", "inactive", "draft", "closed"] as const;
 const deliveryModes = ["physical", "digital"] as const;
@@ -27,6 +28,44 @@ const updateSchema = z.object({
   participantIds: z.array(z.string().uuid()).optional(),
   spokespersonId: z.string().uuid().optional().or(z.literal(""))
 });
+
+/**
+ * Ensures all participants for an ask session have invite tokens.
+ * Generates tokens for any participants that are missing them.
+ */
+async function ensureParticipantTokens(supabase: any, askId: string): Promise<void> {
+  // Get all participants without tokens
+  const { data: participantsWithoutTokens, error: fetchError } = await supabase
+    .from("ask_participants")
+    .select("id")
+    .eq("ask_session_id", askId)
+    .is("invite_token", null);
+
+  if (fetchError) {
+    console.error("Error fetching participants without tokens:", fetchError);
+    return; // Don't throw, just log - we'll continue without updating tokens
+  }
+
+  if (participantsWithoutTokens && participantsWithoutTokens.length > 0) {
+    // Generate tokens for participants missing them
+    // We'll use a database function to generate unique tokens
+    const participantIds = participantsWithoutTokens.map((p: any) => p.id);
+    
+    for (const participantId of participantIds) {
+      // Generate a random token (32 hex characters = 16 bytes)
+      const token = randomBytes(16).toString('hex');
+      
+      const { error: updateError } = await supabase
+        .from("ask_participants")
+        .update({ invite_token: token })
+        .eq("id", participantId);
+
+      if (updateError) {
+        console.error(`Error updating token for participant ${participantId}:`, updateError);
+      }
+    }
+  }
+}
 
 function mapAsk(row: any): AskSessionRecord {
   const participants = (row.ask_participants ?? []).map((participant: any) => {
@@ -78,6 +117,9 @@ export async function GET(
     const supabase = await createServerSupabaseClient();
     const resolvedParams = await params;
     const askId = z.string().uuid().parse(resolvedParams.id);
+
+    // Ensure all participants have tokens before fetching
+    await ensureParticipantTokens(supabase, askId);
 
     const { data, error, status } = await supabase
       .from("ask_sessions")
@@ -277,6 +319,9 @@ export async function PATCH(
       }
     }
   }
+
+  // Ensure all participants have tokens before fetching
+  await ensureParticipantTokens(supabase, askId);
 
   const { data, error } = await supabase
     .from("ask_sessions")
