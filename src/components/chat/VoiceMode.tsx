@@ -70,7 +70,7 @@ export function VoiceMode({
       const config: DeepgramConfig = {
         systemPrompt,
         sttModel: modelConfig?.deepgramSttModel || "nova-2",
-        ttsModel: modelConfig?.deepgramTtsModel || "aura-thalia-en",
+        ttsModel: modelConfig?.deepgramTtsModel || "aura-2-thalia-en",
         llmProvider: (modelConfig?.deepgramLlmProvider as "anthropic" | "openai") || "anthropic",
         llmModel: modelConfig?.deepgramLlmModel, // Use exact model name from database, no fallback
       };

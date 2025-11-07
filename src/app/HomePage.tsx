@@ -799,7 +799,7 @@ export default function HomePage() {
           if (data.data.modelConfig) {
             setVoiceModeModelConfig({
               deepgramSttModel: data.data.modelConfig.deepgramSttModel || 'nova-2',
-              deepgramTtsModel: data.data.modelConfig.deepgramTtsModel || 'aura-thalia-en',
+              deepgramTtsModel: data.data.modelConfig.deepgramTtsModel || 'aura-2-thalia-en',
               deepgramLlmProvider: data.data.modelConfig.deepgramLlmProvider || 'anthropic',
               deepgramLlmModel: data.data.modelConfig.deepgramLlmModel, // Use exact model from DB, no fallback
             });
@@ -807,7 +807,7 @@ export default function HomePage() {
             // Use default config when no model config is available
             setVoiceModeModelConfig({
               deepgramSttModel: 'nova-2',
-              deepgramTtsModel: 'aura-thalia-en',
+              deepgramTtsModel: 'aura-2-thalia-en',
               deepgramLlmProvider: 'anthropic',
               deepgramLlmModel: undefined, // No fallback - must be configured in database
             });

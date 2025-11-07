@@ -150,7 +150,7 @@ export class DeepgramVoiceAgent {
             speak: {
               provider: {
                 type: "deepgram" as const,
-                model: config.ttsModel || "aura-thalia-en"
+                model: config.ttsModel || "aura-2-thalia-en"
               }
             },
           think: {
@@ -241,6 +241,9 @@ export class DeepgramVoiceAgent {
         let enhancedMessage = errorMessage;
         if (errorCode === 'INVALID_SETTINGS' && errorMessage.includes('model not available')) {
           enhancedMessage = `${errorMessage}. Please check the Deepgram documentation for supported model names. For Anthropic, try: claude-3-5-haiku-latest or claude-sonnet-4-20250514. Current model: ${config.llmModel || 'not set'}`;
+        }
+        if (errorCode === 'FAILED_TO_SPEAK') {
+          enhancedMessage = `${errorMessage}. Please check your TTS model name. Try: aura-2-thalia-en, aura-2-asteria-en, or other aura-2 models. Current TTS model: ${config.ttsModel || 'not set'}`;
         }
         
         const err = new Error(`Deepgram Agent error (${errorCode}): ${enhancedMessage}`);

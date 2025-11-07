@@ -10,7 +10,7 @@ SET
   deepgram_voice_agent_model = 'claude-3-5-haiku-latest',
   deepgram_llm_provider = 'anthropic',
   deepgram_stt_model = 'nova-2',
-  deepgram_tts_model = 'aura-thalia-en'
+  deepgram_tts_model = 'aura-2-thalia-en'
 WHERE provider = 'anthropic'
   AND (deepgram_voice_agent_model IS NULL OR deepgram_llm_provider IS NULL);
 
@@ -20,7 +20,7 @@ SET
   deepgram_voice_agent_model = 'gpt-4o',
   deepgram_llm_provider = 'openai',
   deepgram_stt_model = 'nova-2',
-  deepgram_tts_model = 'aura-thalia-en'
+  deepgram_tts_model = 'aura-2-thalia-en'
 WHERE provider = 'openai'
   AND (deepgram_voice_agent_model IS NULL OR deepgram_llm_provider IS NULL);
 

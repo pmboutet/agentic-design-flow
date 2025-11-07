@@ -1093,7 +1093,7 @@ export default function AiConfigurationPage() {
                           </Label>
                           <Input
                             id={`deepgram-tts-${model.id}`}
-                            placeholder="ex: aura-thalia-en"
+                            placeholder="ex: aura-2-thalia-en, aura-2-asteria-en"
                             value={model.deepgramTtsModelDraft || ''}
                             onChange={(e) => {
                               const value = e.target.value.trim() || undefined;
