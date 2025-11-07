@@ -39,22 +39,21 @@
 
 #### Option B : Utiliser les variables d'environnement
 
-Assurez-vous que `NEXT_PUBLIC_SITE_URL` est configuré en production :
+Assurez-vous que `NEXT_PUBLIC_APP_URL` est configuré correctement :
 
 ```env
 # En production (Vercel)
-NEXT_PUBLIC_SITE_URL=https://agentic-design-flow.vercel.app
 NEXT_PUBLIC_APP_URL=https://agentic-design-flow.vercel.app
 
 # En développement local
 NEXT_PUBLIC_APP_URL=http://localhost:3000
 ```
 
-**Important :** Les variables `NEXT_PUBLIC_*` doivent être définies dans Vercel :
+**Important :** La variable `NEXT_PUBLIC_APP_URL` doit être définie dans Vercel :
 1. Allez sur votre projet Vercel
 2. Settings → Environment Variables
-3. Ajoutez `NEXT_PUBLIC_SITE_URL` avec la valeur `https://agentic-design-flow.vercel.app`
-4. Redéployez
+3. Vérifiez que `NEXT_PUBLIC_APP_URL` est défini avec la valeur `https://agentic-design-flow.vercel.app` (ou votre domaine de production)
+4. Redéployez après modification
 
 ### 4. Comment fonctionnent les magic links maintenant
 
@@ -77,7 +76,6 @@ Pour tester que tout fonctionne :
 1. **Vérifiez les variables d'environnement en production :**
    ```bash
    # Dans Vercel Dashboard → Settings → Environment Variables
-   NEXT_PUBLIC_SITE_URL=https://agentic-design-flow.vercel.app
    NEXT_PUBLIC_APP_URL=https://agentic-design-flow.vercel.app
    ```
 
@@ -96,8 +94,8 @@ Pour tester que tout fonctionne :
 ## Dépannage
 
 ### Le lien redirige toujours vers Vercel
-- Vérifiez `NEXT_PUBLIC_SITE_URL` dans Vercel
-- Vérifiez la configuration dans Supabase Dashboard
+- Vérifiez `NEXT_PUBLIC_APP_URL` dans Vercel (doit pointer vers votre domaine de production)
+- Vérifiez la configuration dans Supabase Dashboard (Site URL et Redirect URLs)
 - Redéployez après modification des variables
 
 ### Le lien avec token redirige vers /admin

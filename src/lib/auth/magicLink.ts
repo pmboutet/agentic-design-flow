@@ -1,28 +1,17 @@
 /**
- * Gets the base URL for magic links, preferring local development over production
+ * Gets the base URL for magic links
  * 
  * Priority:
- * 1. NEXT_PUBLIC_APP_URL (explicit local dev URL)
- * 2. NEXT_PUBLIC_SITE_URL (production URL)
- * 3. localhost:3000 (fallback for local dev)
+ * 1. NEXT_PUBLIC_APP_URL (configured in Vercel or .env.local)
+ * 2. localhost:3000 (fallback for local dev)
  */
 function getBaseUrl(): string {
-  // Explicit app URL (for local dev or custom domain)
+  // Use NEXT_PUBLIC_APP_URL if configured (works for both dev and production)
   if (process.env.NEXT_PUBLIC_APP_URL) {
     return process.env.NEXT_PUBLIC_APP_URL;
   }
   
-  // Production site URL
-  if (process.env.NEXT_PUBLIC_SITE_URL) {
-    return process.env.NEXT_PUBLIC_SITE_URL;
-  }
-  
-  // In development, use localhost
-  if (process.env.NODE_ENV === 'development') {
-    return 'http://localhost:3000';
-  }
-  
-  // Last resort fallback
+  // Fallback to localhost for local development
   return 'http://localhost:3000';
 }
 

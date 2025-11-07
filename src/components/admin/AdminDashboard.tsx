@@ -359,7 +359,7 @@ function AskDetailDialog({ ask, projectName, challengeName, onClose }: AskDetail
   const generateMagicLinkUrl = (email: string, askKey: string, participantToken?: string | null): string => {
     const baseUrl = typeof window !== "undefined" 
       ? (process.env.NEXT_PUBLIC_APP_URL || window.location.origin)
-      : process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
+      : process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
     
     // If we have a participant token, use it for a unique link per participant
     if (participantToken) {
