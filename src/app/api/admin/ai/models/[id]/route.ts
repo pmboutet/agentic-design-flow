@@ -40,6 +40,19 @@ export async function PUT(
     if (typeof body.isFallback === 'boolean') {
       payload.is_fallback = body.isFallback;
     }
+    // Deepgram-specific fields
+    if (typeof body.deepgramVoiceAgentModel === 'string' || body.deepgramVoiceAgentModel === null) {
+      payload.deepgram_voice_agent_model = body.deepgramVoiceAgentModel?.trim() || null;
+    }
+    if (typeof body.deepgramSttModel === 'string' || body.deepgramSttModel === null) {
+      payload.deepgram_stt_model = body.deepgramSttModel?.trim() || null;
+    }
+    if (typeof body.deepgramTtsModel === 'string' || body.deepgramTtsModel === null) {
+      payload.deepgram_tts_model = body.deepgramTtsModel?.trim() || null;
+    }
+    if (typeof body.deepgramLlmProvider === 'string' || body.deepgramLlmProvider === null) {
+      payload.deepgram_llm_provider = body.deepgramLlmProvider?.trim() || null;
+    }
 
     if (Object.keys(payload).length === 0) {
       return NextResponse.json({

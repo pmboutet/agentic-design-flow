@@ -968,6 +968,193 @@ export default function AiConfigurationPage() {
         </CardContent>
       </Card>
 
+      {/* Models Configuration Section */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Configurations des modèles IA</CardTitle>
+          <CardDescription>
+            Gérez les configurations des modèles, y compris les paramètres Deepgram Voice Agent.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {models.length === 0 ? (
+            <p className="text-muted-foreground">Aucun modèle configuré.</p>
+          ) : (
+            <div className="space-y-4">
+              {models.map(model => (
+                <Card key={model.id} className="border">
+                  <CardHeader>
+                    <CardTitle className="text-lg">{model.name}</CardTitle>
+                    <CardDescription>
+                      {model.code} • {model.provider} • {model.model}
+                      {model.isDefault && <span className="ml-2 text-primary">(Par défaut)</span>}
+                      {model.isFallback && <span className="ml-2 text-muted-foreground">(Secours)</span>}
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label>Base URL</Label>
+                        <Input value={model.baseUrl || ''} disabled />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Variable d'environnement API Key</Label>
+                        <Input value={model.apiKeyEnvVar} disabled />
+                      </div>
+                    </div>
+
+                    <div className="border-t pt-4">
+                      <h4 className="text-sm font-semibold mb-3">Configuration Deepgram Voice Agent</h4>
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <div className="space-y-2">
+                          <Label htmlFor={`deepgram-llm-model-${model.id}`}>
+                            Modèle LLM Voice Agent
+                          </Label>
+                          <Input
+                            id={`deepgram-llm-model-${model.id}`}
+                            placeholder="ex: claude-3-5-sonnet-20241022"
+                            value={model.deepgramLlmModel || ''}
+                            onChange={async (e) => {
+                              const value = e.target.value.trim() || null;
+                              try {
+                                const response = await fetch(`/api/admin/ai/models/${model.id}`, {
+                                  method: 'PUT',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  credentials: 'include',
+                                  body: JSON.stringify({ deepgramVoiceAgentModel: value }),
+                                });
+                                if (response.ok) {
+                                  const result = await response.json();
+                                  if (result.success) {
+                                    setModels(prev => prev.map(m => 
+                                      m.id === model.id 
+                                        ? { ...m, deepgramLlmModel: value || undefined }
+                                        : m
+                                    ));
+                                  }
+                                }
+                              } catch (err) {
+                                console.error('Error updating model:', err);
+                              }
+                            }}
+                          />
+                          <p className="text-xs text-muted-foreground">
+                            Nom exact du modèle LLM requis par Deepgram API
+                          </p>
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor={`deepgram-llm-provider-${model.id}`}>
+                            Provider LLM
+                          </Label>
+                          <select
+                            id={`deepgram-llm-provider-${model.id}`}
+                            className="w-full rounded border border-input bg-background px-3 py-2 text-sm"
+                            value={model.deepgramLlmProvider || ''}
+                            onChange={async (e) => {
+                              const value = e.target.value || null;
+                              try {
+                                const response = await fetch(`/api/admin/ai/models/${model.id}`, {
+                                  method: 'PUT',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  credentials: 'include',
+                                  body: JSON.stringify({ deepgramLlmProvider: value }),
+                                });
+                                if (response.ok) {
+                                  const result = await response.json();
+                                  if (result.success) {
+                                    setModels(prev => prev.map(m => 
+                                      m.id === model.id 
+                                        ? { ...m, deepgramLlmProvider: (value as "anthropic" | "openai") || undefined }
+                                        : m
+                                    ));
+                                  }
+                                }
+                              } catch (err) {
+                                console.error('Error updating model:', err);
+                              }
+                            }}
+                          >
+                            <option value="">Aucun</option>
+                            <option value="anthropic">Anthropic</option>
+                            <option value="openai">OpenAI</option>
+                          </select>
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor={`deepgram-stt-${model.id}`}>
+                            Modèle Speech-to-Text
+                          </Label>
+                          <Input
+                            id={`deepgram-stt-${model.id}`}
+                            placeholder="ex: nova-2"
+                            value={model.deepgramSttModel || ''}
+                            onChange={async (e) => {
+                              const value = e.target.value.trim() || null;
+                              try {
+                                const response = await fetch(`/api/admin/ai/models/${model.id}`, {
+                                  method: 'PUT',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  credentials: 'include',
+                                  body: JSON.stringify({ deepgramSttModel: value }),
+                                });
+                                if (response.ok) {
+                                  const result = await response.json();
+                                  if (result.success) {
+                                    setModels(prev => prev.map(m => 
+                                      m.id === model.id 
+                                        ? { ...m, deepgramSttModel: value || undefined }
+                                        : m
+                                    ));
+                                  }
+                                }
+                              } catch (err) {
+                                console.error('Error updating model:', err);
+                              }
+                            }}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor={`deepgram-tts-${model.id}`}>
+                            Modèle Text-to-Speech
+                          </Label>
+                          <Input
+                            id={`deepgram-tts-${model.id}`}
+                            placeholder="ex: aura-thalia-en"
+                            value={model.deepgramTtsModel || ''}
+                            onChange={async (e) => {
+                              const value = e.target.value.trim() || null;
+                              try {
+                                const response = await fetch(`/api/admin/ai/models/${model.id}`, {
+                                  method: 'PUT',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  credentials: 'include',
+                                  body: JSON.stringify({ deepgramTtsModel: value }),
+                                });
+                                if (response.ok) {
+                                  const result = await response.json();
+                                  if (result.success) {
+                                    setModels(prev => prev.map(m => 
+                                      m.id === model.id 
+                                        ? { ...m, deepgramTtsModel: value || undefined }
+                                        : m
+                                    ));
+                                  }
+                                }
+                              } catch (err) {
+                                console.error('Error updating model:', err);
+                              }
+                            }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       <div className="space-y-6">
         {isLoading && agents.length === 0 ? (
           <p className="text-muted-foreground">Chargement des agents...</p>
