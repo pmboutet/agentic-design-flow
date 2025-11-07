@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { type SupabaseClient } from "@supabase/supabase-js";
 import { createServerSupabaseClient } from "@/lib/supabaseServer";
+import { getAdminSupabaseClient } from "@/lib/supabaseAdmin";
 import { type ApiResponse } from "@/types";
 
 type AskSessionRow = {
@@ -23,6 +25,169 @@ type AskSessionRow = {
   updated_at: string;
 };
 
+type TokenDataBundle = {
+  askRow: AskSessionRow;
+  participantInfo: {
+    user_id: string | null;
+    participant_email: string | null;
+    participant_name: string | null;
+    invite_token: string | null;
+  } | null;
+  participants: Array<{
+    participant_id: string;
+    user_id: string | null;
+    participant_name: string | null;
+    participant_email: string | null;
+    role: string | null;
+    is_spokesperson: boolean | null;
+    joined_at: string | null;
+  }>;
+  contextRows: Array<{ project_name: string | null; challenge_name: string | null }>;
+  messages: Array<{
+    message_id: string;
+    content: string;
+    type: string;
+    sender_type: string;
+    sender_id: string | null;
+    sender_name: string | null;
+    created_at: string;
+    metadata: Record<string, unknown> | null;
+  }>;
+  insights: Array<{
+    insight_id: string;
+    content: string;
+    summary: string | null;
+    challenge_id: string | null;
+    status: string | null;
+    insight_type_name: string | null;
+    created_at: string;
+    updated_at: string;
+  }>;
+  profileClient: SupabaseClient;
+};
+
+async function loadTokenDataWithAdmin(token: string): Promise<TokenDataBundle | null> {
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    return null;
+  }
+
+  try {
+    const admin = getAdminSupabaseClient();
+    const { data: participantInfoRow, error: participantFetchError } = await admin
+      .from("ask_participants")
+      .select("id, user_id, participant_name, participant_email, role, is_spokesperson, invite_token, ask_session_id, joined_at")
+      .eq("invite_token", token)
+      .maybeSingle();
+
+    if (participantFetchError || !participantInfoRow) {
+      console.error("Fallback loader: participant not found for token", participantFetchError);
+      return null;
+    }
+
+    const askSessionId = participantInfoRow.ask_session_id;
+
+    const { data: askRow, error: askError } = await admin
+      .from("ask_sessions")
+      .select(
+        "ask_session_id:id, ask_key, name, question, description, status, start_date, end_date, is_anonymous, max_participants, delivery_mode, audience_scope, response_mode, project_id, challenge_id, created_by, created_at, updated_at",
+      )
+      .eq("id", askSessionId)
+      .maybeSingle<AskSessionRow>();
+
+    if (askError || !askRow) {
+      console.error("Fallback loader: ask session not found for token", askError);
+      return null;
+    }
+
+    const [participantsResult, messagesResult, insightsResult, projectResult, challengeResult] = await Promise.all([
+      admin
+        .from("ask_participants")
+        .select("id, user_id, participant_name, participant_email, role, is_spokesperson, joined_at")
+        .eq("ask_session_id", askRow.ask_session_id)
+        .order("joined_at", { ascending: true }),
+      admin
+        .from("messages")
+        .select("id, content, type, sender_type, sender_id, sender_name, created_at, metadata")
+        .eq("ask_session_id", askRow.ask_session_id)
+        .order("created_at", { ascending: true }),
+      admin
+        .from("insights")
+        .select("id, ask_session_id, challenge_id, content, summary, status, insight_type_id, created_at, updated_at, insight_types(name)")
+        .eq("ask_session_id", askRow.ask_session_id),
+      askRow.project_id
+        ? admin.from("projects").select("id, name").eq("id", askRow.project_id).maybeSingle()
+        : Promise.resolve({ data: null, error: null }),
+      askRow.challenge_id
+        ? admin.from("challenges").select("id, name").eq("id", askRow.challenge_id).maybeSingle()
+        : Promise.resolve({ data: null, error: null }),
+    ]);
+
+    if (participantsResult.error) {
+      throw participantsResult.error;
+    }
+    if (messagesResult.error) {
+      throw messagesResult.error;
+    }
+    if (insightsResult.error) {
+      throw insightsResult.error;
+    }
+
+    const contextRows = [
+      {
+        project_name: projectResult.data?.name ?? null,
+        challenge_name: challengeResult.data?.name ?? null,
+      },
+    ];
+
+    return {
+      askRow,
+      participantInfo: {
+        user_id: participantInfoRow.user_id,
+        participant_email: participantInfoRow.participant_email,
+        participant_name: participantInfoRow.participant_name,
+        invite_token: participantInfoRow.invite_token,
+      },
+      participants:
+        (participantsResult.data ?? []).map(row => ({
+          participant_id: row.id,
+          user_id: row.user_id,
+          participant_name: row.participant_name,
+          participant_email: row.participant_email,
+          role: row.role,
+          is_spokesperson: row.is_spokesperson,
+          joined_at: row.joined_at,
+        })) ?? [],
+      contextRows,
+      messages:
+        (messagesResult.data ?? []).map(row => ({
+          message_id: row.id,
+          content: row.content,
+          type: row.type,
+          sender_type: row.sender_type,
+          sender_id: row.sender_id,
+          sender_name: row.sender_name,
+          created_at: row.created_at,
+          metadata: row.metadata ?? null,
+        })) ?? [],
+      insights:
+        (insightsResult.data ?? []).map(row => ({
+          insight_id: row.id,
+          content: row.content,
+          summary: row.summary,
+          challenge_id: row.challenge_id,
+          status: row.status,
+          insight_type_name: row.insight_types?.name ?? null,
+          created_at: row.created_at,
+          updated_at: row.updated_at,
+        })) ?? [],
+      profileClient: admin,
+    };
+  } catch (error) {
+    console.error("Fallback loader: unexpected error", error);
+    return null;
+  }
+}
+
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ token: string }> }
@@ -40,39 +205,85 @@ export async function GET(
     const supabase = await createServerSupabaseClient();
     const isDevBypass = process.env.IS_DEV === 'true';
 
-    // Use SECURITY DEFINER function to get ASK session data by token
-    // This function verifies the token and returns data, bypassing RLS in a controlled way
+    let askRow: AskSessionRow | null = null;
+    let participantInfo: TokenDataBundle["participantInfo"] = null;
+    let participantRows: TokenDataBundle["participants"] = [];
+    let contextRows: TokenDataBundle["contextRows"] = [];
+    let messageRows: TokenDataBundle["messages"] = [];
+    let insightRows: TokenDataBundle["insights"] = [];
+    let profileClient: SupabaseClient = supabase;
+
+    // Attempt to fetch via RPC (preferred). Fallback to admin client if RPC unavailable or empty.
     const { data: askRows, error: askError } = await supabase
       .rpc('get_ask_session_by_token', { p_token: token });
 
-    if (askError) {
-      console.error('Error getting ASK session by token:', askError);
-      return NextResponse.json<ApiResponse>({
-        success: false,
-        error: 'ASK introuvable pour le token fourni'
-      }, { status: 404 });
+    if (askError || !askRows || askRows.length === 0) {
+      console.warn('RPC get_ask_session_by_token failed, attempting fallback...', askError);
+      const fallbackData = await loadTokenDataWithAdmin(token);
+      if (!fallbackData) {
+        return NextResponse.json<ApiResponse>({
+          success: false,
+          error: 'ASK introuvable pour le token fourni'
+        }, { status: 404 });
+      }
+      askRow = fallbackData.askRow;
+      participantInfo = fallbackData.participantInfo;
+      participantRows = fallbackData.participants;
+      contextRows = fallbackData.contextRows;
+      messageRows = fallbackData.messages;
+      insightRows = fallbackData.insights;
+      profileClient = fallbackData.profileClient;
+    } else {
+      askRow = askRows[0] as AskSessionRow;
+
+      const [
+        { data: participantInfoRows, error: participantInfoError },
+        { data: participantRowsData, error: participantError },
+        { data: contextRowsData, error: contextError },
+        { data: messageRowsData, error: messageError },
+        { data: insightRowsData, error: insightError },
+      ] = await Promise.all([
+        supabase.rpc('get_participant_by_token', { p_token: token }),
+        supabase.rpc('get_ask_participants_by_token', { p_token: token }),
+        supabase.rpc('get_ask_context_by_token', { p_token: token }),
+        supabase.rpc('get_ask_messages_by_token', { p_token: token }),
+        supabase.rpc('get_ask_insights_by_token', { p_token: token }),
+      ]);
+
+      if (participantInfoError) {
+        console.error('Error getting participant by token:', participantInfoError);
+      }
+      participantInfo = participantInfoRows && participantInfoRows.length > 0
+        ? participantInfoRows[0] as { user_id: string | null; participant_email: string | null; participant_name: string | null; invite_token: string | null }
+        : null;
+
+      if (participantError) {
+        console.error('Error getting participants by token:', participantError);
+        return NextResponse.json<ApiResponse>({
+          success: false,
+          error: 'Erreur lors de la récupération des participants'
+        }, { status: 500 });
+      }
+      participantRows = (participantRowsData ?? []) as TokenDataBundle["participants"];
+
+      if (contextError) {
+        console.error('Error getting context by token:', contextError);
+      } else {
+        contextRows = contextRowsData as TokenDataBundle["contextRows"];
+      }
+
+      if (messageError) {
+        console.error('Error getting messages by token:', messageError);
+      } else {
+        messageRows = (messageRowsData ?? []) as TokenDataBundle["messages"];
+      }
+
+      if (insightError) {
+        console.error('Error getting insights by token:', insightError);
+      } else {
+        insightRows = (insightRowsData ?? []) as TokenDataBundle["insights"];
+      }
     }
-
-    if (!askRows || askRows.length === 0) {
-      return NextResponse.json<ApiResponse>({
-        success: false,
-        error: 'ASK introuvable pour le token fourni'
-      }, { status: 404 });
-    }
-
-    const askRow = askRows[0] as AskSessionRow;
-
-    // Get participant info to check if they have an email
-    const { data: participantInfoRows, error: participantInfoError } = await supabase
-      .rpc('get_participant_by_token', { p_token: token });
-
-    if (participantInfoError) {
-      console.error('Error getting participant by token:', participantInfoError);
-    }
-
-    const participantInfo = participantInfoRows && participantInfoRows.length > 0 
-      ? participantInfoRows[0] as { user_id: string | null; participant_email: string | null; participant_name: string | null; invite_token: string | null }
-      : null;
 
     // Try to get authenticated user (optional - token access doesn't require auth)
     let profileId: string | null = null;
@@ -113,18 +324,6 @@ export async function GET(
     // If participant has user_id but user is not authenticated, we still allow access
     // but the frontend can prompt for authentication if needed
 
-    // Get participants using SECURITY DEFINER function
-    const { data: participantRows, error: participantError } = await supabase
-      .rpc('get_ask_participants_by_token', { p_token: token });
-
-    if (participantError) {
-      console.error('Error getting participants by token:', participantError);
-      return NextResponse.json<ApiResponse>({
-        success: false,
-        error: 'Erreur lors de la récupération des participants'
-      }, { status: 500 });
-    }
-
     const participantUserIds = (participantRows ?? [])
       .map((row: any) => row.user_id)
       .filter((value: any): value is string => Boolean(value));
@@ -133,7 +332,7 @@ export async function GET(
     // If RLS blocks this, we'll just use participant_name from the participant data
     let usersById: Record<string, any> = {};
     if (participantUserIds.length > 0) {
-      const { data: users } = await supabase
+      const { data: users } = await profileClient
         .from('profiles')
         .select('id, full_name, first_name, last_name, email, role, job_title')
         .in('id', participantUserIds);
@@ -160,24 +359,12 @@ export async function GET(
       };
     });
 
-    // Get project and challenge info using SECURITY DEFINER function
-    const { data: contextRows, error: contextError } = await supabase
-      .rpc('get_ask_context_by_token', { p_token: token });
-
     let project = null;
     let challenge = null;
-    if (!contextError && contextRows && contextRows.length > 0) {
+    if (contextRows && contextRows.length > 0) {
       const context = contextRows[0] as any;
       project = context.project_name ? { name: context.project_name } : null;
       challenge = context.challenge_name ? { name: context.challenge_name } : null;
-    }
-
-    // Get messages using SECURITY DEFINER function
-    const { data: messageRows, error: messageError } = await supabase
-      .rpc('get_ask_messages_by_token', { p_token: token });
-
-    if (messageError) {
-      console.error('Error getting messages by token:', messageError);
     }
 
     const messages = (messageRows ?? []).map((row: any) => ({
@@ -194,19 +381,11 @@ export async function GET(
       clientId: row.message_id,
     }));
 
-    // Get insights using SECURITY DEFINER function
-    const { data: insightRows, error: insightError } = await supabase
-      .rpc('get_ask_insights_by_token', { p_token: token });
-
-    if (insightError) {
-      console.error('Error getting insights by token:', insightError);
-    }
-
     // Get insight authors separately (they may have RLS, but we'll try)
     const insightIds = (insightRows ?? []).map((row: any) => row.insight_id);
     let insightAuthorsById: Record<string, any[]> = {};
     if (insightIds.length > 0) {
-      const { data: authors } = await supabase
+      const { data: authors } = await profileClient
         .from('insight_authors')
         .select('insight_id, user_id, display_name')
         .in('insight_id', insightIds);
@@ -283,4 +462,3 @@ export async function GET(
     }, { status: 500 });
   }
 }
-

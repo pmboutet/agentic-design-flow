@@ -12,6 +12,10 @@ import {
   validateFileType,
   formatFileSize,
 } from "@/lib/utils";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import rehypeHighlight from "rehype-highlight";
+import "highlight.js/styles/github-dark.css";
 
 /**
  * Chat component that handles all conversation interactions
@@ -448,7 +452,35 @@ function MessageBubble({
           </span>
         )}
         <div className={cn('w-full rounded-lg px-4 py-2 break-words shadow-sm', bubbleClass)}>
-          {message.type === 'text' && <p>{message.content}</p>}
+          {message.type === 'text' && (
+            <div className="prose prose-sm dark:prose-invert max-w-none prose-p:my-2 prose-pre:my-2 prose-headings:my-2 prose-ul:my-2 prose-ol:my-2 prose-li:my-1">
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                rehypePlugins={[rehypeHighlight]}
+                components={{
+                  // Customize link rendering to open in new tab
+                  a: ({ node, ...props }) => (
+                    <a {...props} target="_blank" rel="noopener noreferrer" />
+                  ),
+                  // Customize code blocks
+                  code: ({ node, className, children, ...props }) => {
+                    const match = /language-(\w+)/.exec(className || '');
+                    return match ? (
+                      <code className={className} {...props}>
+                        {children}
+                      </code>
+                    ) : (
+                      <code className="px-1 py-0.5 rounded bg-muted/50" {...props}>
+                        {children}
+                      </code>
+                    );
+                  },
+                }}
+              >
+                {message.content}
+              </ReactMarkdown>
+            </div>
+          )}
           {message.type === 'image' && (
             <img
               src={message.content}
