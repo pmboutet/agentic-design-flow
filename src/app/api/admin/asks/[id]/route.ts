@@ -34,36 +34,46 @@ const updateSchema = z.object({
  * Generates tokens for any participants that are missing them.
  */
 async function ensureParticipantTokens(supabase: any, askId: string): Promise<void> {
+  console.log(`🔑 Ensuring tokens for ASK ${askId}...`);
+
   // Get all participants without tokens
   const { data: participantsWithoutTokens, error: fetchError } = await supabase
     .from("ask_participants")
-    .select("id")
+    .select("id, user_id, participant_name, invite_token")
     .eq("ask_session_id", askId)
     .is("invite_token", null);
 
   if (fetchError) {
-    console.error("Error fetching participants without tokens:", fetchError);
+    console.error("❌ Error fetching participants without tokens:", fetchError);
     return; // Don't throw, just log - we'll continue without updating tokens
   }
 
+  console.log(`📊 Found ${participantsWithoutTokens?.length || 0} participants without tokens`);
+
   if (participantsWithoutTokens && participantsWithoutTokens.length > 0) {
     // Generate tokens for participants missing them
-    // We'll use a database function to generate unique tokens
     const participantIds = participantsWithoutTokens.map((p: any) => p.id);
-    
+    console.log(`🔧 Generating tokens for participants:`, participantIds);
+
     for (const participantId of participantIds) {
       // Generate a random token (32 hex characters = 16 bytes)
       const token = randomBytes(16).toString('hex');
-      
+
+      console.log(`  ➡️  Participant ${participantId}: generating token ${token.substring(0, 8)}...`);
+
       const { error: updateError } = await supabase
         .from("ask_participants")
         .update({ invite_token: token })
         .eq("id", participantId);
 
       if (updateError) {
-        console.error(`Error updating token for participant ${participantId}:`, updateError);
+        console.error(`❌ Error updating token for participant ${participantId}:`, updateError);
+      } else {
+        console.log(`  ✅ Token generated for participant ${participantId}`);
       }
     }
+  } else {
+    console.log(`✅ All participants already have tokens`);
   }
 }
 
@@ -73,7 +83,7 @@ function mapAsk(row: any): AskSessionRecord {
     const nameFromUser = [user.first_name, user.last_name].filter(Boolean).join(" ");
     const displayName = participant.participant_name || user.full_name || nameFromUser || participant.participant_email || "Participant";
 
-    return {
+    const mapped = {
       id: String(participant.user_id ?? participant.id),
       name: displayName,
       email: participant.participant_email || user.email || null,
@@ -82,7 +92,13 @@ function mapAsk(row: any): AskSessionRecord {
       isActive: true,
       inviteToken: participant.invite_token || null,
     };
+
+    console.log(`👤 Mapping participant ${mapped.id}: token=${mapped.inviteToken ? mapped.inviteToken.substring(0, 8) + '...' : 'NULL'}`);
+
+    return mapped;
   });
+
+  console.log(`📦 mapAsk returning ${participants.length} participants with tokens`);
 
   return {
     id: row.id,
@@ -323,6 +339,7 @@ export async function PATCH(
   // Ensure all participants have tokens before fetching
   await ensureParticipantTokens(supabase, askId);
 
+  console.log(`📡 Fetching ASK with select: ${askSelect}`);
   const { data, error } = await supabase
     .from("ask_sessions")
     .select(askSelect)
@@ -333,9 +350,26 @@ export async function PATCH(
     throw error;
   }
 
+  console.log(`📦 Raw data from DB:`, {
+    askId: data.id,
+    participantCount: data.ask_participants?.length || 0,
+    participants: data.ask_participants?.map((p: any) => ({
+      id: p.id,
+      user_id: p.user_id,
+      hasToken: !!p.invite_token,
+      tokenPreview: p.invite_token?.substring(0, 8)
+    }))
+  });
+
+  const mapped = mapAsk(data);
+  console.log(`📤 Mapped data to return:`, {
+    askId: mapped.id,
+    participantCount: mapped.participants?.length || 0,
+  });
+
   return NextResponse.json<ApiResponse<AskSessionRecord>>({
     success: true,
-    data: mapAsk(data)
+    data: mapped
   });
   } catch (error) {
     let status = 500;

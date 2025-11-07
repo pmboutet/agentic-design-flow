@@ -67,7 +67,10 @@ type TokenDataBundle = {
 };
 
 async function loadTokenDataWithAdmin(token: string): Promise<TokenDataBundle | null> {
+  console.log(`🔍 loadTokenDataWithAdmin: Searching for token ${token.substring(0, 8)}...`);
+
   if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    console.error("❌ SUPABASE_SERVICE_ROLE_KEY not configured");
     return null;
   }
 
@@ -79,8 +82,18 @@ async function loadTokenDataWithAdmin(token: string): Promise<TokenDataBundle | 
       .eq("invite_token", token)
       .maybeSingle();
 
+    console.log(`📊 Query result:`, {
+      found: !!participantInfoRow,
+      error: participantFetchError,
+      participant: participantInfoRow ? {
+        id: participantInfoRow.id,
+        user_id: participantInfoRow.user_id,
+        token: participantInfoRow.invite_token?.substring(0, 8)
+      } : null
+    });
+
     if (participantFetchError || !participantInfoRow) {
-      console.error("Fallback loader: participant not found for token", participantFetchError);
+      console.error("❌ Fallback loader: participant not found for token", participantFetchError);
       return null;
     }
 
@@ -107,7 +120,7 @@ async function loadTokenDataWithAdmin(token: string): Promise<TokenDataBundle | 
         .order("joined_at", { ascending: true }),
       admin
         .from("messages")
-        .select("id, content, type, sender_type, sender_id, sender_name, created_at, metadata")
+        .select("id, content, message_type, sender_type, user_id, created_at, metadata")
         .eq("ask_session_id", askRow.ask_session_id)
         .order("created_at", { ascending: true }),
       admin
@@ -130,6 +143,25 @@ async function loadTokenDataWithAdmin(token: string): Promise<TokenDataBundle | 
     }
     if (insightsResult.error) {
       throw insightsResult.error;
+    }
+
+    // Get user profiles for sender names
+    const messageUserIds = (messagesResult.data ?? [])
+      .map(row => row.user_id)
+      .filter((id): id is string => Boolean(id));
+    
+    let usersById: Record<string, { full_name?: string | null; first_name?: string | null; last_name?: string | null; email?: string | null }> = {};
+    if (messageUserIds.length > 0) {
+      const { data: users } = await admin
+        .from('profiles')
+        .select('id, full_name, first_name, last_name, email')
+        .in('id', messageUserIds);
+      
+      if (users) {
+        users.forEach(user => {
+          usersById[user.id] = user;
+        });
+      }
     }
 
     const contextRows = [
@@ -159,16 +191,47 @@ async function loadTokenDataWithAdmin(token: string): Promise<TokenDataBundle | 
         })) ?? [],
       contextRows,
       messages:
-        (messagesResult.data ?? []).map(row => ({
-          message_id: row.id,
-          content: row.content,
-          type: row.type,
-          sender_type: row.sender_type,
-          sender_id: row.sender_id,
-          sender_name: row.sender_name,
-          created_at: row.created_at,
-          metadata: row.metadata ?? null,
-        })) ?? [],
+        (messagesResult.data ?? []).map((row, index) => {
+          const metadata = row.metadata as Record<string, unknown> | null;
+          const user = row.user_id ? usersById[row.user_id] ?? null : null;
+          
+          // Calculate sender name similar to other routes
+          const senderName = (() => {
+            if (metadata && typeof metadata === 'object' && 'senderName' in metadata && typeof metadata.senderName === 'string' && metadata.senderName.trim().length > 0) {
+              return metadata.senderName;
+            }
+            
+            if (row.sender_type === 'ai') {
+              return 'Agent';
+            }
+            
+            if (user) {
+              if (user.full_name) {
+                return user.full_name;
+              }
+              const nameParts = [user.first_name, user.last_name].filter(Boolean);
+              if (nameParts.length > 0) {
+                return nameParts.join(' ');
+              }
+              if (user.email) {
+                return user.email;
+              }
+            }
+            
+            return `Participant ${index + 1}`;
+          })();
+          
+          return {
+            message_id: row.id,
+            content: row.content,
+            type: (row.message_type as string) || 'text',
+            sender_type: row.sender_type,
+            sender_id: row.user_id,
+            sender_name: senderName,
+            created_at: row.created_at,
+            metadata: metadata ?? null,
+          };
+        }) ?? [],
       insights:
         (insightsResult.data ?? []).map(row => ({
           insight_id: row.id,
@@ -195,7 +258,10 @@ export async function GET(
   try {
     const { token } = await params;
 
+    console.log(`🔐 GET /api/ask/token/[token]: Received request for token ${token?.substring(0, 8)}...`);
+
     if (!token || token.trim().length === 0) {
+      console.error("❌ Token invalid or empty");
       return NextResponse.json<ApiResponse>({
         success: false,
         error: 'Token invalide'
@@ -214,11 +280,18 @@ export async function GET(
     let profileClient: SupabaseClient = supabase;
 
     // Attempt to fetch via RPC (preferred). Fallback to admin client if RPC unavailable or empty.
+    console.log(`🔧 Attempting RPC get_ask_session_by_token...`);
     const { data: askRows, error: askError } = await supabase
       .rpc('get_ask_session_by_token', { p_token: token });
 
+    console.log(`📊 RPC result:`, {
+      success: !askError && askRows && askRows.length > 0,
+      error: askError,
+      rowCount: askRows?.length || 0
+    });
+
     if (askError || !askRows || askRows.length === 0) {
-      console.warn('RPC get_ask_session_by_token failed, attempting fallback...', askError);
+      console.warn('⚠️  RPC get_ask_session_by_token failed, attempting fallback...', askError);
       const fallbackData = await loadTokenDataWithAdmin(token);
       if (!fallbackData) {
         return NextResponse.json<ApiResponse>({
