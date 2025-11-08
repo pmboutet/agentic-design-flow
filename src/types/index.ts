@@ -180,6 +180,7 @@ export type AiModelProvider =
   | "mistral"
   | "openai"
   | "deepgram"
+  | "deepgram-voice-agent"
   | "custom";
 
 export interface AiModelConfig {

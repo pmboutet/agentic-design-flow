@@ -1,5 +1,6 @@
 import { DEFAULT_MAX_OUTPUT_TOKENS } from "./constants";
 import type { AiModelConfig } from "@/types";
+import { DeepgramVoiceAgent, type DeepgramConfig } from "./deepgram";
 
 export interface AiToolDefinition {
   name: string;
@@ -25,6 +26,15 @@ export interface AiProviderStreamResponse {
   content: string;
   done: boolean;
   raw?: Record<string, unknown>;
+}
+
+export interface VoiceAgentResponse extends AiProviderResponse {
+  connect(): Promise<void>;
+  onMessage(callback: (role: 'user' | 'agent', content: string, timestamp?: string) => void): void;
+  onAudio(callback: (audio: Uint8Array) => void): void;
+  sendAudio(audioData: ArrayBuffer): void;
+  disconnect(): void;
+  isConnected(): boolean;
 }
 
 export class AiProviderError extends Error {
@@ -573,11 +583,77 @@ async function callOpenAiCompatible(
   };
 }
 
+async function callDeepgramVoiceAgent(
+  config: AiModelConfig,
+  request: AiProviderRequest,
+): Promise<VoiceAgentResponse> {
+  const deepgramConfig: DeepgramConfig = {
+    systemPrompt: request.systemPrompt,
+    sttModel: config.deepgramSttModel || "nova-2",
+    ttsModel: config.deepgramTtsModel || "aura-2-thalia-en",
+    llmProvider: config.deepgramLlmProvider || "anthropic",
+    llmModel: config.deepgramLlmModel,
+  };
+
+  const agent = new DeepgramVoiceAgent();
+
+  // Create a VoiceAgentResponse wrapper
+  let messageCallback: ((role: 'user' | 'agent', content: string, timestamp?: string) => void) | null = null;
+  let audioCallback: ((audio: Uint8Array) => void) | null = null;
+
+  agent.setCallbacks({
+    onMessage: (message) => {
+      if (messageCallback) {
+        messageCallback(message.role, message.content, message.timestamp);
+      }
+    },
+    onError: (error) => {
+      console.error('[Deepgram Voice Agent] Error:', error);
+    },
+    onAudio: (audio) => {
+      if (audioCallback) {
+        audioCallback(audio);
+      }
+    },
+  });
+
+  // Wrap the agent to implement VoiceAgentResponse
+  const response: VoiceAgentResponse = {
+    content: "", // Voice agents don't have immediate content
+    raw: {},
+    async connect() {
+      await agent.connect(deepgramConfig);
+    },
+    onMessage(callback) {
+      messageCallback = callback;
+    },
+    onAudio(callback) {
+      audioCallback = callback;
+    },
+    sendAudio(audioData: ArrayBuffer) {
+      // DeepgramVoiceAgent handles audio through startMicrophone()
+      // This method is for manual audio sending if needed
+      if (agent.isConnected()) {
+        // The agent sends audio automatically when microphone is started
+        // This could be used for manual audio chunks if needed
+      }
+    },
+    disconnect() {
+      agent.disconnect();
+    },
+    isConnected() {
+      return agent.isConnected();
+    },
+  };
+
+  return response;
+}
+
 export async function callModelProvider(
   config: AiModelConfig,
   request: AiProviderRequest,
   abortSignal?: AbortSignal,
-): Promise<AiProviderResponse> {
+): Promise<AiProviderResponse | VoiceAgentResponse> {
   switch (config.provider) {
     case "anthropic":
       return callAnthropic(config, request, abortSignal);
@@ -586,6 +662,8 @@ export async function callModelProvider(
     case "openai":
     case "custom":
       return callOpenAiCompatible(config, request, abortSignal);
+    case "deepgram-voice-agent":
+      return callDeepgramVoiceAgent(config, request);
     default:
       throw new AiProviderError(`Unsupported AI provider: ${config.provider}`);
   }

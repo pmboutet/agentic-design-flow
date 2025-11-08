@@ -18,6 +18,7 @@ export interface DeepgramMessageEvent {
 export type DeepgramMessageCallback = (message: DeepgramMessageEvent) => void;
 export type DeepgramErrorCallback = (error: Error) => void;
 export type DeepgramConnectionCallback = (connected: boolean) => void;
+export type DeepgramAudioCallback = (audio: Uint8Array) => void;
 
 export class DeepgramVoiceAgent {
   private client: AgentLiveClient | null = null;
@@ -37,6 +38,7 @@ export class DeepgramVoiceAgent {
   private onMessageCallback: DeepgramMessageCallback | null = null;
   private onErrorCallback: DeepgramErrorCallback | null = null;
   private onConnectionCallback: DeepgramConnectionCallback | null = null;
+  private onAudioCallback: DeepgramAudioCallback | null = null;
 
   constructor() {
     this.isFirefox = typeof navigator !== 'undefined' && navigator.userAgent.includes('Firefox');
@@ -46,10 +48,12 @@ export class DeepgramVoiceAgent {
     onMessage?: DeepgramMessageCallback;
     onError?: DeepgramErrorCallback;
     onConnection?: DeepgramConnectionCallback;
+    onAudio?: DeepgramAudioCallback;
   }) {
     this.onMessageCallback = callbacks.onMessage || null;
     this.onErrorCallback = callbacks.onError || null;
     this.onConnectionCallback = callbacks.onConnection || null;
+    this.onAudioCallback = callbacks.onAudio || null;
   }
 
   async authenticate(): Promise<string> {
@@ -211,6 +215,9 @@ export class DeepgramVoiceAgent {
       // Handle Audio events (agent speaking)
       client.on(AgentEvents.Audio, async (audio: Uint8Array) => {
         console.log('[Deepgram] 🔊 Audio chunk received, size:', audio.length);
+        // Call the audio callback if set
+        this.onAudioCallback?.(audio);
+        // Also process for internal playback
         this.audioQueue.push(audio);
         await this.processAudioQueue();
       });

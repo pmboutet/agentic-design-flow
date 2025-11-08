@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { fetchAgentBySlug } from "./agents";
 import { renderTemplate } from "./templates";
-import { callModelProvider, AiProviderError, type AiProviderResponse } from "./providers";
+import { callModelProvider, AiProviderError, type AiProviderResponse, type VoiceAgentResponse } from "./providers";
 import { createAgentLog, markAgentLogProcessing, completeAgentLog, failAgentLog } from "./logs";
 import { DEFAULT_MAX_OUTPUT_TOKENS } from "./constants";
 import type { AiAgentRecord, AiModelConfig } from "@/types";
@@ -32,6 +32,13 @@ export interface ExecuteAgentOptions {
 export interface AgentExecutionResult {
   content: string;
   raw: Record<string, unknown>;
+  logId: string;
+  agent: AiAgentRecord;
+  modelConfig: AiModelConfig;
+}
+
+export interface VoiceAgentExecutionResult {
+  voiceAgent: VoiceAgentResponse;
   logId: string;
   agent: AiAgentRecord;
   modelConfig: AiModelConfig;
@@ -151,6 +158,39 @@ export async function executeAgent(options: ExecuteAgentOptions): Promise<AgentE
     throw new Error(`No model configuration available for agent ${agent.slug}`);
   }
 
+  // Check if the primary config is a voice agent
+  const primaryConfig = configs[0];
+  if (primaryConfig.provider === "deepgram-voice-agent") {
+    // For voice agents, return the VoiceAgentResponse immediately
+    // The log will be completed when we receive the agent's response via callback
+    await markAgentLogProcessing(options.supabase, log.id, { modelConfigId: primaryConfig.id });
+
+    try {
+      const response = await callModelProvider(
+        primaryConfig,
+        {
+          systemPrompt: prompts.system,
+          userPrompt: prompts.user,
+          maxOutputTokens: options.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS,
+          temperature: options.temperature,
+        },
+      );
+
+      if ('connect' in response && typeof response.connect === 'function') {
+        // This is a VoiceAgentResponse
+        return {
+          voiceAgent: response as VoiceAgentResponse,
+          logId: log.id,
+          agent,
+          modelConfig: primaryConfig,
+        } as VoiceAgentExecutionResult as unknown as AgentExecutionResult;
+      }
+    } catch (error) {
+      await failAgentLog(options.supabase, log.id, error instanceof Error ? error.message : "Unknown error");
+      throw error;
+    }
+  }
+
   const maxTokens = options.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS;
 
   let lastError: unknown = null;
@@ -161,7 +201,7 @@ export async function executeAgent(options: ExecuteAgentOptions): Promise<AgentE
     for (let attempt = 1; attempt <= 3; attempt += 1) {
       try {
         const started = Date.now();
-        const response: AiProviderResponse = await callModelProvider(
+        const response = await callModelProvider(
           config,
           {
             systemPrompt: prompts.system,
@@ -170,16 +210,30 @@ export async function executeAgent(options: ExecuteAgentOptions): Promise<AgentE
             temperature: options.temperature,
           },
         );
+        
+        // Check if it's a voice agent response
+        if ('connect' in response && typeof response.connect === 'function') {
+          // This is a VoiceAgentResponse
+          return {
+            voiceAgent: response as VoiceAgentResponse,
+            logId: log.id,
+            agent,
+            modelConfig: config,
+          } as VoiceAgentExecutionResult as unknown as AgentExecutionResult;
+        }
+
+        // Regular text response
+        const textResponse = response as AiProviderResponse;
         const latency = Date.now() - started;
 
         await completeAgentLog(options.supabase, log.id, {
-          responsePayload: response.raw,
+          responsePayload: textResponse.raw,
           latencyMs: latency,
         });
 
         return {
-          content: response.content,
-          raw: response.raw,
+          content: textResponse.content,
+          raw: textResponse.raw,
           logId: log.id,
           agent,
           modelConfig: config,

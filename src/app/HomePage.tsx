@@ -70,6 +70,8 @@ export default function HomePage() {
     deepgramLlmProvider?: "anthropic" | "openai";
     deepgramLlmModel?: string;
   } | null>(null);
+  // Store logId for voice agent exchanges (user message -> agent response)
+  const voiceAgentLogIdRef = useRef<string | null>(null);
   
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
@@ -709,11 +711,36 @@ export default function HomePage() {
 
         if (response.ok && data.success && data.data?.message) {
           markMessagePosted();
+          const persistedMessage = data.data.message;
+          
+          // Create log for user message
+          try {
+            const logResponse = await fetch(`/api/ask/${sessionData.askKey}/voice-agent/log`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                ...(sessionData.inviteToken ? { 'X-Invite-Token': sessionData.inviteToken } : {}),
+              },
+              body: JSON.stringify({
+                role: 'user',
+                content,
+                messageId: persistedMessage.id,
+              }),
+            });
+
+            const logData: ApiResponse<{ logId: string }> = await logResponse.json();
+            if (logResponse.ok && logData.success && logData.data?.logId) {
+              voiceAgentLogIdRef.current = logData.data.logId;
+            }
+          } catch (error) {
+            console.error('Error creating voice agent log:', error);
+          }
+
           setSessionData(prev => ({
             ...prev,
             messages: prev.messages.map(msg =>
               msg.clientId === optimisticId
-                ? { ...data.data!.message!, clientId: msg.clientId ?? optimisticId }
+                ? { ...persistedMessage, clientId: msg.clientId ?? optimisticId }
                 : msg
             ),
           }));
@@ -768,6 +795,27 @@ export default function HomePage() {
         const data: ApiResponse<{ message?: Message; insights?: Insight[] }> = await response.json();
 
         if (response.ok && data.success && data.data?.message) {
+          // Complete log for agent response
+          if (voiceAgentLogIdRef.current) {
+            try {
+              await fetch(`/api/ask/${sessionData.askKey}/voice-agent/log`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  ...(sessionData.inviteToken ? { 'X-Invite-Token': sessionData.inviteToken } : {}),
+                },
+                body: JSON.stringify({
+                  role: 'agent',
+                  content,
+                  logId: voiceAgentLogIdRef.current,
+                }),
+              });
+              voiceAgentLogIdRef.current = null; // Reset after completing
+            } catch (error) {
+              console.error('Error completing voice agent log:', error);
+            }
+          }
+
           setSessionData(prev => ({
             ...prev,
             messages: prev.messages.map(msg =>

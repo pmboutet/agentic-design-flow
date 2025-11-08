@@ -1276,9 +1276,12 @@ export async function POST(
       detectInsights?: boolean;
       askSessionId?: string;
       mode?: string;
+      message?: string;
+      metadata?: { voiceGenerated?: boolean; voiceTranscribed?: boolean };
     };
-    const { detectInsights, askSessionId, mode } = typedBody;
+    const { detectInsights, askSessionId, mode, message: messageContent, metadata } = typedBody;
     const detectInsightsOnly = detectInsights === true;
+    const isVoiceMessage = metadata?.voiceGenerated === true || metadata?.voiceTranscribed === true;
 
     if (!key || !isValidAskKey(key)) {
       return NextResponse.json<ApiResponse>({
@@ -1562,25 +1565,70 @@ export async function POST(
     let detectionMessageId: string | null = null;
 
     if (!insightsOnly) {
-      const promptVariables = buildPromptVariables({
-        ask: askRow,
-        project: projectData,
-        challenge: challengeData,
-        messages,
-        participants: participantSummaries,
-        insights: existingInsights,
-        insightTypes,
-      });
+      // If this is a voice-generated message, just persist it without calling executeAgent
+      // The voice agent already handled the response via executeAgent
+      if (isVoiceMessage && messageContent) {
+        // Find the last user message to link as parent
+        const lastUserMessage = [...messages].reverse().find(msg => msg.senderType === 'user');
+        const parentMessageId = lastUserMessage?.id ?? null;
 
-      const aiResult = await executeAgent({
-        supabase,
-        agentSlug: CHAT_AGENT_SLUG,
-        askSessionId: askRow.id,
-        interactionType: CHAT_INTERACTION_TYPE,
-        variables: promptVariables,
-      });
+        const { data: insertedRows, error: insertError } = await supabase
+          .from('messages')
+          .insert({
+            ask_session_id: askRow.id,
+            content: messageContent,
+            sender_type: 'ai',
+            message_type: 'text',
+            metadata: { senderName: 'Agent', ...metadata },
+            parent_message_id: parentMessageId,
+          })
+          .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at')
+          .limit(1);
 
-      if (typeof aiResult.content === 'string' && aiResult.content.trim().length > 0) {
+        if (insertError) {
+          throw insertError;
+        }
+
+        const inserted = insertedRows?.[0] as MessageRow | undefined;
+
+        if (inserted) {
+          message = {
+            id: inserted.id,
+            askKey: askRow.ask_key,
+            askSessionId: inserted.ask_session_id,
+            content: inserted.content,
+            type: (inserted.message_type as Message['type']) ?? 'text',
+            senderType: 'ai',
+            senderId: inserted.user_id ?? null,
+            senderName: 'Agent',
+            timestamp: inserted.created_at ?? new Date().toISOString(),
+            metadata: normaliseMessageMetadata(inserted.metadata),
+          };
+          messages.push(message);
+          detectionMessageId = message.id;
+          latestAiResponse = message.content;
+        }
+      } else {
+        // Regular text mode: call executeAgent
+        const promptVariables = buildPromptVariables({
+          ask: askRow,
+          project: projectData,
+          challenge: challengeData,
+          messages,
+          participants: participantSummaries,
+          insights: existingInsights,
+          insightTypes,
+        });
+
+        const aiResult = await executeAgent({
+          supabase,
+          agentSlug: CHAT_AGENT_SLUG,
+          askSessionId: askRow.id,
+          interactionType: CHAT_INTERACTION_TYPE,
+          variables: promptVariables,
+        });
+
+        if (typeof aiResult.content === 'string' && aiResult.content.trim().length > 0) {
         latestAiResponse = aiResult.content.trim();
         const aiMetadata = { senderName: 'Agent' } satisfies Record<string, unknown>;
 
@@ -1626,6 +1674,7 @@ export async function POST(
 
         messages.push(message);
         detectionMessageId = message.id;
+        }
       }
     } else {
       const latestAiMessage = [...messages].reverse().find(msg => msg.senderType === 'ai');
