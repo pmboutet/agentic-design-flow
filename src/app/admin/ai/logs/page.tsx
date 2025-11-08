@@ -524,52 +524,26 @@ export default function AiLogsPage() {
 
                               {isExpanded && (
                                 <div className="border-t bg-slate-50 px-4 pb-4">
-                                  <div className="mt-4 space-y-4">
-                                    {/* System Prompt - Extracted and highlighted */}
-                                    {(log.requestPayload as any)?.systemPrompt && (
-                                      <div>
-                                        <h4 className="mb-2 text-sm font-medium text-slate-700">System Prompt (résolu)</h4>
-                                        <div className="overflow-x-auto rounded border border-slate-200 bg-white">
-                                          <pre className="whitespace-pre-wrap break-words p-3 text-xs text-slate-800">
-                                            {(log.requestPayload as any).systemPrompt}
-                                          </pre>
-                                        </div>
+                                  <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+                                    <div>
+                                      <h4 className="mb-2 text-sm font-medium text-slate-700">Payload de requête</h4>
+                                      <div className="overflow-x-auto rounded border border-slate-200">
+                                        <JsonSyntaxHighlighter>
+                                          {JSON.stringify(log.requestPayload, null, 2)}
+                                        </JsonSyntaxHighlighter>
                                       </div>
-                                    )}
+                                    </div>
 
-                                    {/* User Prompt - Extracted and highlighted */}
-                                    {(log.requestPayload as any)?.userPrompt && (
+                                    {log.responsePayload && (
                                       <div>
-                                        <h4 className="mb-2 text-sm font-medium text-slate-700">User Prompt (résolu)</h4>
-                                        <div className="overflow-x-auto rounded border border-slate-200 bg-white">
-                                          <pre className="whitespace-pre-wrap break-words p-3 text-xs text-slate-800">
-                                            {(log.requestPayload as any).userPrompt}
-                                          </pre>
-                                        </div>
-                                      </div>
-                                    )}
-
-                                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                                      <div>
-                                        <h4 className="mb-2 text-sm font-medium text-slate-700">Payload de requête (complet)</h4>
+                                        <h4 className="mb-2 text-sm font-medium text-slate-700">Payload de réponse</h4>
                                         <div className="overflow-x-auto rounded border border-slate-200">
                                           <JsonSyntaxHighlighter>
-                                            {JSON.stringify(log.requestPayload, null, 2)}
+                                            {JSON.stringify(log.responsePayload, null, 2)}
                                           </JsonSyntaxHighlighter>
                                         </div>
                                       </div>
-
-                                      {log.responsePayload && (
-                                        <div>
-                                          <h4 className="mb-2 text-sm font-medium text-slate-700">Payload de réponse</h4>
-                                          <div className="overflow-x-auto rounded border border-slate-200">
-                                            <JsonSyntaxHighlighter>
-                                              {JSON.stringify(log.responsePayload, null, 2)}
-                                            </JsonSyntaxHighlighter>
-                                          </div>
-                                        </div>
-                                      )}
-                                    </div>
+                                    )}
                                   </div>
                                 </div>
                               )}
