@@ -47,8 +47,25 @@ export async function getOrCreateConversationThread(
   if (useShared) {
     query = query.is('user_id', null).eq('is_shared', true);
   } else {
+    // In individual mode, we need a userId. If not provided, return null thread
+    // (caller should handle fallback to shared thread or all messages)
     if (!threadUserId) {
-      return { thread: null, error: { message: 'User ID required for individual threads', code: 'PGRST116', details: null, hint: null, name: 'PostgrestError' } as unknown as PostgrestError };
+      console.warn('Individual thread mode requires userId, but none provided. Falling back to shared thread behavior.');
+      // Try to get shared thread as fallback
+      const sharedQuery = supabase
+        .from('conversation_threads')
+        .select('id, ask_session_id, user_id, is_shared, created_at')
+        .eq('ask_session_id', askSessionId)
+        .is('user_id', null)
+        .eq('is_shared', true)
+        .maybeSingle<ConversationThread>();
+      
+      const { data: sharedThread, error: sharedError } = await sharedQuery;
+      if (!sharedError && sharedThread) {
+        return { thread: sharedThread, error: null };
+      }
+      // If no shared thread exists either, return null (caller will use fallback)
+      return { thread: null, error: null };
     }
     query = query.eq('user_id', threadUserId).eq('is_shared', false);
   }
