@@ -1,0 +1,634 @@
+/**
+ * Hybrid Voice Agent
+ * Combines Deepgram for STT, LLM for responses, and ElevenLabs for TTS
+ */
+
+import { DeepgramClient, AgentLiveClient, AgentEvents } from '@deepgram/sdk';
+import { ElevenLabsTTS, type ElevenLabsConfig } from './elevenlabs';
+import type { AiModelConfig } from '@/types';
+
+export interface HybridVoiceAgentConfig {
+  systemPrompt: string;
+  // Deepgram STT config
+  deepgramApiKey?: string;
+  sttModel?: string; // Deepgram STT model, default: "nova-2"
+  // LLM config
+  llmProvider?: "anthropic" | "openai";
+  llmModel?: string;
+  llmApiKey?: string;
+  // ElevenLabs TTS config
+  elevenLabsApiKey?: string; // Optional - will be fetched automatically if not provided
+  elevenLabsVoiceId?: string;
+  elevenLabsModelId?: string;
+}
+
+export interface HybridVoiceAgentMessage {
+  role: 'user' | 'agent';
+  content: string;
+  timestamp: string;
+}
+
+export type HybridVoiceAgentMessageCallback = (message: HybridVoiceAgentMessage) => void;
+export type HybridVoiceAgentErrorCallback = (error: Error) => void;
+export type HybridVoiceAgentConnectionCallback = (connected: boolean) => void;
+export type HybridVoiceAgentAudioCallback = (audio: Uint8Array) => void;
+
+export class HybridVoiceAgent {
+  private deepgramClient: AgentLiveClient | null = null;
+  private deepgramToken: string | null = null;
+  private elevenLabsTTS: ElevenLabsTTS | null = null;
+  private audioContext: AudioContext | null = null;
+  private mediaStream: MediaStream | null = null;
+  private sourceNode: MediaStreamAudioSourceNode | null = null;
+  private processorNode: ScriptProcessorNode | null = null;
+  private audioQueue: Uint8Array[] = [];
+  private nextStartTime: number = 0;
+  private currentAudioSource: AudioBufferSourceNode | null = null;
+  private keepAliveInterval: NodeJS.Timeout | null = null;
+  private isFirefox: boolean;
+  private config: HybridVoiceAgentConfig | null = null;
+  private conversationHistory: Array<{ role: 'user' | 'agent'; content: string }> = [];
+  
+  // Callbacks
+  private onMessageCallback: HybridVoiceAgentMessageCallback | null = null;
+  private onErrorCallback: HybridVoiceAgentErrorCallback | null = null;
+  private onConnectionCallback: HybridVoiceAgentConnectionCallback | null = null;
+  private onAudioCallback: HybridVoiceAgentAudioCallback | null = null;
+
+  constructor() {
+    this.isFirefox = typeof navigator !== 'undefined' && navigator.userAgent.includes('Firefox');
+  }
+
+  setCallbacks(callbacks: {
+    onMessage?: HybridVoiceAgentMessageCallback;
+    onError?: HybridVoiceAgentErrorCallback;
+    onConnection?: HybridVoiceAgentConnectionCallback;
+    onAudio?: HybridVoiceAgentAudioCallback;
+  }) {
+    this.onMessageCallback = callbacks.onMessage || null;
+    this.onErrorCallback = callbacks.onError || null;
+    this.onConnectionCallback = callbacks.onConnection || null;
+    this.onAudioCallback = callbacks.onAudio || null;
+  }
+
+  async authenticateDeepgram(): Promise<string> {
+    console.log('[HybridVoiceAgent] 🔐 Starting Deepgram authentication...');
+    try {
+      const response = await fetch('/api/token', {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Deepgram authentication failed: ${errorText}`);
+      }
+
+      const data = await response.json();
+      this.deepgramToken = data.token;
+      if (!this.deepgramToken) {
+        throw new Error('Failed to get Deepgram token');
+      }
+      console.log('[HybridVoiceAgent] ✅ Deepgram authentication successful');
+      return this.deepgramToken;
+    } catch (error) {
+      console.error('[HybridVoiceAgent] ❌ Deepgram authentication error:', error);
+      throw error;
+    }
+  }
+
+  async getElevenLabsApiKey(): Promise<string> {
+    console.log('[HybridVoiceAgent] 🔐 Getting ElevenLabs API key...');
+    try {
+      const response = await fetch('/api/elevenlabs-token', {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Failed to get ElevenLabs API key: ${errorText}`);
+      }
+
+      const data = await response.json();
+      const apiKey = data.apiKey;
+      if (!apiKey) {
+        throw new Error('Failed to get ElevenLabs API key');
+      }
+      console.log('[HybridVoiceAgent] ✅ ElevenLabs API key retrieved');
+      return apiKey;
+    } catch (error) {
+      console.error('[HybridVoiceAgent] ❌ Error getting ElevenLabs API key:', error);
+      throw error;
+    }
+  }
+
+  async connect(config: HybridVoiceAgentConfig): Promise<void> {
+    console.log('[HybridVoiceAgent] Starting connection process...');
+    this.config = config;
+
+    // Get ElevenLabs API key if not provided
+    let elevenLabsApiKey = config.elevenLabsApiKey;
+    if (!elevenLabsApiKey) {
+      elevenLabsApiKey = await this.getElevenLabsApiKey();
+    }
+
+    // Initialize ElevenLabs TTS
+    const elevenLabsConfig: ElevenLabsConfig = {
+      apiKey: elevenLabsApiKey,
+      voiceId: config.elevenLabsVoiceId,
+      modelId: config.elevenLabsModelId,
+    };
+    this.elevenLabsTTS = new ElevenLabsTTS(elevenLabsConfig);
+    console.log('[HybridVoiceAgent] ✅ ElevenLabs TTS initialized');
+
+    // Authenticate with Deepgram
+    if (!this.deepgramToken) {
+      await this.authenticateDeepgram();
+    }
+
+    if (!this.deepgramToken) {
+      throw new Error('No Deepgram token available');
+    }
+
+    // Create Deepgram client for STT only
+    try {
+      const client = new DeepgramClient({ accessToken: this.deepgramToken }).agent();
+      this.deepgramClient = client;
+      console.log('[HybridVoiceAgent] ✅ Deepgram client created');
+    } catch (error) {
+      console.error('[HybridVoiceAgent] ❌ Error creating Deepgram client:', error);
+      throw error;
+    }
+
+    const client = this.deepgramClient!;
+
+    // Set up Deepgram event handlers
+    return new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        const error = new Error('Connection timeout: Did not receive Welcome event within 10 seconds');
+        console.error('[HybridVoiceAgent] ❌', error.message);
+        reject(error);
+      }, 10000);
+
+      // Handle Welcome event
+      client.once(AgentEvents.Welcome, (welcomeMessage) => {
+        console.log('[HybridVoiceAgent] ✅ Welcome event received:', welcomeMessage);
+        clearTimeout(timeout);
+        
+        // Configure Deepgram for STT only (no TTS)
+        const settings = {
+          audio: {
+            input: {
+              encoding: "linear16" as const,
+              sample_rate: 24000
+            },
+            output: {
+              encoding: "linear16" as const,
+              sample_rate: 24000,
+              container: "none" as const
+            }
+          },
+          agent: {
+            listen: {
+              provider: {
+                type: "deepgram" as const,
+                model: config.sttModel || "nova-2"
+              }
+            },
+            // Disable Deepgram TTS - we'll use ElevenLabs instead
+            speak: {
+              provider: {
+                type: "deepgram" as const,
+                model: "aura-2-thalia-en" // Required but won't be used
+              }
+            },
+          },
+          think: {
+            provider: {
+              type: config.llmProvider || "anthropic",
+              model: config.llmModel || (config.llmProvider === "openai" ? "gpt-4o" : "claude-3-5-haiku-latest")
+            },
+            prompt: config.systemPrompt
+          }
+        };
+        
+        console.log('[HybridVoiceAgent] Configuring Deepgram with settings:', JSON.stringify(settings, null, 2));
+        client.configure(settings);
+      });
+
+      // Handle SettingsApplied event
+      const settingsAppliedTimeout = setTimeout(() => {
+        const error = new Error('Connection timeout: Did not receive SettingsApplied event within 10 seconds');
+        console.error('[HybridVoiceAgent] ❌', error.message);
+        clearTimeout(timeout);
+        reject(error);
+      }, 10000);
+
+      client.once(AgentEvents.SettingsApplied, (appliedSettings) => {
+        console.log('[HybridVoiceAgent] ✅ SettingsApplied event received:', appliedSettings);
+        clearTimeout(timeout);
+        clearTimeout(settingsAppliedTimeout);
+        this.onConnectionCallback?.(true);
+        
+        // Start keep-alive
+        client.keepAlive();
+        this.keepAliveInterval = setInterval(() => {
+          if (this.deepgramClient) {
+            this.deepgramClient.keepAlive();
+          } else {
+            if (this.keepAliveInterval) {
+              clearInterval(this.keepAliveInterval);
+              this.keepAliveInterval = null;
+            }
+          }
+        }, 8000);
+        
+        console.log('[HybridVoiceAgent] ✅ Connection fully established!');
+        resolve();
+      });
+
+      // Handle ConversationText events (user transcriptions)
+      client.on(AgentEvents.ConversationText, async (message) => {
+        console.log('[HybridVoiceAgent] 💬 ConversationText:', message.role, ':', message.content.substring(0, 100));
+        
+        if (message.role === 'user') {
+          // User spoke - add to conversation history
+          this.conversationHistory.push({
+            role: 'user',
+            content: message.content
+          });
+
+          // Notify callback
+          this.onMessageCallback?.({
+            role: 'user',
+            content: message.content,
+            timestamp: new Date().toISOString()
+          });
+
+          // Get LLM response
+          await this.generateAndSpeakResponse(message.content);
+        } else {
+          // Agent response from Deepgram (if any) - we'll ignore this since we use our own LLM
+          console.log('[HybridVoiceAgent] Ignoring Deepgram agent response, using custom LLM');
+        }
+      });
+
+      // Handle Audio events from Deepgram (we'll ignore these since we use ElevenLabs)
+      client.on(AgentEvents.Audio, (audio: Uint8Array) => {
+        console.log('[HybridVoiceAgent] 🔊 Audio chunk from Deepgram (ignoring, using ElevenLabs)');
+        // We ignore Deepgram audio and use ElevenLabs instead
+      });
+
+      // Handle user started speaking
+      client.on(AgentEvents.UserStartedSpeaking, () => {
+        console.log('[HybridVoiceAgent] 👤 User started speaking');
+        this.audioQueue = [];
+        this.nextStartTime = 0;
+        if (this.currentAudioSource) {
+          this.currentAudioSource.stop();
+          this.currentAudioSource = null;
+        }
+      });
+
+      // Handle errors
+      client.on(AgentEvents.Error, (error) => {
+        console.error('[HybridVoiceAgent] ❌ Error event:', error);
+        const errorMessage = error.description || error.message || 'Unknown error';
+        const err = new Error(`HybridVoiceAgent error: ${errorMessage}`);
+        this.onErrorCallback?.(err);
+        clearTimeout(timeout);
+        clearTimeout(settingsAppliedTimeout);
+        reject(err);
+        this.disconnect();
+      });
+
+      // Handle close
+      client.on(AgentEvents.Close, (closeEvent) => {
+        console.log('[HybridVoiceAgent] ⚠️ Close event received:', closeEvent);
+        this.onConnectionCallback?.(false);
+        this.deepgramClient = null;
+      });
+
+      console.log('[HybridVoiceAgent] ✅ All event handlers registered');
+    });
+  }
+
+  private async generateAndSpeakResponse(userMessage: string): Promise<void> {
+    if (!this.config || !this.elevenLabsTTS) {
+      console.error('[HybridVoiceAgent] Cannot generate response: config or TTS not initialized');
+      return;
+    }
+
+    try {
+      // Call LLM API to generate response
+      const llmResponse = await this.callLLM(userMessage);
+      
+      // Add to conversation history
+      this.conversationHistory.push({
+        role: 'agent',
+        content: llmResponse
+      });
+
+      // Notify callback
+      this.onMessageCallback?.({
+        role: 'agent',
+        content: llmResponse,
+        timestamp: new Date().toISOString()
+      });
+
+      // Convert response to speech using ElevenLabs
+      await this.speakWithElevenLabs(llmResponse);
+    } catch (error) {
+      console.error('[HybridVoiceAgent] Error generating response:', error);
+      this.onErrorCallback?.(error instanceof Error ? error : new Error('Failed to generate response'));
+    }
+  }
+
+  private async callLLM(userMessage: string): Promise<string> {
+    if (!this.config) {
+      throw new Error('Config not initialized');
+    }
+
+    const provider = this.config.llmProvider || 'anthropic';
+    const model = this.config.llmModel || (provider === 'openai' ? 'gpt-4o' : 'claude-3-5-haiku-latest');
+    
+    // Get API key from config or fetch from server
+    let apiKey = this.config.llmApiKey;
+    if (!apiKey) {
+      // Try to get from server endpoint
+      try {
+        const response = await fetch('/api/llm-token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ provider }),
+        });
+        if (response.ok) {
+          const data = await response.json();
+          apiKey = data.apiKey;
+        }
+      } catch (error) {
+        console.warn('[HybridVoiceAgent] Could not fetch LLM API key from server:', error);
+      }
+    }
+
+    if (!apiKey) {
+      throw new Error(`API key not found for ${provider}. Please configure the LLM API key.`);
+    }
+
+    // Build messages array from conversation history
+    const messages = [
+      { role: 'system', content: this.config.systemPrompt },
+      ...this.conversationHistory.map(msg => ({
+        role: msg.role === 'user' ? 'user' : 'assistant',
+        content: msg.content
+      }))
+    ];
+
+    if (provider === 'anthropic') {
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model,
+          max_tokens: 1024,
+          messages: messages.filter(m => m.role !== 'system'),
+          system: this.config.systemPrompt,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Anthropic API error: ${errorText}`);
+      }
+
+      const data = await response.json();
+      const content = data.content?.[0]?.text || '';
+      return content;
+    } else if (provider === 'openai') {
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model,
+          messages,
+          max_tokens: 1024,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`OpenAI API error: ${errorText}`);
+      }
+
+      const data = await response.json();
+      const content = data.choices?.[0]?.message?.content || '';
+      return content;
+    } else {
+      throw new Error(`Unsupported LLM provider: ${provider}`);
+    }
+  }
+
+  private async speakWithElevenLabs(text: string): Promise<void> {
+    if (!this.elevenLabsTTS || !this.audioContext) {
+      console.error('[HybridVoiceAgent] Cannot speak: TTS or audio context not initialized');
+      return;
+    }
+
+    try {
+      // Stream audio from ElevenLabs
+      const audioStream = await this.elevenLabsTTS.streamTextToSpeech(text);
+      const reader = audioStream.getReader();
+      const chunks: Uint8Array[] = [];
+
+      // Read all chunks
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+        // Call audio callback for each chunk
+        this.onAudioCallback?.(value);
+      }
+
+      // Combine chunks
+      const totalLength = chunks.reduce((acc, chunk) => acc + chunk.length, 0);
+      const combined = new Uint8Array(totalLength);
+      let offset = 0;
+      for (const chunk of chunks) {
+        combined.set(chunk, offset);
+        offset += chunk.length;
+      }
+
+      // Decode MP3 to AudioBuffer and play
+      try {
+        const audioBuffer = await this.audioContext.decodeAudioData(combined.buffer);
+        await this.playAudioBuffer(audioBuffer);
+      } catch (error) {
+        console.error('[HybridVoiceAgent] Error decoding audio:', error);
+        // Fallback: try to play as-is
+        throw error;
+      }
+    } catch (error) {
+      console.error('[HybridVoiceAgent] Error speaking with ElevenLabs:', error);
+      throw error;
+    }
+  }
+
+  private async playAudioBuffer(audioBuffer: AudioBuffer): Promise<void> {
+    if (!this.audioContext) return;
+
+    const source = this.audioContext.createBufferSource();
+    source.buffer = audioBuffer;
+    source.connect(this.audioContext.destination);
+
+    const currentTime = this.audioContext.currentTime;
+    if (this.nextStartTime < currentTime) {
+      this.nextStartTime = currentTime;
+    }
+
+    source.start(this.nextStartTime);
+    this.nextStartTime += audioBuffer.duration;
+    this.currentAudioSource = source;
+  }
+
+  async startMicrophone(): Promise<void> {
+    console.log('[HybridVoiceAgent] 🎤 Starting microphone...');
+    if (!this.deepgramClient) {
+      throw new Error('Not connected to Deepgram');
+    }
+
+    const isFirefox = this.isFirefox;
+    let audioConstraints: MediaTrackConstraints;
+    
+    if (isFirefox) {
+      audioConstraints = {
+        echoCancellation: true,
+        noiseSuppression: false,
+      };
+    } else {
+      audioConstraints = {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+        sampleRate: 24000,
+        channelCount: 1
+      };
+    }
+
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: audioConstraints
+    });
+    this.mediaStream = stream;
+
+    let audioContext: AudioContext;
+    if (isFirefox) {
+      audioContext = new AudioContext();
+      if (audioContext.state === 'suspended') {
+        await audioContext.resume();
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+    } else {
+      audioContext = new AudioContext({ sampleRate: 24000 });
+    }
+    this.audioContext = audioContext;
+
+    const source = audioContext.createMediaStreamSource(stream);
+    this.sourceNode = source;
+
+    const processor = audioContext.createScriptProcessor(2048, 1, 1);
+    this.processorNode = processor;
+
+    let audioChunkCount = 0;
+    processor.onaudioprocess = (audioProcessingEvent) => {
+      if (!this.deepgramClient) return;
+
+      const inputBuffer = audioProcessingEvent.inputBuffer;
+      const inputData = inputBuffer.getChannelData(0);
+
+      let processedData: Float32Array;
+      if (isFirefox) {
+        const downsampledLength = Math.floor(inputData.length / 2);
+        processedData = new Float32Array(downsampledLength);
+        for (let i = 0; i < downsampledLength; i++) {
+          processedData[i] = inputData[i * 2];
+        }
+      } else {
+        processedData = inputData;
+      }
+
+      const pcmData = new Int16Array(processedData.length);
+      for (let i = 0; i < processedData.length; i++) {
+        const sample = Math.max(-1, Math.min(1, processedData[i]));
+        pcmData[i] = Math.round(sample * 0x7FFF);
+      }
+
+      try {
+        this.deepgramClient.send(pcmData.buffer);
+        audioChunkCount++;
+        if (audioChunkCount % 100 === 0) {
+          console.log('[HybridVoiceAgent] 🔊 Sent', audioChunkCount, 'audio chunks to Deepgram');
+        }
+      } catch (error) {
+        console.error('[HybridVoiceAgent] ❌ Error sending audio to Deepgram:', error);
+      }
+    };
+
+    source.connect(processor);
+    processor.connect(audioContext.destination);
+    console.log('[HybridVoiceAgent] ✅ Audio graph connected, microphone is active');
+  }
+
+  stopMicrophone(): void {
+    if (this.processorNode) {
+      this.processorNode.disconnect();
+      this.processorNode = null;
+    }
+    if (this.sourceNode) {
+      this.sourceNode.disconnect();
+      this.sourceNode = null;
+    }
+    if (this.mediaStream) {
+      this.mediaStream.getTracks().forEach(track => track.stop());
+      this.mediaStream = null;
+    }
+    if (this.audioContext) {
+      this.audioContext.close();
+      this.audioContext = null;
+    }
+  }
+
+  disconnect(): void {
+    this.stopMicrophone();
+
+    if (this.currentAudioSource) {
+      this.currentAudioSource.stop();
+      this.currentAudioSource = null;
+    }
+    this.audioQueue = [];
+    this.nextStartTime = 0;
+
+    if (this.deepgramClient) {
+      this.deepgramClient.disconnect();
+      this.deepgramClient = null;
+    }
+
+    if (this.keepAliveInterval) {
+      clearInterval(this.keepAliveInterval);
+      this.keepAliveInterval = null;
+    }
+
+    this.onConnectionCallback?.(false);
+  }
+
+  isConnected(): boolean {
+    return this.deepgramClient !== null;
+  }
+}
+
