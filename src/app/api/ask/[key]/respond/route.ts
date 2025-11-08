@@ -4,7 +4,7 @@ import { ApiResponse, Insight, Message } from '@/types';
 import { getAdminSupabaseClient } from '@/lib/supabaseAdmin';
 import { createServerSupabaseClient, getCurrentUser } from '@/lib/supabaseServer';
 import { isValidAskKey, parseErrorMessage } from '@/lib/utils';
-import { getAskSessionByKey } from '@/lib/asks';
+import { getAskSessionByKey, getOrCreateConversationThread, getMessagesForThread, getInsightsForThread, shouldUseSharedThread } from '@/lib/asks';
 import { normaliseMessageMetadata } from '@/lib/messages';
 import { executeAgent, fetchAgentBySlug, type AgentExecutionResult } from '@/lib/ai';
 import { INSIGHT_TYPES, mapInsightRowToInsight, type InsightRow } from '@/lib/insights';
@@ -783,6 +783,7 @@ async function persistInsights(
   incomingInsights: NormalisedIncomingInsight[],
   insightRows: InsightRow[],
   currentUserId?: string | null,
+  conversationThreadId?: string | null,
 ) {
   if (incomingInsights.length === 0) {
     return;
@@ -883,6 +884,7 @@ async function persistInsights(
         challenge_id: incoming.challengeId ?? targetRow.challenge_id ?? null,
         related_challenge_ids: incoming.relatedChallengeIds ?? targetRow.related_challenge_ids ?? [],
         source_message_id: incoming.sourceMessageId ?? targetRow.source_message_id ?? null,
+        conversation_thread_id: conversationThreadId ?? targetRow.conversation_thread_id ?? null,
         updated_at: nowIso,
       } satisfies Record<string, unknown>;
 
@@ -925,6 +927,7 @@ async function persistInsights(
         challenge_id: incoming.challengeId ?? existing.challenge_id ?? null,
         related_challenge_ids: incoming.relatedChallengeIds ?? existing.related_challenge_ids ?? [],
         source_message_id: incoming.sourceMessageId ?? existing.source_message_id ?? null,
+        conversation_thread_id: conversationThreadId ?? existing.conversation_thread_id ?? null,
         updated_at: nowIso,
       };
 
@@ -980,6 +983,7 @@ async function persistInsights(
         challenge_id: incoming.challengeId ?? null,
         related_challenge_ids: incoming.relatedChallengeIds ?? [],
         source_message_id: incoming.sourceMessageId ?? null,
+        conversation_thread_id: conversationThreadId ?? null,
         created_at: nowIso,
         updated_at: nowIso,
       };
@@ -1154,6 +1158,7 @@ async function triggerInsightDetection(
     askSessionId: string;
     messageId?: string | null;
     variables: Record<string, string | null | undefined>;
+    conversationThreadId?: string | null;
   },
   existingInsights: InsightRow[],
   currentUserId?: string | null,
@@ -1203,11 +1208,27 @@ async function triggerInsightDetection(
       : parsedPayload;
 
     const incoming = normaliseIncomingInsights(insightsSource, currentUserId);
-    await persistInsights(supabase, options.askSessionId, incoming.items, existingInsights, currentUserId);
+    await persistInsights(supabase, options.askSessionId, incoming.items, existingInsights, currentUserId, options.conversationThreadId);
 
     await completeInsightJob(supabase, job.id, { modelConfigId: result.modelConfig.id });
 
-    const refreshedInsights = await fetchInsightsForSession(supabase, options.askSessionId);
+    // Get refreshed insights filtered by thread if thread is provided
+    let refreshedInsights: InsightRow[];
+    if (options.conversationThreadId) {
+      const { insights: threadInsights, error: threadInsightsError } = await getInsightsForThread(
+        supabase,
+        options.conversationThreadId
+      );
+      
+      if (threadInsightsError) {
+        throw threadInsightsError;
+      }
+      
+      refreshedInsights = threadInsights as InsightRow[];
+    } else {
+      refreshedInsights = await fetchInsightsForSession(supabase, options.askSessionId);
+    }
+    
     return refreshedInsights.map(mapInsightRowToInsight);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error during insight detection';
@@ -1318,10 +1339,10 @@ export async function POST(
       console.warn('Could not retrieve current user for insight authors:', error);
     }
 
-    const { row: askRow, error: askError } = await getAskSessionByKey<AskSessionRow>(
+    const { row: askRow, error: askError } = await getAskSessionByKey<AskSessionRow & { audience_scope?: string | null; response_mode?: string | null }>(
       supabase,
       key,
-      'id, ask_key, question, description, status, system_prompt, project_id, challenge_id'
+      'id, ask_key, question, description, status, system_prompt, project_id, challenge_id, audience_scope, response_mode'
     );
 
     if (askError) {
@@ -1395,15 +1416,85 @@ export async function POST(
       };
     });
 
-    
-    const { data: messageRows, error: messageError } = await supabase
-      .from('messages')
-      .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at')
-      .eq('ask_session_id', askRow.id)
-      .order('created_at', { ascending: true });
+    // Get or create conversation thread
+    // Determine thread based on last user message or current user
+    const askConfig = {
+      audience_scope: askRow.audience_scope ?? null,
+      response_mode: askRow.response_mode ?? null,
+    };
 
-    if (messageError) {
-      throw messageError;
+    // First, get the last user message to determine which thread to use
+    const { data: lastUserMessageRow, error: lastMessageError } = await supabase
+      .from('messages')
+      .select('id, user_id, conversation_thread_id')
+      .eq('ask_session_id', askRow.id)
+      .eq('sender_type', 'user')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (lastMessageError && lastMessageError.code !== 'PGRST116') {
+      throw lastMessageError;
+    }
+
+    // Determine which user's thread to use
+    let threadUserId: string | null = null;
+    if (lastUserMessageRow?.conversation_thread_id) {
+      // If last message has a thread, get that thread to find the user
+      const { data: existingThread, error: threadError } = await supabase
+        .from('conversation_threads')
+        .select('user_id, is_shared')
+        .eq('id', lastUserMessageRow.conversation_thread_id)
+        .maybeSingle();
+
+      if (!threadError && existingThread && !existingThread.is_shared) {
+        threadUserId = existingThread.user_id;
+      } else if (existingThread?.is_shared) {
+        threadUserId = null; // Use shared thread
+      }
+    } else {
+      // Fallback to current user if available
+      threadUserId = currentUserId;
+    }
+
+    // Get or create the appropriate thread
+    const { thread: conversationThread, error: threadError } = await getOrCreateConversationThread(
+      supabase,
+      askRow.id,
+      threadUserId,
+      askConfig
+    );
+
+    if (threadError) {
+      throw threadError;
+    }
+
+    // Get messages for the thread (or all messages if no thread for backward compatibility)
+    let messageRows: MessageRow[] = [];
+    if (conversationThread) {
+      const { messages: threadMessages, error: threadMessagesError } = await getMessagesForThread(
+        supabase,
+        conversationThread.id
+      );
+      
+      if (threadMessagesError) {
+        throw threadMessagesError;
+      }
+      
+      messageRows = threadMessages as MessageRow[];
+    } else {
+      // Fallback: get all messages for backward compatibility
+      const { data, error: messageError } = await supabase
+        .from('messages')
+        .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at, conversation_thread_id')
+        .eq('ask_session_id', askRow.id)
+        .order('created_at', { ascending: true });
+
+      if (messageError) {
+        throw messageError;
+      }
+      
+      messageRows = (data ?? []) as MessageRow[];
     }
 
     const messageUserIds = (messageRows ?? [])
@@ -1462,6 +1553,7 @@ export async function POST(
         id: row.id,
         askKey: askRow.ask_key,
         askSessionId: row.ask_session_id,
+        conversationThreadId: (row as any).conversation_thread_id ?? null,
         content: row.content,
         type: (row.message_type as Message['type']) ?? 'text',
         senderType: (row.sender_type as Message['senderType']) ?? 'user',
@@ -1472,9 +1564,29 @@ export async function POST(
       };
     });
 
-
-    const insightRows = await fetchInsightsForSession(supabase, askRow.id);
-    const existingInsights = insightRows.map(mapInsightRowToInsight);
+    // Get insights for the thread (or all insights if no thread for backward compatibility)
+    let insightRows: InsightRow[];
+    if (conversationThread) {
+      const { insights: threadInsights, error: threadInsightsError } = await getInsightsForThread(
+        supabase,
+        conversationThread.id
+      );
+      
+      if (threadInsightsError) {
+        throw threadInsightsError;
+      }
+      
+      // Convert to InsightRow format (simplified - we'll need to hydrate properly)
+      insightRows = threadInsights as InsightRow[];
+    } else {
+      // Fallback: get all insights for backward compatibility
+      insightRows = await fetchInsightsForSession(supabase, askRow.id);
+    }
+    
+    const existingInsights = insightRows.map(mapInsightRowToInsight).map(insight => ({
+      ...insight,
+      conversationThreadId: conversationThread?.id ?? null,
+    }));
 
     // Fetch insight types for prompt
     const insightTypes = await fetchInsightTypesForPrompt(supabase);
@@ -1542,6 +1654,7 @@ export async function POST(
             askSessionId: askRow.id,
             messageId: lastAiMessage?.id ?? null,
             variables: detectionVariables,
+            conversationThreadId: conversationThread?.id ?? null,
           },
           insightRows,
           currentUserId,
@@ -1581,6 +1694,7 @@ export async function POST(
             message_type: 'text',
             metadata: { senderName: 'Agent', ...metadata },
             parent_message_id: parentMessageId,
+            conversation_thread_id: conversationThread?.id ?? null,
           })
           .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at')
           .limit(1);
@@ -1645,6 +1759,7 @@ export async function POST(
             message_type: 'text',
             metadata: aiMetadata,
             parent_message_id: parentMessageId,
+            conversation_thread_id: conversationThread?.id ?? null,
           })
           .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at')
           .limit(1);
@@ -1704,6 +1819,7 @@ export async function POST(
           askSessionId: askRow.id,
           messageId: detectionMessageId,
           variables: detectionVariables,
+          conversationThreadId: conversationThread?.id ?? null,
         },
         insightRows,
         currentUserId,

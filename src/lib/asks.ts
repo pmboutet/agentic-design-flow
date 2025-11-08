@@ -1,5 +1,127 @@
 import type { PostgrestError, SupabaseClient } from '@supabase/supabase-js';
 
+export interface ConversationThread {
+  id: string;
+  ask_session_id: string;
+  user_id: string | null;
+  is_shared: boolean;
+  created_at: string;
+}
+
+export interface AskSessionConfig {
+  audience_scope?: string | null;
+  response_mode?: string | null;
+}
+
+/**
+ * Determine if an ASK session should use a shared thread
+ * Mode partagé: audience_scope = 'group' AND response_mode = 'collective'
+ */
+export function shouldUseSharedThread(askSession: AskSessionConfig): boolean {
+  return (
+    askSession.audience_scope === 'group' &&
+    askSession.response_mode === 'collective'
+  );
+}
+
+/**
+ * Get or create a conversation thread for an ASK session
+ * - Shared thread: is_shared = true, user_id = NULL (for group/collective mode)
+ * - Individual thread: is_shared = false, user_id = specific user (for individual/simultaneous mode)
+ */
+export async function getOrCreateConversationThread(
+  supabase: SupabaseClient,
+  askSessionId: string,
+  userId: string | null,
+  askConfig: AskSessionConfig
+): Promise<{ thread: ConversationThread | null; error: PostgrestError | null }> {
+  const useShared = shouldUseSharedThread(askConfig);
+  const threadUserId = useShared ? null : userId;
+
+  // Try to find existing thread
+  let query = supabase
+    .from('conversation_threads')
+    .select('id, ask_session_id, user_id, is_shared, created_at')
+    .eq('ask_session_id', askSessionId);
+
+  if (useShared) {
+    query = query.is('user_id', null).eq('is_shared', true);
+  } else {
+    if (!threadUserId) {
+      return { thread: null, error: { message: 'User ID required for individual threads', code: 'PGRST116', details: null, hint: null, name: 'PostgrestError' } as unknown as PostgrestError };
+    }
+    query = query.eq('user_id', threadUserId).eq('is_shared', false);
+  }
+
+  const { data: existingThread, error: findError } = await query.maybeSingle<ConversationThread>();
+
+  if (findError && findError.code !== 'PGRST116') {
+    return { thread: null, error: findError };
+  }
+
+  if (existingThread) {
+    return { thread: existingThread, error: null };
+  }
+
+  // Create new thread
+  const { data: newThread, error: createError } = await supabase
+    .from('conversation_threads')
+    .insert({
+      ask_session_id: askSessionId,
+      user_id: threadUserId,
+      is_shared: useShared,
+    })
+    .select('id, ask_session_id, user_id, is_shared, created_at')
+    .single<ConversationThread>();
+
+  if (createError) {
+    return { thread: null, error: createError };
+  }
+
+  return { thread: newThread, error: null };
+}
+
+/**
+ * Get messages for a specific conversation thread
+ */
+export async function getMessagesForThread(
+  supabase: SupabaseClient,
+  threadId: string
+): Promise<{ messages: any[]; error: PostgrestError | null }> {
+  const { data, error } = await supabase
+    .from('messages')
+    .select('*')
+    .eq('conversation_thread_id', threadId)
+    .order('created_at', { ascending: true });
+
+  if (error) {
+    return { messages: [], error };
+  }
+
+  return { messages: data ?? [], error: null };
+}
+
+/**
+ * Get insights for a specific conversation thread
+ * Used for isolation in individual mode
+ */
+export async function getInsightsForThread(
+  supabase: SupabaseClient,
+  threadId: string
+): Promise<{ insights: any[]; error: PostgrestError | null }> {
+  const { data, error } = await supabase
+    .from('insights')
+    .select('*')
+    .eq('conversation_thread_id', threadId)
+    .order('created_at', { ascending: true });
+
+  if (error) {
+    return { insights: [], error };
+  }
+
+  return { insights: data ?? [], error: null };
+}
+
 export async function getAskSessionByKey<Row>(
   supabase: SupabaseClient,
   rawKey: string,

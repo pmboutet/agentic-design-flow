@@ -5,7 +5,7 @@ import { isValidAskKey, parseErrorMessage } from '@/lib/utils';
 import { mapInsightRowToInsight } from '@/lib/insights';
 import { fetchInsightsForSession } from '@/lib/insightQueries';
 import { normaliseMessageMetadata } from '@/lib/messages';
-import { getAskSessionByKey } from '@/lib/asks';
+import { getAskSessionByKey, getOrCreateConversationThread, getMessagesForThread, getInsightsForThread, shouldUseSharedThread } from '@/lib/asks';
 import { createServerSupabaseClient } from '@/lib/supabaseServer';
 
 interface AskSessionRow {
@@ -266,17 +266,58 @@ export async function GET(
       };
     });
 
-    const { data: messageRows, error: messageError } = await supabase
-      .from('messages')
-      .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at')
-      .eq('ask_session_id', askSessionId)
-      .order('created_at', { ascending: true });
+    // Get or create conversation thread for this user/ASK
+    const askConfig = {
+      audience_scope: askRow.audience_scope ?? null,
+      response_mode: askRow.response_mode ?? null,
+    };
+    
+    const { thread: conversationThread, error: threadError } = await getOrCreateConversationThread(
+      supabase,
+      askSessionId,
+      profileId,
+      askConfig
+    );
 
-    if (messageError) {
-      if (isPermissionDenied(messageError)) {
+    if (threadError) {
+      if (isPermissionDenied(threadError)) {
         return permissionDeniedResponse();
       }
-      throw messageError;
+      throw threadError;
+    }
+
+    // Get messages for the thread (or all messages if no thread yet for backward compatibility)
+    let messageRows: MessageRow[] = [];
+    if (conversationThread) {
+      const { messages: threadMessages, error: threadMessagesError } = await getMessagesForThread(
+        supabase,
+        conversationThread.id
+      );
+      
+      if (threadMessagesError) {
+        if (isPermissionDenied(threadMessagesError)) {
+          return permissionDeniedResponse();
+        }
+        throw threadMessagesError;
+      }
+      
+      messageRows = threadMessages as MessageRow[];
+    } else {
+      // Fallback: get all messages for backward compatibility
+      const { data, error: messageError } = await supabase
+        .from('messages')
+        .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at, conversation_thread_id')
+        .eq('ask_session_id', askSessionId)
+        .order('created_at', { ascending: true });
+
+      if (messageError) {
+        if (isPermissionDenied(messageError)) {
+          return permissionDeniedResponse();
+        }
+        throw messageError;
+      }
+      
+      messageRows = (data ?? []) as MessageRow[];
     }
 
     const messageUserIds = (messageRows ?? [])
@@ -338,6 +379,7 @@ export async function GET(
         id: row.id,
         askKey: askRow.ask_key,
         askSessionId: row.ask_session_id,
+        conversationThreadId: (row as any).conversation_thread_id ?? null,
         content: row.content,
         type: (row.message_type as Message['type']) ?? 'text',
         senderType: (row.sender_type as Message['senderType']) ?? 'user',
@@ -348,9 +390,48 @@ export async function GET(
       };
     });
 
+    // Get insights for the thread (or all insights if no thread yet for backward compatibility)
     let insightRows;
     try {
-      insightRows = await fetchInsightsForSession(supabase, askSessionId);
+      if (conversationThread) {
+        const { insights: threadInsights, error: threadInsightsError } = await getInsightsForThread(
+          supabase,
+          conversationThread.id
+        );
+        
+        if (threadInsightsError) {
+          if (isPermissionDenied(threadInsightsError)) {
+            return permissionDeniedResponse();
+          }
+          throw threadInsightsError;
+        }
+        
+        // Transform to InsightRow format (simplified - may need adjustment based on actual structure)
+        insightRows = threadInsights.map((insight: any) => ({
+          id: insight.id,
+          ask_session_id: insight.ask_session_id,
+          ask_id: insight.ask_session_id,
+          user_id: insight.user_id,
+          challenge_id: insight.challenge_id,
+          content: insight.content,
+          summary: insight.summary,
+          insight_type_id: null,
+          type: insight.insight_type,
+          category: insight.category,
+          priority: insight.priority,
+          status: insight.status,
+          source_message_id: insight.source_message_id,
+          ai_generated: insight.ai_generated,
+          created_at: insight.created_at,
+          updated_at: insight.updated_at,
+          related_challenge_ids: [],
+          insight_authors: [],
+          kpis: [],
+        }));
+      } else {
+        // Fallback: get all insights for backward compatibility
+        insightRows = await fetchInsightsForSession(supabase, askSessionId);
+      }
     } catch (error) {
       if (isPermissionDenied((error as PostgrestError) ?? null)) {
         return permissionDeniedResponse();
@@ -358,7 +439,13 @@ export async function GET(
       throw error;
     }
 
-    const insights: Insight[] = insightRows.map(mapInsightRowToInsight);
+    const insights: Insight[] = insightRows.map((row) => {
+      const insight = mapInsightRowToInsight(row);
+      return {
+        ...insight,
+        conversationThreadId: conversationThread?.id ?? null,
+      };
+    });
 
     const endDate = askRow.end_date ?? new Date().toISOString();
     const createdAt = askRow.created_at ?? new Date().toISOString();
@@ -536,10 +623,10 @@ export async function POST(
       }
     }
 
-    const { row: askRow, error: askError } = await getAskSessionByKey<Pick<AskSessionRow, 'id' | 'ask_key' | 'is_anonymous'>>(
+    const { row: askRow, error: askError } = await getAskSessionByKey<Pick<AskSessionRow, 'id' | 'ask_key' | 'is_anonymous' | 'audience_scope' | 'response_mode'>>(
       dataClient,
       key,
-      'id, ask_key, is_anonymous'
+      'id, ask_key, is_anonymous, audience_scope, response_mode'
     );
 
     if (askError) {
@@ -554,6 +641,43 @@ export async function POST(
         success: false,
         error: 'ASK introuvable pour la clé fournie'
       }, { status: 404 });
+    }
+
+    // En mode dev, si profileId est null, on essaie de récupérer ou créer un profil par défaut
+    let finalProfileId = profileId;
+    if (isDevBypass && !finalProfileId) {
+      // En mode dev, chercher un profil admin par défaut
+      const { data: devProfile } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('role', 'admin')
+        .eq('is_active', true)
+        .limit(1)
+        .maybeSingle();
+      
+      if (devProfile) {
+        finalProfileId = devProfile.id;
+      }
+    }
+
+    // Get or create conversation thread for this user/ASK
+    const askConfig = {
+      audience_scope: askRow.audience_scope ?? null,
+      response_mode: askRow.response_mode ?? null,
+    };
+    
+    const { thread: conversationThread, error: threadError } = await getOrCreateConversationThread(
+      dataClient,
+      askRow.id,
+      finalProfileId,
+      askConfig
+    );
+
+    if (threadError) {
+      if (isPermissionDenied(threadError)) {
+        return permissionDeniedResponse();
+      }
+      throw threadError;
     }
 
     if (!isDevBypass && (profileId || participantId)) {
@@ -630,23 +754,6 @@ export async function POST(
 
     const senderType: Message['senderType'] = 'user';
 
-    // En mode dev, si profileId est null, on essaie de récupérer ou créer un profil par défaut
-    let finalProfileId = profileId;
-    if (isDevBypass && !finalProfileId) {
-      // En mode dev, chercher un profil admin par défaut
-      const { data: devProfile } = await supabase
-        .from('profiles')
-        .select('id')
-        .eq('role', 'admin')
-        .eq('is_active', true)
-        .limit(1)
-        .maybeSingle();
-      
-      if (devProfile) {
-        finalProfileId = devProfile.id;
-      }
-    }
-
     // Récupérer parent_message_id si fourni
     const parentMessageId = typeof body.parentMessageId === 'string' && body.parentMessageId.trim().length > 0
       ? body.parentMessageId
@@ -663,6 +770,7 @@ export async function POST(
       created_at: timestamp,
       user_id: finalProfileId,
       parent_message_id: parentMessageId,
+      conversation_thread_id: conversationThread?.id ?? null,
     };
 
     const { data: insertedRows, error: insertError } = await dataClient

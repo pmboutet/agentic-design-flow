@@ -43,6 +43,7 @@ export interface Message {
   id: string;
   askKey: string;
   askSessionId?: string;
+  conversationThreadId?: string | null;
   content: string;
   type: 'text' | 'audio' | 'image' | 'document';
   senderType: MessageSenderType;
@@ -108,6 +109,7 @@ export interface Insight {
   id: string;
   askId: string;
   askSessionId: string;
+  conversationThreadId?: string | null;
   challengeId?: string | null;
   authorId?: string | null;
   authorName?: string | null;
@@ -123,6 +125,14 @@ export interface Insight {
   relatedChallengeIds: string[];
   kpis: InsightKpi[];
   sourceMessageId?: string | null;
+}
+
+export interface ConversationThread {
+  id: string;
+  askSessionId: string;
+  userId: string | null;
+  isShared: boolean;
+  createdAt: string;
 }
 
 // Types for webhook payloads
@@ -181,6 +191,7 @@ export type AiModelProvider =
   | "openai"
   | "deepgram"
   | "deepgram-voice-agent"
+  | "hybrid-voice-agent"
   | "custom";
 
 export interface AiModelConfig {
@@ -201,6 +212,10 @@ export interface AiModelConfig {
   deepgramTtsModel?: string; // e.g., "aura-thalia-en"
   deepgramLlmProvider?: "anthropic" | "openai"; // LLM provider for Deepgram Agent
   deepgramLlmModel?: string; // LLM model name
+  // ElevenLabs-specific fields for hybrid voice agent
+  elevenLabsVoiceId?: string; // ElevenLabs voice ID
+  elevenLabsModelId?: string; // ElevenLabs TTS model ID (e.g., "eleven_turbo_v2_5")
+  elevenLabsApiKeyEnvVar?: string; // Environment variable name for ElevenLabs API key
 }
 
 export interface AiAgentRecord {

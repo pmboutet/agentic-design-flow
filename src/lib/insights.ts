@@ -27,6 +27,7 @@ export interface InsightRow {
   related_challenge_ids?: string[] | null;
   kpis?: Array<Record<string, unknown>> | null;
   source_message_id?: string | null;
+  conversation_thread_id?: string | null;
   insight_authors?: InsightAuthorRow[] | null;
 }
 

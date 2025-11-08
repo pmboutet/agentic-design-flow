@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import type { PostgrestError, SupabaseClient } from '@supabase/supabase-js';
 import { isValidAskKey, parseErrorMessage } from '@/lib/utils';
-import { getAskSessionByKey } from '@/lib/asks';
+import { getAskSessionByKey, getOrCreateConversationThread, getMessagesForThread } from '@/lib/asks';
 import { normaliseMessageMetadata } from '@/lib/messages';
 import { callModelProviderStream } from '@/lib/ai/providers';
 import { createAgentLog, markAgentLogProcessing, completeAgentLog, failAgentLog } from '@/lib/ai/logs';
@@ -239,10 +239,10 @@ export async function POST(
       profileId = profile.id;
     }
 
-    const { row: askRow, error: askError } = await getAskSessionByKey<AskSessionRow>(
+    const { row: askRow, error: askError } = await getAskSessionByKey<AskSessionRow & { audience_scope?: string | null; response_mode?: string | null }>(
       dataClient,
       key,
-      'id, ask_key, question, description, status, system_prompt, project_id, challenge_id, is_anonymous'
+      'id, ask_key, question, description, status, system_prompt, project_id, challenge_id, is_anonymous, audience_scope, response_mode'
     );
 
     if (askError) {
@@ -353,18 +353,58 @@ export async function POST(
       };
     });
 
-    // Fetch messages
-    const { data: messageRows, error: messageError } = await dataClient
-      .from('messages')
-      .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at')
-      .eq('ask_session_id', askRow.id)
-      .order('created_at', { ascending: true });
+    // Get or create conversation thread
+    const askConfig = {
+      audience_scope: askRow.audience_scope ?? null,
+      response_mode: askRow.response_mode ?? null,
+    };
+    
+    const { thread: conversationThread, error: threadError } = await getOrCreateConversationThread(
+      dataClient,
+      askRow.id,
+      profileId,
+      askConfig
+    );
 
-    if (messageError) {
-      if (isPermissionDenied(messageError)) {
+    if (threadError) {
+      if (isPermissionDenied(threadError)) {
         return permissionDeniedResponse();
       }
-      throw messageError;
+      throw threadError;
+    }
+
+    // Get messages for the thread (or all messages if no thread for backward compatibility)
+    let messageRows: any[] = [];
+    if (conversationThread) {
+      const { messages: threadMessages, error: threadMessagesError } = await getMessagesForThread(
+        dataClient,
+        conversationThread.id
+      );
+      
+      if (threadMessagesError) {
+        if (isPermissionDenied(threadMessagesError)) {
+          return permissionDeniedResponse();
+        }
+        throw threadMessagesError;
+      }
+      
+      messageRows = threadMessages;
+    } else {
+      // Fallback: get all messages for backward compatibility
+      const { data, error: messageError } = await dataClient
+        .from('messages')
+        .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at, conversation_thread_id')
+        .eq('ask_session_id', askRow.id)
+        .order('created_at', { ascending: true });
+
+      if (messageError) {
+        if (isPermissionDenied(messageError)) {
+          return permissionDeniedResponse();
+        }
+        throw messageError;
+      }
+      
+      messageRows = data ?? [];
     }
 
     const messageUserIds = (messageRows ?? [])
@@ -690,6 +730,7 @@ export async function POST(
                     message_type: 'text',
                     metadata: aiMetadata,
                     parent_message_id: parentMessageId,
+                    conversation_thread_id: conversationThread?.id ?? null,
                   })
                   .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at')
                   .limit(1);
