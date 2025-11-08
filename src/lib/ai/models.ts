@@ -19,6 +19,10 @@ interface AiModelConfigRow {
   deepgram_stt_model?: string | null;
   deepgram_tts_model?: string | null;
   deepgram_llm_provider?: string | null;
+  // ElevenLabs-specific columns
+  elevenlabs_voice_id?: string | null;
+  elevenlabs_model_id?: string | null;
+  elevenlabs_api_key_env_var?: string | null;
 }
 
 export function mapModelRow(row: AiModelConfigRow): AiModelConfig {
@@ -40,6 +44,10 @@ export function mapModelRow(row: AiModelConfigRow): AiModelConfig {
     deepgramSttModel: row.deepgram_stt_model ?? undefined,
     deepgramTtsModel: row.deepgram_tts_model ?? undefined,
     deepgramLlmProvider: (row.deepgram_llm_provider as "anthropic" | "openai" | undefined) ?? undefined,
+    // Map ElevenLabs columns from database
+    elevenLabsVoiceId: row.elevenlabs_voice_id ?? undefined,
+    elevenLabsModelId: row.elevenlabs_model_id ?? undefined,
+    elevenLabsApiKeyEnvVar: row.elevenlabs_api_key_env_var ?? undefined,
   };
 }
 

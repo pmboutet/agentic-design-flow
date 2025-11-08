@@ -1,6 +1,7 @@
 import { DEFAULT_MAX_OUTPUT_TOKENS } from "./constants";
 import type { AiModelConfig } from "@/types";
 import { DeepgramVoiceAgent, type DeepgramConfig } from "./deepgram";
+import { HybridVoiceAgent, type HybridVoiceAgentConfig } from "./hybrid-voice-agent";
 
 export interface AiToolDefinition {
   name: string;
@@ -649,6 +650,77 @@ async function callDeepgramVoiceAgent(
   return response;
 }
 
+async function callHybridVoiceAgent(
+  config: AiModelConfig,
+  request: AiProviderRequest,
+): Promise<VoiceAgentResponse> {
+  // Note: API keys will be fetched client-side via API endpoints
+  // This is because HybridVoiceAgent runs in the browser
+  const hybridConfig: HybridVoiceAgentConfig = {
+    systemPrompt: request.systemPrompt,
+    sttModel: config.deepgramSttModel || "nova-2",
+    llmProvider: config.deepgramLlmProvider || "anthropic",
+    llmModel: config.deepgramLlmModel,
+    // API keys will be fetched client-side via /api/elevenlabs-token and /api/llm-token
+    elevenLabsApiKey: undefined, // Will be fetched client-side
+    llmApiKey: undefined, // Will be fetched client-side
+    elevenLabsVoiceId: config.elevenLabsVoiceId,
+    elevenLabsModelId: config.elevenLabsModelId || "eleven_turbo_v2_5",
+  };
+
+  const agent = new HybridVoiceAgent();
+
+  // Create a VoiceAgentResponse wrapper
+  let messageCallback: ((role: 'user' | 'agent', content: string, timestamp?: string) => void) | null = null;
+  let audioCallback: ((audio: Uint8Array) => void) | null = null;
+
+  agent.setCallbacks({
+    onMessage: (message) => {
+      if (messageCallback) {
+        messageCallback(message.role, message.content, message.timestamp);
+      }
+    },
+    onError: (error) => {
+      console.error('[Hybrid Voice Agent] Error:', error);
+    },
+    onAudio: (audio) => {
+      if (audioCallback) {
+        audioCallback(audio);
+      }
+    },
+  });
+
+  // Wrap the agent to implement VoiceAgentResponse
+  const response: VoiceAgentResponse = {
+    content: "", // Voice agents don't have immediate content
+    raw: {},
+    async connect() {
+      await agent.connect(hybridConfig);
+    },
+    onMessage(callback) {
+      messageCallback = callback;
+    },
+    onAudio(callback) {
+      audioCallback = callback;
+    },
+    sendAudio(audioData: ArrayBuffer) {
+      // HybridVoiceAgent handles audio through startMicrophone()
+      // This method is for manual audio sending if needed
+      if (agent.isConnected()) {
+        // The agent sends audio automatically when microphone is started
+      }
+    },
+    disconnect() {
+      agent.disconnect();
+    },
+    isConnected() {
+      return agent.isConnected();
+    },
+  };
+
+  return response;
+}
+
 export async function callModelProvider(
   config: AiModelConfig,
   request: AiProviderRequest,
@@ -664,6 +736,8 @@ export async function callModelProvider(
       return callOpenAiCompatible(config, request, abortSignal);
     case "deepgram-voice-agent":
       return callDeepgramVoiceAgent(config, request);
+    case "hybrid-voice-agent":
+      return callHybridVoiceAgent(config, request);
     default:
       throw new AiProviderError(`Unsupported AI provider: ${config.provider}`);
   }
