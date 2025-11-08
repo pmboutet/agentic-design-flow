@@ -58,6 +58,7 @@ export default function HomePage() {
   const [currentParticipantName, setCurrentParticipantName] = useState<string | null>(derivedParticipantName);
   const isTestMode = searchParams.get('mode') === 'test';
   const [isDetailsCollapsed, setIsDetailsCollapsed] = useState(false);
+  const [isReplyBoxFocused, setIsReplyBoxFocused] = useState(false);
   const autoCollapseTriggeredRef = useRef(false);
   const previousMessageCountRef = useRef(0);
   // DEBUG: Afficher auth ID temporairement
@@ -1200,44 +1201,53 @@ export default function HomePage() {
           {askDetails && (
             <motion.div
               initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="w-full rounded-xl border border-white/50 bg-white/80 backdrop-blur px-4 py-4 shadow-sm sm:max-w-[75vw] md:max-w-3xl"
+              animate={{ 
+                opacity: 1, 
+                y: 0
+              }}
+              className="w-full rounded-xl border border-white/50 bg-white/80 backdrop-blur px-4 shadow-sm transition-all duration-300"
+              style={{ 
+                paddingTop: isReplyBoxFocused ? "0.75rem" : "1rem",
+                paddingBottom: isReplyBoxFocused ? "0.75rem" : "1rem"
+              }}
             >
-              <div className="flex flex-col gap-3">
+              <div className="flex flex-col" style={{ gap: isReplyBoxFocused ? "0.5rem" : "0.75rem" }}>
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                   <div className="space-y-1 sm:pr-4">
                     <h3 className="font-semibold tracking-tight text-xs sm:text-sm leading-snug text-foreground">
                       {askDetails.question}
                     </h3>
-                    {askDetails.description && !isDetailsCollapsed && (
+                    {askDetails.description && !isDetailsCollapsed && !isReplyBoxFocused && (
                       <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed">
                         {askDetails.description}
                       </p>
                     )}
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setIsDetailsCollapsed(prev => !prev)}
-                    className="inline-flex items-center gap-1.5 whitespace-nowrap self-start sm:self-start"
-                    aria-expanded={!isDetailsCollapsed}
-                  >
-                    {isDetailsCollapsed ? (
-                      <>
-                        <ChevronDown className="h-4 w-4" />
-                        Infos
-                      </>
-                    ) : (
-                      <>
-                        <ChevronUp className="h-4 w-4" />
-                        Masquer
-                      </>
-                    )}
-                  </Button>
+                  {!isReplyBoxFocused && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setIsDetailsCollapsed(prev => !prev)}
+                      className="inline-flex items-center gap-1.5 whitespace-nowrap self-start sm:self-start"
+                      aria-expanded={!isDetailsCollapsed}
+                    >
+                      {isDetailsCollapsed ? (
+                        <>
+                          <ChevronDown className="h-4 w-4" />
+                          Infos
+                        </>
+                      ) : (
+                        <>
+                          <ChevronUp className="h-4 w-4" />
+                          Masquer
+                        </>
+                      )}
+                    </Button>
+                  )}
                 </div>
 
                 <AnimatePresence initial={false}>
-                  {!isDetailsCollapsed && (
+                  {!isDetailsCollapsed && !isReplyBoxFocused && (
                     <motion.div
                       key="ask-details"
                       initial={{ height: 0, opacity: 0 }}
@@ -1346,6 +1356,7 @@ export default function HomePage() {
               voiceModeSystemPrompt={voiceModeSystemPrompt || undefined}
               voiceModeModelConfig={voiceModeModelConfig || undefined}
               onVoiceMessage={handleVoiceMessage}
+              onReplyBoxFocusChange={setIsReplyBoxFocused}
             />
           </div>
         </motion.div>

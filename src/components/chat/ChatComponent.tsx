@@ -38,6 +38,7 @@ export function ChatComponent({
   voiceModeSystemPrompt,
   voiceModeModelConfig,
   onVoiceMessage,
+  onReplyBoxFocusChange,
 }: ChatComponentProps) {
   const [inputValue, setInputValue] = useState("");
   const [selectedFiles, setSelectedFiles] = useState<FileUpload[]>([]);
@@ -379,8 +380,14 @@ export function ChatComponent({
                       handleSendMessage();
                     }
                   }}
-                  onFocus={() => notifyTyping(true)}
-                  onBlur={() => notifyTyping(false)}
+                  onFocus={() => {
+                    notifyTyping(true);
+                    onReplyBoxFocusChange?.(true);
+                  }}
+                  onBlur={() => {
+                    notifyTyping(false);
+                    onReplyBoxFocusChange?.(false);
+                  }}
                 />
               </div>
               

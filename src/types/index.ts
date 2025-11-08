@@ -283,6 +283,7 @@ export interface ChatComponentProps {
     deepgramLlmModel?: string;
   };
   onVoiceMessage?: (role: 'user' | 'agent', content: string) => void;
+  onReplyBoxFocusChange?: (isFocused: boolean) => void;
 }
 
 export interface ChallengeComponentProps {
