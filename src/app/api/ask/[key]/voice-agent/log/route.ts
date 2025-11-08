@@ -1,12 +1,117 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabaseServer';
 import { createAgentLog, completeAgentLog } from '@/lib/ai/logs';
-import { getChatAgentConfig, DEFAULT_CHAT_AGENT_SLUG } from '@/lib/ai/agent-config';
+import { getAgentConfigForAsk, type PromptVariables } from '@/lib/ai/agent-config';
 import { getAskSessionByKey } from '@/lib/asks';
 import { parseErrorMessage } from '@/lib/utils';
+import { normaliseMessageMetadata } from '@/lib/messages';
 import type { ApiResponse } from '@/types';
 
-const CHAT_AGENT_SLUG = DEFAULT_CHAT_AGENT_SLUG;
+interface AskSessionRow {
+  id: string;
+  ask_key: string;
+  question: string;
+  description?: string | null;
+  project_id?: string | null;
+  challenge_id?: string | null;
+  system_prompt?: string | null;
+}
+
+interface ProjectRow {
+  id: string;
+  name?: string | null;
+  system_prompt?: string | null;
+}
+
+interface ChallengeRow {
+  id: string;
+  name?: string | null;
+  system_prompt?: string | null;
+}
+
+interface ParticipantRow {
+  id: string;
+  participant_name?: string | null;
+  participant_email?: string | null;
+  role?: string | null;
+  user_id?: string | null;
+}
+
+interface UserRow {
+  id: string;
+  email?: string | null;
+  full_name?: string | null;
+  first_name?: string | null;
+  last_name?: string | null;
+}
+
+function formatMessageHistory(messages: any[]): string {
+  return messages
+    .map(message => {
+      const timestamp = (() => {
+        const date = new Date(message.timestamp);
+        if (Number.isNaN(date.getTime())) {
+          return '';
+        }
+        return date.toISOString();
+      })();
+
+      const sender = message.senderName ?? (message.senderType === 'ai' ? 'Agent IA' : 'Participant');
+      return `${timestamp ? `[${timestamp}] ` : ''}${sender}: ${message.content}`;
+    })
+    .join('\n');
+}
+
+function buildPromptVariables(options: {
+  ask: AskSessionRow;
+  project: ProjectRow | null;
+  challenge: ChallengeRow | null;
+  messages: any[];
+  participants: { name: string; role?: string | null }[];
+}): Record<string, string | null | undefined> {
+  const history = formatMessageHistory(options.messages);
+  const lastUserMessage = [...options.messages].reverse().find(message => message.senderType === 'user');
+
+  const participantsSummary = options.participants
+    .map(participant => participant.role ? `${participant.name} (${participant.role})` : participant.name)
+    .join(', ');
+
+  return {
+    ask_key: options.ask.ask_key,
+    ask_question: options.ask.question,
+    ask_description: options.ask.description ?? '',
+    system_prompt_project: options.project?.system_prompt ?? '',
+    system_prompt_challenge: options.challenge?.system_prompt ?? '',
+    system_prompt_ask: options.ask.system_prompt ?? '',
+    message_history: history,
+    latest_user_message: lastUserMessage?.content ?? '',
+    participant_name: lastUserMessage?.senderName ?? lastUserMessage?.metadata?.senderName ?? '',
+    participants: participantsSummary,
+  } satisfies Record<string, string | null | undefined>;
+}
+
+function buildParticipantDisplayName(participant: ParticipantRow, user: UserRow | null, index: number): string {
+  if (participant.participant_name) {
+    return participant.participant_name;
+  }
+
+  if (user) {
+    if (user.full_name && user.full_name.trim().length > 0) {
+      return user.full_name;
+    }
+
+    const nameParts = [user.first_name, user.last_name].filter(Boolean);
+    if (nameParts.length) {
+      return nameParts.join(' ');
+    }
+
+    if (user.email) {
+      return user.email;
+    }
+  }
+
+  return `Participant ${index + 1}`;
+}
 
 export async function POST(
   request: NextRequest,
@@ -33,17 +138,11 @@ export async function POST(
 
     const supabase = await createServerSupabaseClient();
 
-    // Get ASK session
-    interface AskSessionRow {
-      id: string;
-      ask_key: string;
-      question?: string | null;
-      description?: string | null;
-    }
+    // Get ASK session with all needed fields
     const { row: askRow, error: askError } = await getAskSessionByKey<AskSessionRow>(
       supabase,
       key,
-      'id, ask_key, question, description'
+      'id, ask_key, question, description, project_id, challenge_id, system_prompt'
     );
 
     if (askError || !askRow) {
@@ -53,11 +152,190 @@ export async function POST(
       }, { status: 404 });
     }
 
-    // Get agent config
-    const agentConfig = await getChatAgentConfig(supabase, {
-      ask_question: askRow.question || '',
-      ask_description: askRow.description || '',
+    // Fetch participants
+    const { data: participantRows, error: participantError } = await supabase
+      .from('ask_participants')
+      .select('*')
+      .eq('ask_session_id', askRow.id)
+      .order('joined_at', { ascending: true });
+
+    if (participantError) {
+      console.error('Error fetching participants:', participantError);
+    }
+
+    const participantUserIds = (participantRows ?? [])
+      .map(row => row.user_id)
+      .filter((value): value is string => Boolean(value));
+
+    let usersById: Record<string, UserRow> = {};
+
+    if (participantUserIds.length > 0) {
+      const { data: userRows, error: userError } = await supabase
+        .from('profiles')
+        .select('id, email, full_name, first_name, last_name')
+        .in('id', participantUserIds);
+
+      if (userError) {
+        console.error('Error fetching users:', userError);
+      } else {
+        usersById = (userRows ?? []).reduce<Record<string, UserRow>>((acc, user) => {
+          acc[user.id] = user;
+          return acc;
+        }, {});
+      }
+    }
+
+    const participants = (participantRows ?? []).map((row, index) => {
+      const user = row.user_id ? usersById[row.user_id] ?? null : null;
+      return {
+        id: row.id,
+        name: buildParticipantDisplayName(row, user, index),
+        email: row.participant_email ?? user?.email ?? null,
+        role: row.role ?? null,
+        isSpokesperson: Boolean(row.is_spokesperson),
+        isActive: true,
+      };
     });
+
+    // Fetch messages
+    const { data: messageRows, error: messageError } = await supabase
+      .from('messages')
+      .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at')
+      .eq('ask_session_id', askRow.id)
+      .order('created_at', { ascending: true });
+
+    if (messageError) {
+      console.error('Error fetching messages:', messageError);
+    }
+
+    const messageUserIds = (messageRows ?? [])
+      .map(row => row.user_id)
+      .filter((value): value is string => Boolean(value));
+
+    const additionalUserIds = messageUserIds.filter(id => !usersById[id]);
+
+    if (additionalUserIds.length > 0) {
+      const { data: extraUsers, error: extraUsersError } = await supabase
+        .from('profiles')
+        .select('id, email, full_name, first_name, last_name')
+        .in('id', additionalUserIds);
+
+      if (extraUsersError) {
+        console.error('Error fetching additional users:', extraUsersError);
+      } else {
+        (extraUsers ?? []).forEach(user => {
+          usersById[user.id] = user;
+        });
+      }
+    }
+
+    // Format messages (same as agent-config/route.ts)
+    const messages: any[] = (messageRows ?? []).map((row, index) => {
+      const metadata = normaliseMessageMetadata(row.metadata);
+      const user = row.user_id ? usersById[row.user_id] ?? null : null;
+
+      const senderName = (() => {
+        if (metadata && typeof metadata.senderName === 'string' && metadata.senderName.trim().length > 0) {
+          return metadata.senderName;
+        }
+
+        if (row.sender_type === 'ai') {
+          return 'Agent';
+        }
+
+        if (user) {
+          if (user.full_name) {
+            return user.full_name;
+          }
+
+          const nameParts = [user.first_name, user.last_name].filter(Boolean);
+          if (nameParts.length > 0) {
+            return nameParts.join(' ');
+          }
+
+          if (user.email) {
+            return user.email;
+          }
+        }
+
+        return `Participant ${index + 1}`;
+      })();
+
+      return {
+        id: row.id,
+        askKey: askRow.ask_key,
+        askSessionId: row.ask_session_id,
+        content: row.content,
+        type: (row.message_type as any) ?? 'text',
+        senderType: (row.sender_type as any) ?? 'user',
+        senderId: row.user_id ?? null,
+        senderName,
+        timestamp: row.created_at ?? new Date().toISOString(),
+        metadata: metadata,
+      };
+    });
+
+    // Fetch project and challenge data
+    let projectData: ProjectRow | null = null;
+    if (askRow.project_id) {
+      const { data, error } = await supabase
+        .from('projects')
+        .select('id, name, system_prompt')
+        .eq('id', askRow.project_id)
+        .maybeSingle<ProjectRow>();
+
+      if (error) {
+        console.error('Error fetching project:', error);
+      } else {
+        projectData = data ?? null;
+      }
+    }
+
+    let challengeData: ChallengeRow | null = null;
+    if (askRow.challenge_id) {
+      const { data, error } = await supabase
+        .from('challenges')
+        .select('id, name, system_prompt')
+        .eq('id', askRow.challenge_id)
+        .maybeSingle<ChallengeRow>();
+
+      if (error) {
+        console.error('Error fetching challenge:', error);
+      } else {
+        challengeData = data ?? null;
+      }
+    }
+
+    const participantSummaries = participants.map(p => ({ name: p.name, role: p.role ?? null }));
+
+    const promptVariables = buildPromptVariables({
+      ask: askRow,
+      project: projectData,
+      challenge: challengeData,
+      messages,
+      participants: participantSummaries,
+    });
+
+    // Format messages as JSON (same as agent-config/route.ts)
+    const conversationMessagesPayload = messages.map(message => ({
+      id: message.id,
+      senderType: message.senderType,
+      senderName: message.senderName,
+      content: message.content,
+      timestamp: message.timestamp,
+    }));
+
+    // Build agent variables (same as agent-config/route.ts)
+    const agentVariables: PromptVariables = {
+      ask_key: askRow.ask_key,
+      ask_question: promptVariables.ask_question || askRow.question,
+      ask_description: promptVariables.ask_description || askRow.description || '',
+      participants: promptVariables.participants || '',
+      messages_json: JSON.stringify(conversationMessagesPayload),
+    };
+
+    // Get agent config with resolved system prompt
+    const agentConfig = await getAgentConfigForAsk(supabase, askRow.id, agentVariables);
 
     if (!agentConfig.modelConfig) {
       return NextResponse.json<ApiResponse>({
@@ -67,17 +345,20 @@ export async function POST(
     }
 
     if (role === 'user') {
-      // Create a new log for user message
+      // Create a new log for user message with resolved system prompt
       const log = await createAgentLog(supabase, {
         agentId: agentConfig.agent?.id || null,
         askSessionId: askRow.id,
         messageId: messageId || null,
         interactionType: 'ask.chat.response.voice',
         requestPayload: {
-          agentSlug: CHAT_AGENT_SLUG,
+          agentSlug: 'ask-conversation-response',
           modelConfigId: agentConfig.modelConfig.id,
+          systemPrompt: agentConfig.systemPrompt, // Include resolved system prompt
+          userPrompt: agentConfig.userPrompt,
           userMessage: content,
           role: 'user',
+          variables: agentVariables,
         },
       });
 
