@@ -31,6 +31,7 @@ export class DeepgramVoiceAgent {
   private nextStartTime: number = 0;
   private currentAudioSource: AudioBufferSourceNode | null = null;
   private keepAliveInterval: NodeJS.Timeout | null = null;
+  private isProcessingAudio: boolean = false;
   private isFirefox: boolean;
   private config: DeepgramConfig | null = null;
   
@@ -132,7 +133,16 @@ export class DeepgramVoiceAgent {
         console.log('[Deepgram] ✅ Welcome event received:', welcomeMessage);
         clearTimeout(timeout);
         
-        const settings = {
+        // Use multilingual model (nova-2 or nova-3) for automatic language detection
+        // Nova-2 and Nova-3 are multilingual models that can transcribe multiple languages
+        // For streaming, we use the multilingual model which supports FR and EN
+        const sttModel = config.sttModel || "nova-2";
+        const isMultilingualModel = sttModel.includes("nova-2") || sttModel.includes("nova-3");
+        
+        // Ensure we're using a multilingual model (nova-2 supports FR and EN automatically)
+        const finalSttModel = isMultilingualModel ? sttModel : "nova-2";
+        
+        const settings: any = {
           audio: {
             input: {
               encoding: "linear16" as const,
@@ -148,7 +158,10 @@ export class DeepgramVoiceAgent {
             listen: {
               provider: {
                 type: "deepgram" as const,
-                model: config.sttModel || "nova-2"
+                model: finalSttModel,
+                // For Agent API, we can specify languages to restrict detection to FR and EN
+                // This helps the model focus on these two languages for better accuracy
+                languages: ["fr", "en"]
               }
             },
             speak: {
@@ -225,12 +238,19 @@ export class DeepgramVoiceAgent {
       // Handle user started speaking (interrupt agent)
       client.on(AgentEvents.UserStartedSpeaking, () => {
         console.log('[Deepgram] 👤 User started speaking');
+        // Stop current audio playback
+        if (this.currentAudioSource) {
+          try {
+            this.currentAudioSource.stop();
+            this.currentAudioSource = null;
+          } catch (error) {
+            console.warn('[Deepgram] Error stopping audio on user speech:', error);
+          }
+        }
+        // Clear audio queue
         this.audioQueue = [];
         this.nextStartTime = 0;
-        if (this.currentAudioSource) {
-          this.currentAudioSource.stop();
-          this.currentAudioSource = null;
-        }
+        this.isProcessingAudio = false;
       });
 
       // Handle agent started speaking
@@ -401,6 +421,13 @@ export class DeepgramVoiceAgent {
 
   private async processAudioQueue(): Promise<void> {
     if (this.audioQueue.length === 0 || !this.audioContext) return;
+    
+    // Prevent multiple simultaneous processing
+    if (this.isProcessingAudio) {
+      return;
+    }
+
+    this.isProcessingAudio = true;
 
     try {
       const audioContext = this.audioContext;
@@ -439,49 +466,107 @@ export class DeepgramVoiceAgent {
           if (audioContext.currentTime >= this.nextStartTime - 0.1) {
             if (this.audioQueue.length === 0) {
               this.currentAudioSource = null;
+              this.isProcessingAudio = false;
+            } else {
+              // Continue processing queue
+              this.processAudioQueue();
             }
           }
         };
       }
     } catch (error) {
       console.error('Audio queue processing error', error);
+      this.isProcessingAudio = false;
     }
   }
 
   stopMicrophone(): void {
+    console.log('[Deepgram] 🎤 Stopping microphone...');
+    
+    // Disconnect processor node
     if (this.processorNode) {
-      this.processorNode.disconnect();
+      try {
+        this.processorNode.disconnect();
+        console.log('[Deepgram] ✅ Processor node disconnected');
+      } catch (error) {
+        console.warn('[Deepgram] Error disconnecting processor:', error);
+      }
       this.processorNode = null;
     }
+    
+    // Disconnect source node
     if (this.sourceNode) {
-      this.sourceNode.disconnect();
+      try {
+        this.sourceNode.disconnect();
+        console.log('[Deepgram] ✅ Source node disconnected');
+      } catch (error) {
+        console.warn('[Deepgram] Error disconnecting source:', error);
+      }
       this.sourceNode = null;
     }
+    
+    // Stop all media stream tracks
     if (this.mediaStream) {
-      this.mediaStream.getTracks().forEach(track => track.stop());
-      this.mediaStream = null;
+      try {
+        this.mediaStream.getTracks().forEach(track => {
+          if (track.readyState === 'live') {
+            track.stop();
+            console.log('[Deepgram] ✅ Stopped track:', track.kind, track.label || 'unnamed');
+          }
+        });
+        this.mediaStream = null;
+        console.log('[Deepgram] ✅ Media stream stopped');
+      } catch (error) {
+        console.warn('[Deepgram] Error stopping media stream:', error);
+      }
     }
+    
+    // Close audio context
     if (this.audioContext) {
-      this.audioContext.close();
+      try {
+        if (this.audioContext.state !== 'closed') {
+          this.audioContext.close();
+          console.log('[Deepgram] ✅ Audio context closed');
+        }
+      } catch (error) {
+        console.warn('[Deepgram] Error closing audio context:', error);
+      }
       this.audioContext = null;
     }
+    
+    console.log('[Deepgram] ✅ Microphone stopped');
   }
 
   disconnect(): void {
-    // Stop microphone
+    console.log('[Deepgram] 🔌 Disconnecting...');
+    
+    // Stop microphone first
     this.stopMicrophone();
 
-    // Stop audio playback
+    // Stop current audio playback
     if (this.currentAudioSource) {
-      this.currentAudioSource.stop();
-      this.currentAudioSource = null;
+      try {
+        this.currentAudioSource.stop();
+        this.currentAudioSource = null;
+        console.log('[Deepgram] ✅ Stopped current audio source');
+      } catch (error) {
+        console.warn('[Deepgram] Error stopping audio source:', error);
+      }
     }
+    
+    // Clear audio queue
     this.audioQueue = [];
     this.nextStartTime = 0;
+    this.isProcessingAudio = false;
 
     // Disconnect WebSocket
     if (this.client) {
-      this.client.disconnect();
+      try {
+        this.client.disconnect();
+        console.log('[Deepgram] ✅ Disconnected WebSocket client');
+      } catch (error) {
+        console.warn('[Deepgram] Error disconnecting client:', error);
+      }
       this.client = null;
     }
 
@@ -491,7 +576,19 @@ export class DeepgramVoiceAgent {
       this.keepAliveInterval = null;
     }
 
+    // Close audio context
+    if (this.audioContext) {
+      try {
+        this.audioContext.close();
+        console.log('[Deepgram] ✅ Closed audio context');
+      } catch (error) {
+        console.warn('[Deepgram] Error closing audio context:', error);
+      }
+      this.audioContext = null;
+    }
+
     this.onConnectionCallback?.(false);
+    console.log('[Deepgram] ✅ Disconnection complete');
   }
 
   isConnected(): boolean {

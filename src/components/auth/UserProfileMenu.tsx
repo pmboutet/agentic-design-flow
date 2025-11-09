@@ -54,7 +54,7 @@ export function UserProfileMenu() {
           {isLoading ? (
             <Loader2 className="h-6 w-6 animate-spin" />
           ) : isSignedIn ? (
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-purple-500 via-pink-500 to-orange-500 text-sm font-bold text-white">
+            <div className="flex h-8 w-8 aspect-square items-center justify-center rounded-full bg-gradient-to-br from-purple-500 via-pink-500 to-orange-500 text-sm font-bold text-white shrink-0">
               {getInitials(fullName)}
             </div>
           ) : (

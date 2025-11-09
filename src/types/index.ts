@@ -299,6 +299,7 @@ export interface ChatComponentProps {
   };
   onVoiceMessage?: (role: 'user' | 'agent', content: string) => void;
   onReplyBoxFocusChange?: (isFocused: boolean) => void;
+  onVoiceModeChange?: (isActive: boolean) => void;
 }
 
 export interface ChallengeComponentProps {

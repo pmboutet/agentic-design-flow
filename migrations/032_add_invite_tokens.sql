@@ -37,3 +37,4 @@ COMMENT ON COLUMN public.ask_participants.invite_token IS 'Unique token for part
 
 COMMIT;
 
+

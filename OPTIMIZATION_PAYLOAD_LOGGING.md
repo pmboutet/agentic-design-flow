@@ -113,3 +113,4 @@ Donc il n'est pas nécessaire de les dupliquer dans `variables` ou `context`.
 - `src/app/api/ask/[key]/stream/route.ts` - Suppression de `context` et optimisation de `variables`
 - `src/lib/ai/service.ts` - Optimisation de `variables` dans le payload de logging
 
+

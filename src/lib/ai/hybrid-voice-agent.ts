@@ -48,6 +48,9 @@ export class HybridVoiceAgent {
   private isFirefox: boolean;
   private config: HybridVoiceAgentConfig | null = null;
   private conversationHistory: Array<{ role: 'user' | 'agent'; content: string }> = [];
+  private isGeneratingResponse: boolean = false;
+  private isPlayingAudio: boolean = false;
+  private audioPlaybackQueue: AudioBuffer[] = [];
   
   // Callbacks
   private onMessageCallback: HybridVoiceAgentMessageCallback | null = null;
@@ -177,7 +180,16 @@ export class HybridVoiceAgent {
         clearTimeout(timeout);
         
         // Configure Deepgram for STT only (no TTS)
-        const settings = {
+        // Use multilingual model (nova-2 or nova-3) for automatic language detection
+        // Nova-2 and Nova-3 are multilingual models that can transcribe multiple languages
+        // For streaming, we use the multilingual model which supports FR and EN
+        const sttModel = config.sttModel || "nova-2";
+        const isMultilingualModel = sttModel.includes("nova-2") || sttModel.includes("nova-3");
+        
+        // Ensure we're using a multilingual model (nova-2 supports FR and EN automatically)
+        const finalSttModel = isMultilingualModel ? sttModel : "nova-2";
+        
+        const settings: any = {
           audio: {
             input: {
               encoding: "linear16" as const,
@@ -193,7 +205,10 @@ export class HybridVoiceAgent {
             listen: {
               provider: {
                 type: "deepgram" as const,
-                model: config.sttModel || "nova-2"
+                model: finalSttModel,
+                // For Agent API, we can specify languages to restrict detection to FR and EN
+                // This helps the model focus on these two languages for better accuracy
+                languages: ["fr", "en"]
               }
             },
             // Disable Deepgram TTS - we'll use ElevenLabs instead
@@ -266,8 +281,12 @@ export class HybridVoiceAgent {
             timestamp: new Date().toISOString()
           });
 
-          // Get LLM response
-          await this.generateAndSpeakResponse(message.content);
+          // Get LLM response only if not already generating one
+          if (!this.isGeneratingResponse) {
+            await this.generateAndSpeakResponse(message.content);
+          } else {
+            console.log('[HybridVoiceAgent] ⚠️ Already generating a response, skipping this request');
+          }
         } else {
           // Agent response from Deepgram (if any) - we'll ignore this since we use our own LLM
           console.log('[HybridVoiceAgent] Ignoring Deepgram agent response, using custom LLM');
@@ -283,12 +302,20 @@ export class HybridVoiceAgent {
       // Handle user started speaking
       client.on(AgentEvents.UserStartedSpeaking, () => {
         console.log('[HybridVoiceAgent] 👤 User started speaking');
-        this.audioQueue = [];
-        this.nextStartTime = 0;
+        // Stop current audio playback when user starts speaking
         if (this.currentAudioSource) {
-          this.currentAudioSource.stop();
-          this.currentAudioSource = null;
+          try {
+            this.currentAudioSource.stop();
+            this.currentAudioSource = null;
+          } catch (error) {
+            console.warn('[HybridVoiceAgent] Error stopping audio on user speech:', error);
+          }
         }
+        // Clear audio queues
+        this.audioQueue = [];
+        this.audioPlaybackQueue = [];
+        this.nextStartTime = 0;
+        this.isPlayingAudio = false;
       });
 
       // Handle errors
@@ -320,6 +347,14 @@ export class HybridVoiceAgent {
       return;
     }
 
+    // Prevent multiple simultaneous responses
+    if (this.isGeneratingResponse) {
+      console.log('[HybridVoiceAgent] ⚠️ Already generating a response, skipping');
+      return;
+    }
+
+    this.isGeneratingResponse = true;
+
     try {
       // Call LLM API to generate response
       const llmResponse = await this.callLLM(userMessage);
@@ -342,6 +377,8 @@ export class HybridVoiceAgent {
     } catch (error) {
       console.error('[HybridVoiceAgent] Error generating response:', error);
       this.onErrorCallback?.(error instanceof Error ? error : new Error('Failed to generate response'));
+    } finally {
+      this.isGeneratingResponse = false;
     }
   }
 
@@ -484,18 +521,52 @@ export class HybridVoiceAgent {
   private async playAudioBuffer(audioBuffer: AudioBuffer): Promise<void> {
     if (!this.audioContext) return;
 
-    const source = this.audioContext.createBufferSource();
-    source.buffer = audioBuffer;
-    source.connect(this.audioContext.destination);
-
-    const currentTime = this.audioContext.currentTime;
-    if (this.nextStartTime < currentTime) {
-      this.nextStartTime = currentTime;
+    // If already playing, add to queue
+    if (this.isPlayingAudio) {
+      this.audioPlaybackQueue.push(audioBuffer);
+      console.log('[HybridVoiceAgent] 🔊 Audio queued, current queue length:', this.audioPlaybackQueue.length);
+      return;
     }
 
-    source.start(this.nextStartTime);
-    this.nextStartTime += audioBuffer.duration;
-    this.currentAudioSource = source;
+    // Start playing
+    this.isPlayingAudio = true;
+    await this.playAudioBufferInternal(audioBuffer);
+  }
+
+  private async playAudioBufferInternal(audioBuffer: AudioBuffer): Promise<void> {
+    if (!this.audioContext) {
+      this.isPlayingAudio = false;
+      return;
+    }
+
+    return new Promise((resolve) => {
+      const source = this.audioContext!.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(this.audioContext!.destination);
+
+      const currentTime = this.audioContext!.currentTime;
+      if (this.nextStartTime < currentTime) {
+        this.nextStartTime = currentTime;
+      }
+
+      source.onended = () => {
+        this.currentAudioSource = null;
+        
+        // Check if there's more audio to play
+        if (this.audioPlaybackQueue.length > 0) {
+          const nextBuffer = this.audioPlaybackQueue.shift()!;
+          console.log('[HybridVoiceAgent] 🔊 Playing next queued audio, remaining:', this.audioPlaybackQueue.length);
+          this.playAudioBufferInternal(nextBuffer).then(resolve);
+        } else {
+          this.isPlayingAudio = false;
+          resolve();
+        }
+      };
+
+      source.start(this.nextStartTime);
+      this.nextStartTime += audioBuffer.duration;
+      this.currentAudioSource = source;
+    });
   }
 
   async startMicrophone(): Promise<void> {
@@ -586,45 +657,116 @@ export class HybridVoiceAgent {
   }
 
   stopMicrophone(): void {
+    console.log('[HybridVoiceAgent] 🎤 Stopping microphone...');
+    
+    // Disconnect processor node
     if (this.processorNode) {
-      this.processorNode.disconnect();
+      try {
+        this.processorNode.disconnect();
+        console.log('[HybridVoiceAgent] ✅ Processor node disconnected');
+      } catch (error) {
+        console.warn('[HybridVoiceAgent] Error disconnecting processor:', error);
+      }
       this.processorNode = null;
     }
+    
+    // Disconnect source node
     if (this.sourceNode) {
-      this.sourceNode.disconnect();
+      try {
+        this.sourceNode.disconnect();
+        console.log('[HybridVoiceAgent] ✅ Source node disconnected');
+      } catch (error) {
+        console.warn('[HybridVoiceAgent] Error disconnecting source:', error);
+      }
       this.sourceNode = null;
     }
+    
+    // Stop all media stream tracks
     if (this.mediaStream) {
-      this.mediaStream.getTracks().forEach(track => track.stop());
-      this.mediaStream = null;
+      try {
+        this.mediaStream.getTracks().forEach(track => {
+          if (track.readyState === 'live') {
+            track.stop();
+            console.log('[HybridVoiceAgent] ✅ Stopped track:', track.kind, track.label || 'unnamed');
+          }
+        });
+        this.mediaStream = null;
+        console.log('[HybridVoiceAgent] ✅ Media stream stopped');
+      } catch (error) {
+        console.warn('[HybridVoiceAgent] Error stopping media stream:', error);
+      }
     }
+    
+    // Close audio context
     if (this.audioContext) {
-      this.audioContext.close();
+      try {
+        if (this.audioContext.state !== 'closed') {
+          this.audioContext.close();
+          console.log('[HybridVoiceAgent] ✅ Audio context closed');
+        }
+      } catch (error) {
+        console.warn('[HybridVoiceAgent] Error closing audio context:', error);
+      }
       this.audioContext = null;
     }
+    
+    console.log('[HybridVoiceAgent] ✅ Microphone stopped');
   }
 
   disconnect(): void {
+    console.log('[HybridVoiceAgent] 🔌 Disconnecting...');
+    
+    // Stop microphone first
     this.stopMicrophone();
 
+    // Stop current audio playback
     if (this.currentAudioSource) {
-      this.currentAudioSource.stop();
-      this.currentAudioSource = null;
+      try {
+        this.currentAudioSource.stop();
+        this.currentAudioSource = null;
+        console.log('[HybridVoiceAgent] ✅ Stopped current audio source');
+      } catch (error) {
+        console.warn('[HybridVoiceAgent] Error stopping audio source:', error);
+      }
     }
+    
+    // Clear audio queues
     this.audioQueue = [];
+    this.audioPlaybackQueue = [];
     this.nextStartTime = 0;
+    this.isPlayingAudio = false;
+    this.isGeneratingResponse = false;
 
+    // Disconnect Deepgram client
     if (this.deepgramClient) {
-      this.deepgramClient.disconnect();
+      try {
+        this.deepgramClient.disconnect();
+        console.log('[HybridVoiceAgent] ✅ Disconnected Deepgram client');
+      } catch (error) {
+        console.warn('[HybridVoiceAgent] Error disconnecting Deepgram client:', error);
+      }
       this.deepgramClient = null;
     }
 
+    // Clear keep-alive interval
     if (this.keepAliveInterval) {
       clearInterval(this.keepAliveInterval);
       this.keepAliveInterval = null;
     }
 
+    // Close audio context
+    if (this.audioContext) {
+      try {
+        this.audioContext.close();
+        console.log('[HybridVoiceAgent] ✅ Closed audio context');
+      } catch (error) {
+        console.warn('[HybridVoiceAgent] Error closing audio context:', error);
+      }
+      this.audioContext = null;
+    }
+
     this.onConnectionCallback?.(false);
+    console.log('[HybridVoiceAgent] ✅ Disconnection complete');
   }
 
   isConnected(): boolean {

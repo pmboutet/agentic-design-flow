@@ -17,6 +17,7 @@ import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import "highlight.js/styles/github-dark.css";
 import { VoiceMode } from "./VoiceMode";
+import { PremiumVoiceInterface } from "./PremiumVoiceInterface";
 import { DeepgramMessageEvent } from "@/lib/ai/deepgram";
 
 /**
@@ -39,6 +40,7 @@ export function ChatComponent({
   voiceModeModelConfig,
   onVoiceMessage,
   onReplyBoxFocusChange,
+  onVoiceModeChange,
 }: ChatComponentProps) {
   const [inputValue, setInputValue] = useState("");
   const [selectedFiles, setSelectedFiles] = useState<FileUpload[]>([]);
@@ -254,6 +256,34 @@ export function ChatComponent({
     );
   }
 
+  // Show premium voice interface when voice mode is active
+  if (isVoiceMode && voiceModeEnabled && voiceModeSystemPrompt) {
+    // Convert messages to voice interface format
+    const voiceMessages = messages
+      .filter(msg => msg.senderType === 'user' || msg.senderType === 'ai')
+      .map(msg => ({
+        role: msg.senderType === 'user' ? 'user' as const : 'assistant' as const,
+        content: msg.content,
+        timestamp: msg.timestamp,
+      }));
+
+    return (
+      <PremiumVoiceInterface
+        askKey={askKey}
+        askSessionId={ask?.askSessionId}
+        systemPrompt={voiceModeSystemPrompt}
+        modelConfig={voiceModeModelConfig}
+        onMessage={handleVoiceMessage}
+        onError={handleVoiceError}
+        onClose={() => {
+          setIsVoiceMode(false);
+          onVoiceModeChange?.(false);
+        }}
+        messages={voiceMessages}
+      />
+    );
+  }
+
   return (
     <Card className="h-full flex flex-col overflow-hidden">
       <CardHeader className="pb-3 border-b border-border/40">
@@ -341,21 +371,6 @@ export function ChatComponent({
           </div>
         )}
 
-        {/* Voice Mode */}
-        {isVoiceMode && voiceModeEnabled && voiceModeSystemPrompt && (
-          <div className="mb-3">
-            <VoiceMode
-              askKey={askKey}
-              askSessionId={ask?.askSessionId}
-              systemPrompt={voiceModeSystemPrompt}
-              modelConfig={voiceModeModelConfig}
-              onMessage={handleVoiceMessage}
-              onError={handleVoiceError}
-              onClose={() => setIsVoiceMode(false)}
-            />
-          </div>
-        )}
-
         {/* Input area */}
         {!isVoiceMode && (
           <div 
@@ -407,7 +422,11 @@ export function ChatComponent({
                   <Button
                     variant={isVoiceMode ? "default" : "ghost"}
                     size="icon"
-                    onClick={() => setIsVoiceMode(!isVoiceMode)}
+                    onClick={() => {
+                      const newVoiceMode = !isVoiceMode;
+                      setIsVoiceMode(newVoiceMode);
+                      onVoiceModeChange?.(newVoiceMode);
+                    }}
                     className={cn("h-9 w-9", isVoiceMode && "bg-primary text-primary-foreground")}
                     title={isVoiceMode ? "Exit voice mode" : "Enter voice mode"}
                   >

@@ -30,3 +30,4 @@ ALTER TABLE public.ai_model_configs
 
 COMMIT;
 
+
