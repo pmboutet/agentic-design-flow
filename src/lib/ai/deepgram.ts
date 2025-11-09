@@ -158,10 +158,9 @@ export class DeepgramVoiceAgent {
             listen: {
               provider: {
                 type: "deepgram" as const,
-                model: finalSttModel,
-                // For Agent API, we can specify languages to restrict detection to FR and EN
-                // This helps the model focus on these two languages for better accuracy
-                languages: ["fr", "en"]
+                model: finalSttModel
+                // Nova-2 and Nova-3 are multilingual models that automatically detect language
+                // They support FR and EN automatically - no additional language parameter needed
               }
             },
             speak: {
