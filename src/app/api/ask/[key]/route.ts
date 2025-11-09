@@ -813,6 +813,19 @@ export async function POST(
       }
     }
 
+    // Check if profile is quarantined before allowing message insertion
+    if (finalProfileId) {
+      const { isProfileQuarantined } = await import('@/lib/security/quarantine');
+      const isQuarantined = await isProfileQuarantined(dataClient, finalProfileId);
+      
+      if (isQuarantined) {
+        return NextResponse.json<ApiResponse>({
+          success: false,
+          error: 'Votre compte a été mis en quarantaine et ne peut plus envoyer de messages. Contactez un administrateur pour plus d\'informations.'
+        }, { status: 403 });
+      }
+    }
+
     const timestamp = body.timestamp ?? new Date().toISOString();
     const metadata = body.metadata && typeof body.metadata === 'object' ? body.metadata : {};
 
