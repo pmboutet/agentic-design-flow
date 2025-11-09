@@ -5,6 +5,7 @@ import { requireAdmin } from '@/lib/supabaseServer';
 import { detectMaliciousContent, shouldQuarantine, getMaxSeverity } from '@/lib/security/detection';
 import { quarantineProfile } from '@/lib/security/quarantine';
 import { createAgentLog } from '@/lib/ai/logs';
+import { executeAgent } from '@/lib/ai/service';
 import { parseErrorMessage } from '@/lib/utils';
 import type { ApiResponse } from '@/types';
 
@@ -155,10 +156,97 @@ async function processQueueItem(
     return;
   }
 
-  // Detect malicious content using TypeScript detection
+  // Step 1: Detect malicious content using non-agentic detection (patterns, regex)
   const detectionResult = detectMaliciousContent(message.content);
 
-  if (!detectionResult.hasThreats) {
+  // Step 2: Also run AI agent analysis for deeper content analysis
+  let aiAnalysisResult: {
+    hasThreat: boolean;
+    severity: 'low' | 'medium' | 'high' | 'critical';
+    threatType: string | null;
+    explanation: string;
+    recommendedAction: 'none' | 'warn' | 'quarantine';
+    confidence: number;
+  } | null = null;
+
+  try {
+    // Get message with ask_session_id
+    const { data: messageWithSession } = await adminClient
+      .from('messages')
+      .select('ask_session_id')
+      .eq('id', message.id)
+      .single();
+
+    const askSessionId = messageWithSession?.ask_session_id;
+
+    // Get ASK session info for context
+    let askKey = '';
+    if (askSessionId) {
+      const { data: askSession } = await adminClient
+        .from('ask_sessions')
+        .select('ask_key')
+        .eq('id', askSessionId)
+        .maybeSingle();
+      askKey = askSession?.ask_key ?? '';
+    }
+
+    // Get recent messages for context
+    const { data: recentMessages } = askSessionId ? await adminClient
+      .from('messages')
+      .select('content, sender_type, created_at')
+      .eq('ask_session_id', askSessionId)
+      .order('created_at', { ascending: false })
+      .limit(5) : { data: [] };
+
+    // Get participant name
+    const { data: profile } = message.user_id ? await adminClient
+      .from('profiles')
+      .select('full_name, email')
+      .eq('id', message.user_id)
+      .maybeSingle() : { data: null };
+
+    // Execute AI agent for security monitoring
+    const aiResult = await executeAgent({
+      supabase: adminClient,
+      agentSlug: 'security-message-monitoring',
+      messageId: message.id,
+      interactionType: 'security.message-analysis',
+      variables: {
+        message_content: message.content,
+        ask_key: askKey,
+        participant_name: profile?.full_name ?? profile?.email ?? 'Unknown',
+        recent_messages: JSON.stringify((recentMessages?.slice(0, 3) ?? []).map(m => ({
+          content: m.content,
+          sender_type: m.sender_type,
+        }))),
+        message_id: message.id,
+      },
+    });
+
+    // Parse AI response (should be JSON)
+    try {
+      const parsed = JSON.parse(aiResult.content);
+      aiAnalysisResult = {
+        hasThreat: parsed.hasThreat ?? false,
+        severity: parsed.severity ?? 'low',
+        threatType: parsed.threatType ?? null,
+        explanation: parsed.explanation ?? '',
+        recommendedAction: parsed.recommendedAction ?? 'none',
+        confidence: parsed.confidence ?? 0,
+      };
+    } catch (parseError) {
+      console.warn('Failed to parse AI analysis result:', parseError);
+      // If AI analysis fails, continue with non-agentic detection only
+    }
+  } catch (aiError) {
+    // If AI agent fails, continue with non-agentic detection only
+    console.warn('AI security monitoring agent failed:', aiError);
+  }
+
+  // Combine results: use AI analysis if available, otherwise use non-agentic detection
+  const finalHasThreats = detectionResult.hasThreats || (aiAnalysisResult?.hasThreat ?? false);
+  
+  if (!finalHasThreats) {
     // No threats detected, mark as completed
     await adminClient
       .from('security_monitoring_queue')
@@ -171,10 +259,27 @@ async function processQueueItem(
   }
 
   // Threats detected - create security detections
-  const maxSeverity = getMaxSeverity(detectionResult.detections);
+  // Combine non-agentic and AI detections
+  const allDetections = [...detectionResult.detections];
+  
+  // Add AI analysis result if available
+  if (aiAnalysisResult && aiAnalysisResult.hasThreat) {
+    allDetections.push({
+      type: (aiAnalysisResult.threatType as any) ?? 'suspicious',
+      severity: aiAnalysisResult.severity,
+      pattern: aiAnalysisResult.explanation,
+      details: {
+        source: 'ai_agent',
+        confidence: aiAnalysisResult.confidence,
+        recommendedAction: aiAnalysisResult.recommendedAction,
+      },
+    });
+  }
+
+  const maxSeverity = getMaxSeverity(allDetections);
   
   // Create detection records for each threat
-  const detectionInserts = detectionResult.detections.map((detection) => ({
+  const detectionInserts = allDetections.map((detection) => ({
     message_id: message.id,
     profile_id: message.user_id,
     detection_type: detection.type,
@@ -208,7 +313,8 @@ async function processQueueItem(
             messageId: message.id,
             profileId: message.user_id,
             severity: maxSeverity,
-            detections: detectionResult.detections,
+            detections: allDetections,
+            aiAnalysis: aiAnalysisResult,
             action: 'profile_quarantined',
           },
         });
@@ -225,13 +331,14 @@ async function processQueueItem(
     try {
       await createAgentLog(adminClient, {
         interactionType: 'security.alert',
-        requestPayload: {
-          messageId: message.id,
-          profileId: message.user_id,
-          severity: maxSeverity,
-          detections: detectionResult.detections,
-          action: 'detection_created',
-        },
+          requestPayload: {
+            messageId: message.id,
+            profileId: message.user_id,
+            severity: maxSeverity,
+            detections: allDetections,
+            aiAnalysis: aiAnalysisResult,
+            action: 'detection_created',
+          },
       });
     } catch (logError) {
       // Log error but don't fail the process

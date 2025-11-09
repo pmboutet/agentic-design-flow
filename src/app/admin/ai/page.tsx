@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
-import { Loader2, Network, Sparkles, ChevronDown, ChevronUp, TestTube2 } from "lucide-react";
+import { Loader2, Network, Sparkles, ChevronDown, ChevronUp, TestTube2, Settings } from "lucide-react";
 import type { AiAgentRecord, AiModelConfig, PromptVariableDefinition, ApiResponse } from "@/types";
 import { extractTemplateVariables } from "@/lib/ai/templates";
 import { AgentTestMode } from "@/components/admin/AgentTestMode";
@@ -210,6 +210,18 @@ function groupAgents(agents: AgentDraft[]): AgentGroup[] {
       color: groupColors["challenge-builder"],
     },
     {
+      key: "security",
+      title: "Sécurité",
+      description: "Agents de surveillance et de sécurité des messages",
+      agents: [],
+      color: {
+        border: "border-red-400/40",
+        bg: "bg-red-500/10",
+        text: "text-red-700 dark:text-red-200",
+        badge: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200",
+      },
+    },
+    {
       key: "other",
       title: "Autres Agents",
       description: "Autres agents du système",
@@ -228,8 +240,10 @@ function groupAgents(agents: AgentDraft[]): AgentGroup[] {
       groups[2].agents.push(agent);
     } else if (slug.includes("challenge") || slug.includes("builder")) {
       groups[3].agents.push(agent);
-    } else {
+    } else if (slug.includes("security") || slug.includes("monitoring") || slug.includes("surveillance")) {
       groups[4].agents.push(agent);
+    } else {
+      groups[5].agents.push(agent);
     }
   });
 
@@ -956,6 +970,65 @@ export default function AiConfigurationPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* System Services Section */}
+      <Card className="border-orange-400/40 bg-orange-500/10">
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <Settings className="h-5 w-5" />
+            <CardTitle className="text-orange-700 dark:text-orange-200">Services Système</CardTitle>
+          </div>
+          <CardDescription>
+            Workers et services système pour le monitoring et la sécurité.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="rounded-lg border border-orange-400/40 p-4 bg-white/60">
+            <div className="flex items-center justify-between mb-2">
+              <h4 className="font-semibold">Worker de Surveillance Sécurité</h4>
+              <span className="text-xs px-2 py-1 rounded bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200">
+                Worker
+              </span>
+            </div>
+            <p className="text-sm text-muted-foreground mb-3">
+              Traite la queue de monitoring asynchrone pour analyser les messages et détecter les contenus malveillants.
+            </p>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={async () => {
+                  try {
+                    const response = await fetch('/api/admin/security/process-queue', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      credentials: 'include',
+                      body: JSON.stringify({ batchSize: 10 }),
+                    });
+                    const data = await response.json();
+                    if (data.success) {
+                      alert(`Queue traitée: ${data.data?.processed || 0} items, ${data.data?.quarantined || 0} profils mis en quarantaine`);
+                    } else {
+                      alert(`Erreur: ${data.error}`);
+                    }
+                  } catch (err) {
+                    alert(`Erreur: ${err instanceof Error ? err.message : 'Erreur inconnue'}`);
+                  }
+                }}
+              >
+                Traiter la queue maintenant
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => window.open('/admin', '_blank')}
+              >
+                Voir Security Panel
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Graph RAG Section */}
       <Card>
