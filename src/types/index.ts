@@ -207,11 +207,11 @@ export interface AiModelConfig {
   isFallback?: boolean;
   createdAt?: string;
   updatedAt?: string;
-  // Deepgram-specific fields (stored in additionalHeaders or metadata)
-  deepgramSttModel?: string; // e.g., "nova-2"
-  deepgramTtsModel?: string; // e.g., "aura-thalia-en"
+  // Deepgram-specific fields (stored in dedicated database columns)
+  deepgramSttModel?: string; // e.g., "nova-2", "nova-3"
+  deepgramTtsModel?: string; // e.g., "aura-2-thalia-en", "aura-2-asteria-en"
   deepgramLlmProvider?: "anthropic" | "openai"; // LLM provider for Deepgram Agent
-  deepgramLlmModel?: string; // LLM model name
+  deepgramLlmModel?: string; // LLM model name (e.g., "claude-3-5-haiku-latest", "gpt-4o")
   // ElevenLabs-specific fields for hybrid voice agent
   elevenLabsVoiceId?: string; // ElevenLabs voice ID
   elevenLabsModelId?: string; // ElevenLabs TTS model ID (e.g., "eleven_turbo_v2_5")
@@ -640,4 +640,31 @@ export interface AiAskGeneratorResponse {
   suggestions: AiAskSuggestion[];
   errors?: string[];
   rawResponse?: string | null;
+}
+
+// Security types
+export type SecurityDetectionType = 'injection' | 'xss' | 'spam' | 'length' | 'command_injection';
+export type SecurityDetectionSeverity = 'low' | 'medium' | 'high' | 'critical';
+export type SecurityDetectionStatus = 'pending' | 'reviewed' | 'resolved' | 'false_positive';
+
+export interface SecurityDetection {
+  id: string;
+  messageId: string;
+  profileId: string | null;
+  detectionType: SecurityDetectionType;
+  severity: SecurityDetectionSeverity;
+  matchedPatterns: Record<string, unknown>;
+  status: SecurityDetectionStatus;
+  reviewedBy: string | null;
+  reviewedAt: string | null;
+  createdAt: string;
+}
+
+export interface QuarantinedProfile {
+  id: string;
+  email: string;
+  fullName?: string | null;
+  isQuarantined: boolean;
+  quarantinedAt?: string | null;
+  quarantinedReason?: string | null;
 }

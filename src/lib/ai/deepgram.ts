@@ -27,12 +27,13 @@ export class DeepgramVoiceAgent {
   private audioContext: AudioContext | null = null;
   private mediaStream: MediaStream | null = null;
   private sourceNode: MediaStreamAudioSourceNode | null = null;
-  private processorNode: ScriptProcessorNode | null = null;
+  private processorNode: AudioWorkletNode | null = null;
   private audioQueue: Uint8Array[] = [];
   private nextStartTime: number = 0;
   private currentAudioSource: AudioBufferSourceNode | null = null;
   private keepAliveInterval: NodeJS.Timeout | null = null;
   private isProcessingAudio: boolean = false;
+  private isMicrophoneActive: boolean = false;
   private isFirefox: boolean;
   private config: DeepgramConfig | null = null;
   
@@ -370,46 +371,52 @@ export class DeepgramVoiceAgent {
     this.sourceNode = source;
     console.log('[Deepgram] MediaStreamSource created');
 
-    // Create processor for audio capture
-    const processor = audioContext.createScriptProcessor(2048, 1, 1);
+    // Load AudioWorklet module
+    try {
+      console.log('[Deepgram] Loading AudioWorklet module...');
+      await audioContext.audioWorklet.addModule('/audio-processor.js');
+      console.log('[Deepgram] ✅ AudioWorklet module loaded');
+    } catch (error) {
+      console.error('[Deepgram] ❌ Failed to load AudioWorklet module:', error);
+      throw new Error(`Failed to load AudioWorklet: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+
+    // Create AudioWorkletNode with 8192 buffer size
+    // Note: The buffer size is controlled by the AudioWorkletProcessor's process() method
+    // We configure it via the processorOptions
+    const processorOptions = {
+      processorOptions: {
+        isFirefox: isFirefox
+      },
+      numberOfInputs: 1,
+      numberOfOutputs: 1,
+      channelCount: 1
+    };
+    
+    const processor = new AudioWorkletNode(audioContext, 'deepgram-audio-processor', processorOptions);
     this.processorNode = processor;
-    console.log('[Deepgram] ScriptProcessor created');
+    console.log('[Deepgram] AudioWorkletNode created with 8192 buffer size');
 
     let audioChunkCount = 0;
-    processor.onaudioprocess = (audioProcessingEvent) => {
-      if (!this.client) return;
+    this.isMicrophoneActive = true;
 
-      const inputBuffer = audioProcessingEvent.inputBuffer;
-      const inputData = inputBuffer.getChannelData(0); // Float32Array
+    // Handle audio data from AudioWorklet
+    processor.port.onmessage = (event) => {
+      if (!this.client || !this.isMicrophoneActive) return;
 
-      // Handle downsampling for Firefox (48kHz → 24kHz)
-      let processedData: Float32Array;
-      if (isFirefox) {
-        const downsampledLength = Math.floor(inputData.length / 2);
-        processedData = new Float32Array(downsampledLength);
-        for (let i = 0; i < downsampledLength; i++) {
-          processedData[i] = inputData[i * 2];
+      if (event.data.type === 'audio') {
+        const pcmData = new Int16Array(event.data.data);
+        
+        // Send audio to Deepgram
+        try {
+          this.client.send(pcmData.buffer);
+          audioChunkCount++;
+          if (audioChunkCount % 100 === 0) {
+            console.log('[Deepgram] 🔊 Sent', audioChunkCount, 'audio chunks');
+          }
+        } catch (error) {
+          console.error('[Deepgram] ❌ Error sending audio to agent:', error);
         }
-      } else {
-        processedData = inputData;
-      }
-
-      // Convert Float32 [-1, 1] → Int16 [-32768, 32767]
-      const pcmData = new Int16Array(processedData.length);
-      for (let i = 0; i < processedData.length; i++) {
-        const sample = Math.max(-1, Math.min(1, processedData[i]));
-        pcmData[i] = Math.round(sample * 0x7FFF);
-      }
-
-      // Send audio to Deepgram
-      try {
-        this.client.send(pcmData.buffer);
-        audioChunkCount++;
-        if (audioChunkCount % 100 === 0) {
-          console.log('[Deepgram] 🔊 Sent', audioChunkCount, 'audio chunks');
-        }
-      } catch (error) {
-        console.error('[Deepgram] ❌ Error sending audio to agent:', error);
       }
     };
 
@@ -482,6 +489,19 @@ export class DeepgramVoiceAgent {
 
   stopMicrophone(): void {
     console.log('[Deepgram] 🎤 Stopping microphone...');
+    
+    // Set flag to stop processing audio chunks immediately
+    this.isMicrophoneActive = false;
+    
+    // Send stop message to AudioWorklet
+    if (this.processorNode) {
+      try {
+        this.processorNode.port.postMessage({ type: 'stop' });
+        console.log('[Deepgram] ✅ Stop message sent to AudioWorklet');
+      } catch (error) {
+        console.warn('[Deepgram] Error sending stop message to AudioWorklet:', error);
+      }
+    }
     
     // Disconnect processor node
     if (this.processorNode) {

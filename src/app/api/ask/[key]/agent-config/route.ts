@@ -350,6 +350,9 @@ export async function GET(
           deepgramTtsModel: (agentConfig.modelConfig as any).deepgramTtsModel,
           deepgramLlmProvider: (agentConfig.modelConfig as any).deepgramLlmProvider,
           deepgramLlmModel: (agentConfig.modelConfig as any).deepgramLlmModel,
+          elevenLabsVoiceId: (agentConfig.modelConfig as any).elevenLabsVoiceId,
+          elevenLabsModelId: (agentConfig.modelConfig as any).elevenLabsModelId,
+          elevenLabsApiKeyEnvVar: (agentConfig.modelConfig as any).elevenLabsApiKeyEnvVar,
         } : null,
       },
     });

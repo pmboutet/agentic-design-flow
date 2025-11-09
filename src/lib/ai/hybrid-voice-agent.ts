@@ -134,6 +134,11 @@ export class HybridVoiceAgent {
     console.log('[HybridVoiceAgent] Starting connection process...');
     this.config = config;
 
+    // Validate required ElevenLabs configuration
+    if (!config.elevenLabsVoiceId) {
+      throw new Error('ElevenLabs voice ID is required for hybrid voice agent');
+    }
+
     // Get ElevenLabs API key if not provided
     let elevenLabsApiKey = config.elevenLabsApiKey;
     if (!elevenLabsApiKey) {

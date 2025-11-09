@@ -43,9 +43,13 @@ export class ElevenLabsTTS {
     text: string,
     voiceId?: string
   ): Promise<ReadableStream<Uint8Array>> {
+    if (!text || text.trim().length === 0) {
+      throw new Error('Text is required for text-to-speech');
+    }
+    
     const voice = voiceId || this.config.voiceId;
     if (!voice) {
-      throw new Error('Voice ID is required');
+      throw new Error('Voice ID is required for ElevenLabs TTS');
     }
 
     const url = `${this.baseUrl}/text-to-speech/${voice}/stream`;
