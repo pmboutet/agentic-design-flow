@@ -40,6 +40,7 @@ import { GraphRAGPanel } from "./GraphRAGPanel";
 import { useAdminResources } from "./useAdminResources";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { UserSearchCombobox } from "@/components/ui/user-search-combobox";
+import { useAdminSearch, type SearchResultType, type SearchResultItem } from "./AdminSearchContext";
 import type { ApiResponse, AskSessionRecord, ChallengeRecord, ClientRecord, ManagedUser, ProjectRecord } from "@/types";
 
 interface AdminDashboardProps {
@@ -198,18 +199,6 @@ const navigationItems = [
 
 type SectionId = (typeof navigationItems)[number]["targetId"];
 type SectionLabel = (typeof navigationItems)[number]["label"];
-
-type SearchResultType = "client" | "project" | "challenge" | "ask" | "user";
-
-interface SearchResultItem {
-  id: string;
-  type: SearchResultType;
-  title: string;
-  subtitle?: string;
-  clientId?: string | null;
-  projectId?: string | null;
-  challengeId?: string | null;
-}
 
 const searchResultTypeConfig: Record<SearchResultType, { label: string; icon: LucideIcon }> = {
   client: { label: "Client", icon: Building2 },
@@ -631,6 +620,7 @@ function AskDetailDialog({ ask, projectName, challengeName, onClose }: AskDetail
 export function AdminDashboard({ initialProjectId = null, mode = "default" }: AdminDashboardProps = {}) {
   const router = useRouter();
   const { profile, status, user } = useAuth();
+  const searchContext = useAdminSearch();
   const {
     clients,
     users,
@@ -705,6 +695,7 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
   const asksRef = useRef<HTMLDivElement>(null);
   const usersRef = useRef<HTMLDivElement>(null);
   const insightsRef = useRef<HTMLDivElement>(null);
+  const mainScrollRef = useRef<HTMLElement>(null);
   const graphRagRef = useRef<HTMLDivElement>(null);
   const settingsRef = useRef<HTMLDivElement>(null);
 
@@ -2213,6 +2204,51 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
   );
   const inactiveUserCount = filteredUsers.length - activeUserCount;
 
+  // Update the context with AdminDashboard's search state
+  // This must be called before any conditional returns to maintain hook order
+  // Memoize the context value to avoid infinite loops
+  const searchContextValue = useMemo(() => ({
+    searchQuery,
+    setSearchQuery,
+    isSearchFocused,
+    setIsSearchFocused,
+    useVectorSearch,
+    setUseVectorSearch,
+    isVectorSearching,
+    enhancedSearchResults,
+    hasSearchResults,
+    showSearchDropdown,
+    searchInputRef,
+    searchResultTypeConfig,
+    handleSearchChange,
+    handleSearchFocus,
+    handleSearchBlur,
+    handleSearchKeyDown,
+    handleClearSearch,
+    handleSearchSelect,
+  }), [
+    searchQuery,
+    isSearchFocused,
+    useVectorSearch,
+    isVectorSearching,
+    enhancedSearchResults,
+    hasSearchResults,
+    showSearchDropdown,
+    searchResultTypeConfig,
+    handleSearchChange,
+    handleSearchFocus,
+    handleSearchBlur,
+    handleSearchKeyDown,
+    handleClearSearch,
+    handleSearchSelect,
+  ]);
+
+  useEffect(() => {
+    if (searchContext?.updateContext) {
+      searchContext.updateContext(searchContextValue);
+    }
+  }, [searchContext, searchContextValue]);
+
   // Now we can do conditional returns
   if (accessState === "checking") {
     return (
@@ -3251,9 +3287,6 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
     </div>
   );
 
-
-
-
   return (
     <>
       <ChallengeDetailDialog
@@ -3271,117 +3304,8 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
       <div className="h-screen bg-slate-950 text-slate-100">
       <div className="flex h-full">
         <div className="flex flex-1 flex-col">
-          <motion.header
-            initial={{ opacity: 0, y: -20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="sticky top-0 z-40 border-b border-white/10 bg-slate-950/80 backdrop-blur"
-          >
-            <div className="flex items-center px-6 py-4">
-              <div className="flex flex-1 items-center gap-3">
-                <div className="hidden md:flex md:max-w-md md:flex-1">
-                  <div className="relative w-full">
-                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
-                    <Input
-                      ref={searchInputRef}
-                      value={searchQuery}
-                      onChange={handleSearchChange}
-                      onFocus={handleSearchFocus}
-                      onBlur={handleSearchBlur}
-                      onKeyDown={handleSearchKeyDown}
-                      placeholder="Search across clients, projects, sessions..."
-                      className="w-full rounded-xl border-white/10 bg-white/5 pl-9 pr-10 text-sm text-white placeholder:text-slate-300 focus-visible:ring-0 focus-visible:ring-offset-0"
-                      aria-label="Search across clients, projects, sessions"
-                      aria-expanded={showSearchDropdown && hasSearchResults}
-                      aria-haspopup="listbox"
-                      aria-controls="admin-search-results"
-                      role="combobox"
-                      autoComplete="off"
-                    />
-                    {searchQuery && (
-                      <button
-                        type="button"
-                        onMouseDown={event => event.preventDefault()}
-                        onClick={handleClearSearch}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full p-1 text-slate-300 transition hover:text-white"
-                        aria-label="Clear search"
-                      >
-                        <X className="h-4 w-4" />
-                      </button>
-                    )}
-                    <AnimatePresence>
-                      {showSearchDropdown && (
-                        <motion.div
-                          id="admin-search-results"
-                          initial={{ opacity: 0, y: -4 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0, y: -4 }}
-                          transition={{ duration: 0.15 }}
-                          className="absolute left-0 right-0 top-12 z-50 rounded-2xl border border-white/10 bg-slate-950/90 p-3 shadow-2xl backdrop-blur"
-                          role="listbox"
-                        >
-                          <div className="mb-2 flex items-center justify-between">
-                            <div className="flex items-center gap-3">
-                              <span className="text-xs uppercase tracking-wide text-slate-400">Results</span>
-                              <label className="flex items-center gap-2 text-xs text-slate-300">
-                                <input
-                                  type="checkbox"
-                                  checked={useVectorSearch}
-                                  onChange={(e) => setUseVectorSearch(e.target.checked)}
-                                  className="h-3 w-3 rounded border-white/20 bg-slate-900"
-                                />
-                                <span>Recherche sémantique</span>
-                                {isVectorSearching && <Loader2 className="h-3 w-3 animate-spin" />}
-                              </label>
-                            </div>
-                            <span className="text-xs uppercase tracking-wide text-slate-400">
-                              {hasSearchResults
-                                ? `${enhancedSearchResults.length} match${enhancedSearchResults.length > 1 ? "es" : ""}`
-                                : "No results"}
-                            </span>
-                          </div>
-                          <div className="space-y-1">
-                            {hasSearchResults ? (
-                              enhancedSearchResults.map(result => {
-                                const config = searchResultTypeConfig[result.type];
-                                const Icon = config.icon;
-                                return (
-                                  <button
-                                    key={`${result.type}-${result.id}`}
-                                    type="button"
-                                    className="flex w-full items-start gap-3 rounded-xl px-3 py-2 text-left text-sm text-slate-200 transition hover:bg-white/10 focus:bg-white/10 focus:outline-none"
-                                    onMouseDown={event => event.preventDefault()}
-                                    onClick={() => handleSearchSelect(result)}
-                                    role="option"
-                                  >
-                                    <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-white/10 text-white">
-                                      <Icon className="h-4 w-4" />
-                                    </div>
-                                    <div className="flex-1">
-                                      <p className="font-medium text-white">{result.title}</p>
-                                      <p className="text-xs text-slate-300">
-                                        {config.label}
-                                        {result.subtitle ? ` • ${result.subtitle}` : ""}
-                                      </p>
-                                    </div>
-                                  </button>
-                                );
-                              })
-                            ) : (
-                              <div className="px-3 py-4 text-sm text-slate-300">
-                                No matches for &ldquo;{searchQuery}&rdquo;
-                              </div>
-                            )}
-                          </div>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </motion.header>
-
           <main
+            ref={mainScrollRef}
             className={`flex-1 overflow-y-auto ${
               isJourneyMode
                 ? "space-y-6 px-4 py-6 sm:px-6 lg:px-10"
@@ -3415,37 +3339,92 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
               )}
 
             {isJourneyMode ? (
-              <section className="flex flex-1 flex-col gap-6">
+              <section className="flex flex-1 flex-col">
                 <div className="rounded-3xl border border-white/10 bg-white/5 p-6 backdrop-blur">
-                  <div className="flex flex-wrap items-center justify-between gap-4">
-                    <div>
-                      <p className="text-xs uppercase tracking-wide text-indigo-200">Exploration projet</p>
-                      <h2 className="text-2xl font-semibold text-white">
-                        {selectedProject?.name || "Parcours projet"}
-                      </h2>
-                      <p className="text-sm text-slate-300">
-                        Visualisez les ASKs, insights et challenges connectés à ce projet.
-                      </p>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-3 text-sm">
-                      {selectedClient?.name && (
-                        <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs uppercase tracking-wide text-slate-200">
-                          {selectedClient.name}
-                        </span>
-                      )}
-                      <Button
-                        type="button"
-                        variant="glassDark"
-                        onClick={() => setShowJourneyBoard(false)}
-                      >
-                        Fermer
-                      </Button>
+                  {/* Fixed header bar with blur effect on content below */}
+                  <div className="sticky top-0 z-20 -mx-6 -mt-6 mb-6">
+                    {/* Blur overlay for content passing underneath */}
+                    <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-slate-950 via-slate-950/95 to-transparent backdrop-blur-xl pointer-events-none" />
+                    
+                    {/* Header content */}
+                    <div className="relative z-10 flex flex-wrap items-start justify-between gap-4 px-6 pt-6">
+                      <div className="flex-1">
+                        <p className="text-xs uppercase tracking-wide text-indigo-200">Exploration projet</p>
+                        <h2 className="text-2xl font-semibold text-white">
+                          {selectedProject?.name || "Parcours projet"}
+                        </h2>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        {selectedProject && (
+                          <Button
+                            type="button"
+                            variant="glassDark"
+                            onClick={() => startProjectEdit(selectedProject.id)}
+                            className="gap-2"
+                          >
+                            <Pencil className="h-4 w-4" />
+                            Éditer
+                          </Button>
+                        )}
+                        <Button
+                          type="button"
+                          variant="glassDark"
+                          onClick={() => setShowJourneyBoard(false)}
+                        >
+                          Fermer
+                        </Button>
+                      </div>
                     </div>
                   </div>
+
+                  {/* Project details */}
+                  {selectedProject ? (
+                    <>
+                      {selectedProject?.clientName ? (
+                        <p className="mb-4 text-sm text-slate-300">Client: {selectedProject.clientName}</p>
+                      ) : null}
+                      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                        <div>
+                          <p className="text-xs uppercase tracking-wide text-slate-400">Status</p>
+                          <p className="mt-1 text-sm font-medium text-slate-100 capitalize">
+                            {selectedProject.status ?? "unknown"}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-xs uppercase tracking-wide text-slate-400">Timeline</p>
+                          <p className="mt-1 text-sm font-medium text-slate-100">
+                            {selectedProject.startDate && selectedProject.endDate
+                              ? `${new Intl.DateTimeFormat("en", { month: "short", year: "numeric" }).format(new Date(selectedProject.startDate))} – ${new Intl.DateTimeFormat("en", { month: "short", year: "numeric" }).format(new Date(selectedProject.endDate))}`
+                              : "Not specified"}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-xs uppercase tracking-wide text-slate-400">Start date</p>
+                          <p className="mt-1 text-sm font-medium text-slate-100">
+                            {selectedProject.startDate
+                              ? new Intl.DateTimeFormat("en", { dateStyle: "medium" }).format(new Date(selectedProject.startDate))
+                              : "—"}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-xs uppercase tracking-wide text-slate-400">End date</p>
+                          <p className="mt-1 text-sm font-medium text-slate-100">
+                            {selectedProject.endDate
+                              ? new Intl.DateTimeFormat("en", { dateStyle: "medium" }).format(new Date(selectedProject.endDate))
+                              : "—"}
+                          </p>
+                        </div>
+                      </div>
+
+                      {selectedProject.description ? (
+                        <p className="mt-4 text-sm text-slate-300">{selectedProject.description}</p>
+                      ) : null}
+                    </>
+                  ) : null}
                 </div>
 
                 <div className="rounded-3xl border border-white/10 bg-slate-900/60 p-4">
-                  {selectedProjectId && <ProjectJourneyBoard projectId={selectedProjectId} />}
+                  {selectedProjectId && <ProjectJourneyBoard projectId={selectedProjectId} hideHeader={true} />}
                 </div>
               </section>
             ) : (

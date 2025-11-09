@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, MicOff, Volume2, VolumeX } from 'lucide-react';
+import { X, MicOff, Volume2, VolumeX, Pencil } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { DeepgramVoiceAgent, DeepgramMessageEvent } from '@/lib/ai/deepgram';
 import { HybridVoiceAgent, HybridVoiceAgentMessage } from '@/lib/ai/hybrid-voice-agent';
@@ -25,6 +25,7 @@ interface PremiumVoiceInterfaceProps {
   onMessage: (message: DeepgramMessageEvent | HybridVoiceAgentMessage) => void;
   onError: (error: Error) => void;
   onClose: () => void;
+  onEdit?: () => void;
   messages?: Array<{
     role: 'user' | 'assistant';
     content: string;
@@ -40,6 +41,7 @@ export function PremiumVoiceInterface({
   onMessage,
   onError,
   onClose,
+  onEdit,
   messages = [],
 }: PremiumVoiceInterfaceProps) {
   const { user } = useAuth();
@@ -62,6 +64,8 @@ export function PremiumVoiceInterface({
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const messagesContainerRef = useRef<HTMLDivElement | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const isHybridAgent = modelConfig?.provider === "hybrid-voice-agent";
 
   // Get user name for greeting
@@ -160,6 +164,8 @@ export function PremiumVoiceInterface({
   }, []);
 
   const handleMessage = useCallback((message: DeepgramMessageEvent | HybridVoiceAgentMessage) => {
+    const isInterim = Boolean(message.isInterim);
+
     // Detect when user is speaking
     if (message.role === 'user') {
       setIsSpeaking(true);
@@ -169,6 +175,10 @@ export function PremiumVoiceInterface({
       speakingTimeoutRef.current = setTimeout(() => {
         setIsSpeaking(false);
       }, 2000);
+    }
+    
+    if (isInterim) {
+      return;
     }
     
     // Add to voice messages
@@ -348,6 +358,19 @@ export function PremiumVoiceInterface({
     };
   }, [disconnect, cleanupAudioAnalysis]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Scroll to bottom when component mounts (voice mode activated)
+  useEffect(() => {
+    // Small delay to ensure DOM is ready
+    setTimeout(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, 100);
+  }, []);
+
+  // Scroll to bottom when messages change
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, voiceMessages]);
+
   // Combine voice messages with initial messages
   const allMessages = [...messages, ...voiceMessages];
 
@@ -416,21 +439,38 @@ export function PremiumVoiceInterface({
               <div className="text-white text-lg font-semibold">{getUserName()}</div>
             </div>
           </div>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => {
-              disconnect();
-              onClose();
-            }}
-            className="h-10 w-10 text-white hover:bg-white/20 rounded-full"
-          >
-            <X className="h-5 w-5" />
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={onEdit || (() => {
+                disconnect();
+                onClose();
+              })}
+              className="h-10 w-10 text-white hover:bg-white/20 rounded-full"
+              title="Éditer"
+            >
+              <Pencil className="h-5 w-5" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => {
+                disconnect();
+                onClose();
+              }}
+              className="h-10 w-10 text-white hover:bg-white/20 rounded-full"
+            >
+              <X className="h-5 w-5" />
+            </Button>
+          </div>
         </div>
 
         {/* Messages area with floating bubbles */}
-        <div className="flex-1 overflow-y-auto px-4 py-6 space-y-4">
+        <div 
+          ref={messagesContainerRef}
+          className="flex-1 overflow-y-auto px-4 py-6 space-y-4"
+        >
           {allMessages.length === 0 && (
             <div className="flex flex-col items-center justify-center h-full space-y-4">
               <p className="text-white/60 text-sm mb-4">Try asking...</p>
@@ -492,6 +532,8 @@ export function PremiumVoiceInterface({
               </motion.div>
             ))}
           </AnimatePresence>
+          {/* Invisible element at the bottom to scroll to */}
+          <div ref={messagesEndRef} />
         </div>
 
         {/* Voice circle with waveform animation - positioned at bottom */}
@@ -621,4 +663,3 @@ export function PremiumVoiceInterface({
     </div>
   );
 }
-

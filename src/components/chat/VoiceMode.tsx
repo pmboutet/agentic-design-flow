@@ -45,6 +45,8 @@ export function VoiceMode({
   const isHybridAgent = modelConfig?.provider === "hybrid-voice-agent";
 
   const handleMessage = useCallback((message: DeepgramMessageEvent | HybridVoiceAgentMessage) => {
+    const isInterim = Boolean(message.isInterim);
+
     // Detect when user is speaking
     if (message.role === 'user') {
       setIsSpeaking(true);
@@ -56,6 +58,11 @@ export function VoiceMode({
         setIsSpeaking(false);
       }, 2000);
     }
+
+    if (isInterim) {
+      return;
+    }
+
     onMessage(message);
   }, [onMessage]);
 
@@ -222,7 +229,10 @@ export function VoiceMode({
           <Button
             variant="ghost"
             size="icon"
-            onClick={onClose}
+            onClick={() => {
+              disconnect();
+              onClose();
+            }}
             className="h-6 w-6"
           >
             <X className="h-4 w-4" />
@@ -289,4 +299,3 @@ export function VoiceMode({
     </div>
   );
 }
-

@@ -548,7 +548,7 @@ export default function HomePage() {
     if (!sessionData.askKey) return;
 
     const timestamp = new Date().toISOString();
-    const optimisticId = `temp-${Date.now()}`;
+    const optimisticId = `temp-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
     const senderName = currentParticipantName || 'Vous';
     const optimisticMetadata = {
       ...(metadata ?? {}),
@@ -659,7 +659,7 @@ export default function HomePage() {
     if (!sessionData.askKey || !content.trim()) return;
 
     const timestamp = new Date().toISOString();
-    const optimisticId = `temp-${Date.now()}`;
+    const optimisticId = `temp-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
     
     if (role === 'user') {
       // Create user message from transcribed speech (without triggering text streaming)
@@ -922,7 +922,7 @@ export default function HomePage() {
       let insightsUpdatedDuringStream = false;
 
       // Add a temporary streaming message
-      const streamingId = `streaming-${Date.now()}`;
+      const streamingId = `streaming-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
       const streamingMessageObj: Message = {
         clientId: streamingId,
         id: streamingId,

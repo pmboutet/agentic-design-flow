@@ -53,6 +53,21 @@ export async function PUT(
     if (typeof body.deepgramLlmProvider === 'string' || body.deepgramLlmProvider === null) {
       payload.deepgram_llm_provider = body.deepgramLlmProvider?.trim() || null;
     }
+    // ElevenLabs-specific fields
+    if (body.elevenLabsVoiceId !== undefined) {
+      if (body.elevenLabsVoiceId === null) {
+        payload.elevenlabs_voice_id = null;
+      } else if (typeof body.elevenLabsVoiceId === 'string') {
+        payload.elevenlabs_voice_id = body.elevenLabsVoiceId.trim() || null;
+      }
+    }
+    if (body.elevenLabsModelId !== undefined) {
+      if (body.elevenLabsModelId === null) {
+        payload.elevenlabs_model_id = null;
+      } else if (typeof body.elevenLabsModelId === 'string') {
+        payload.elevenlabs_model_id = body.elevenLabsModelId.trim() || null;
+      }
+    }
 
     if (Object.keys(payload).length === 0) {
       return NextResponse.json({

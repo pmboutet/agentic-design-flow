@@ -55,6 +55,7 @@ import { GraphRAGPanel } from "@/components/admin/GraphRAGPanel";
 
 interface ProjectJourneyBoardProps {
   projectId: string;
+  hideHeader?: boolean;
 }
 
 interface ChallengeInsightRow extends ProjectParticipantInsight {
@@ -391,7 +392,7 @@ function normalizeAskStatus(value?: string | null): AskFormState["status"] {
   return askStatusOptions.includes(normalized) ? normalized : "active";
 }
 
-export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
+export function ProjectJourneyBoard({ projectId, hideHeader = false }: ProjectJourneyBoardProps) {
   const [boardData, setBoardData] = useState<ProjectJourneyBoardData | null>(
     USE_MOCK_JOURNEY ? getMockProjectJourneyData(projectId) : null,
   );
@@ -420,6 +421,8 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
   const [copiedInviteLinks, setCopiedInviteLinks] = useState<Set<string>>(new Set());
   const [activeChallengeId, setActiveChallengeId] = useState<string | null>(null);
   const rightColumnRef = useRef<HTMLDivElement | null>(null);
+  const [expandedAsks, setExpandedAsks] = useState<Set<string>>(new Set());
+  const [hoveredAskMenu, setHoveredAskMenu] = useState(false);
   const [editValues, setEditValues] = useState<ProjectEditState>({
     name: "",
     description: "",
@@ -1512,6 +1515,8 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
   useEffect(() => {
     if (activeChallengeId && rightColumnRef.current) {
       rightColumnRef.current.scrollTo({ top: 0, behavior: "smooth" });
+      // Reset expanded ASKs when changing challenge
+      setExpandedAsks(new Set());
     }
   }, [activeChallengeId]);
 
@@ -2830,6 +2835,7 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
         </Alert>
       ) : null}
 
+      {!hideHeader && boardData ? (
       <header className="rounded-xl border border-white/10 bg-slate-900/70 p-6 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
@@ -2903,6 +2909,7 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
           </div>
         ) : null}
       </header>
+      ) : null}
 
       {isEditingProject ? (
         <Card className="border border-white/15 bg-slate-900/70">
@@ -3054,7 +3061,106 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
           </section>
         </div>
 
-        <div ref={rightColumnRef} className="lg:max-h-[70vh] lg:overflow-y-auto lg:pl-2">
+        <div ref={rightColumnRef} className="lg:max-h-[70vh] lg:overflow-y-auto lg:pl-2 relative">
+          {/* Navigation Menu - Fixed */}
+          {activeChallenge && (
+            <div className="sticky top-0 z-20 mb-4 pointer-events-none">
+              <nav className="flex items-center gap-1.5 w-full rounded-xl border border-white/20 bg-slate-900/98 backdrop-blur-xl p-1.5 shadow-2xl pointer-events-auto ring-1 ring-white/5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const element = document.getElementById("foundational-insights");
+                    if (element && rightColumnRef.current) {
+                      const offset = element.getBoundingClientRect().top - rightColumnRef.current.getBoundingClientRect().top + rightColumnRef.current.scrollTop - 20;
+                      rightColumnRef.current.scrollTo({ top: offset, behavior: "smooth" });
+                    }
+                  }}
+                  className="group flex items-center justify-center gap-1.5 rounded-lg border border-emerald-400/30 bg-emerald-500/15 px-2.5 py-2 flex-1 min-w-0 transition-all duration-200 hover:bg-emerald-500/25 hover:border-emerald-400/50 hover:shadow-lg hover:shadow-emerald-500/20 hover:scale-[1.02] active:scale-[0.98]"
+                  title="Foundational insights"
+                >
+                  <Lightbulb className="h-4 w-4 text-emerald-300 transition-transform group-hover:scale-110 shrink-0" />
+                  <span className="text-xs font-medium text-emerald-50 truncate hidden sm:inline">Foundational insights</span>
+                  <span className="text-xs font-medium text-emerald-50 truncate sm:hidden">...</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const element = document.getElementById("syntheses");
+                    if (element && rightColumnRef.current) {
+                      const offset = element.getBoundingClientRect().top - rightColumnRef.current.getBoundingClientRect().top + rightColumnRef.current.scrollTop - 20;
+                      rightColumnRef.current.scrollTo({ top: offset, behavior: "smooth" });
+                    }
+                  }}
+                  className="group flex items-center justify-center gap-1.5 rounded-lg border border-purple-400/30 bg-purple-500/15 px-2.5 py-2 flex-1 min-w-0 transition-all duration-200 hover:bg-purple-500/25 hover:border-purple-400/50 hover:shadow-lg hover:shadow-purple-500/20 hover:scale-[1.02] active:scale-[0.98]"
+                  title="Synthèses"
+                >
+                  <Sparkles className="h-4 w-4 text-purple-300 transition-transform group-hover:scale-110 shrink-0" />
+                  <span className="text-xs font-medium text-purple-50 truncate hidden sm:inline">Synthèses</span>
+                  <span className="text-xs font-medium text-purple-50 truncate sm:hidden">...</span>
+                </button>
+                <div
+                  className="relative flex-1 min-w-0"
+                  onMouseEnter={() => setHoveredAskMenu(true)}
+                  onMouseLeave={() => setHoveredAskMenu(false)}
+                >
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const element = document.getElementById("asks-section");
+                      if (element && rightColumnRef.current) {
+                        const offset = element.getBoundingClientRect().top - rightColumnRef.current.getBoundingClientRect().top + rightColumnRef.current.scrollTop - 20;
+                        rightColumnRef.current.scrollTo({ top: offset, behavior: "smooth" });
+                      }
+                    }}
+                    className="group flex items-center justify-center gap-1.5 rounded-lg border border-indigo-400/30 bg-indigo-500/15 px-2.5 py-2 w-full min-w-0 transition-all duration-200 hover:bg-indigo-500/25 hover:border-indigo-400/50 hover:shadow-lg hover:shadow-indigo-500/20 hover:scale-[1.02] active:scale-[0.98]"
+                    title="ASKs"
+                  >
+                    <MessageSquare className="h-4 w-4 text-indigo-300 transition-transform group-hover:scale-110 shrink-0" />
+                    <span className="text-xs font-medium text-indigo-50 truncate hidden sm:inline">ASKs</span>
+                    <span className="text-xs font-medium text-indigo-50 truncate sm:hidden">...</span>
+                    {activeChallengeAsks && activeChallengeAsks.length > 0 && (
+                      <span className="rounded-full bg-indigo-400/30 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-100 shrink-0">
+                        {activeChallengeAsks.length}
+                      </span>
+                    )}
+                  </button>
+                  {hoveredAskMenu && activeChallengeAsks && activeChallengeAsks.length > 0 && (
+                    <div className="absolute left-0 top-full mt-2 w-full min-w-[240px] max-w-[320px] rounded-xl border border-white/20 bg-slate-900/98 backdrop-blur-xl p-2 shadow-2xl z-30 ring-1 ring-white/10 animate-in fade-in slide-in-from-top-2 duration-200">
+                      <div className="mb-1.5 px-2 py-1 text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                        ASKs ({activeChallengeAsks.length})
+                      </div>
+                      <div className="flex flex-col gap-0.5 max-h-[400px] overflow-y-auto [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-white/10 [&::-webkit-scrollbar-thumb]:rounded-full">
+                        {activeChallengeAsks.map((ask, index) => (
+                          <button
+                            key={ask.id}
+                            type="button"
+                            onClick={() => {
+                              const element = document.getElementById(`ask-${ask.id}`);
+                              if (element && rightColumnRef.current) {
+                                const offset = element.getBoundingClientRect().top - rightColumnRef.current.getBoundingClientRect().top + rightColumnRef.current.scrollTop - 20;
+                                rightColumnRef.current.scrollTo({ top: offset, behavior: "smooth" });
+                                setExpandedAsks(prev => new Set(prev).add(ask.id));
+                                setHoveredAskMenu(false);
+                              }
+                            }}
+                            className="group flex items-start gap-2 rounded-lg px-2.5 py-2 text-left text-xs text-slate-200 transition-all duration-150 hover:bg-white/10 hover:text-white"
+                            title={ask.title}
+                          >
+                            <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-indigo-500/20 text-[10px] font-semibold text-indigo-300 group-hover:bg-indigo-500/30">
+                              {index + 1}
+                            </span>
+                            <span className="flex-1 truncate leading-relaxed">
+                              {ask.title.length > 45 ? `${ask.title.slice(0, 45)}...` : ask.title}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </nav>
+            </div>
+          )}
           <section className="space-y-4">
             {!activeChallenge ? (
               <>
@@ -3072,7 +3178,7 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
               </>
             ) : (
               <>
-                <Card className="border border-emerald-400/40 bg-emerald-500/10">
+                <Card id="foundational-insights" className="border border-emerald-400/40 bg-emerald-500/10">
                   <CardHeader className="pb-2">
                     <CardTitle className="text-lg font-semibold text-white">
                       Foundational insights
@@ -3129,7 +3235,7 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
                 </Card>
 
                 {/* Graph RAG Syntheses Panel */}
-                <Card className="border border-purple-400/40 bg-purple-500/10">
+                <Card id="syntheses" className="border border-purple-400/40 bg-purple-500/10">
                   <CardHeader className="pb-2">
                     <CardTitle className="flex items-center gap-2 text-lg font-semibold text-white">
                       <Sparkles className="h-5 w-5 text-purple-300" />
@@ -3144,7 +3250,7 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
                   </CardContent>
                 </Card>
 
-                <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-slate-900/70 px-4 py-3 shadow-sm">
+                <div id="asks-section" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-slate-900/70 px-4 py-3 shadow-sm">
                   <div>
                     <h2 className="text-lg font-semibold text-white">
                       ASKs linked to "{activeChallenge.title}"
@@ -3188,14 +3294,37 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
                 </div>
                 <div className="space-y-4">
                   {activeChallengeAsks?.length ? (
-                    activeChallengeAsks.map(ask => (
-                      <Card key={ask.id} className="border border-white/10 bg-slate-900/70 shadow-sm">
-                        <CardHeader className="space-y-3 pb-3">
-                          <div className="flex flex-wrap items-center justify-between gap-3">
-                            <div>
-                              <CardTitle className="text-base font-semibold text-white">{ask.title}</CardTitle>
-                              <p className="mt-1 text-sm text-slate-300">{ask.summary}</p>
-                            </div>
+                    activeChallengeAsks.map(ask => {
+                      const isExpanded = expandedAsks.has(ask.id);
+                      return (
+                        <Card key={ask.id} id={`ask-${ask.id}`} className="border border-white/10 bg-slate-900/70 shadow-sm">
+                          <CardHeader 
+                            className="space-y-3 pb-3 cursor-pointer"
+                            onClick={() => {
+                              setExpandedAsks(prev => {
+                                const next = new Set(prev);
+                                if (next.has(ask.id)) {
+                                  next.delete(ask.id);
+                                } else {
+                                  next.add(ask.id);
+                                }
+                                return next;
+                              });
+                            }}
+                          >
+                            <div className="flex flex-wrap items-center justify-between gap-3">
+                              <div className="flex items-center gap-2 flex-1">
+                                <ChevronRight
+                                  className={cn(
+                                    "h-4 w-4 text-slate-400 transition-transform shrink-0",
+                                    isExpanded && "rotate-90"
+                                  )}
+                                />
+                                <div className="flex-1">
+                                  <CardTitle className="text-base font-semibold text-white">{ask.title}</CardTitle>
+                                  {isExpanded && <p className="mt-1 text-sm text-slate-300">{ask.summary}</p>}
+                                </div>
+                              </div>
                             <div className="flex items-start gap-2">
                               <div className="flex flex-col items-end gap-1 text-xs text-slate-400">
                                 <span className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/10 px-2.5 py-1 font-medium text-slate-100">
@@ -3208,6 +3337,7 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
                                   asChild
                                   size="sm"
                                   className="gap-1 bg-emerald-500 text-white hover:bg-emerald-400"
+                                  onClick={(e) => e.stopPropagation()}
                                 >
                                   <Link href={`/?key=${encodeURIComponent(ask.askKey)}`} target="_blank" rel="noopener noreferrer">
                                     <MessageSquare className="h-3.5 w-3.5" />
@@ -3219,7 +3349,8 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
                                   size="sm"
                                   variant="glassDark"
                                   className="gap-1"
-                                  onClick={() => {
+                                  onClick={(e) => {
+                                    e.stopPropagation();
                                     void handleAskEditStart(ask.id);
                                   }}
                                   disabled={isSavingAsk || isLoadingAskDetails}
@@ -3234,36 +3365,43 @@ export function ProjectJourneyBoard({ projectId }: ProjectJourneyBoardProps) {
                               </div>
                             </div>
                           </div>
-                          <div className="flex flex-wrap items-center gap-2 text-xs text-slate-300">
-                            <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2.5 py-1 text-slate-200">
-                              <Target className="h-3.5 w-3.5 text-indigo-300" /> General theme
-                            </span>
-                            <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2.5 py-1 text-slate-200">
-                              <Users className="h-3.5 w-3.5 text-slate-200" /> {ask.participants?.length} participant{ask.participants?.length > 1 ? "s" : ""}
-                            </span>
-                          </div>
-                          <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
-                            <span className="font-semibold text-slate-300">Related projects:</span>
-                            {ask.relatedProjects?.length ? (
-                              ask.relatedProjects.map(project => (
-                                <span
-                                  key={project.id}
-                                  className="inline-flex items-center rounded-full border border-white/10 bg-white/10 px-2.5 py-1 text-slate-100"
-                                >
-                                  {project.name}
+                          {isExpanded && (
+                            <>
+                              <div className="flex flex-wrap items-center gap-2 text-xs text-slate-300">
+                                <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2.5 py-1 text-slate-200">
+                                  <Target className="h-3.5 w-3.5 text-indigo-300" /> General theme
                                 </span>
-                              ))
-                            ) : (
-                              <span className="text-slate-400">Current project only</span>
-                            )}
-                          </div>
+                                <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2.5 py-1 text-slate-200">
+                                  <Users className="h-3.5 w-3.5 text-slate-200" /> {ask.participants?.length} participant{ask.participants?.length > 1 ? "s" : ""}
+                                </span>
+                              </div>
+                              <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
+                                <span className="font-semibold text-slate-300">Related projects:</span>
+                                {ask.relatedProjects?.length ? (
+                                  ask.relatedProjects.map(project => (
+                                    <span
+                                      key={project.id}
+                                      className="inline-flex items-center rounded-full border border-white/10 bg-white/10 px-2.5 py-1 text-slate-100"
+                                    >
+                                      {project.name}
+                                    </span>
+                                  ))
+                                ) : (
+                                  <span className="text-slate-400">Current project only</span>
+                                )}
+                              </div>
+                            </>
+                          )}
                         </CardHeader>
-                        <CardContent className="space-y-3">
-                          <h3 className="text-sm font-semibold text-slate-200">Collected insights</h3>
-                          {renderAskInsights(ask)}
-                        </CardContent>
+                        {isExpanded && (
+                          <CardContent className="space-y-3">
+                            <h3 className="text-sm font-semibold text-slate-200">Collected insights</h3>
+                            {renderAskInsights(ask)}
+                          </CardContent>
+                        )}
                       </Card>
-                    ))
+                    );
+                    })
                   ) : (
                     <Card className="border-dashed border-white/10 bg-slate-900/60">
                       <CardContent className="py-10 text-center text-sm text-slate-300">

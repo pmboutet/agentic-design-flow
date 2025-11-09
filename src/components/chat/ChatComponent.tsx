@@ -52,11 +52,23 @@ export function ChatComponent({
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const previousVoiceModeRef = useRef(false);
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  // Scroll to bottom when voice mode is closed (returns to normal chat)
+  useEffect(() => {
+    if (previousVoiceModeRef.current && !isVoiceMode) {
+      // Voice mode was just closed, scroll to bottom
+      setTimeout(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      }, 100);
+    }
+    previousVoiceModeRef.current = isVoiceMode;
+  }, [isVoiceMode]);
 
   useEffect(() => {
     return () => {

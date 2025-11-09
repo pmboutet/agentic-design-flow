@@ -52,6 +52,26 @@ type NewAgentDraft = {
   successMessage: string | null;
 };
 
+type NewModelDraft = {
+  code: string;
+  name: string;
+  provider: string;
+  model: string;
+  baseUrl: string;
+  apiKeyEnvVar: string;
+  isDefault: boolean;
+  isFallback: boolean;
+  deepgramLlmModel: string;
+  deepgramLlmProvider: string;
+  deepgramSttModel: string;
+  deepgramTtsModel: string;
+  elevenLabsVoiceId: string;
+  elevenLabsModelId: string;
+  isSaving: boolean;
+  error: string | null;
+  successMessage: string | null;
+};
+
 interface CreateAgentResponse {
   success: boolean;
   data?: AiAgentRecord;
@@ -318,6 +338,8 @@ type ModelDraft = AiModelConfig & {
   deepgramLlmProviderDraft?: "anthropic" | "openai";
   deepgramSttModelDraft?: string;
   deepgramTtsModelDraft?: string;
+  elevenLabsVoiceIdDraft?: string;
+  elevenLabsModelIdDraft?: string;
   isSaving?: boolean;
   saveError?: string | null;
   saveSuccess?: boolean;
@@ -332,6 +354,27 @@ export default function AiConfigurationPage() {
   const [isCreating, setIsCreating] = useState(false);
   const [newAgent, setNewAgent] = useState<NewAgentDraft>(() => createEmptyNewAgentDraft());
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+  const [collapsedModels, setCollapsedModels] = useState<Set<string>>(new Set());
+  const [isCreatingModel, setIsCreatingModel] = useState(false);
+  const [newModel, setNewModel] = useState<NewModelDraft>(() => ({
+    code: '',
+    name: '',
+    provider: 'anthropic',
+    model: '',
+    baseUrl: '',
+    apiKeyEnvVar: '',
+    isDefault: false,
+    isFallback: false,
+    deepgramLlmModel: '',
+    deepgramLlmProvider: '',
+    deepgramSttModel: '',
+    deepgramTtsModel: '',
+    elevenLabsVoiceId: '',
+    elevenLabsModelId: '',
+    isSaving: false,
+    error: null,
+    successMessage: null,
+  }));
   const [testModeAgentId, setTestModeAgentId] = useState<string | null>(null);
   
   // Graph RAG state
@@ -372,19 +415,29 @@ export default function AiConfigurationPage() {
         throw new Error(modelsJson.error || "Impossible de charger les modèles");
       }
 
-      setAgents(agentsJson.data?.agents.map(mergeAgentWithDraft) ?? []);
+      const loadedAgents = agentsJson.data?.agents.map(mergeAgentWithDraft) ?? [];
+      setAgents(loadedAgents);
       setVariables(agentsJson.data?.variables ?? []);
+      
       // Initialize models with drafts matching current values
-      setModels((modelsJson.data ?? []).map(model => ({
+      const loadedModels = (modelsJson.data ?? []).map(model => ({
         ...model,
         deepgramLlmModelDraft: model.deepgramLlmModel,
         deepgramLlmProviderDraft: model.deepgramLlmProvider,
         deepgramSttModelDraft: model.deepgramSttModel,
         deepgramTtsModelDraft: model.deepgramTtsModel,
+        elevenLabsVoiceIdDraft: model.elevenLabsVoiceId,
+        elevenLabsModelIdDraft: model.elevenLabsModelId,
         isSaving: false,
         saveError: null,
         saveSuccess: false,
-      })));
+      }));
+      setModels(loadedModels);
+      
+      // Collapse all groups and models by default
+      const groupedAgents = groupAgents(loadedAgents);
+      setCollapsedGroups(new Set(groupedAgents.map(g => g.key)));
+      setCollapsedModels(new Set(loadedModels.map(m => m.id)));
     } catch (err) {
       console.error(err);
       setError(err instanceof Error ? err.message : "Erreur inattendue lors du chargement");
@@ -991,26 +1044,298 @@ export default function AiConfigurationPage() {
       {/* Models Configuration Section */}
       <Card>
         <CardHeader>
-          <CardTitle>Configurations des modèles IA</CardTitle>
-          <CardDescription>
-            Gérez les configurations des modèles, y compris les paramètres Deepgram Voice Agent.
-          </CardDescription>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>Configurations des modèles IA</CardTitle>
+              <CardDescription>
+                Gérez les configurations des modèles, y compris les paramètres Deepgram Voice Agent.
+              </CardDescription>
+            </div>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setIsCreatingModel(prev => {
+                  if (!prev) {
+                    setNewModel({
+                      code: '',
+                      name: '',
+                      provider: 'anthropic',
+                      model: '',
+                      baseUrl: '',
+                      apiKeyEnvVar: '',
+                      isDefault: false,
+                      isFallback: false,
+                      deepgramLlmModel: '',
+                      deepgramLlmProvider: '',
+                      deepgramSttModel: '',
+                      deepgramTtsModel: '',
+                      elevenLabsVoiceId: '',
+                      elevenLabsModelId: '',
+                      isSaving: false,
+                      error: null,
+                      successMessage: null,
+                    });
+                  }
+                  return !prev;
+                });
+              }}
+              disabled={newModel.isSaving}
+            >
+              {isCreatingModel ? "Fermer" : "Nouveau"}
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
+          {isCreatingModel && (
+            <Card className="border-2 border-dashed mb-4">
+              <CardHeader>
+                <CardTitle className="text-lg">Nouveau modèle IA</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="new-model-code">Code *</Label>
+                    <Input
+                      id="new-model-code"
+                      placeholder="ex: anthropic-claude-sonnet-4-5"
+                      value={newModel.code}
+                      onChange={(e) => setNewModel(prev => ({ ...prev, code: e.target.value.trim(), error: null }))}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="new-model-name">Nom *</Label>
+                    <Input
+                      id="new-model-name"
+                      placeholder="ex: Claude Sonnet 4.5"
+                      value={newModel.name}
+                      onChange={(e) => setNewModel(prev => ({ ...prev, name: e.target.value.trim(), error: null }))}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="new-model-provider">Provider *</Label>
+                    <select
+                      id="new-model-provider"
+                      className="w-full rounded border border-input bg-background px-3 py-2 text-sm"
+                      value={newModel.provider}
+                      onChange={(e) => setNewModel(prev => ({ ...prev, provider: e.target.value, error: null }))}
+                    >
+                      <option value="anthropic">Anthropic</option>
+                      <option value="openai">OpenAI</option>
+                      <option value="mistral">Mistral</option>
+                      <option value="deepgram-voice-agent">Deepgram Voice Agent</option>
+                      <option value="hybrid-voice-agent">Hybrid Voice Agent</option>
+                      <option value="custom">Custom</option>
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="new-model-model">Modèle *</Label>
+                    <Input
+                      id="new-model-model"
+                      placeholder="ex: claude-sonnet-4-5"
+                      value={newModel.model}
+                      onChange={(e) => setNewModel(prev => ({ ...prev, model: e.target.value.trim(), error: null }))}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="new-model-base-url">Base URL</Label>
+                    <Input
+                      id="new-model-base-url"
+                      placeholder="ex: https://api.anthropic.com/v1"
+                      value={newModel.baseUrl}
+                      onChange={(e) => setNewModel(prev => ({ ...prev, baseUrl: e.target.value.trim(), error: null }))}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="new-model-api-key-env-var">Variable d'environnement API Key *</Label>
+                    <Input
+                      id="new-model-api-key-env-var"
+                      placeholder="ex: ANTHROPIC_API_KEY"
+                      value={newModel.apiKeyEnvVar}
+                      onChange={(e) => setNewModel(prev => ({ ...prev, apiKeyEnvVar: e.target.value.trim(), error: null }))}
+                    />
+                  </div>
+                </div>
+                <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="new-model-is-default"
+                      checked={newModel.isDefault}
+                      onChange={(e) => setNewModel(prev => ({ ...prev, isDefault: e.target.checked, error: null }))}
+                      className="rounded border-gray-300"
+                    />
+                    <Label htmlFor="new-model-is-default" className="cursor-pointer">Modèle par défaut</Label>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="new-model-is-fallback"
+                      checked={newModel.isFallback}
+                      onChange={(e) => setNewModel(prev => ({ ...prev, isFallback: e.target.checked, error: null }))}
+                      className="rounded border-gray-300"
+                    />
+                    <Label htmlFor="new-model-is-fallback" className="cursor-pointer">Modèle de secours</Label>
+                  </div>
+                </div>
+                {newModel.error && (
+                  <p className="text-sm text-destructive">{newModel.error}</p>
+                )}
+                {newModel.successMessage && (
+                  <p className="text-sm text-emerald-600">{newModel.successMessage}</p>
+                )}
+                <div className="flex gap-2">
+                  <Button
+                    onClick={async () => {
+                      if (!newModel.code || !newModel.name || !newModel.provider || !newModel.model || !newModel.apiKeyEnvVar) {
+                        setNewModel(prev => ({ ...prev, error: 'Tous les champs marqués * sont requis' }));
+                        return;
+                      }
+                      
+                      setNewModel(prev => ({ ...prev, isSaving: true, error: null, successMessage: null }));
+                      
+                      try {
+                        const response = await fetch('/api/admin/ai/models', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          credentials: 'include',
+                          body: JSON.stringify({
+                            code: newModel.code,
+                            name: newModel.name,
+                            provider: newModel.provider,
+                            model: newModel.model,
+                            baseUrl: newModel.baseUrl || null,
+                            apiKeyEnvVar: newModel.apiKeyEnvVar,
+                            isDefault: newModel.isDefault,
+                            isFallback: newModel.isFallback,
+                            deepgramVoiceAgentModel: newModel.deepgramLlmModel || null,
+                            deepgramLlmProvider: newModel.deepgramLlmProvider || null,
+                            deepgramSttModel: newModel.deepgramSttModel || null,
+                            deepgramTtsModel: newModel.deepgramTtsModel || null,
+                            elevenLabsVoiceId: newModel.elevenLabsVoiceId || null,
+                            elevenLabsModelId: newModel.elevenLabsModelId || null,
+                          }),
+                        });
+                        
+                        const result = await response.json();
+                        
+                        if (!response.ok || !result.success) {
+                          throw new Error(result.error || 'Impossible de créer le modèle');
+                        }
+                        
+                        // Refresh the models list
+                        await fetchConfiguration();
+                        
+                        setNewModel({
+                          code: '',
+                          name: '',
+                          provider: 'anthropic',
+                          model: '',
+                          baseUrl: '',
+                          apiKeyEnvVar: '',
+                          isDefault: false,
+                          isFallback: false,
+                          deepgramLlmModel: '',
+                          deepgramLlmProvider: '',
+                          deepgramSttModel: '',
+                          deepgramTtsModel: '',
+                          elevenLabsVoiceId: '',
+                          elevenLabsModelId: '',
+                          isSaving: false,
+                          error: null,
+                          successMessage: `Modèle "${result.data?.name || newModel.name}" créé avec succès.`,
+                        });
+                        
+                        setIsCreatingModel(false);
+                      } catch (err) {
+                        const message = err instanceof Error ? err.message : 'Erreur lors de la création du modèle';
+                        setNewModel(prev => ({ ...prev, isSaving: false, error: message }));
+                      }
+                    }}
+                    disabled={newModel.isSaving || !newModel.code || !newModel.name || !newModel.provider || !newModel.model || !newModel.apiKeyEnvVar}
+                  >
+                    {newModel.isSaving ? 'Création en cours...' : 'Créer le modèle'}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setIsCreatingModel(false);
+                      setNewModel({
+                        code: '',
+                        name: '',
+                        provider: 'anthropic',
+                        model: '',
+                        baseUrl: '',
+                        apiKeyEnvVar: '',
+                        isDefault: false,
+                        isFallback: false,
+                        deepgramLlmModel: '',
+                        deepgramLlmProvider: '',
+                        deepgramSttModel: '',
+                        deepgramTtsModel: '',
+                        elevenLabsVoiceId: '',
+                        elevenLabsModelId: '',
+                        isSaving: false,
+                        error: null,
+                        successMessage: null,
+                      });
+                    }}
+                    disabled={newModel.isSaving}
+                  >
+                    Annuler
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
           {models.length === 0 ? (
             <p className="text-muted-foreground">Aucun modèle configuré.</p>
           ) : (
             <div className="space-y-4">
-              {models.map(model => (
+              {models.map(model => {
+                const isCollapsed = collapsedModels.has(model.id);
+                return (
                 <Card key={model.id} className="border">
                   <CardHeader>
-                    <CardTitle className="text-lg">{model.name}</CardTitle>
-                    <CardDescription>
-                      {model.code} • {model.provider} • {model.model}
-                      {model.isDefault && <span className="ml-2 text-primary">(Par défaut)</span>}
-                      {model.isFallback && <span className="ml-2 text-muted-foreground">(Secours)</span>}
-                    </CardDescription>
+                    <div className="flex items-center justify-between">
+                      <div className="flex-1">
+                        <CardTitle className="text-lg">{model.name}</CardTitle>
+                        <CardDescription>
+                          {model.code} • {model.provider} • {model.model}
+                          {model.isDefault && <span className="ml-2 text-primary">(Par défaut)</span>}
+                          {model.isFallback && <span className="ml-2 text-muted-foreground">(Secours)</span>}
+                        </CardDescription>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setCollapsedModels(prev => {
+                            const next = new Set(prev);
+                            if (next.has(model.id)) {
+                              next.delete(model.id);
+                            } else {
+                              next.add(model.id);
+                            }
+                            return next;
+                          });
+                        }}
+                        className="shrink-0"
+                      >
+                        {isCollapsed ? (
+                          <>
+                            <ChevronDown className="h-4 w-4 mr-1" />
+                            Développer
+                          </>
+                        ) : (
+                          <>
+                            <ChevronUp className="h-4 w-4 mr-1" />
+                            Réduire
+                          </>
+                        )}
+                      </Button>
+                    </div>
                   </CardHeader>
+                  {!isCollapsed && (
                   <CardContent className="space-y-4">
                     <div className="grid gap-4 md:grid-cols-2">
                       <div className="space-y-2">
@@ -1106,6 +1431,62 @@ export default function AiConfigurationPage() {
                           />
                         </div>
                       </div>
+                    </div>
+
+                    <div className="border-t pt-4 mt-4">
+                      <h4 className="text-sm font-semibold mb-3">Configuration ElevenLabs TTS</h4>
+                      <p className="text-xs text-muted-foreground mb-3">
+                        Configuration pour la synthèse vocale (Text-to-Speech) utilisée avec le mode hybrid-voice-agent.
+                      </p>
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <div className="space-y-2">
+                          <Label htmlFor={`elevenlabs-voice-id-${model.id}`}>
+                            Voice ID
+                          </Label>
+                          <Input
+                            id={`elevenlabs-voice-id-${model.id}`}
+                            placeholder="ex: 21m00Tcm4TlvDq8ikWAM (Rachel)"
+                            value={model.elevenLabsVoiceIdDraft || ''}
+                            onChange={(e) => {
+                              const value = e.target.value.trim() || undefined;
+                              setModels(prev => prev.map(m => 
+                                m.id === model.id 
+                                  ? { ...m, elevenLabsVoiceIdDraft: value, saveSuccess: false }
+                                  : m
+                              ));
+                            }}
+                          />
+                          <p className="text-xs text-muted-foreground">
+                            ID de la voix ElevenLabs. Consultez le dashboard ElevenLabs pour obtenir les IDs disponibles.
+                          </p>
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor={`elevenlabs-model-id-${model.id}`}>
+                            Modèle TTS
+                          </Label>
+                          <select
+                            id={`elevenlabs-model-id-${model.id}`}
+                            className="w-full rounded border border-input bg-background px-3 py-2 text-sm"
+                            value={model.elevenLabsModelIdDraft || ''}
+                            onChange={(e) => {
+                              const value = e.target.value || undefined;
+                              setModels(prev => prev.map(m => 
+                                m.id === model.id 
+                                  ? { ...m, elevenLabsModelIdDraft: value, saveSuccess: false }
+                                  : m
+                              ));
+                            }}
+                          >
+                            <option value="">Aucun</option>
+                            <option value="eleven_turbo_v2_5">eleven_turbo_v2_5 (Rapide, par défaut)</option>
+                            <option value="eleven_multilingual_v2">eleven_multilingual_v2 (Multilingue)</option>
+                            <option value="eleven_monolingual_v1">eleven_monolingual_v1 (Anglais uniquement)</option>
+                          </select>
+                          <p className="text-xs text-muted-foreground">
+                            Modèle de synthèse vocale ElevenLabs.
+                          </p>
+                        </div>
+                      </div>
                       
                       <div className="flex items-center gap-2 mt-4">
                         <Button
@@ -1126,15 +1507,14 @@ export default function AiConfigurationPage() {
                                   deepgramLlmProvider: model.deepgramLlmProviderDraft || null,
                                   deepgramSttModel: model.deepgramSttModelDraft || null,
                                   deepgramTtsModel: model.deepgramTtsModelDraft || null,
+                                  elevenLabsVoiceId: model.elevenLabsVoiceIdDraft || null,
+                                  elevenLabsModelId: model.elevenLabsModelIdDraft || null,
                                 }),
                               });
 
-                              if (!response.ok) {
-                                throw new Error('Failed to save');
-                              }
-
                               const result = await response.json();
-                              if (!result.success) {
+                              
+                              if (!response.ok || !result.success) {
                                 throw new Error(result.error || 'Failed to save');
                               }
 
@@ -1147,6 +1527,8 @@ export default function AiConfigurationPage() {
                                       deepgramLlmProvider: m.deepgramLlmProviderDraft,
                                       deepgramSttModel: m.deepgramSttModelDraft,
                                       deepgramTtsModel: m.deepgramTtsModelDraft,
+                                      elevenLabsVoiceId: m.elevenLabsVoiceIdDraft,
+                                      elevenLabsModelId: m.elevenLabsModelIdDraft,
                                       isSaving: false,
                                       saveSuccess: true,
                                       saveError: null,
@@ -1175,8 +1557,10 @@ export default function AiConfigurationPage() {
                       </div>
                     </div>
                   </CardContent>
+                  )}
                 </Card>
-              ))}
+              );
+              })}
             </div>
           )}
         </CardContent>

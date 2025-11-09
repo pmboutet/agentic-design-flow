@@ -26,6 +26,7 @@ export interface HybridVoiceAgentMessage {
   role: 'user' | 'agent';
   content: string;
   timestamp: string;
+  isInterim?: boolean;
 }
 
 export type HybridVoiceAgentMessageCallback = (message: HybridVoiceAgentMessage) => void;
@@ -51,6 +52,9 @@ export class HybridVoiceAgent {
   private isGeneratingResponse: boolean = false;
   private isPlayingAudio: boolean = false;
   private audioPlaybackQueue: AudioBuffer[] = [];
+  private pendingUserMessage: { content: string; timestamp: string } | null = null;
+  private userMessageQueue: Array<{ content: string; timestamp: string }> = [];
+  private lastPartialUserContent: string | null = null;
   
   // Callbacks
   private onMessageCallback: HybridVoiceAgentMessageCallback | null = null;
@@ -263,33 +267,67 @@ export class HybridVoiceAgent {
       });
 
       // Handle ConversationText events (user transcriptions)
-      client.on(AgentEvents.ConversationText, async (message) => {
+      client.on(AgentEvents.ConversationText, (message) => {
         console.log('[HybridVoiceAgent] 💬 ConversationText:', message.role, ':', message.content.substring(0, 100));
         
         if (message.role === 'user') {
-          // User spoke - add to conversation history
-          this.conversationHistory.push({
-            role: 'user',
-            content: message.content
-          });
+          const transcript = (message.content || '').trim();
+          if (!transcript) {
+            return;
+          }
 
-          // Notify callback
-          this.onMessageCallback?.({
-            role: 'user',
-            content: message.content,
-            timestamp: new Date().toISOString()
-          });
+          const timestamp = new Date().toISOString();
+          this.pendingUserMessage = { content: transcript, timestamp };
 
-          // Get LLM response only if not already generating one
-          if (!this.isGeneratingResponse) {
-            await this.generateAndSpeakResponse(message.content);
-          } else {
-            console.log('[HybridVoiceAgent] ⚠️ Already generating a response, skipping this request');
+          if (transcript !== this.lastPartialUserContent) {
+            this.lastPartialUserContent = transcript;
+            this.onMessageCallback?.({
+              role: 'user',
+              content: transcript,
+              timestamp,
+              isInterim: true
+            });
           }
         } else {
           // Agent response from Deepgram (if any) - we'll ignore this since we use our own LLM
           console.log('[HybridVoiceAgent] Ignoring Deepgram agent response, using custom LLM');
         }
+      });
+
+      client.on(AgentEvents.AgentThinking, () => {
+        console.log('[HybridVoiceAgent] 🧠 AgentThinking event received - finalizing user turn');
+        if (!this.pendingUserMessage) {
+          console.log('[HybridVoiceAgent] No pending user message to finalize');
+          return;
+        }
+
+        const finalizedMessage = this.pendingUserMessage;
+        this.pendingUserMessage = null;
+        this.lastPartialUserContent = null;
+
+        const cleanedContent = finalizedMessage.content.trim();
+        if (!cleanedContent) {
+          console.log('[HybridVoiceAgent] Finalized message empty, skipping');
+          return;
+        }
+
+        this.conversationHistory.push({
+          role: 'user',
+          content: cleanedContent
+        });
+
+        this.onMessageCallback?.({
+          role: 'user',
+          content: cleanedContent,
+          timestamp: finalizedMessage.timestamp
+        });
+
+        this.userMessageQueue.push({
+          content: cleanedContent,
+          timestamp: finalizedMessage.timestamp
+        });
+
+        void this.processUserMessageQueue();
       });
 
       // Handle Audio events from Deepgram (we'll ignore these since we use ElevenLabs)
@@ -315,6 +353,8 @@ export class HybridVoiceAgent {
         this.audioPlaybackQueue = [];
         this.nextStartTime = 0;
         this.isPlayingAudio = false;
+        this.pendingUserMessage = null;
+        this.lastPartialUserContent = null;
       });
 
       // Handle errors
@@ -338,6 +378,28 @@ export class HybridVoiceAgent {
 
       console.log('[HybridVoiceAgent] ✅ All event handlers registered');
     });
+  }
+
+  private async processUserMessageQueue(): Promise<void> {
+    if (this.isGeneratingResponse) {
+      return;
+    }
+
+    if (this.userMessageQueue.length === 0) {
+      return;
+    }
+
+    const nextMessage = this.userMessageQueue.shift();
+    if (!nextMessage) {
+      return;
+    }
+
+    try {
+      await this.generateAndSpeakResponse(nextMessage.content);
+    } catch (error) {
+      console.error('[HybridVoiceAgent] ❌ Error processing user message queue:', error);
+      this.onErrorCallback?.(error instanceof Error ? error : new Error('Failed to process queued message'));
+    }
   }
 
   private async generateAndSpeakResponse(userMessage: string): Promise<void> {
@@ -378,6 +440,7 @@ export class HybridVoiceAgent {
       this.onErrorCallback?.(error instanceof Error ? error : new Error('Failed to generate response'));
     } finally {
       this.isGeneratingResponse = false;
+      void this.processUserMessageQueue();
     }
   }
 
@@ -735,6 +798,9 @@ export class HybridVoiceAgent {
     this.nextStartTime = 0;
     this.isPlayingAudio = false;
     this.isGeneratingResponse = false;
+    this.pendingUserMessage = null;
+    this.userMessageQueue = [];
+    this.lastPartialUserContent = null;
 
     // Disconnect Deepgram client
     if (this.deepgramClient) {
@@ -772,4 +838,3 @@ export class HybridVoiceAgent {
     return this.deepgramClient !== null;
   }
 }
-

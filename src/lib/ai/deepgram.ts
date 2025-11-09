@@ -13,6 +13,7 @@ export interface DeepgramMessageEvent {
   role: 'user' | 'agent';
   content: string;
   timestamp: string;
+  isInterim?: boolean;
 }
 
 export type DeepgramMessageCallback = (message: DeepgramMessageEvent) => void;
@@ -594,4 +595,3 @@ export class DeepgramVoiceAgent {
     return this.client !== null;
   }
 }
-
