@@ -648,53 +648,58 @@ export async function POST(
 
     // Check for invite token in headers (allows anonymous participation)
     const inviteToken = request.headers.get('X-Invite-Token');
+    console.log('🔍 POST /api/ask/[key]: Invite token check', {
+      hasInviteToken: !!inviteToken,
+      tokenPrefix: inviteToken ? inviteToken.substring(0, 8) + '...' : null,
+      isDevBypass
+    });
 
     let profileId: string | null = null;
     let participantId: string | null = null;
 
-    if (!isDevBypass) {
-      // Try to authenticate via invite token first
-      if (inviteToken) {
-        console.log(`🔑 POST /api/ask/[key]: Attempting authentication via invite token ${inviteToken.substring(0, 8)}...`);
+    // Try to authenticate via invite token first (dev mode should support invite links too)
+    if (inviteToken) {
+      console.log(`🔑 POST /api/ask/[key]: Attempting authentication via invite token ${inviteToken.substring(0, 8)}...`);
 
-        // Use admin client to validate token and get participant info
-        const admin = await getAdminClient();
+      // Use admin client to validate token and get participant info
+      const admin = await getAdminClient();
 
-        const { data: participant, error: tokenError } = await admin
-          .from('ask_participants')
-          .select('id, user_id, ask_session_id')
-          .eq('invite_token', inviteToken)
-          .maybeSingle();
+      const { data: participant, error: tokenError } = await admin
+        .from('ask_participants')
+        .select('id, user_id, ask_session_id')
+        .eq('invite_token', inviteToken)
+        .maybeSingle();
 
-        if (tokenError) {
-          console.error('❌ Error validating invite token:', tokenError);
-        } else if (participant) {
-          // STRICT REQUIREMENT: Every participant MUST have a user_id
-          if (!participant.user_id) {
-            console.error('❌ Invite token is not linked to a user profile', {
-              participantId: participant.id,
-              inviteToken: inviteToken.substring(0, 8) + '...'
-            });
-            return NextResponse.json<ApiResponse>({
-              success: false,
-              error: "Ce lien d'invitation n'est pas correctement configuré. Contactez l'administrateur pour qu'il regénère votre lien d'accès."
-            }, { status: 403 });
-          }
-
-          console.log(`✅ Valid invite token for participant ${participant.id}`, {
-            hasUserId: !!participant.user_id,
-            userId: participant.user_id
+      if (tokenError) {
+        console.error('❌ Error validating invite token:', tokenError);
+      } else if (participant) {
+        // STRICT REQUIREMENT: Every participant MUST have a user_id
+        if (!participant.user_id) {
+          console.error('❌ Invite token is not linked to a user profile', {
+            participantId: participant.id,
+            inviteToken: inviteToken.substring(0, 8) + '...'
           });
-          participantId = participant.id;
-          profileId = participant.user_id; // REQUIRED - never NULL
-          dataClient = admin;
-        } else {
-          console.warn('⚠️  Invite token not found in database');
+          return NextResponse.json<ApiResponse>({
+            success: false,
+            error: "Ce lien d'invitation n'est pas correctement configuré. Contactez l'administrateur pour qu'il regénère votre lien d'accès."
+          }, { status: 403 });
         }
-      }
 
+        console.log(`✅ Valid invite token for participant ${participant.id}`, {
+          hasUserId: !!participant.user_id,
+          userId: participant.user_id
+        });
+        participantId = participant.id;
+        profileId = participant.user_id; // REQUIRED - never NULL
+        dataClient = admin;
+      } else {
+        console.warn('⚠️  Invite token not found in database');
+      }
+    }
+
+    if (!isDevBypass) {
       // If no valid token, try regular auth
-      if (!inviteToken || !participantId) {
+      if (!participantId) {
         console.log('🔐 POST /api/ask/[key]: No valid invite token, trying regular auth...');
         const { data: userResult, error: userError } = await supabase.auth.getUser();
 
@@ -737,8 +742,11 @@ export async function POST(
         console.log('✅ POST /api/ask/[key]: Profile ID found:', profileId);
       }
     } else {
-      // Dev bypass mode - no auth required
+      // Dev bypass mode - always use admin client to bypass RLS
       console.log('🔓 POST /api/ask/[key]: Dev bypass mode - no auth required');
+      const admin = await getAdminClient();
+      dataClient = admin;
+      console.log('✅ POST /api/ask/[key]: Using admin client in dev bypass mode');
     }
 
     // Final check: we MUST have a profileId (no anonymous participants allowed)
@@ -783,11 +791,20 @@ export async function POST(
       }, { status: 404 });
     }
 
+    console.log('🔍 POST /api/ask/[key]: Retrieved ASK', {
+      askKey: key,
+      askRowId: askRow.id,
+      askRowKey: askRow.ask_key,
+      participantId,
+      profileId
+    });
+
     // En mode dev, si profileId est null, on essaie de récupérer ou créer un profil par défaut
     let finalProfileId = profileId;
     if (isDevBypass && !finalProfileId) {
       // En mode dev, chercher un profil admin par défaut
-      const { data: devProfile } = await supabase
+      const admin = await getAdminClient();
+      const { data: devProfile } = await admin
         .from('profiles')
         .select('id')
         .eq('role', 'admin')
@@ -797,7 +814,41 @@ export async function POST(
       
       if (devProfile) {
         finalProfileId = devProfile.id;
+        console.log('✅ POST /api/ask/[key]: Using default admin profile in dev mode:', finalProfileId);
+      } else {
+        // If no admin profile found, try to get any active profile
+        const { data: anyProfile } = await admin
+          .from('profiles')
+          .select('id')
+          .eq('is_active', true)
+          .limit(1)
+          .maybeSingle();
+        
+        if (anyProfile) {
+          finalProfileId = anyProfile.id;
+          console.log('✅ POST /api/ask/[key]: Using first active profile in dev mode:', finalProfileId);
+        } else {
+          console.error('❌ POST /api/ask/[key]: No active profiles found in dev mode. Cannot insert message without user_id.');
+          return NextResponse.json<ApiResponse>({
+            success: false,
+            error: "Aucun profil utilisateur actif trouvé. Veuillez créer un profil utilisateur dans la base de données."
+          }, { status: 500 });
+        }
       }
+    }
+
+    // Final validation: we MUST have a profileId to insert a message
+    if (!finalProfileId) {
+      console.error('❌ POST /api/ask/[key]: Cannot insert message without user_id', {
+        isDevBypass,
+        hasProfileId: !!profileId,
+        hasParticipantId: !!participantId,
+        hasInviteToken: !!inviteToken
+      });
+      return NextResponse.json<ApiResponse>({
+        success: false,
+        error: "Impossible d'insérer un message sans identifiant utilisateur. Veuillez vous connecter ou utiliser un lien d'invitation valide."
+      }, { status: 403 });
     }
 
     // Get or create conversation thread for this user/ASK
@@ -805,6 +856,13 @@ export async function POST(
       audience_scope: askRow.audience_scope ?? null,
       response_mode: askRow.response_mode ?? null,
     };
+    
+    console.log('🔍 POST /api/ask/[key]: Creating/getting conversation thread', {
+      askSessionId: askRow.id,
+      profileId: finalProfileId,
+      askConfig,
+      isDevBypass
+    });
     
     const { thread: conversationThread, error: threadError } = await getOrCreateConversationThread(
       dataClient,
@@ -814,10 +872,28 @@ export async function POST(
     );
 
     if (threadError) {
+      console.error('❌ POST /api/ask/[key]: Thread creation error:', threadError);
       if (isPermissionDenied(threadError)) {
-        return permissionDeniedResponse();
+        console.error('❌ POST /api/ask/[key]: Thread creation permission denied');
+        // In dev bypass mode, allow continuing without a thread
+        if (isDevBypass) {
+          console.warn('⚠️ POST /api/ask/[key]: Dev bypass mode - continuing without conversation thread');
+        } else {
+          return permissionDeniedResponse();
+        }
+      } else {
+        // For non-permission errors, still throw in non-dev mode
+        if (!isDevBypass) {
+          throw threadError;
+        } else {
+          console.warn('⚠️ POST /api/ask/[key]: Dev bypass mode - continuing without conversation thread after error');
+        }
       }
-      throw threadError;
+    } else {
+      console.log('✅ POST /api/ask/[key]: Conversation thread ready', {
+        threadId: conversationThread?.id ?? null,
+        hasThread: !!conversationThread
+      });
     }
 
     if (!isDevBypass && (profileId || participantId)) {
@@ -827,19 +903,42 @@ export async function POST(
       if (participantId) {
         const admin = await getAdminClient();
 
-        const { data: participantCheck, error: checkError } = await admin
+        // First, get the participant's ask_session_id to debug
+        const { data: participantData, error: participantFetchError } = await admin
           .from('ask_participants')
           .select('id, ask_session_id')
           .eq('id', participantId)
-          .eq('ask_session_id', askRow.id)
           .maybeSingle();
 
-        if (checkError || !participantCheck) {
-          console.error('❌ Participant does not belong to this ASK session');
+        if (participantFetchError) {
+          console.error('❌ POST: Error fetching participant data:', participantFetchError);
           return permissionDeniedResponse();
         }
 
-        console.log(`✅ Participant ${participantId} verified for ASK ${askRow.id}`);
+        if (!participantData) {
+          console.error('❌ POST: Participant not found:', participantId);
+          return permissionDeniedResponse();
+        }
+
+        console.log('🔍 POST: Participant verification:', {
+          participantId,
+          participantAskSessionId: participantData.ask_session_id,
+          askRowId: askRow.id,
+          askKey: askRow.ask_key,
+          match: participantData.ask_session_id === askRow.id
+        });
+
+        if (participantData.ask_session_id !== askRow.id) {
+          console.error('❌ POST: Participant does not belong to this ASK session', {
+            participantId,
+            participantAskSessionId: participantData.ask_session_id,
+            askRowId: askRow.id,
+            askKey: askRow.ask_key
+          });
+          return permissionDeniedResponse();
+        }
+
+        console.log(`✅ POST: Participant ${participantId} verified for ASK ${askRow.id}`);
       } else if (profileId) {
         // Check if user is a participant (regular auth flow)
         const { data: membership, error: membershipError } = await supabase
@@ -922,10 +1021,19 @@ export async function POST(
       metadata,
       created_at: timestamp,
       user_id: finalProfileId, // REQUIRED - never NULL (enforced by validation above)
-      participant_id: participantId, // Optional - included when using invite token
+      // Note: participant_id column does not exist in messages table
+      // The user_id already identifies the participant via their profile
       parent_message_id: parentMessageId,
       conversation_thread_id: conversationThread?.id ?? null,
     };
+
+    console.log('🔍 POST /api/ask/[key]: Inserting message', {
+      askSessionId: askRow.id,
+      userId: finalProfileId,
+      hasThreadId: !!conversationThread?.id,
+      isDevBypass,
+      payloadKeys: Object.keys(insertPayload)
+    });
 
     const { data: insertedRows, error: insertError } = await dataClient
       .from('messages')
@@ -934,11 +1042,24 @@ export async function POST(
       .limit(1);
 
     if (insertError) {
+      console.error('❌ POST /api/ask/[key]: Message insert error:', {
+        error: insertError,
+        code: (insertError as any)?.code,
+        message: (insertError as any)?.message,
+        details: (insertError as any)?.details,
+        hint: (insertError as any)?.hint,
+        isPermissionDenied: isPermissionDenied(insertError)
+      });
       if (isPermissionDenied(insertError)) {
+        console.error('❌ POST /api/ask/[key]: Message insert permission denied');
         return permissionDeniedResponse();
       }
       throw insertError;
     }
+
+    console.log('✅ POST /api/ask/[key]: Message inserted successfully', {
+      messageId: insertedRows?.[0]?.id
+    });
 
     const inserted = insertedRows?.[0] as MessageRow | undefined;
 
@@ -966,9 +1087,15 @@ export async function POST(
     });
   } catch (error) {
     console.error('Error saving message to database:', error);
+    const errorMessage = parseErrorMessage(error);
+    console.error('Error details:', {
+      message: errorMessage,
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined
+    });
     return NextResponse.json<ApiResponse>({
       success: false,
-      error: parseErrorMessage(error)
+      error: errorMessage
     }, { status: 500 });
   }
 }
