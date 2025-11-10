@@ -160,7 +160,10 @@ export async function executeAgent(options: ExecuteAgentOptions): Promise<AgentE
 
   // Check if the primary config is a voice agent
   const primaryConfig = configs[0];
-  if (primaryConfig.provider === "deepgram-voice-agent") {
+  // Use voiceAgentProvider if available (even if provider is not a voice agent), otherwise use provider
+  const effectiveProvider = primaryConfig.voiceAgentProvider || primaryConfig.provider;
+  
+  if (effectiveProvider === "deepgram-voice-agent" || effectiveProvider === "speechmatics-voice-agent" || effectiveProvider === "hybrid-voice-agent") {
     // For voice agents, return the VoiceAgentResponse immediately
     // The log will be completed when we receive the agent's response via callback
     await markAgentLogProcessing(options.supabase, log.id, { modelConfigId: primaryConfig.id });

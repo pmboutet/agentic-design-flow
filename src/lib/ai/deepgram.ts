@@ -3,7 +3,7 @@ import type { AiModelConfig } from '@/types';
 
 export interface DeepgramConfig {
   systemPrompt: string;
-  sttModel?: string; // Speech-to-text model, default: "nova-2"
+  sttModel?: string; // Speech-to-text model, default: "nova-3"
   ttsModel?: string; // Text-to-speech model, default: "aura-thalia-en"
   llmProvider?: "anthropic" | "openai";
   llmModel?: string;
@@ -36,6 +36,10 @@ export class DeepgramVoiceAgent {
   private isMicrophoneActive: boolean = false;
   private isFirefox: boolean;
   private config: DeepgramConfig | null = null;
+  private isDisconnected: boolean = false; // Flag to prevent event handlers from firing after disconnect
+  
+  // Event handler references for cleanup
+  private eventHandlers: Map<string, (...args: any[]) => void> = new Map();
   
   // Callbacks
   private onMessageCallback: DeepgramMessageCallback | null = null;
@@ -92,6 +96,10 @@ export class DeepgramVoiceAgent {
   async connect(config: DeepgramConfig): Promise<void> {
     console.log('[Deepgram] Starting connection process...');
     
+    // Reset disconnect flag when connecting
+    this.isDisconnected = false;
+    this.eventHandlers.clear();
+    
     if (!this.token) {
       console.log('[Deepgram] Authenticating...');
       await this.authenticate();
@@ -138,11 +146,11 @@ export class DeepgramVoiceAgent {
         // Use multilingual model (nova-2 or nova-3) for automatic language detection
         // Nova-2 and Nova-3 are multilingual models that can transcribe multiple languages
         // For streaming, we use the multilingual model which supports FR and EN
-        const sttModel = config.sttModel || "nova-2";
+        const sttModel = config.sttModel || "nova-3";
         const isMultilingualModel = sttModel.includes("nova-2") || sttModel.includes("nova-3");
         
-        // Ensure we're using a multilingual model (nova-2 supports FR and EN automatically)
-        const finalSttModel = isMultilingualModel ? sttModel : "nova-2";
+        // Ensure we're using a multilingual model (nova-3 supports FR and EN automatically)
+        const finalSttModel = isMultilingualModel ? sttModel : "nova-3";
         
         console.log('[Deepgram] Using STT model:', finalSttModel, '- This model supports automatic language detection for French (fr) and English (en)');
         
@@ -166,7 +174,9 @@ export class DeepgramVoiceAgent {
                 // Nova-2 and Nova-3 are multilingual models that automatically detect language
                 // They support both French (fr) and English (en) automatically
                 // The model will auto-detect the language based on the speech content
-                // No language parameter is needed - leaving it undefined enables auto-detection
+                // Note: The 'language' parameter is NOT supported in agent.listen.provider for Agent API
+                // Multilingual mode is enabled by default with nova-2 and nova-3 models
+                // detect_language: true at agent level helps improve language detection accuracy
               }
             },
             speak: {
@@ -221,27 +231,43 @@ export class DeepgramVoiceAgent {
       });
 
       // Handle ConversationText events (transcriptions and agent responses)
-      client.on(AgentEvents.ConversationText, (message) => {
+      const conversationTextHandler = (message: any) => {
+        if (this.isDisconnected) {
+          console.log('[Deepgram] 🔇 Ignoring ConversationText event - agent is disconnected');
+          return;
+        }
         console.log('[Deepgram] 💬 ConversationText:', message.role, ':', message.content.substring(0, 100));
         this.onMessageCallback?.({
           role: message.role as 'user' | 'agent',
           content: message.content,
           timestamp: new Date().toISOString()
         });
-      });
+      };
+      client.on(AgentEvents.ConversationText, conversationTextHandler);
+      this.eventHandlers.set('ConversationText', conversationTextHandler);
 
       // Handle Audio events (agent speaking)
-      client.on(AgentEvents.Audio, async (audio: Uint8Array) => {
+      const audioHandler = async (audio: Uint8Array) => {
+        if (this.isDisconnected) {
+          console.log('[Deepgram] 🔇 Ignoring Audio event - agent is disconnected');
+          return;
+        }
         console.log('[Deepgram] 🔊 Audio chunk received, size:', audio.length);
         // Call the audio callback if set
         this.onAudioCallback?.(audio);
         // Also process for internal playback
         this.audioQueue.push(audio);
         await this.processAudioQueue();
-      });
+      };
+      client.on(AgentEvents.Audio, audioHandler);
+      this.eventHandlers.set('Audio', audioHandler);
 
       // Handle user started speaking (interrupt agent)
-      client.on(AgentEvents.UserStartedSpeaking, () => {
+      const userStartedSpeakingHandler = () => {
+        if (this.isDisconnected) {
+          console.log('[Deepgram] 🔇 Ignoring UserStartedSpeaking event - agent is disconnected');
+          return;
+        }
         console.log('[Deepgram] 👤 User started speaking');
         // Stop current audio playback
         if (this.currentAudioSource) {
@@ -256,15 +282,27 @@ export class DeepgramVoiceAgent {
         this.audioQueue = [];
         this.nextStartTime = 0;
         this.isProcessingAudio = false;
-      });
+      };
+      client.on(AgentEvents.UserStartedSpeaking, userStartedSpeakingHandler);
+      this.eventHandlers.set('UserStartedSpeaking', userStartedSpeakingHandler);
 
       // Handle agent started speaking
-      client.on(AgentEvents.AgentStartedSpeaking, () => {
+      const agentStartedSpeakingHandler = () => {
+        if (this.isDisconnected) {
+          console.log('[Deepgram] 🔇 Ignoring AgentStartedSpeaking event - agent is disconnected');
+          return;
+        }
         console.log('[Deepgram] 🤖 Agent started speaking');
-      });
+      };
+      client.on(AgentEvents.AgentStartedSpeaking, agentStartedSpeakingHandler);
+      this.eventHandlers.set('AgentStartedSpeaking', agentStartedSpeakingHandler);
 
       // Handle errors
-      client.on(AgentEvents.Error, (error) => {
+      const errorHandler = (error: any) => {
+        if (this.isDisconnected) {
+          console.log('[Deepgram] 🔇 Ignoring Error event - agent is disconnected');
+          return;
+        }
         console.error('[Deepgram] ❌ Error event:', error);
         const errorMessage = error.description || error.message || 'Unknown error';
         const errorCode = error.code || 'UNKNOWN';
@@ -289,14 +327,18 @@ export class DeepgramVoiceAgent {
         clearTimeout(settingsAppliedTimeout);
         reject(err);
         this.disconnect();
-      });
+      };
+      client.on(AgentEvents.Error, errorHandler);
+      this.eventHandlers.set('Error', errorHandler);
 
       // Handle close
-      client.on(AgentEvents.Close, (closeEvent) => {
+      const closeHandler = (closeEvent: any) => {
         console.log('[Deepgram] ⚠️ Close event received:', closeEvent);
         this.onConnectionCallback?.(false);
         this.client = null;
-      });
+      };
+      client.on(AgentEvents.Close, closeHandler);
+      this.eventHandlers.set('Close', closeHandler);
 
       // The SDK should automatically connect when we create the agent client
       // But let's log to confirm we're waiting
@@ -459,6 +501,15 @@ export class DeepgramVoiceAgent {
 
     try {
       const audioContext = this.audioContext;
+      
+      // CRITICAL: Resume audio context if suspended (required for audio playback)
+      // Browsers suspend AudioContext by default until user interaction
+      if (audioContext.state === 'suspended') {
+        console.log('[Deepgram] 🔊 AudioContext suspended, resuming for playback...');
+        await audioContext.resume();
+        console.log('[Deepgram] ✅ AudioContext resumed, state:', audioContext.state);
+      }
+      
       const currentTime = audioContext.currentTime;
 
       if (this.nextStartTime < currentTime) {
@@ -509,10 +560,11 @@ export class DeepgramVoiceAgent {
   }
 
   stopMicrophone(): void {
-    console.log('[Deepgram] 🎤 Stopping microphone...');
+    console.log('[Deepgram] 🎤 Stopping microphone and closing WebSocket...');
 
-    // Set flag to stop processing audio chunks IMMEDIATELY (before any other cleanup)
-    // This ensures no audio is sent after mute is activated
+    // Set flags to stop processing IMMEDIATELY (before any other cleanup)
+    // This ensures no audio is sent and no events are processed after mute is activated
+    this.isDisconnected = true;
     this.isMicrophoneActive = false;
 
     // CRITICAL: Stop media stream tracks FIRST to prevent new audio capture
@@ -584,11 +636,53 @@ export class DeepgramVoiceAgent {
       this.audioContext = null;
     }
 
-    console.log('[Deepgram] ✅ Microphone stopped');
+    // CRITICAL: Remove all event listeners BEFORE disconnecting
+    // This prevents events from firing after disconnect
+    if (this.client) {
+      try {
+        // Remove all event listeners
+        this.eventHandlers.forEach((handler, eventName) => {
+          try {
+            (this.client as any).off(AgentEvents[eventName as keyof typeof AgentEvents], handler);
+            console.log('[Deepgram] ✅ Removed event listener:', eventName);
+          } catch (error) {
+            console.warn('[Deepgram] Error removing event listener:', eventName, error);
+          }
+        });
+        this.eventHandlers.clear();
+        console.log('[Deepgram] ✅ All event listeners removed');
+      } catch (error) {
+        console.warn('[Deepgram] Error removing event listeners:', error);
+      }
+
+      // Close WebSocket connection
+      try {
+        this.client.disconnect();
+        console.log('[Deepgram] ✅ WebSocket disconnected (mute)');
+      } catch (error) {
+        console.warn('[Deepgram] Error disconnecting WebSocket on mute:', error);
+      }
+      this.client = null;
+    }
+
+    // Clear keep-alive interval
+    if (this.keepAliveInterval) {
+      clearInterval(this.keepAliveInterval);
+      this.keepAliveInterval = null;
+      console.log('[Deepgram] ✅ Cleared keep-alive interval');
+    }
+
+    // Notify connection callback that we're disconnected
+    this.onConnectionCallback?.(false);
+
+    console.log('[Deepgram] ✅ Microphone stopped and WebSocket closed');
   }
 
   disconnect(): void {
     console.log('[Deepgram] 🔌 Disconnecting...');
+    
+    // Set disconnect flag FIRST to prevent any new events from being processed
+    this.isDisconnected = true;
     
     // Stop microphone first
     this.stopMicrophone();
@@ -609,8 +703,25 @@ export class DeepgramVoiceAgent {
     this.nextStartTime = 0;
     this.isProcessingAudio = false;
 
-    // Disconnect WebSocket
+    // Remove all event listeners and disconnect WebSocket
     if (this.client) {
+      try {
+        // Remove all event listeners
+        this.eventHandlers.forEach((handler, eventName) => {
+          try {
+            (this.client as any).off(AgentEvents[eventName as keyof typeof AgentEvents], handler);
+            console.log('[Deepgram] ✅ Removed event listener:', eventName);
+          } catch (error) {
+            console.warn('[Deepgram] Error removing event listener:', eventName, error);
+          }
+        });
+        this.eventHandlers.clear();
+        console.log('[Deepgram] ✅ All event listeners removed');
+      } catch (error) {
+        console.warn('[Deepgram] Error removing event listeners:', error);
+      }
+
+      // Disconnect WebSocket
       try {
         this.client.disconnect();
         console.log('[Deepgram] ✅ Disconnected WebSocket client');

@@ -11,7 +11,7 @@ export interface HybridVoiceAgentConfig {
   systemPrompt: string;
   // Deepgram STT config
   deepgramApiKey?: string;
-  sttModel?: string; // Deepgram STT model, default: "nova-2"
+  sttModel?: string; // Deepgram STT model, default: "nova-3"
   // LLM config
   llmProvider?: "anthropic" | "openai";
   llmModel?: string;
@@ -56,6 +56,10 @@ export class HybridVoiceAgent {
   private userMessageQueue: Array<{ content: string; timestamp: string }> = [];
   private lastPartialUserContent: string | null = null;
   private isMicrophoneActive: boolean = false;
+  private isDisconnected: boolean = false; // Flag to prevent event handlers from firing after disconnect
+  
+  // Event handler references for cleanup
+  private eventHandlers: Map<string, (...args: any[]) => void> = new Map();
   
   // Callbacks
   private onMessageCallback: HybridVoiceAgentMessageCallback | null = null;
@@ -133,6 +137,11 @@ export class HybridVoiceAgent {
 
   async connect(config: HybridVoiceAgentConfig): Promise<void> {
     console.log('[HybridVoiceAgent] Starting connection process...');
+    
+    // Reset disconnect flag when connecting
+    this.isDisconnected = false;
+    this.eventHandlers.clear();
+    
     this.config = config;
 
     // Validate required ElevenLabs configuration
@@ -193,11 +202,11 @@ export class HybridVoiceAgent {
         // Use multilingual model (nova-2 or nova-3) for automatic language detection
         // Nova-2 and Nova-3 are multilingual models that can transcribe multiple languages
         // For streaming, we use the multilingual model which supports FR and EN
-        const sttModel = config.sttModel || "nova-2";
+        const sttModel = config.sttModel || "nova-3";
         const isMultilingualModel = sttModel.includes("nova-2") || sttModel.includes("nova-3");
         
-        // Ensure we're using a multilingual model (nova-2 supports FR and EN automatically)
-        const finalSttModel = isMultilingualModel ? sttModel : "nova-2";
+        // Ensure we're using a multilingual model (nova-3 supports FR and EN automatically)
+        const finalSttModel = isMultilingualModel ? sttModel : "nova-3";
         
         console.log('[HybridVoiceAgent] Using STT model:', finalSttModel, '- This model supports automatic language detection for French (fr) and English (en)');
         
@@ -221,7 +230,9 @@ export class HybridVoiceAgent {
                 // Nova-2 and Nova-3 are multilingual models that automatically detect language
                 // They support both French (fr) and English (en) automatically
                 // The model will auto-detect the language based on the speech content
-                // No language parameter is needed - leaving it undefined enables auto-detection
+                // Note: The 'language' parameter is NOT supported in agent.listen.provider for Agent API
+                // Multilingual mode is enabled by default with nova-2 and nova-3 models
+                // detect_language: true at agent level helps improve language detection accuracy
               }
             },
             // Disable Deepgram TTS - we'll use ElevenLabs instead
@@ -277,7 +288,11 @@ export class HybridVoiceAgent {
       });
 
       // Handle ConversationText events (user transcriptions)
-      client.on(AgentEvents.ConversationText, (message) => {
+      const conversationTextHandler = (message: any) => {
+        if (this.isDisconnected) {
+          console.log('[HybridVoiceAgent] 🔇 Ignoring ConversationText event - agent is disconnected');
+          return;
+        }
         console.log('[HybridVoiceAgent] 💬 ConversationText:', message.role, ':', message.content.substring(0, 100));
         
         if (message.role === 'user') {
@@ -302,9 +317,15 @@ export class HybridVoiceAgent {
           // Agent response from Deepgram (if any) - we'll ignore this since we use our own LLM
           console.log('[HybridVoiceAgent] Ignoring Deepgram agent response, using custom LLM');
         }
-      });
+      };
+      client.on(AgentEvents.ConversationText, conversationTextHandler);
+      this.eventHandlers.set('ConversationText', conversationTextHandler);
 
-      client.on(AgentEvents.AgentThinking, () => {
+      const agentThinkingHandler = () => {
+        if (this.isDisconnected) {
+          console.log('[HybridVoiceAgent] 🔇 Ignoring AgentThinking event - agent is disconnected');
+          return;
+        }
         console.log('[HybridVoiceAgent] 🧠 AgentThinking event received - finalizing user turn');
         if (!this.pendingUserMessage) {
           console.log('[HybridVoiceAgent] No pending user message to finalize');
@@ -338,16 +359,28 @@ export class HybridVoiceAgent {
         });
 
         void this.processUserMessageQueue();
-      });
+      };
+      client.on(AgentEvents.AgentThinking, agentThinkingHandler);
+      this.eventHandlers.set('AgentThinking', agentThinkingHandler);
 
       // Handle Audio events from Deepgram (we'll ignore these since we use ElevenLabs)
-      client.on(AgentEvents.Audio, (audio: Uint8Array) => {
+      const audioHandler = (audio: Uint8Array) => {
+        if (this.isDisconnected) {
+          console.log('[HybridVoiceAgent] 🔇 Ignoring Audio event - agent is disconnected');
+          return;
+        }
         console.log('[HybridVoiceAgent] 🔊 Audio chunk from Deepgram (ignoring, using ElevenLabs)');
         // We ignore Deepgram audio and use ElevenLabs instead
-      });
+      };
+      client.on(AgentEvents.Audio, audioHandler);
+      this.eventHandlers.set('Audio', audioHandler);
 
       // Handle user started speaking
-      client.on(AgentEvents.UserStartedSpeaking, () => {
+      const userStartedSpeakingHandler = () => {
+        if (this.isDisconnected) {
+          console.log('[HybridVoiceAgent] 🔇 Ignoring UserStartedSpeaking event - agent is disconnected');
+          return;
+        }
         console.log('[HybridVoiceAgent] 👤 User started speaking');
         // Stop current audio playback when user starts speaking
         if (this.currentAudioSource) {
@@ -365,10 +398,16 @@ export class HybridVoiceAgent {
         this.isPlayingAudio = false;
         this.pendingUserMessage = null;
         this.lastPartialUserContent = null;
-      });
+      };
+      client.on(AgentEvents.UserStartedSpeaking, userStartedSpeakingHandler);
+      this.eventHandlers.set('UserStartedSpeaking', userStartedSpeakingHandler);
 
       // Handle errors
-      client.on(AgentEvents.Error, (error) => {
+      const errorHandler = (error: any) => {
+        if (this.isDisconnected) {
+          console.log('[HybridVoiceAgent] 🔇 Ignoring Error event - agent is disconnected');
+          return;
+        }
         console.error('[HybridVoiceAgent] ❌ Error event:', error);
         const errorMessage = error.description || error.message || 'Unknown error';
         const err = new Error(`HybridVoiceAgent error: ${errorMessage}`);
@@ -377,14 +416,18 @@ export class HybridVoiceAgent {
         clearTimeout(settingsAppliedTimeout);
         reject(err);
         this.disconnect();
-      });
+      };
+      client.on(AgentEvents.Error, errorHandler);
+      this.eventHandlers.set('Error', errorHandler);
 
       // Handle close
-      client.on(AgentEvents.Close, (closeEvent) => {
+      const closeHandler = (closeEvent: any) => {
         console.log('[HybridVoiceAgent] ⚠️ Close event received:', closeEvent);
         this.onConnectionCallback?.(false);
         this.deepgramClient = null;
-      });
+      };
+      client.on(AgentEvents.Close, closeHandler);
+      this.eventHandlers.set('Close', closeHandler);
 
       console.log('[HybridVoiceAgent] ✅ All event handlers registered');
     });
@@ -770,10 +813,11 @@ export class HybridVoiceAgent {
   }
 
   stopMicrophone(): void {
-    console.log('[HybridVoiceAgent] 🎤 Stopping microphone...');
+    console.log('[HybridVoiceAgent] 🎤 Stopping microphone and closing WebSocket...');
 
-    // Mark microphone as inactive IMMEDIATELY (before any other cleanup)
-    // This ensures no audio is sent after mute is activated
+    // Set flags to stop processing IMMEDIATELY (before any other cleanup)
+    // This ensures no audio is sent and no events are processed after mute is activated
+    this.isDisconnected = true;
     this.isMicrophoneActive = false;
 
     // Stop any ongoing response generation
@@ -858,12 +902,54 @@ export class HybridVoiceAgent {
       }
       this.audioContext = null;
     }
+
+    // CRITICAL: Remove all event listeners BEFORE disconnecting
+    // This prevents events from firing after disconnect
+    if (this.deepgramClient) {
+      try {
+        // Remove all event listeners
+        this.eventHandlers.forEach((handler, eventName) => {
+          try {
+            (this.deepgramClient as any).off(AgentEvents[eventName as keyof typeof AgentEvents], handler);
+            console.log('[HybridVoiceAgent] ✅ Removed event listener:', eventName);
+          } catch (error) {
+            console.warn('[HybridVoiceAgent] Error removing event listener:', eventName, error);
+          }
+        });
+        this.eventHandlers.clear();
+        console.log('[HybridVoiceAgent] ✅ All event listeners removed');
+      } catch (error) {
+        console.warn('[HybridVoiceAgent] Error removing event listeners:', error);
+      }
+
+      // Close WebSocket connection
+      try {
+        this.deepgramClient.disconnect();
+        console.log('[HybridVoiceAgent] ✅ WebSocket disconnected (mute)');
+      } catch (error) {
+        console.warn('[HybridVoiceAgent] Error disconnecting WebSocket on mute:', error);
+      }
+      this.deepgramClient = null;
+    }
+
+    // Clear keep-alive interval
+    if (this.keepAliveInterval) {
+      clearInterval(this.keepAliveInterval);
+      this.keepAliveInterval = null;
+      console.log('[HybridVoiceAgent] ✅ Cleared keep-alive interval');
+    }
+
+    // Notify connection callback that we're disconnected
+    this.onConnectionCallback?.(false);
     
-    console.log('[HybridVoiceAgent] ✅ Microphone stopped');
+    console.log('[HybridVoiceAgent] ✅ Microphone stopped and WebSocket closed');
   }
 
   disconnect(): void {
     console.log('[HybridVoiceAgent] 🔌 Disconnecting completely (websocket + microphone)...');
+    
+    // Set disconnect flag FIRST to prevent any new events from being processed
+    this.isDisconnected = true;
     
     // Mark microphone as inactive FIRST to prevent any new processing
     this.isMicrophoneActive = false;
@@ -896,8 +982,25 @@ export class HybridVoiceAgent {
     this.userMessageQueue = [];
     this.lastPartialUserContent = null;
 
-    // Disconnect Deepgram WebSocket client (this closes the websocket connection)
+    // Remove all event listeners and disconnect Deepgram WebSocket client
     if (this.deepgramClient) {
+      try {
+        // Remove all event listeners
+        this.eventHandlers.forEach((handler, eventName) => {
+          try {
+            (this.deepgramClient as any).off(AgentEvents[eventName as keyof typeof AgentEvents], handler);
+            console.log('[HybridVoiceAgent] ✅ Removed event listener:', eventName);
+          } catch (error) {
+            console.warn('[HybridVoiceAgent] Error removing event listener:', eventName, error);
+          }
+        });
+        this.eventHandlers.clear();
+        console.log('[HybridVoiceAgent] ✅ All event listeners removed');
+      } catch (error) {
+        console.warn('[HybridVoiceAgent] Error removing event listeners:', error);
+      }
+
+      // Disconnect Deepgram WebSocket client
       try {
         this.deepgramClient.disconnect();
         console.log('[HybridVoiceAgent] ✅ Disconnected Deepgram WebSocket client');

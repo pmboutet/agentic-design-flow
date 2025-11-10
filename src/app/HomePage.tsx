@@ -2,8 +2,8 @@
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useSearchParams } from "next/navigation";
-import { motion, AnimatePresence } from "framer-motion";
-import { AlertCircle, Clock, MessageSquare, Sparkles, ChevronDown, ChevronUp } from "lucide-react";
+import { motion, AnimatePresence, useMotionValue, useTransform, PanInfo } from "framer-motion";
+import { AlertCircle, Clock, MessageSquare, Sparkles, ChevronDown, ChevronUp, MessageCircle, Lightbulb } from "lucide-react";
 import { ChatComponent } from "@/components/chat/ChatComponent";
 import { InsightPanel } from "@/components/insight/InsightPanel";
 import { Button } from "@/components/ui/button";
@@ -31,6 +31,337 @@ type TokenSessionPayload = {
     email?: string | null;
   } | null;
 };
+
+interface MobileLayoutProps {
+  sessionData: SessionData;
+  currentParticipantName: string | null;
+  awaitingAiResponse: boolean;
+  voiceModeSystemPrompt: string | null;
+  voiceModeModelConfig: {
+    provider?: "deepgram-voice-agent" | "hybrid-voice-agent" | "speechmatics-voice-agent";
+    voiceAgentProvider?: "deepgram-voice-agent" | "speechmatics-voice-agent";
+    deepgramSttModel?: string;
+    deepgramTtsModel?: string;
+    deepgramLlmProvider?: "anthropic" | "openai";
+    deepgramLlmModel?: string;
+    speechmaticsSttLanguage?: string;
+    speechmaticsSttOperatingPoint?: "enhanced" | "standard";
+    speechmaticsSttMaxDelay?: number;
+    speechmaticsSttEnablePartials?: boolean;
+    speechmaticsLlmProvider?: "anthropic" | "openai";
+    speechmaticsLlmModel?: string;
+    speechmaticsApiKeyEnvVar?: string;
+    elevenLabsVoiceId?: string;
+    elevenLabsModelId?: string;
+  } | null;
+  isDetectingInsights: boolean;
+  onSendMessage: (content: string, type?: Message['type'], metadata?: Message['metadata']) => void;
+  onVoiceMessage: (role: 'user' | 'agent', content: string) => void;
+  setIsReplyBoxFocused: (focused: boolean) => void;
+  setIsVoiceModeActive: (active: boolean) => void;
+  isVoiceModeActive: boolean;
+  reloadMessagesAfterVoiceMode: () => void;
+  mobileActivePanel: 'chat' | 'insights';
+  setMobileActivePanel: (panel: 'chat' | 'insights') => void;
+  isMobileHeaderExpanded: boolean;
+  setIsMobileHeaderExpanded: (expanded: boolean) => void;
+  askDetails: Ask | null;
+  sessionDataAskKey: string;
+  participants: Array<{ id: string; name: string; isSpokesperson?: boolean }>;
+  statusLabel: string;
+  timelineLabel: string | null;
+  timeRemaining: string | null;
+}
+
+/**
+ * Mobile layout component with collapsible header and swipeable panels
+ */
+function MobileLayout({
+  sessionData,
+  currentParticipantName,
+  awaitingAiResponse,
+  voiceModeSystemPrompt,
+  voiceModeModelConfig,
+  isDetectingInsights,
+  onSendMessage,
+  onVoiceMessage,
+  setIsReplyBoxFocused,
+  setIsVoiceModeActive,
+  isVoiceModeActive,
+  reloadMessagesAfterVoiceMode,
+  mobileActivePanel,
+  setMobileActivePanel,
+  isMobileHeaderExpanded,
+  setIsMobileHeaderExpanded,
+  askDetails,
+  sessionDataAskKey,
+  participants,
+  statusLabel,
+  timelineLabel,
+  timeRemaining,
+}: MobileLayoutProps) {
+  const [panelWidth, setPanelWidth] = useState(0);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const x = useMotionValue(0);
+
+  useEffect(() => {
+    const updateWidth = () => {
+      if (containerRef.current) {
+        setPanelWidth(containerRef.current.offsetWidth);
+      }
+    };
+    updateWidth();
+    window.addEventListener('resize', updateWidth);
+    return () => window.removeEventListener('resize', updateWidth);
+  }, []);
+
+  const handleDragEnd = (_event: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
+    if (panelWidth === 0) return;
+    
+    const threshold = panelWidth * 0.25;
+    const velocity = info.velocity.x;
+    const currentX = mobileActivePanel === 'chat' ? 0 : -panelWidth;
+    const newX = currentX + info.offset.x;
+    
+    // Check velocity first (fast swipe)
+    if (Math.abs(velocity) > 500) {
+      if (velocity > 0 && mobileActivePanel === 'insights') {
+        setMobileActivePanel('chat');
+      } else if (velocity < 0 && mobileActivePanel === 'chat') {
+        setMobileActivePanel('insights');
+      }
+    } 
+    // Then check position (slow drag)
+    else {
+      if (newX > -threshold && mobileActivePanel === 'insights') {
+        setMobileActivePanel('chat');
+      } else if (newX < -threshold && mobileActivePanel === 'chat') {
+        setMobileActivePanel('insights');
+      }
+    }
+    
+    x.set(0);
+  };
+
+  return (
+    <div className="flex flex-col h-[calc(100vh-88px)] overflow-hidden">
+      {/* Collapsible Header */}
+      {askDetails && (
+        <motion.div
+          initial={false}
+          animate={{
+            height: isMobileHeaderExpanded ? 'auto' : '60px',
+          }}
+          className="overflow-hidden border-b border-white/50 bg-white/80 backdrop-blur"
+        >
+          <div className="px-4 py-3">
+            <div className="flex items-center justify-between">
+              <div className="flex-1 min-w-0 pr-2">
+                <h3 className="font-semibold text-sm leading-tight text-foreground truncate">
+                  {askDetails.question}
+                </h3>
+                {askDetails.description && !isMobileHeaderExpanded && (
+                  <p className="text-xs text-muted-foreground mt-1 line-clamp-1">
+                    {askDetails.description}
+                  </p>
+                )}
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setIsMobileHeaderExpanded(!isMobileHeaderExpanded)}
+                className="flex-shrink-0"
+              >
+                {isMobileHeaderExpanded ? (
+                  <ChevronUp className="h-4 w-4" />
+                ) : (
+                  <ChevronDown className="h-4 w-4" />
+                )}
+              </Button>
+            </div>
+          </div>
+          <AnimatePresence>
+            {isMobileHeaderExpanded && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                className="overflow-hidden px-4 pb-4"
+              >
+                {askDetails.description && (
+                  <p className="text-sm text-muted-foreground mb-4 leading-relaxed">
+                    {askDetails.description}
+                  </p>
+                )}
+                <div className="space-y-3 text-sm">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground/80 mb-2">
+                      Session
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {sessionDataAskKey && (
+                        <span className="inline-flex items-center rounded-full bg-white/80 px-3 py-1 text-xs font-medium text-foreground shadow-sm">
+                          {sessionDataAskKey}
+                        </span>
+                      )}
+                      {sessionData.ask && (
+                        <span className={sessionData.ask.isActive ? 'session-active' : 'session-closed'}>
+                          {sessionData.ask.isActive ? 'Active' : 'Closed'}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground/80 mb-2">
+                      Statut
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      <span className="inline-flex items-center rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
+                        {statusLabel}
+                      </span>
+                      {timelineLabel && <span className="text-xs text-muted-foreground">{timelineLabel}</span>}
+                      {timeRemaining && (
+                        <span className="inline-flex items-center gap-1 text-primary text-xs">
+                          <Clock className="h-3.5 w-3.5" />
+                          <span>{timeRemaining}</span>
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground/80 mb-2">
+                      Participants ({participants.length})
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {participants.length > 0 ? (
+                        participants.map(participant => (
+                          <span
+                            key={participant.id}
+                            className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-3 py-1 text-xs text-primary"
+                          >
+                            <span className="font-medium text-primary/90">{participant.name}</span>
+                            {participant.isSpokesperson && (
+                              <span className="text-[10px] uppercase tracking-wide text-primary/70">porte-parole</span>
+                            )}
+                          </span>
+                        ))
+                      ) : (
+                        <span className="text-muted-foreground text-xs">Aucun participant</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </motion.div>
+      )}
+
+      {/* Swipeable Panels Container */}
+      <div className="flex-1 relative overflow-hidden" ref={containerRef}>
+        <motion.div
+          drag="x"
+          dragConstraints={panelWidth > 0 ? { left: -panelWidth, right: 0 } : { left: 0, right: 0 }}
+          dragElastic={0.2}
+          onDragEnd={handleDragEnd}
+          style={{ x }}
+          className="flex h-full"
+          animate={{
+            x: mobileActivePanel === 'chat' ? 0 : panelWidth > 0 ? -panelWidth : 0,
+          }}
+          transition={{
+            type: "spring",
+            stiffness: 300,
+            damping: 30,
+          }}
+          onAnimationComplete={() => {
+            // Reset drag position after animation
+            x.set(0);
+          }}
+        >
+          {/* Chat Panel */}
+          <motion.div
+            className="w-full flex-shrink-0 h-full"
+            animate={{
+              opacity: mobileActivePanel === 'chat' ? 1 : 0.5,
+            }}
+            transition={{ duration: 0.2 }}
+          >
+            <div className="h-full p-2 md:p-4 overflow-y-auto">
+              <ChatComponent
+                askKey={sessionDataAskKey}
+                ask={sessionData.ask}
+                messages={sessionData.messages}
+                onSendMessage={onSendMessage}
+                isLoading={sessionData.isLoading}
+                currentParticipantName={currentParticipantName}
+                isMultiUser={Boolean(sessionData.ask && sessionData.ask.participants.length > 1)}
+                showAgentTyping={awaitingAiResponse}
+                voiceModeEnabled={!!voiceModeSystemPrompt}
+                voiceModeSystemPrompt={voiceModeSystemPrompt || undefined}
+                voiceModeModelConfig={voiceModeModelConfig || undefined}
+                onVoiceMessage={onVoiceMessage}
+                onReplyBoxFocusChange={setIsReplyBoxFocused}
+                onVoiceModeChange={(active) => {
+                  const wasActive = isVoiceModeActive;
+                  setIsVoiceModeActive(active);
+                  if (wasActive && !active) {
+                    setTimeout(() => {
+                      reloadMessagesAfterVoiceMode();
+                    }, 1000);
+                  }
+                }}
+              />
+            </div>
+          </motion.div>
+
+          {/* Insights Panel */}
+          <motion.div
+            className="w-full flex-shrink-0 h-full"
+            animate={{
+              opacity: mobileActivePanel === 'insights' ? 1 : 0.5,
+            }}
+            transition={{ duration: 0.2 }}
+          >
+            <div className="h-full p-2 md:p-4 overflow-y-auto">
+              <InsightPanel
+                insights={sessionData.insights}
+                askKey={sessionDataAskKey}
+                isDetectingInsights={isDetectingInsights}
+              />
+            </div>
+          </motion.div>
+        </motion.div>
+      </div>
+
+      {/* Panel Indicator */}
+      <div className="flex items-center justify-center gap-2 py-3 bg-white/50 backdrop-blur border-t border-white/50">
+        <button
+          onClick={() => setMobileActivePanel('chat')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-full transition-all ${
+            mobileActivePanel === 'chat'
+              ? 'bg-primary text-white shadow-md'
+              : 'bg-white/80 text-muted-foreground'
+          }`}
+        >
+          <MessageCircle className="h-4 w-4" />
+          <span className="text-sm font-medium">Chat</span>
+        </button>
+        <button
+          onClick={() => setMobileActivePanel('insights')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-full transition-all ${
+            mobileActivePanel === 'insights'
+              ? 'bg-primary text-white shadow-md'
+              : 'bg-white/80 text-muted-foreground'
+          }`}
+        >
+          <Lightbulb className="h-4 w-4" />
+          <span className="text-sm font-medium">Insights</span>
+        </button>
+      </div>
+    </div>
+  );
+}
 
 /**
  * Main application page with beautiful glassmorphic design
@@ -62,15 +393,30 @@ export default function HomePage() {
   const [isVoiceModeActive, setIsVoiceModeActive] = useState(false);
   const autoCollapseTriggeredRef = useRef(false);
   const previousMessageCountRef = useRef(0);
+  // Mobile view states
+  const [mobileActivePanel, setMobileActivePanel] = useState<'chat' | 'insights'>('chat');
+  const [isMobileHeaderExpanded, setIsMobileHeaderExpanded] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
   // DEBUG: Afficher auth ID temporairement
   const [debugAuthId, setDebugAuthId] = useState<string | null>(null);
   // Voice mode configuration
   const [voiceModeSystemPrompt, setVoiceModeSystemPrompt] = useState<string | null>(null);
   const [voiceModeModelConfig, setVoiceModeModelConfig] = useState<{
+    provider?: "deepgram-voice-agent" | "hybrid-voice-agent" | "speechmatics-voice-agent";
+    voiceAgentProvider?: "deepgram-voice-agent" | "speechmatics-voice-agent";
     deepgramSttModel?: string;
     deepgramTtsModel?: string;
     deepgramLlmProvider?: "anthropic" | "openai";
     deepgramLlmModel?: string;
+    speechmaticsSttLanguage?: string;
+    speechmaticsSttOperatingPoint?: "enhanced" | "standard";
+    speechmaticsSttMaxDelay?: number;
+    speechmaticsSttEnablePartials?: boolean;
+    speechmaticsLlmProvider?: "anthropic" | "openai";
+    speechmaticsLlmModel?: string;
+    speechmaticsApiKeyEnvVar?: string;
+    elevenLabsVoiceId?: string;
+    elevenLabsModelId?: string;
   } | null>(null);
   // Store logId for voice agent exchanges (user message -> agent response)
   const voiceAgentLogIdRef = useRef<string | null>(null);
@@ -82,6 +428,16 @@ export default function HomePage() {
         setDebugAuthId(data.user.id);
       }
     });
+  }, []);
+
+  // Detect mobile viewport
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
   }, []);
   const askDetails = sessionData.ask;
   useEffect(() => {
@@ -948,19 +1304,37 @@ export default function HomePage() {
         const data = await response.json();
         if (data.success && data.data) {
           setVoiceModeSystemPrompt(data.data.systemPrompt || null);
-          // Extract Deepgram config from model config if available
+          // Extract voice agent config from model config if available
           // These fields are now stored directly in the database columns
           if (data.data.modelConfig) {
+            const modelConfig = data.data.modelConfig;
+            console.log('[HomePage] 🎤 Loading voice mode config:', {
+              provider: modelConfig.provider,
+              voiceAgentProvider: modelConfig.voiceAgentProvider,
+              speechmaticsLlmModel: modelConfig.speechmaticsLlmModel,
+              speechmaticsLlmProvider: modelConfig.speechmaticsLlmProvider,
+            });
             setVoiceModeModelConfig({
-              deepgramSttModel: data.data.modelConfig.deepgramSttModel || 'nova-2',
-              deepgramTtsModel: data.data.modelConfig.deepgramTtsModel || 'aura-2-thalia-en',
-              deepgramLlmProvider: data.data.modelConfig.deepgramLlmProvider || 'anthropic',
-              deepgramLlmModel: data.data.modelConfig.deepgramLlmModel, // Use exact model from DB, no fallback
+              provider: modelConfig.provider,
+              voiceAgentProvider: modelConfig.voiceAgentProvider,
+              deepgramSttModel: modelConfig.deepgramSttModel,
+              deepgramTtsModel: modelConfig.deepgramTtsModel,
+              deepgramLlmProvider: modelConfig.deepgramLlmProvider,
+              deepgramLlmModel: modelConfig.deepgramLlmModel,
+              speechmaticsSttLanguage: modelConfig.speechmaticsSttLanguage,
+              speechmaticsSttOperatingPoint: modelConfig.speechmaticsSttOperatingPoint,
+              speechmaticsSttMaxDelay: modelConfig.speechmaticsSttMaxDelay,
+              speechmaticsSttEnablePartials: modelConfig.speechmaticsSttEnablePartials,
+              speechmaticsLlmProvider: modelConfig.speechmaticsLlmProvider,
+              speechmaticsLlmModel: modelConfig.speechmaticsLlmModel,
+              speechmaticsApiKeyEnvVar: modelConfig.speechmaticsApiKeyEnvVar,
+              elevenLabsVoiceId: modelConfig.elevenLabsVoiceId,
+              elevenLabsModelId: modelConfig.elevenLabsModelId,
             });
           } else {
             // Use default config when no model config is available
             setVoiceModeModelConfig({
-              deepgramSttModel: 'nova-2',
+              deepgramSttModel: 'nova-3',
               deepgramTtsModel: 'aura-2-thalia-en',
               deepgramLlmProvider: 'anthropic',
               deepgramLlmModel: undefined, // No fallback - must be configured in database
@@ -1330,7 +1704,7 @@ export default function HomePage() {
               <UserProfileMenu />
             </div>
           </div>
-          {askDetails && (
+          {askDetails && !isMobile && (
             <motion.div
               initial={{ opacity: 0, y: -10 }}
               animate={{ 
@@ -1466,65 +1840,92 @@ export default function HomePage() {
       </motion.header>
 
       {/* Main Content with Beautiful Layout */}
-      <main className="flex h-[calc(100vh-88px)] overflow-hidden gap-6 p-6">
-        {/* Chat Section - 1/3 of screen with glass effect */}
-        <motion.div
-          initial={{ opacity: 0, x: -40 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ duration: 0.6 }}
-          className="w-1/3"
-        >
-          <div className="chat-container h-full">
-            <ChatComponent
-              askKey={sessionData.askKey}
-              ask={sessionData.ask}
-              messages={sessionData.messages}
-              onSendMessage={handleSendMessage}
-              isLoading={sessionData.isLoading}
-              currentParticipantName={currentParticipantName}
-              isMultiUser={Boolean(sessionData.ask && sessionData.ask.participants.length > 1)}
-              showAgentTyping={awaitingAiResponse}
-              voiceModeEnabled={!!voiceModeSystemPrompt}
-              voiceModeSystemPrompt={voiceModeSystemPrompt || undefined}
-              voiceModeModelConfig={voiceModeModelConfig || undefined}
-              onVoiceMessage={handleVoiceMessage}
-              onReplyBoxFocusChange={setIsReplyBoxFocused}
-              onVoiceModeChange={(active) => {
-                const wasActive = isVoiceModeActive;
-                setIsVoiceModeActive(active);
-                // Reload messages when voice mode is closed to ensure voice messages appear in text mode
-                if (wasActive && !active) {
-                  console.log('[HomePage] 🎤 Voice mode closed, will reload messages in 1 second...', {
-                    currentMessageCount: sessionData.messages.length,
-                    hasInviteToken: !!sessionData.inviteToken,
-                    hasAskKey: !!sessionData.askKey
-                  });
-                  // Longer delay to ensure voice messages are fully persisted
-                  setTimeout(() => {
-                    reloadMessagesAfterVoiceMode();
-                  }, 1000);
-                }
-              }}
-            />
-          </div>
-        </motion.div>
+      {isMobile ? (
+        <MobileLayout
+          sessionData={sessionData}
+          currentParticipantName={currentParticipantName}
+          awaitingAiResponse={awaitingAiResponse}
+          voiceModeSystemPrompt={voiceModeSystemPrompt}
+          voiceModeModelConfig={voiceModeModelConfig}
+          isDetectingInsights={isDetectingInsights}
+          onSendMessage={handleSendMessage}
+          onVoiceMessage={handleVoiceMessage}
+          setIsReplyBoxFocused={setIsReplyBoxFocused}
+          setIsVoiceModeActive={setIsVoiceModeActive}
+          isVoiceModeActive={isVoiceModeActive}
+          reloadMessagesAfterVoiceMode={reloadMessagesAfterVoiceMode}
+          mobileActivePanel={mobileActivePanel}
+          setMobileActivePanel={setMobileActivePanel}
+          isMobileHeaderExpanded={isMobileHeaderExpanded}
+          setIsMobileHeaderExpanded={setIsMobileHeaderExpanded}
+          askDetails={askDetails}
+          sessionDataAskKey={sessionData.askKey}
+          participants={participants}
+          statusLabel={statusLabel}
+          timelineLabel={timelineLabel}
+          timeRemaining={timeRemaining}
+        />
+      ) : (
+        <main className="flex h-[calc(100vh-88px)] overflow-hidden gap-6 p-6">
+          {/* Chat Section - 1/3 of screen with glass effect */}
+          <motion.div
+            initial={{ opacity: 0, x: -40 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.6 }}
+            className="w-1/3"
+          >
+            <div className="chat-container h-full">
+              <ChatComponent
+                askKey={sessionData.askKey}
+                ask={sessionData.ask}
+                messages={sessionData.messages}
+                onSendMessage={handleSendMessage}
+                isLoading={sessionData.isLoading}
+                currentParticipantName={currentParticipantName}
+                isMultiUser={Boolean(sessionData.ask && sessionData.ask.participants.length > 1)}
+                showAgentTyping={awaitingAiResponse}
+                voiceModeEnabled={!!voiceModeSystemPrompt}
+                voiceModeSystemPrompt={voiceModeSystemPrompt || undefined}
+                voiceModeModelConfig={voiceModeModelConfig || undefined}
+                onVoiceMessage={handleVoiceMessage}
+                onReplyBoxFocusChange={setIsReplyBoxFocused}
+                onVoiceModeChange={(active) => {
+                  const wasActive = isVoiceModeActive;
+                  setIsVoiceModeActive(active);
+                  // Reload messages when voice mode is closed to ensure voice messages appear in text mode
+                  if (wasActive && !active) {
+                    console.log('[HomePage] 🎤 Voice mode closed, will reload messages in 1 second...', {
+                      currentMessageCount: sessionData.messages.length,
+                      hasInviteToken: !!sessionData.inviteToken,
+                      hasAskKey: !!sessionData.askKey
+                    });
+                    // Longer delay to ensure voice messages are fully persisted
+                    setTimeout(() => {
+                      reloadMessagesAfterVoiceMode();
+                    }, 1000);
+                  }
+                }}
+              />
+            </div>
+          </motion.div>
 
-        {/* Insight Section - 2/3 of screen with enhanced styling */}
-        <motion.div
-          initial={{ opacity: 0, x: 40 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ duration: 0.6, delay: 0.2 }}
-          className="flex-1"
-        >
-          <div className="h-full flex flex-col overflow-hidden">
-            <InsightPanel
-              insights={sessionData.insights}
-              askKey={sessionData.askKey}
-              isDetectingInsights={isDetectingInsights}
-            />
-          </div>
-        </motion.div>
-      </main>
+          {/* Insight Section - 2/3 of screen with enhanced styling */}
+          <motion.div
+            initial={{ opacity: 0, x: 40 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.6, delay: 0.2 }}
+            className="flex-1"
+          >
+            <div className="h-full flex flex-col overflow-hidden">
+              <InsightPanel
+                insights={sessionData.insights}
+                askKey={sessionData.askKey}
+                isDetectingInsights={isDetectingInsights}
+              />
+            </div>
+          </motion.div>
+        </main>
+      )}
 
       {/* Floating Error Toast */}
       {sessionData.error && (

@@ -191,6 +191,7 @@ export type AiModelProvider =
   | "openai"
   | "deepgram"
   | "deepgram-voice-agent"
+  | "speechmatics-voice-agent"
   | "hybrid-voice-agent"
   | "custom";
 
@@ -207,11 +208,21 @@ export interface AiModelConfig {
   isFallback?: boolean;
   createdAt?: string;
   updatedAt?: string;
+  // Voice agent provider selector
+  voiceAgentProvider?: "deepgram-voice-agent" | "speechmatics-voice-agent"; // Selector for voice agent type
   // Deepgram-specific fields (stored in dedicated database columns)
   deepgramSttModel?: string; // e.g., "nova-2", "nova-3"
   deepgramTtsModel?: string; // e.g., "aura-2-thalia-en", "aura-2-asteria-en"
   deepgramLlmProvider?: "anthropic" | "openai"; // LLM provider for Deepgram Agent
   deepgramLlmModel?: string; // LLM model name (e.g., "claude-3-5-haiku-latest", "gpt-4o")
+  // Speechmatics-specific fields (stored in dedicated database columns)
+  speechmaticsSttLanguage?: string; // e.g., "fr", "en", "multi", "fr,en"
+  speechmaticsSttOperatingPoint?: "enhanced" | "standard"; // Operating point for STT
+  speechmaticsSttMaxDelay?: number; // Max delay between segments (default: 2.0)
+  speechmaticsSttEnablePartials?: boolean; // Enable partial transcription results
+  speechmaticsLlmProvider?: "anthropic" | "openai"; // LLM provider for Speechmatics Agent
+  speechmaticsLlmModel?: string; // LLM model name (e.g., "claude-3-5-haiku-latest", "gpt-4o")
+  speechmaticsApiKeyEnvVar?: string; // Environment variable name for Speechmatics API key
   // ElevenLabs-specific fields for hybrid voice agent
   elevenLabsVoiceId?: string; // ElevenLabs voice ID
   elevenLabsModelId?: string; // ElevenLabs TTS model ID (e.g., "eleven_turbo_v2_5")

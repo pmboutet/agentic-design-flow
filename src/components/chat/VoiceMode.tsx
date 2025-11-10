@@ -5,6 +5,7 @@ import { MicOff, Volume2, VolumeX, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { DeepgramVoiceAgent, DeepgramConfig, DeepgramMessageEvent } from '@/lib/ai/deepgram';
 import { HybridVoiceAgent, HybridVoiceAgentConfig, HybridVoiceAgentMessage } from '@/lib/ai/hybrid-voice-agent';
+import { SpeechmaticsVoiceAgent, SpeechmaticsConfig, SpeechmaticsMessageEvent } from '@/lib/ai/speechmatics';
 import { cn } from '@/lib/utils';
 
 interface VoiceModeProps {
@@ -12,15 +13,23 @@ interface VoiceModeProps {
   askSessionId?: string;
   systemPrompt: string;
   modelConfig?: {
-    provider?: "deepgram-voice-agent" | "hybrid-voice-agent";
+    provider?: "deepgram-voice-agent" | "hybrid-voice-agent" | "speechmatics-voice-agent";
+    voiceAgentProvider?: "deepgram-voice-agent" | "speechmatics-voice-agent";
     deepgramSttModel?: string;
     deepgramTtsModel?: string;
     deepgramLlmProvider?: "anthropic" | "openai";
     deepgramLlmModel?: string;
+    speechmaticsSttLanguage?: string;
+    speechmaticsSttOperatingPoint?: "enhanced" | "standard";
+    speechmaticsSttMaxDelay?: number;
+    speechmaticsSttEnablePartials?: boolean;
+    speechmaticsLlmProvider?: "anthropic" | "openai";
+    speechmaticsLlmModel?: string;
+    speechmaticsApiKeyEnvVar?: string;
     elevenLabsVoiceId?: string;
     elevenLabsModelId?: string;
   };
-  onMessage: (message: DeepgramMessageEvent | HybridVoiceAgentMessage) => void;
+  onMessage: (message: DeepgramMessageEvent | HybridVoiceAgentMessage | SpeechmaticsMessageEvent) => void;
   onError: (error: Error) => void;
   onClose: () => void;
 }
@@ -40,11 +49,26 @@ export function VoiceMode({
   const [error, setError] = useState<string | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
-  const agentRef = useRef<DeepgramVoiceAgent | HybridVoiceAgent | null>(null);
+  const agentRef = useRef<DeepgramVoiceAgent | HybridVoiceAgent | SpeechmaticsVoiceAgent | null>(null);
   const speakingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isHybridAgent = modelConfig?.provider === "hybrid-voice-agent";
+  // Use voiceAgentProvider if available, otherwise fall back to provider
+  const voiceAgentProvider = modelConfig?.voiceAgentProvider || modelConfig?.provider;
+  const isSpeechmaticsAgent = voiceAgentProvider === "speechmatics-voice-agent";
+  
+  // Debug log
+  useEffect(() => {
+    console.log('[VoiceMode] 🎤 Voice Agent Selection:', {
+      provider: modelConfig?.provider,
+      voiceAgentProvider: modelConfig?.voiceAgentProvider,
+      effectiveProvider: voiceAgentProvider,
+      isSpeechmaticsAgent,
+      isHybridAgent,
+      modelConfigKeys: modelConfig ? Object.keys(modelConfig) : [],
+    });
+  }, [modelConfig, voiceAgentProvider, isSpeechmaticsAgent, isHybridAgent]);
 
-  const handleMessage = useCallback((message: DeepgramMessageEvent | HybridVoiceAgentMessage) => {
+  const handleMessage = useCallback((message: DeepgramMessageEvent | HybridVoiceAgentMessage | SpeechmaticsMessageEvent) => {
     const isInterim = Boolean(message.isInterim);
 
     // Detect when user is speaking
@@ -98,7 +122,7 @@ export function VoiceMode({
 
         const config: HybridVoiceAgentConfig = {
           systemPrompt,
-          sttModel: modelConfig?.deepgramSttModel || "nova-2",
+          sttModel: modelConfig?.deepgramSttModel || "nova-3",
           llmProvider: (modelConfig?.deepgramLlmProvider as "anthropic" | "openai") || "anthropic",
           llmModel: modelConfig?.deepgramLlmModel,
           elevenLabsVoiceId: modelConfig?.elevenLabsVoiceId,
@@ -109,6 +133,35 @@ export function VoiceMode({
         console.log('[VoiceMode] Calling hybrid agent.connect()...');
         await agent.connect(config);
         console.log('[VoiceMode] ✅ Hybrid connection established, starting microphone...');
+        await agent.startMicrophone();
+        console.log('[VoiceMode] ✅ Microphone started');
+      } else if (isSpeechmaticsAgent) {
+        // Use SpeechmaticsVoiceAgent (Speechmatics STT + LLM + ElevenLabs TTS)
+        const agent = new SpeechmaticsVoiceAgent();
+        agentRef.current = agent;
+
+        agent.setCallbacks({
+          onMessage: handleMessage,
+          onError: handleError,
+          onConnection: handleConnectionChange,
+        });
+
+        const config: SpeechmaticsConfig = {
+          systemPrompt,
+          sttLanguage: modelConfig?.speechmaticsSttLanguage || "fr",
+          sttOperatingPoint: modelConfig?.speechmaticsSttOperatingPoint || "enhanced",
+          sttMaxDelay: modelConfig?.speechmaticsSttMaxDelay || 2.0,
+          sttEnablePartials: modelConfig?.speechmaticsSttEnablePartials !== false,
+          llmProvider: (modelConfig?.speechmaticsLlmProvider as "anthropic" | "openai") || "anthropic",
+          llmModel: modelConfig?.speechmaticsLlmModel,
+          elevenLabsVoiceId: modelConfig?.elevenLabsVoiceId,
+          elevenLabsModelId: modelConfig?.elevenLabsModelId || "eleven_turbo_v2_5",
+        };
+
+        console.log('[VoiceMode] Speechmatics configuration:', config);
+        console.log('[VoiceMode] Calling Speechmatics agent.connect()...');
+        await agent.connect(config);
+        console.log('[VoiceMode] ✅ Speechmatics connection established, starting microphone...');
         await agent.startMicrophone();
         console.log('[VoiceMode] ✅ Microphone started');
       } else {
@@ -124,7 +177,7 @@ export function VoiceMode({
 
         const config: DeepgramConfig = {
           systemPrompt,
-          sttModel: modelConfig?.deepgramSttModel || "nova-2",
+          sttModel: modelConfig?.deepgramSttModel || "nova-3",
           ttsModel: modelConfig?.deepgramTtsModel || "aura-2-thalia-en",
           llmProvider: (modelConfig?.deepgramLlmProvider as "anthropic" | "openai") || "anthropic",
           llmModel: modelConfig?.deepgramLlmModel,
@@ -147,7 +200,7 @@ export function VoiceMode({
       setError(errorMessage);
       handleError(err instanceof Error ? err : new Error(errorMessage));
     }
-  }, [systemPrompt, modelConfig, isHybridAgent, handleMessage, handleError, handleConnectionChange]);
+  }, [systemPrompt, modelConfig, isHybridAgent, isSpeechmaticsAgent, handleMessage, handleError, handleConnectionChange]);
 
   const disconnect = useCallback(() => {
     if (agentRef.current) {
@@ -163,43 +216,69 @@ export function VoiceMode({
     }
   }, []);
 
-  const toggleMute = useCallback(() => {
-    // Note: Both agents don't have a direct mute API
-    // We'll stop/restart microphone as a workaround
-    if (isMuted && agentRef.current) {
-      if (isHybridAgent && agentRef.current instanceof HybridVoiceAgent) {
-        agentRef.current.startMicrophone().then(() => {
-          setIsMuted(false);
-          setIsMicrophoneActive(true);
-        }).catch(error => {
-          setIsMuted(true);
-          setIsMicrophoneActive(false);
-          handleError(error);
-        });
-      } else if (agentRef.current instanceof DeepgramVoiceAgent) {
-        agentRef.current.startMicrophone().then(() => {
-          setIsMuted(false);
-          setIsMicrophoneActive(true);
-        }).catch(error => {
-          setIsMuted(true);
-          setIsMicrophoneActive(false);
-          handleError(error);
-        });
-      }
-    } else if (agentRef.current) {
-      if (isHybridAgent && agentRef.current instanceof HybridVoiceAgent) {
-        agentRef.current.stopMicrophone();
-        setIsMuted(true);
-        setIsMicrophoneActive(false);
-        setIsSpeaking(false);
-      } else if (agentRef.current instanceof DeepgramVoiceAgent) {
-        agentRef.current.stopMicrophone();
-        setIsMuted(true);
-        setIsMicrophoneActive(false);
-        setIsSpeaking(false);
-      }
+  const toggleMute = useCallback(async () => {
+    const agent = agentRef.current;
+    if (!agent) {
+      return;
     }
-  }, [isMuted, isHybridAgent, handleError]);
+
+    if (isMuted) {
+      // User wants to unmute - need to reconnect WebSocket and restart microphone
+      console.log('[VoiceMode] 🔊 Unmuting - reconnecting WebSocket and restarting microphone...');
+      setIsConnecting(true);
+
+      try {
+        // Reconnect WebSocket first (since stopMicrophone() closed it)
+        if (isHybridAgent && agent instanceof HybridVoiceAgent) {
+          const config: HybridVoiceAgentConfig = {
+            systemPrompt,
+            sttModel: modelConfig?.deepgramSttModel || "nova-3",
+            llmProvider: (modelConfig?.deepgramLlmProvider as "anthropic" | "openai") || "anthropic",
+            llmModel: modelConfig?.deepgramLlmModel,
+            elevenLabsVoiceId: modelConfig?.elevenLabsVoiceId,
+            elevenLabsModelId: modelConfig?.elevenLabsModelId || "eleven_turbo_v2_5",
+          };
+          await agent.connect(config);
+          await agent.startMicrophone();
+        } else if (agent instanceof DeepgramVoiceAgent) {
+          const config: DeepgramConfig = {
+            systemPrompt,
+            sttModel: modelConfig?.deepgramSttModel || "nova-3",
+            ttsModel: modelConfig?.deepgramTtsModel || "aura-2-thalia-en",
+            llmProvider: (modelConfig?.deepgramLlmProvider as "anthropic" | "openai") || "anthropic",
+            llmModel: modelConfig?.deepgramLlmModel,
+          };
+          await agent.connect(config);
+          await agent.startMicrophone();
+        }
+
+        setIsMuted(false);
+        setIsMicrophoneActive(true);
+        setIsConnecting(false);
+        console.log('[VoiceMode] ✅ Unmuted successfully - WebSocket reconnected and microphone active');
+      } catch (error) {
+        console.error('[VoiceMode] ❌ Error reconnecting on unmute:', error);
+        setIsMuted(true);
+        setIsMicrophoneActive(false);
+        setIsConnecting(false);
+        handleError(error instanceof Error ? error : new Error(String(error)));
+      }
+    } else {
+      // User wants to mute - stop microphone and close WebSocket
+      console.log('[VoiceMode] 🔇 Muting - stopping microphone and closing WebSocket...');
+      
+      if (isHybridAgent && agent instanceof HybridVoiceAgent) {
+        agent.stopMicrophone();
+      } else if (agent instanceof DeepgramVoiceAgent) {
+        agent.stopMicrophone();
+      }
+      
+      setIsMuted(true);
+      setIsMicrophoneActive(false);
+      setIsSpeaking(false);
+      console.log('[VoiceMode] ✅ Muted successfully - WebSocket closed');
+    }
+  }, [isMuted, isHybridAgent, systemPrompt, modelConfig, handleError]);
 
   // Auto-connect on mount
   useEffect(() => {

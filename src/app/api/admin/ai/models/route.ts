@@ -36,11 +36,21 @@ export async function POST(request: NextRequest) {
       additional_headers: body.additionalHeaders && typeof body.additionalHeaders === 'object' ? body.additionalHeaders : null,
       is_default: Boolean(body.isDefault),
       is_fallback: Boolean(body.isFallback),
+      // Voice agent provider selector
+      voice_agent_provider: typeof body.voiceAgentProvider === 'string' ? body.voiceAgentProvider.trim() : null,
       // Deepgram-specific fields
       deepgram_voice_agent_model: typeof body.deepgramVoiceAgentModel === 'string' ? body.deepgramVoiceAgentModel.trim() : null,
       deepgram_stt_model: typeof body.deepgramSttModel === 'string' ? body.deepgramSttModel.trim() : null,
       deepgram_tts_model: typeof body.deepgramTtsModel === 'string' ? body.deepgramTtsModel.trim() : null,
       deepgram_llm_provider: typeof body.deepgramLlmProvider === 'string' ? body.deepgramLlmProvider.trim() : null,
+      // Speechmatics-specific fields
+      speechmatics_stt_language: typeof body.speechmaticsSttLanguage === 'string' ? body.speechmaticsSttLanguage.trim() : null,
+      speechmatics_stt_operating_point: typeof body.speechmaticsSttOperatingPoint === 'string' ? body.speechmaticsSttOperatingPoint.trim() : null,
+      speechmatics_stt_max_delay: typeof body.speechmaticsSttMaxDelay === 'number' ? body.speechmaticsSttMaxDelay : null,
+      speechmatics_stt_enable_partials: typeof body.speechmaticsSttEnablePartials === 'boolean' ? body.speechmaticsSttEnablePartials : null,
+      speechmatics_llm_provider: typeof body.speechmaticsLlmProvider === 'string' ? body.speechmaticsLlmProvider.trim() : null,
+      speechmatics_llm_model: typeof body.speechmaticsLlmModel === 'string' ? body.speechmaticsLlmModel.trim() : null,
+      speechmatics_api_key_env_var: typeof body.speechmaticsApiKeyEnvVar === 'string' ? body.speechmaticsApiKeyEnvVar.trim() : null,
       // ElevenLabs-specific fields
       elevenlabs_voice_id: typeof body.elevenLabsVoiceId === 'string' ? body.elevenLabsVoiceId.trim() : null,
       elevenlabs_model_id: typeof body.elevenLabsModelId === 'string' ? body.elevenLabsModelId.trim() : null,

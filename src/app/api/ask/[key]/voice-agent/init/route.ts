@@ -57,7 +57,8 @@ export async function POST(
 
     // Check if model config has voice agent provider
     const modelConfig = agentConfig.modelConfig;
-    if (modelConfig.provider !== 'deepgram-voice-agent') {
+    const voiceAgentProvider = (modelConfig as any).voiceAgentProvider || modelConfig.provider;
+    if (voiceAgentProvider !== 'deepgram-voice-agent' && voiceAgentProvider !== 'speechmatics-voice-agent') {
       return NextResponse.json<ApiResponse>({
         success: false,
         error: 'Voice agent not configured for this model'

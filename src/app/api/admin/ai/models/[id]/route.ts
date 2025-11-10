@@ -40,6 +40,10 @@ export async function PUT(
     if (typeof body.isFallback === 'boolean') {
       payload.is_fallback = body.isFallback;
     }
+    // Voice agent provider selector
+    if (typeof body.voiceAgentProvider === 'string' || body.voiceAgentProvider === null) {
+      payload.voice_agent_provider = body.voiceAgentProvider?.trim() || null;
+    }
     // Deepgram-specific fields
     if (typeof body.deepgramVoiceAgentModel === 'string' || body.deepgramVoiceAgentModel === null) {
       payload.deepgram_voice_agent_model = body.deepgramVoiceAgentModel?.trim() || null;
@@ -52,6 +56,28 @@ export async function PUT(
     }
     if (typeof body.deepgramLlmProvider === 'string' || body.deepgramLlmProvider === null) {
       payload.deepgram_llm_provider = body.deepgramLlmProvider?.trim() || null;
+    }
+    // Speechmatics-specific fields
+    if (typeof body.speechmaticsSttLanguage === 'string' || body.speechmaticsSttLanguage === null) {
+      payload.speechmatics_stt_language = body.speechmaticsSttLanguage?.trim() || null;
+    }
+    if (typeof body.speechmaticsSttOperatingPoint === 'string' || body.speechmaticsSttOperatingPoint === null) {
+      payload.speechmatics_stt_operating_point = body.speechmaticsSttOperatingPoint?.trim() || null;
+    }
+    if (typeof body.speechmaticsSttMaxDelay === 'number' || body.speechmaticsSttMaxDelay === null) {
+      payload.speechmatics_stt_max_delay = body.speechmaticsSttMaxDelay ?? null;
+    }
+    if (typeof body.speechmaticsSttEnablePartials === 'boolean' || body.speechmaticsSttEnablePartials === null) {
+      payload.speechmatics_stt_enable_partials = body.speechmaticsSttEnablePartials ?? null;
+    }
+    if (typeof body.speechmaticsLlmProvider === 'string' || body.speechmaticsLlmProvider === null) {
+      payload.speechmatics_llm_provider = body.speechmaticsLlmProvider?.trim() || null;
+    }
+    if (typeof body.speechmaticsLlmModel === 'string' || body.speechmaticsLlmModel === null) {
+      payload.speechmatics_llm_model = body.speechmaticsLlmModel?.trim() || null;
+    }
+    if (typeof body.speechmaticsApiKeyEnvVar === 'string' || body.speechmaticsApiKeyEnvVar === null) {
+      payload.speechmatics_api_key_env_var = body.speechmaticsApiKeyEnvVar?.trim() || null;
     }
     // ElevenLabs-specific fields
     if (body.elevenLabsVoiceId !== undefined) {

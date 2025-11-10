@@ -348,10 +348,18 @@ function mergeAgentWithDraft(agent: AiAgentRecord): AgentDraft {
 }
 
 type ModelDraft = AiModelConfig & {
+  voiceAgentProviderDraft?: "deepgram-voice-agent" | "speechmatics-voice-agent";
   deepgramLlmModelDraft?: string;
   deepgramLlmProviderDraft?: "anthropic" | "openai";
   deepgramSttModelDraft?: string;
   deepgramTtsModelDraft?: string;
+  speechmaticsSttLanguageDraft?: string;
+  speechmaticsSttOperatingPointDraft?: "enhanced" | "standard";
+  speechmaticsSttMaxDelayDraft?: number;
+  speechmaticsSttEnablePartialsDraft?: boolean;
+  speechmaticsLlmProviderDraft?: "anthropic" | "openai";
+  speechmaticsLlmModelDraft?: string;
+  speechmaticsApiKeyEnvVarDraft?: string;
   elevenLabsVoiceIdDraft?: string;
   elevenLabsModelIdDraft?: string;
   isSaving?: boolean;
@@ -369,6 +377,11 @@ export default function AiConfigurationPage() {
   const [newAgent, setNewAgent] = useState<NewAgentDraft>(() => createEmptyNewAgentDraft());
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const [collapsedModels, setCollapsedModels] = useState<Set<string>>(new Set());
+  // Sections collapsibles pour chaque modèle : agent principal, STT, TTS
+  const [collapsedModelSections, setCollapsedModelSections] = useState<Map<string, Set<string>>>(new Map());
+  // Provider sélectionné pour STT et TTS par modèle
+  const [sttProvider, setSttProvider] = useState<Map<string, "deepgram" | "speechmatics" | "none">>(new Map());
+  const [ttsProvider, setTtsProvider] = useState<Map<string, "deepgram" | "elevenlabs" | "none">>(new Map());
   const [isCreatingModel, setIsCreatingModel] = useState(false);
   const [newModel, setNewModel] = useState<NewModelDraft>(() => ({
     code: '',
@@ -436,10 +449,18 @@ export default function AiConfigurationPage() {
       // Initialize models with drafts matching current values
       const loadedModels = (modelsJson.data ?? []).map(model => ({
         ...model,
+        voiceAgentProviderDraft: model.voiceAgentProvider,
         deepgramLlmModelDraft: model.deepgramLlmModel,
         deepgramLlmProviderDraft: model.deepgramLlmProvider,
         deepgramSttModelDraft: model.deepgramSttModel,
         deepgramTtsModelDraft: model.deepgramTtsModel,
+        speechmaticsSttLanguageDraft: model.speechmaticsSttLanguage,
+        speechmaticsSttOperatingPointDraft: model.speechmaticsSttOperatingPoint,
+        speechmaticsSttMaxDelayDraft: model.speechmaticsSttMaxDelay,
+        speechmaticsSttEnablePartialsDraft: model.speechmaticsSttEnablePartials,
+        speechmaticsLlmProviderDraft: model.speechmaticsLlmProvider,
+        speechmaticsLlmModelDraft: model.speechmaticsLlmModel,
+        speechmaticsApiKeyEnvVarDraft: model.speechmaticsApiKeyEnvVar,
         elevenLabsVoiceIdDraft: model.elevenLabsVoiceId,
         elevenLabsModelIdDraft: model.elevenLabsModelId,
         isSaving: false,
@@ -447,6 +468,40 @@ export default function AiConfigurationPage() {
         saveSuccess: false,
       }));
       setModels(loadedModels);
+      
+      // Initialize collapsed sections for each model (all collapsed by default)
+      const sectionsMap = new Map<string, Set<string>>();
+      const sttProviderMap = new Map<string, "deepgram" | "speechmatics" | "none">();
+      const ttsProviderMap = new Map<string, "deepgram" | "elevenlabs" | "none">();
+      
+      loadedModels.forEach(model => {
+        // Open "agent" section by default, keep "stt" and "tts" collapsed
+        sectionsMap.set(model.id, new Set(["stt", "tts"])); // Only STT and TTS collapsed by default
+        
+        // Determine STT provider based on existing config
+        // Priority: if both exist, prefer the one that's actually set
+        if (model.deepgramSttModel) {
+          sttProviderMap.set(model.id, "deepgram");
+        } else if (model.speechmaticsSttLanguage) {
+          sttProviderMap.set(model.id, "speechmatics");
+        } else {
+          sttProviderMap.set(model.id, "none");
+        }
+        
+        // Determine TTS provider based on existing config
+        // Priority: if both exist, prefer the one that's actually set
+        if (model.deepgramTtsModel) {
+          ttsProviderMap.set(model.id, "deepgram");
+        } else if (model.elevenLabsVoiceId) {
+          ttsProviderMap.set(model.id, "elevenlabs");
+        } else {
+          ttsProviderMap.set(model.id, "none");
+        }
+      });
+      
+      setCollapsedModelSections(sectionsMap);
+      setSttProvider(sttProviderMap);
+      setTtsProvider(ttsProviderMap);
       
       // Collapse all groups and models by default
       const groupedAgents = groupAgents(loadedAgents);
@@ -786,6 +841,32 @@ export default function AiConfigurationPage() {
       }
       return next;
     });
+  };
+
+  const toggleModelSection = (modelId: string, section: "agent" | "stt" | "tts") => {
+    console.log('[toggleModelSection] Toggling section:', { modelId, section });
+    setCollapsedModelSections(prev => {
+      const next = new Map(prev);
+      const currentSections = next.get(modelId) || new Set(["stt", "tts"]);
+      const wasCollapsed = currentSections.has(section);
+      console.log('[toggleModelSection] Before toggle:', { modelId, section, wasCollapsed, sections: Array.from(currentSections) });
+      
+      // Create a new Set to ensure React detects the change
+      const newSections = new Set(currentSections);
+      if (wasCollapsed) {
+        newSections.delete(section);
+      } else {
+        newSections.add(section);
+      }
+      
+      next.set(modelId, newSections);
+      console.log('[toggleModelSection] After toggle:', { modelId, section, isNowCollapsed: newSections.has(section), sections: Array.from(newSections) });
+      return next;
+    });
+  };
+
+  const isModelSectionCollapsed = (modelId: string, section: "agent" | "stt" | "tts"): boolean => {
+    return (collapsedModelSections.get(modelId) || new Set(["stt", "tts"])).has(section);
   };
 
   const isCreateDisabled =
@@ -1196,6 +1277,7 @@ export default function AiConfigurationPage() {
                       <option value="openai">OpenAI</option>
                       <option value="mistral">Mistral</option>
                       <option value="deepgram-voice-agent">Deepgram Voice Agent</option>
+                      <option value="speechmatics-voice-agent">Speechmatics Voice Agent</option>
                       <option value="hybrid-voice-agent">Hybrid Voice Agent</option>
                       <option value="custom">Custom</option>
                     </select>
@@ -1410,224 +1492,606 @@ export default function AiConfigurationPage() {
                   </CardHeader>
                   {!isCollapsed && (
                   <CardContent className="space-y-4">
-                    <div className="grid gap-4 md:grid-cols-2">
-                      <div className="space-y-2">
-                        <Label>Base URL</Label>
-                        <Input value={model.baseUrl || ''} disabled />
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Variable d'environnement API Key</Label>
-                        <Input value={model.apiKeyEnvVar} disabled />
-                      </div>
+                    {/* Section 1: Agent Principal */}
+                    <div className="border rounded-lg overflow-hidden bg-card">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          toggleModelSection(model.id, "agent");
+                        }}
+                        className="w-full flex items-center justify-between p-4 hover:bg-muted/50 transition cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary/20"
+                      >
+                        <h4 className="text-sm font-semibold">1. Agent Principal</h4>
+                        {isModelSectionCollapsed(model.id, "agent") ? (
+                          <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                        ) : (
+                          <ChevronUp className="h-4 w-4 text-muted-foreground" />
+                        )}
+                      </button>
+                      {!isModelSectionCollapsed(model.id, "agent") && (
+                        <div className="p-4 pt-0 space-y-4 border-t">
+                          <div className="grid gap-4 md:grid-cols-2">
+                            <div className="space-y-2">
+                              <Label>Provider</Label>
+                              <Input value={model.provider} disabled />
+                            </div>
+                            <div className="space-y-2">
+                              <Label>Modèle</Label>
+                              <Input value={model.model} disabled />
+                            </div>
+                            <div className="space-y-2">
+                              <Label>Base URL</Label>
+                              <Input value={model.baseUrl || ''} disabled />
+                            </div>
+                            <div className="space-y-2">
+                              <Label>Variable d'environnement API Key</Label>
+                              <Input value={model.apiKeyEnvVar} disabled />
+                            </div>
+                          </div>
+                          
+                          {/* Sélecteur Voice Agent Provider */}
+                          {/* Afficher pour tous les modèles qui peuvent être utilisés avec un voice agent */}
+                          <div className="space-y-2 border-t pt-4">
+                            <Label htmlFor={`voice-agent-provider-${model.id}`}>
+                              Voice Agent Provider
+                            </Label>
+                            <select
+                              id={`voice-agent-provider-${model.id}`}
+                              className="w-full rounded border border-input bg-background px-3 py-2 text-sm"
+                              value={model.voiceAgentProviderDraft || ''}
+                              onChange={(e) => {
+                                const value = e.target.value as "deepgram-voice-agent" | "speechmatics-voice-agent" | undefined;
+                                setModels(prev => prev.map(m => 
+                                  m.id === model.id 
+                                    ? { ...m, voiceAgentProviderDraft: value, saveSuccess: false }
+                                    : m
+                                ));
+                              }}
+                            >
+                              <option value="">Aucun</option>
+                              <option value="deepgram-voice-agent">Deepgram Voice Agent</option>
+                              <option value="speechmatics-voice-agent">Speechmatics Voice Agent</option>
+                            </select>
+                            <p className="text-xs text-muted-foreground">
+                              Sélectionnez le provider pour le voice agent (Deepgram ou Speechmatics). Utilisé pour déterminer quel agent voice utiliser avec ce modèle.
+                            </p>
+                          </div>
+
+                          {/* Configuration Deepgram Voice Agent */}
+                          {model.voiceAgentProviderDraft === "deepgram-voice-agent" && (
+                            <div className="space-y-4 border-t pt-4">
+                              <h5 className="text-sm font-semibold">Configuration Deepgram Voice Agent</h5>
+                              <div className="grid gap-4 md:grid-cols-2">
+                                <div className="space-y-2">
+                                  <Label htmlFor={`deepgram-llm-model-${model.id}`}>
+                                    Modèle LLM Deepgram
+                                  </Label>
+                                  <Input
+                                    id={`deepgram-llm-model-${model.id}`}
+                                    placeholder="ex: claude-3-5-haiku-latest, gpt-4o"
+                                    value={model.deepgramLlmModelDraft || ''}
+                                    onChange={(e) => {
+                                      const value = e.target.value.trim() || undefined;
+                                      setModels(prev => prev.map(m => 
+                                        m.id === model.id 
+                                          ? { ...m, deepgramLlmModelDraft: value, saveSuccess: false }
+                                          : m
+                                      ));
+                                    }}
+                                  />
+                                  <p className="text-xs text-muted-foreground">
+                                    Modèle LLM pour Deepgram Voice Agent
+                                  </p>
+                                </div>
+                                <div className="space-y-2">
+                                  <Label htmlFor={`deepgram-llm-provider-${model.id}`}>
+                                    Provider LLM Deepgram
+                                  </Label>
+                                  <select
+                                    id={`deepgram-llm-provider-${model.id}`}
+                                    className="w-full rounded border border-input bg-background px-3 py-2 text-sm"
+                                    value={model.deepgramLlmProviderDraft || ''}
+                                    onChange={(e) => {
+                                      const value = e.target.value || undefined;
+                                      setModels(prev => prev.map(m => 
+                                        m.id === model.id 
+                                          ? { ...m, deepgramLlmProviderDraft: (value as "anthropic" | "openai") || undefined, saveSuccess: false }
+                                          : m
+                                      ));
+                                    }}
+                                  >
+                                    <option value="">Aucun</option>
+                                    <option value="anthropic">Anthropic</option>
+                                    <option value="openai">OpenAI</option>
+                                  </select>
+                                </div>
+                                <div className="space-y-2">
+                                  <Label htmlFor={`deepgram-stt-model-agent-${model.id}`}>
+                                    Modèle STT Deepgram
+                                  </Label>
+                                  <Input
+                                    id={`deepgram-stt-model-agent-${model.id}`}
+                                    placeholder="ex: nova-2, nova-3"
+                                    value={model.deepgramSttModelDraft || ''}
+                                    onChange={(e) => {
+                                      const value = e.target.value.trim() || undefined;
+                                      setModels(prev => prev.map(m => 
+                                        m.id === model.id 
+                                          ? { ...m, deepgramSttModelDraft: value, saveSuccess: false }
+                                          : m
+                                      ));
+                                    }}
+                                  />
+                                  <p className="text-xs text-muted-foreground">
+                                    Modèle Speech-to-Text Deepgram (ex: nova-2, nova-3)
+                                  </p>
+                                </div>
+                                <div className="space-y-2">
+                                  <Label htmlFor={`deepgram-tts-model-agent-${model.id}`}>
+                                    Modèle TTS Deepgram
+                                  </Label>
+                                  <Input
+                                    id={`deepgram-tts-model-agent-${model.id}`}
+                                    placeholder="ex: aura-2-thalia-en, aura-2-asteria-en"
+                                    value={model.deepgramTtsModelDraft || ''}
+                                    onChange={(e) => {
+                                      const value = e.target.value.trim() || undefined;
+                                      setModels(prev => prev.map(m => 
+                                        m.id === model.id 
+                                          ? { ...m, deepgramTtsModelDraft: value, saveSuccess: false }
+                                          : m
+                                      ));
+                                    }}
+                                  />
+                                  <p className="text-xs text-muted-foreground">
+                                    Modèle Text-to-Speech Deepgram (ex: aura-2-thalia-en)
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Configuration Speechmatics Voice Agent */}
+                          {model.voiceAgentProviderDraft === "speechmatics-voice-agent" && (
+                            <div className="space-y-4 border-t pt-4">
+                              <h5 className="text-sm font-semibold">Configuration Speechmatics Voice Agent</h5>
+                              <div className="grid gap-4 md:grid-cols-2">
+                                <div className="space-y-2">
+                                  <Label htmlFor={`speechmatics-llm-model-agent-${model.id}`}>
+                                    Modèle LLM Speechmatics
+                                  </Label>
+                                  <Input
+                                    id={`speechmatics-llm-model-agent-${model.id}`}
+                                    placeholder="ex: claude-3-5-haiku-latest, gpt-4o"
+                                    value={model.speechmaticsLlmModelDraft || ''}
+                                    onChange={(e) => {
+                                      const value = e.target.value.trim() || undefined;
+                                      setModels(prev => prev.map(m => 
+                                        m.id === model.id 
+                                          ? { ...m, speechmaticsLlmModelDraft: value, saveSuccess: false }
+                                          : m
+                                      ));
+                                    }}
+                                  />
+                                  <p className="text-xs text-muted-foreground">
+                                    Modèle LLM pour Speechmatics Voice Agent
+                                  </p>
+                                </div>
+                                <div className="space-y-2">
+                                  <Label htmlFor={`speechmatics-llm-provider-agent-${model.id}`}>
+                                    Provider LLM Speechmatics
+                                  </Label>
+                                  <select
+                                    id={`speechmatics-llm-provider-agent-${model.id}`}
+                                    className="w-full rounded border border-input bg-background px-3 py-2 text-sm"
+                                    value={model.speechmaticsLlmProviderDraft || ''}
+                                    onChange={(e) => {
+                                      const value = e.target.value || undefined;
+                                      setModels(prev => prev.map(m => 
+                                        m.id === model.id 
+                                          ? { ...m, speechmaticsLlmProviderDraft: (value as "anthropic" | "openai") || undefined, saveSuccess: false }
+                                          : m
+                                      ));
+                                    }}
+                                  >
+                                    <option value="">Aucun</option>
+                                    <option value="anthropic">Anthropic</option>
+                                    <option value="openai">OpenAI</option>
+                                  </select>
+                                </div>
+                                <div className="space-y-2">
+                                  <Label htmlFor={`speechmatics-api-key-env-${model.id}`}>
+                                    Variable d'environnement API Key Speechmatics
+                                  </Label>
+                                  <Input
+                                    id={`speechmatics-api-key-env-${model.id}`}
+                                    placeholder="SPEECHMATICS_API_KEY"
+                                    value={model.speechmaticsApiKeyEnvVarDraft || ''}
+                                    onChange={(e) => {
+                                      const value = e.target.value.trim() || undefined;
+                                      setModels(prev => prev.map(m => 
+                                        m.id === model.id 
+                                          ? { ...m, speechmaticsApiKeyEnvVarDraft: value, saveSuccess: false }
+                                          : m
+                                      ));
+                                    }}
+                                  />
+                                  <p className="text-xs text-muted-foreground">
+                                    Nom de la variable d'environnement pour la clé API Speechmatics
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
 
-                    <div className="border-t pt-4">
-                      <h4 className="text-sm font-semibold mb-3">Configuration Deepgram Voice Agent</h4>
-                      <div className="grid gap-4 md:grid-cols-2">
-                        <div className="space-y-2">
-                          <Label htmlFor={`deepgram-llm-model-${model.id}`}>
-                            Modèle LLM Voice Agent
-                          </Label>
-                          <Input
-                            id={`deepgram-llm-model-${model.id}`}
-                            placeholder="ex: claude-3-5-haiku-latest, claude-sonnet-4-20250514"
-                            value={model.deepgramLlmModelDraft || ''}
-                            onChange={(e) => {
-                              const value = e.target.value.trim() || undefined;
-                              setModels(prev => prev.map(m => 
-                                m.id === model.id 
-                                  ? { ...m, deepgramLlmModelDraft: value, saveSuccess: false }
-                                  : m
-                              ));
-                            }}
-                          />
-                          <p className="text-xs text-muted-foreground">
-                            Nom exact du modèle LLM requis par Deepgram API. Anthropic: claude-3-5-haiku-latest, claude-sonnet-4-20250514. OpenAI: gpt-4o, gpt-4o-mini
-                          </p>
+                    {/* Section 2: Agent STT Associé */}
+                    <div className="border rounded-lg overflow-hidden bg-card">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          console.log('[STT Button] Clicked for model:', model.id);
+                          toggleModelSection(model.id, "stt");
+                        }}
+                        className="w-full flex items-center justify-between p-4 hover:bg-muted/50 transition cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary/20 active:bg-muted"
+                      >
+                        <h4 className="text-sm font-semibold">2. Agent STT Associé</h4>
+                        {isModelSectionCollapsed(model.id, "stt") ? (
+                          <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                        ) : (
+                          <ChevronUp className="h-4 w-4 text-muted-foreground" />
+                        )}
+                      </button>
+                      {!isModelSectionCollapsed(model.id, "stt") && (
+                        <div className="p-4 pt-0 space-y-4 border-t">
+                          <div className="space-y-2">
+                            <Label htmlFor={`stt-provider-${model.id}`}>Provider STT</Label>
+                            <select
+                              id={`stt-provider-${model.id}`}
+                              className="w-full rounded border border-input bg-background px-3 py-2 text-sm"
+                              value={sttProvider.get(model.id) || "none"}
+                              onChange={(e) => {
+                                const value = e.target.value as "deepgram" | "speechmatics" | "none";
+                                setSttProvider(prev => {
+                                  const next = new Map(prev);
+                                  next.set(model.id, value);
+                                  return next;
+                                });
+                              }}
+                            >
+                              <option value="none">Aucun</option>
+                              <option value="deepgram">Deepgram</option>
+                              <option value="speechmatics">Speechmatics</option>
+                            </select>
+                          </div>
+
+                          {sttProvider.get(model.id) === "deepgram" && (
+                            <div className="space-y-2">
+                              <Label htmlFor={`deepgram-stt-${model.id}`}>
+                                Modèle Speech-to-Text Deepgram
+                              </Label>
+                              <Input
+                                id={`deepgram-stt-${model.id}`}
+                                placeholder="ex: nova-2, nova-3"
+                                value={model.deepgramSttModelDraft || ''}
+                                onChange={(e) => {
+                                  const value = e.target.value.trim() || undefined;
+                                  setModels(prev => prev.map(m => 
+                                    m.id === model.id 
+                                      ? { ...m, deepgramSttModelDraft: value, saveSuccess: false }
+                                      : m
+                                  ));
+                                }}
+                              />
+                              <p className="text-xs text-muted-foreground">
+                                Modèles Deepgram STT : nova-2, nova-3 (multilingue)
+                              </p>
+                            </div>
+                          )}
+
+                          {sttProvider.get(model.id) === "speechmatics" && (
+                            <div className="grid gap-4 md:grid-cols-2">
+                              <div className="space-y-2">
+                                <Label htmlFor={`speechmatics-stt-language-${model.id}`}>
+                                  Langue
+                                </Label>
+                                <Input
+                                  id={`speechmatics-stt-language-${model.id}`}
+                                  placeholder="ex: fr, en, multi, fr,en"
+                                  value={model.speechmaticsSttLanguageDraft || ''}
+                                  onChange={(e) => {
+                                    const value = e.target.value.trim() || undefined;
+                                    setModels(prev => prev.map(m => 
+                                      m.id === model.id 
+                                        ? { ...m, speechmaticsSttLanguageDraft: value, saveSuccess: false }
+                                        : m
+                                    ));
+                                  }}
+                                />
+                                <p className="text-xs text-muted-foreground">
+                                  Langue(s) : fr, en, multi, ou fr,en pour code-switching
+                                </p>
+                              </div>
+                              <div className="space-y-2">
+                                <Label htmlFor={`speechmatics-stt-operating-point-${model.id}`}>
+                                  Operating Point
+                                </Label>
+                                <select
+                                  id={`speechmatics-stt-operating-point-${model.id}`}
+                                  className="w-full rounded border border-input bg-background px-3 py-2 text-sm"
+                                  value={model.speechmaticsSttOperatingPointDraft || "enhanced"}
+                                  onChange={(e) => {
+                                    const value = e.target.value as "enhanced" | "standard" || undefined;
+                                    setModels(prev => prev.map(m => 
+                                      m.id === model.id 
+                                        ? { ...m, speechmaticsSttOperatingPointDraft: value, saveSuccess: false }
+                                        : m
+                                    ));
+                                  }}
+                                >
+                                  <option value="enhanced">Enhanced (plus précis)</option>
+                                  <option value="standard">Standard (plus rapide)</option>
+                                </select>
+                              </div>
+                              <div className="space-y-2">
+                                <Label htmlFor={`speechmatics-stt-max-delay-${model.id}`}>
+                                  Max Delay (secondes)
+                                </Label>
+                                <Input
+                                  id={`speechmatics-stt-max-delay-${model.id}`}
+                                  type="number"
+                                  step="0.1"
+                                  placeholder="2.0"
+                                  value={model.speechmaticsSttMaxDelayDraft || 2.0}
+                                  onChange={(e) => {
+                                    const value = e.target.value ? parseFloat(e.target.value) : undefined;
+                                    setModels(prev => prev.map(m => 
+                                      m.id === model.id 
+                                        ? { ...m, speechmaticsSttMaxDelayDraft: value, saveSuccess: false }
+                                        : m
+                                    ));
+                                  }}
+                                />
+                              </div>
+                              <div className="space-y-2">
+                                <Label htmlFor={`speechmatics-stt-enable-partials-${model.id}`}>
+                                  Activer résultats partiels
+                                </Label>
+                                <div className="flex items-center gap-2">
+                                  <input
+                                    type="checkbox"
+                                    id={`speechmatics-stt-enable-partials-${model.id}`}
+                                    checked={model.speechmaticsSttEnablePartialsDraft !== false}
+                                    onChange={(e) => {
+                                      setModels(prev => prev.map(m => 
+                                        m.id === model.id 
+                                          ? { ...m, speechmaticsSttEnablePartialsDraft: e.target.checked, saveSuccess: false }
+                                          : m
+                                      ));
+                                    }}
+                                    className="rounded border-gray-300"
+                                  />
+                                  <Label htmlFor={`speechmatics-stt-enable-partials-${model.id}`} className="cursor-pointer text-sm">
+                                    Activer les transcriptions intermédiaires
+                                  </Label>
+                                </div>
+                              </div>
+                            </div>
+                          )}
                         </div>
-                        <div className="space-y-2">
-                          <Label htmlFor={`deepgram-llm-provider-${model.id}`}>
-                            Provider LLM
-                          </Label>
-                          <select
-                            id={`deepgram-llm-provider-${model.id}`}
-                            className="w-full rounded border border-input bg-background px-3 py-2 text-sm"
-                            value={model.deepgramLlmProviderDraft || ''}
-                            onChange={(e) => {
-                              const value = e.target.value || undefined;
-                              setModels(prev => prev.map(m => 
-                                m.id === model.id 
-                                  ? { ...m, deepgramLlmProviderDraft: (value as "anthropic" | "openai") || undefined, saveSuccess: false }
-                                  : m
-                              ));
-                            }}
-                          >
-                            <option value="">Aucun</option>
-                            <option value="anthropic">Anthropic</option>
-                            <option value="openai">OpenAI</option>
-                          </select>
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor={`deepgram-stt-${model.id}`}>
-                            Modèle Speech-to-Text
-                          </Label>
-                          <Input
-                            id={`deepgram-stt-${model.id}`}
-                            placeholder="ex: nova-2"
-                            value={model.deepgramSttModelDraft || ''}
-                            onChange={(e) => {
-                              const value = e.target.value.trim() || undefined;
-                              setModels(prev => prev.map(m => 
-                                m.id === model.id 
-                                  ? { ...m, deepgramSttModelDraft: value, saveSuccess: false }
-                                  : m
-                              ));
-                            }}
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor={`deepgram-tts-${model.id}`}>
-                            Modèle Text-to-Speech
-                          </Label>
-                          <Input
-                            id={`deepgram-tts-${model.id}`}
-                            placeholder="ex: aura-2-thalia-en, aura-2-asteria-en"
-                            value={model.deepgramTtsModelDraft || ''}
-                            onChange={(e) => {
-                              const value = e.target.value.trim() || undefined;
-                              setModels(prev => prev.map(m => 
-                                m.id === model.id 
-                                  ? { ...m, deepgramTtsModelDraft: value, saveSuccess: false }
-                                  : m
-                              ));
-                            }}
-                          />
-                        </div>
-                      </div>
+                      )}
                     </div>
 
-                    <div className="border-t pt-4 mt-4">
-                      <h4 className="text-sm font-semibold mb-3">Configuration ElevenLabs TTS</h4>
-                      <p className="text-xs text-muted-foreground mb-3">
-                        Configuration pour la synthèse vocale (Text-to-Speech) utilisée avec le mode hybrid-voice-agent.
-                      </p>
-                      <div className="grid gap-4 md:grid-cols-2">
-                        <div className="space-y-2">
-                          <Label htmlFor={`elevenlabs-voice-id-${model.id}`}>
-                            Voice ID
-                          </Label>
-                          <Input
-                            id={`elevenlabs-voice-id-${model.id}`}
-                            placeholder="ex: 21m00Tcm4TlvDq8ikWAM (Rachel)"
-                            value={model.elevenLabsVoiceIdDraft || ''}
-                            onChange={(e) => {
-                              const value = e.target.value.trim() || undefined;
-                              setModels(prev => prev.map(m => 
-                                m.id === model.id 
-                                  ? { ...m, elevenLabsVoiceIdDraft: value, saveSuccess: false }
-                                  : m
-                              ));
-                            }}
-                          />
-                          <p className="text-xs text-muted-foreground">
-                            ID de la voix ElevenLabs. Consultez le dashboard ElevenLabs pour obtenir les IDs disponibles.
-                          </p>
+                    {/* Section 3: Agent TTS Associé */}
+                    <div className="border rounded-lg overflow-hidden bg-card">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          console.log('[TTS Button] Clicked for model:', model.id);
+                          toggleModelSection(model.id, "tts");
+                        }}
+                        className="w-full flex items-center justify-between p-4 hover:bg-muted/50 transition cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary/20 active:bg-muted"
+                      >
+                        <h4 className="text-sm font-semibold">3. Agent TTS Associé</h4>
+                        {isModelSectionCollapsed(model.id, "tts") ? (
+                          <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                        ) : (
+                          <ChevronUp className="h-4 w-4 text-muted-foreground" />
+                        )}
+                      </button>
+                      {!isModelSectionCollapsed(model.id, "tts") && (
+                        <div className="p-4 pt-0 space-y-4 border-t">
+                          <div className="space-y-2">
+                            <Label htmlFor={`tts-provider-${model.id}`}>Provider TTS</Label>
+                            <select
+                              id={`tts-provider-${model.id}`}
+                              className="w-full rounded border border-input bg-background px-3 py-2 text-sm"
+                              value={ttsProvider.get(model.id) || "none"}
+                              onChange={(e) => {
+                                const value = e.target.value as "deepgram" | "elevenlabs" | "none";
+                                setTtsProvider(prev => {
+                                  const next = new Map(prev);
+                                  next.set(model.id, value);
+                                  return next;
+                                });
+                              }}
+                            >
+                              <option value="none">Aucun</option>
+                              <option value="deepgram">Deepgram</option>
+                              <option value="elevenlabs">ElevenLabs</option>
+                            </select>
+                          </div>
+
+                          {ttsProvider.get(model.id) === "deepgram" && (
+                            <div className="space-y-2">
+                              <Label htmlFor={`deepgram-tts-${model.id}`}>
+                                Modèle Text-to-Speech Deepgram
+                              </Label>
+                              <Input
+                                id={`deepgram-tts-${model.id}`}
+                                placeholder="ex: aura-2-thalia-en, aura-2-asteria-en"
+                                value={model.deepgramTtsModelDraft || ''}
+                                onChange={(e) => {
+                                  const value = e.target.value.trim() || undefined;
+                                  setModels(prev => prev.map(m => 
+                                    m.id === model.id 
+                                      ? { ...m, deepgramTtsModelDraft: value, saveSuccess: false }
+                                      : m
+                                  ));
+                                }}
+                              />
+                              <p className="text-xs text-muted-foreground">
+                                Modèles Deepgram TTS : aura-2-thalia-en, aura-2-asteria-en, etc.
+                              </p>
+                            </div>
+                          )}
+
+                          {ttsProvider.get(model.id) === "elevenlabs" && (
+                            <div className="grid gap-4 md:grid-cols-2">
+                              <div className="space-y-2">
+                                <Label htmlFor={`elevenlabs-voice-id-${model.id}`}>
+                                  Voice ID
+                                </Label>
+                                <Input
+                                  id={`elevenlabs-voice-id-${model.id}`}
+                                  placeholder="ex: 21m00Tcm4TlvDq8ikWAM (Rachel)"
+                                  value={model.elevenLabsVoiceIdDraft || ''}
+                                  onChange={(e) => {
+                                    const value = e.target.value.trim() || undefined;
+                                    setModels(prev => prev.map(m => 
+                                      m.id === model.id 
+                                        ? { ...m, elevenLabsVoiceIdDraft: value, saveSuccess: false }
+                                        : m
+                                    ));
+                                  }}
+                                />
+                                <p className="text-xs text-muted-foreground">
+                                  ID de la voix ElevenLabs. Consultez le dashboard ElevenLabs pour obtenir les IDs disponibles.
+                                </p>
+                              </div>
+                              <div className="space-y-2">
+                                <Label htmlFor={`elevenlabs-model-id-${model.id}`}>
+                                  Modèle TTS
+                                </Label>
+                                <select
+                                  id={`elevenlabs-model-id-${model.id}`}
+                                  className="w-full rounded border border-input bg-background px-3 py-2 text-sm"
+                                  value={model.elevenLabsModelIdDraft || ''}
+                                  onChange={(e) => {
+                                    const value = e.target.value || undefined;
+                                    setModels(prev => prev.map(m => 
+                                      m.id === model.id 
+                                        ? { ...m, elevenLabsModelIdDraft: value, saveSuccess: false }
+                                        : m
+                                    ));
+                                  }}
+                                >
+                                  <option value="">Aucun</option>
+                                  <option value="eleven_turbo_v2_5">eleven_turbo_v2_5 (Rapide, par défaut)</option>
+                                  <option value="eleven_multilingual_v2">eleven_multilingual_v2 (Multilingue)</option>
+                                  <option value="eleven_monolingual_v1">eleven_monolingual_v1 (Anglais uniquement)</option>
+                                </select>
+                                <p className="text-xs text-muted-foreground">
+                                  Modèle de synthèse vocale ElevenLabs.
+                                </p>
+                              </div>
+                            </div>
+                          )}
                         </div>
-                        <div className="space-y-2">
-                          <Label htmlFor={`elevenlabs-model-id-${model.id}`}>
-                            Modèle TTS
-                          </Label>
-                          <select
-                            id={`elevenlabs-model-id-${model.id}`}
-                            className="w-full rounded border border-input bg-background px-3 py-2 text-sm"
-                            value={model.elevenLabsModelIdDraft || ''}
-                            onChange={(e) => {
-                              const value = e.target.value || undefined;
-                              setModels(prev => prev.map(m => 
-                                m.id === model.id 
-                                  ? { ...m, elevenLabsModelIdDraft: value, saveSuccess: false }
-                                  : m
-                              ));
-                            }}
-                          >
-                            <option value="">Aucun</option>
-                            <option value="eleven_turbo_v2_5">eleven_turbo_v2_5 (Rapide, par défaut)</option>
-                            <option value="eleven_multilingual_v2">eleven_multilingual_v2 (Multilingue)</option>
-                            <option value="eleven_monolingual_v1">eleven_monolingual_v1 (Anglais uniquement)</option>
-                          </select>
-                          <p className="text-xs text-muted-foreground">
-                            Modèle de synthèse vocale ElevenLabs.
-                          </p>
-                        </div>
-                      </div>
-                      
-                      <div className="flex items-center gap-2 mt-4">
-                        <Button
-                          onClick={async () => {
+                      )}
+                    </div>
+
+                    {/* Bouton Enregistrer */}
+                    <div className="flex items-center gap-2 pt-4 border-t">
+                      <Button
+                        onClick={async () => {
+                          setModels(prev => prev.map(m => 
+                            m.id === model.id 
+                              ? { ...m, isSaving: true, saveError: null, saveSuccess: false }
+                              : m
+                          ));
+
+                          try {
+                            const response = await fetch(`/api/admin/ai/models/${model.id}`, {
+                              method: 'PUT',
+                              headers: { 'Content-Type': 'application/json' },
+                              credentials: 'include',
+                              body: JSON.stringify({
+                                voiceAgentProvider: model.voiceAgentProviderDraft || null,
+                                deepgramVoiceAgentModel: model.deepgramLlmModelDraft || null,
+                                deepgramLlmProvider: model.deepgramLlmProviderDraft || null,
+                                deepgramSttModel: sttProvider.get(model.id) === "deepgram" ? (model.deepgramSttModelDraft || null) : null,
+                                deepgramTtsModel: ttsProvider.get(model.id) === "deepgram" ? (model.deepgramTtsModelDraft || null) : null,
+                                speechmaticsSttLanguage: sttProvider.get(model.id) === "speechmatics" ? (model.speechmaticsSttLanguageDraft || null) : null,
+                                speechmaticsSttOperatingPoint: sttProvider.get(model.id) === "speechmatics" ? (model.speechmaticsSttOperatingPointDraft || null) : null,
+                                speechmaticsSttMaxDelay: sttProvider.get(model.id) === "speechmatics" ? (model.speechmaticsSttMaxDelayDraft || null) : null,
+                                speechmaticsSttEnablePartials: sttProvider.get(model.id) === "speechmatics" ? (model.speechmaticsSttEnablePartialsDraft !== false) : null,
+                                speechmaticsLlmProvider: model.speechmaticsLlmProviderDraft || null,
+                                speechmaticsLlmModel: model.speechmaticsLlmModelDraft || null,
+                                speechmaticsApiKeyEnvVar: model.speechmaticsApiKeyEnvVarDraft || null,
+                                elevenLabsVoiceId: ttsProvider.get(model.id) === "elevenlabs" ? (model.elevenLabsVoiceIdDraft || null) : null,
+                                elevenLabsModelId: ttsProvider.get(model.id) === "elevenlabs" ? (model.elevenLabsModelIdDraft || null) : null,
+                              }),
+                            });
+
+                            const result = await response.json();
+                            
+                            if (!response.ok || !result.success) {
+                              throw new Error(result.error || 'Failed to save');
+                            }
+
+                            // Update saved values
                             setModels(prev => prev.map(m => 
                               m.id === model.id 
-                                ? { ...m, isSaving: true, saveError: null, saveSuccess: false }
+                                ? {
+                                    ...m,
+                                    voiceAgentProvider: m.voiceAgentProviderDraft,
+                                    deepgramLlmModel: m.deepgramLlmModelDraft,
+                                    deepgramLlmProvider: m.deepgramLlmProviderDraft,
+                                    deepgramSttModel: m.deepgramSttModelDraft,
+                                    deepgramTtsModel: m.deepgramTtsModelDraft,
+                                    speechmaticsSttLanguage: m.speechmaticsSttLanguageDraft,
+                                    speechmaticsSttOperatingPoint: m.speechmaticsSttOperatingPointDraft,
+                                    speechmaticsSttMaxDelay: m.speechmaticsSttMaxDelayDraft,
+                                    speechmaticsSttEnablePartials: m.speechmaticsSttEnablePartialsDraft,
+                                    speechmaticsLlmProvider: m.speechmaticsLlmProviderDraft,
+                                    speechmaticsLlmModel: m.speechmaticsLlmModelDraft,
+                                    speechmaticsApiKeyEnvVar: m.speechmaticsApiKeyEnvVarDraft,
+                                    elevenLabsVoiceId: m.elevenLabsVoiceIdDraft,
+                                    elevenLabsModelId: m.elevenLabsModelIdDraft,
+                                    isSaving: false,
+                                    saveSuccess: true,
+                                    saveError: null,
+                                  }
                                 : m
                             ));
-
-                            try {
-                              const response = await fetch(`/api/admin/ai/models/${model.id}`, {
-                                method: 'PUT',
-                                headers: { 'Content-Type': 'application/json' },
-                                credentials: 'include',
-                                body: JSON.stringify({
-                                  deepgramVoiceAgentModel: model.deepgramLlmModelDraft || null,
-                                  deepgramLlmProvider: model.deepgramLlmProviderDraft || null,
-                                  deepgramSttModel: model.deepgramSttModelDraft || null,
-                                  deepgramTtsModel: model.deepgramTtsModelDraft || null,
-                                  elevenLabsVoiceId: model.elevenLabsVoiceIdDraft || null,
-                                  elevenLabsModelId: model.elevenLabsModelIdDraft || null,
-                                }),
-                              });
-
-                              const result = await response.json();
-                              
-                              if (!response.ok || !result.success) {
-                                throw new Error(result.error || 'Failed to save');
-                              }
-
-                              // Update saved values
-                              setModels(prev => prev.map(m => 
-                                m.id === model.id 
-                                  ? {
-                                      ...m,
-                                      deepgramLlmModel: m.deepgramLlmModelDraft,
-                                      deepgramLlmProvider: m.deepgramLlmProviderDraft,
-                                      deepgramSttModel: m.deepgramSttModelDraft,
-                                      deepgramTtsModel: m.deepgramTtsModelDraft,
-                                      elevenLabsVoiceId: m.elevenLabsVoiceIdDraft,
-                                      elevenLabsModelId: m.elevenLabsModelIdDraft,
-                                      isSaving: false,
-                                      saveSuccess: true,
-                                      saveError: null,
-                                    }
-                                  : m
-                              ));
-                            } catch (err) {
-                              const message = err instanceof Error ? err.message : 'Erreur lors de l\'enregistrement';
-                              setModels(prev => prev.map(m => 
-                                m.id === model.id 
-                                  ? { ...m, isSaving: false, saveError: message }
-                                  : m
-                              ));
-                            }
-                          }}
-                          disabled={model.isSaving}
-                        >
-                          {model.isSaving ? 'Enregistrement...' : 'Enregistrer'}
-                        </Button>
-                        {model.saveError && (
-                          <p className="text-sm text-destructive">{model.saveError}</p>
-                        )}
-                        {model.saveSuccess && (
-                          <p className="text-sm text-emerald-600">Modifications enregistrées.</p>
-                        )}
-                      </div>
+                          } catch (err) {
+                            const message = err instanceof Error ? err.message : 'Erreur lors de l\'enregistrement';
+                            setModels(prev => prev.map(m => 
+                              m.id === model.id 
+                                ? { ...m, isSaving: false, saveError: message }
+                                : m
+                            ));
+                          }
+                        }}
+                        disabled={model.isSaving}
+                      >
+                        {model.isSaving ? 'Enregistrement...' : 'Enregistrer'}
+                      </Button>
+                      {model.saveError && (
+                        <p className="text-sm text-destructive">{model.saveError}</p>
+                      )}
+                      {model.saveSuccess && (
+                        <p className="text-sm text-emerald-600">Modifications enregistrées.</p>
+                      )}
                     </div>
                   </CardContent>
                   )}

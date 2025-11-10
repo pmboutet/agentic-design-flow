@@ -5,6 +5,8 @@
   "main": "index.js",
   "scripts": {
     "dev": "next dev",
+    "dev:with-proxy": "concurrently \"npm run dev\" \"node scripts/speechmatics-ws-proxy.js\"",
+    "speechmatics-proxy": "node scripts/speechmatics-ws-proxy.js",
     "vercel-build": "npm run build",
     "build": "next build",
     "start": "next start",
@@ -13,6 +15,7 @@
     "migrate:status": "node scripts/migrate.js status"
   },
   "dependencies": {
+    "@deepgram/sdk": "^4.11.2",
     "@hookform/resolvers": "^3.3.4",
     "@internationalized/date": "^3.10.0",
     "@radix-ui/react-dialog": "^1.0.5",
@@ -23,13 +26,13 @@
     "@radix-ui/react-select": "^2.0.0",
     "@radix-ui/react-slot": "^1.0.2",
     "@radix-ui/react-toast": "^1.1.5",
+    "@speechmatics/auth": "^0.1.0",
     "@supabase/ssr": "^0.5.2",
     "@supabase/supabase-js": "^2.57.4",
     "@tailwindcss/typography": "^0.5.19",
     "@types/react-syntax-highlighter": "^15.5.13",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.0",
-    "@deepgram/sdk": "^4.11.2",
     "date-fns": "^4.1.0",
     "dotenv": "^17.2.3",
     "framer-motion": "^11.0.6",
