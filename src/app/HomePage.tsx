@@ -74,6 +74,7 @@ export default function HomePage() {
   } | null>(null);
   // Store logId for voice agent exchanges (user message -> agent response)
   const voiceAgentLogIdRef = useRef<string | null>(null);
+  const inviteTokenRef = useRef<string | null>(null);
   
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
@@ -83,6 +84,11 @@ export default function HomePage() {
     });
   }, []);
   const askDetails = sessionData.ask;
+  useEffect(() => {
+    if (sessionData.inviteToken) {
+      inviteTokenRef.current = sessionData.inviteToken;
+    }
+  }, [sessionData.inviteToken]);
   const participants = askDetails?.participants ?? [];
   const statusLabel = askDetails?.status
     ? askDetails.status.charAt(0).toUpperCase() + askDetails.status.slice(1)
@@ -492,7 +498,15 @@ export default function HomePage() {
       const endpoint = isTestMode ? `/api/test/${key}` : `/api/ask/${key}`;
       console.log('🔍 Debug - endpoint:', endpoint);
       
-      const response = await fetch(endpoint);
+      const headers: Record<string, string> = {};
+      if (inviteTokenRef.current) {
+        headers['X-Invite-Token'] = inviteTokenRef.current;
+        console.log('[HomePage] 🔐 Including invite token header for loadSessionData');
+      }
+      
+      const response = await fetch(endpoint, {
+        headers: Object.keys(headers).length > 0 ? headers : undefined,
+      });
       const data: ApiResponse<{
         ask: Ask;
         messages: Message[];
@@ -507,6 +521,19 @@ export default function HomePage() {
       const hasPersistedMessages = (data.data?.messages ?? []).length > 0;
       hasPostedMessageSinceRefreshRef.current = hasPersistedMessages;
 
+      console.log('[HomePage] 📥 Loaded messages from API:', {
+        messageCount: (data.data?.messages ?? []).length,
+        voiceMessages: (data.data?.messages ?? []).filter(m => 
+          m.metadata?.voiceTranscribed || m.metadata?.voiceGenerated
+        ).length,
+        allMessages: (data.data?.messages ?? []).map(m => ({
+          id: m.id,
+          content: m.content.substring(0, 50),
+          senderType: m.senderType,
+          hasVoiceMetadata: !!(m.metadata?.voiceTranscribed || m.metadata?.voiceGenerated)
+        }))
+      });
+
       setSessionData(prev => {
         const messagesWithClientIds = (data.data?.messages ?? []).map(message => {
           const existing = prev.messages.find(prevMessage => prevMessage.id === message.id);
@@ -514,6 +541,18 @@ export default function HomePage() {
             ...message,
             clientId: existing?.clientId ?? message.clientId ?? message.id,
           };
+        });
+
+        console.log('[HomePage] 📝 Setting session data with messages:', {
+          previousCount: prev.messages.length,
+          newCount: messagesWithClientIds.length,
+          newMessages: messagesWithClientIds.filter(m => 
+            !prev.messages.find(pm => pm.id === m.id)
+          ).map(m => ({
+            id: m.id,
+            content: m.content.substring(0, 50),
+            senderType: m.senderType
+          }))
         });
 
         return {
@@ -692,11 +731,21 @@ export default function HomePage() {
           'Content-Type': 'application/json',
         };
 
-        if (sessionData.inviteToken) {
-          headers['X-Invite-Token'] = sessionData.inviteToken;
+        const inviteToken = inviteTokenRef.current || sessionData.inviteToken || null;
+        if (inviteToken) {
+          headers['X-Invite-Token'] = inviteToken;
+          console.log('[HomePage] 🔑 Using invite token for voice user message:', inviteToken.substring(0, 8) + '...');
+        } else {
+          console.log('[HomePage] ⚠️ No invite token available, will use regular auth');
         }
 
         const endpoint = isTestMode ? `/api/test/${sessionData.askKey}` : `/api/ask/${sessionData.askKey}`;
+        console.log('[HomePage] 📤 Persisting voice user message:', {
+          endpoint,
+          hasInviteToken: !!inviteTokenRef.current,
+          content: content.substring(0, 50)
+        });
+        
         const response = await fetch(endpoint, {
           method: 'POST',
           headers,
@@ -708,8 +757,31 @@ export default function HomePage() {
             timestamp,
           }),
         });
+        
+        console.log('[HomePage] 📥 Voice user message response:', {
+          status: response.status,
+          statusText: response.statusText,
+          ok: response.ok
+        });
 
         const data: ApiResponse<{ message: Message }> = await response.json();
+
+        if (!response.ok) {
+          const errorMessage = data.error || `Erreur ${response.status}: ${response.statusText}`;
+          console.error('[HomePage] ❌ Voice user message persistence failed:', {
+            status: response.status,
+            error: errorMessage
+          });
+          
+          // Show user-friendly error message
+          setSessionData(prev => ({
+            ...prev,
+            error: errorMessage,
+            messages: prev.messages.filter(msg => msg.clientId !== optimisticId)
+          }));
+          
+          return;
+        }
 
         if (response.ok && data.success && data.data?.message) {
           markMessagePosted();
@@ -746,6 +818,17 @@ export default function HomePage() {
                 : msg
             ),
           }));
+          
+          console.log('[HomePage] ✅ Voice user message persisted:', {
+            messageId: persistedMessage.id,
+            content: persistedMessage.content.substring(0, 50)
+          });
+        } else {
+          console.warn('[HomePage] ⚠️ Voice user message persistence failed:', {
+            responseOk: response.ok,
+            dataSuccess: data.success,
+            hasMessage: !!data.data?.message
+          });
         }
       } catch (error) {
         console.error('Error persisting voice user message:', error);
@@ -827,6 +910,17 @@ export default function HomePage() {
             ),
             insights: data.data?.insights ?? prev.insights,
           }));
+          
+          console.log('[HomePage] ✅ Voice agent message persisted:', {
+            messageId: data.data!.message!.id,
+            content: data.data!.message!.content.substring(0, 50)
+          });
+        } else {
+          console.warn('[HomePage] ⚠️ Voice agent message persistence failed:', {
+            responseOk: response.ok,
+            dataSuccess: data.success,
+            hasMessage: !!data.data?.message
+          });
         }
       } catch (error) {
         console.error('Error persisting voice message:', error);
@@ -1029,6 +1123,33 @@ export default function HomePage() {
       loadSessionData(sessionData.askKey);
     }
   };
+
+  // Reload messages after voice mode closes
+  const reloadMessagesAfterVoiceMode = useCallback(async () => {
+    // Use a function that reads current state
+    setSessionData(prev => {
+      console.log('[HomePage] Reloading messages after voice mode close...', {
+        hasInviteToken: !!prev.inviteToken,
+        hasAskKey: !!prev.askKey,
+        currentMessageCount: prev.messages.length
+      });
+      
+      if (prev.inviteToken) {
+        loadSessionDataByToken(prev.inviteToken).then(() => {
+          console.log('[HomePage] ✅ Messages reloaded via token');
+        }).catch(err => {
+          console.error('[HomePage] ❌ Error reloading messages via token:', err);
+        });
+      } else if (prev.askKey) {
+        loadSessionData(prev.askKey).then(() => {
+          console.log('[HomePage] ✅ Messages reloaded via askKey');
+        }).catch(err => {
+          console.error('[HomePage] ❌ Error reloading messages via askKey:', err);
+        });
+      }
+      return prev; // Don't modify state, just trigger reload
+    });
+  }, [loadSessionDataByToken, loadSessionData]);
 
   // Clear error
   const clearError = () => {
@@ -1358,7 +1479,22 @@ export default function HomePage() {
               voiceModeModelConfig={voiceModeModelConfig || undefined}
               onVoiceMessage={handleVoiceMessage}
               onReplyBoxFocusChange={setIsReplyBoxFocused}
-              onVoiceModeChange={setIsVoiceModeActive}
+              onVoiceModeChange={(active) => {
+                const wasActive = isVoiceModeActive;
+                setIsVoiceModeActive(active);
+                // Reload messages when voice mode is closed to ensure voice messages appear in text mode
+                if (wasActive && !active) {
+                  console.log('[HomePage] 🎤 Voice mode closed, will reload messages in 1 second...', {
+                    currentMessageCount: sessionData.messages.length,
+                    hasInviteToken: !!sessionData.inviteToken,
+                    hasAskKey: !!sessionData.askKey
+                  });
+                  // Longer delay to ensure voice messages are fully persisted
+                  setTimeout(() => {
+                    reloadMessagesAfterVoiceMode();
+                  }, 1000);
+                }
+              }}
             />
           </div>
         </motion.div>

@@ -144,6 +144,8 @@ export class DeepgramVoiceAgent {
         // Ensure we're using a multilingual model (nova-2 supports FR and EN automatically)
         const finalSttModel = isMultilingualModel ? sttModel : "nova-2";
         
+        console.log('[Deepgram] Using STT model:', finalSttModel, '- This model supports automatic language detection for French (fr) and English (en)');
+        
         const settings: any = {
           audio: {
             input: {
@@ -162,7 +164,9 @@ export class DeepgramVoiceAgent {
                 type: "deepgram" as const,
                 model: finalSttModel
                 // Nova-2 and Nova-3 are multilingual models that automatically detect language
-                // They support FR and EN automatically - no additional language parameter needed
+                // They support both French (fr) and English (en) automatically
+                // The model will auto-detect the language based on the speech content
+                // No language parameter is needed - leaving it undefined enables auto-detection
               }
             },
             speak: {
@@ -402,11 +406,28 @@ export class DeepgramVoiceAgent {
 
     // Handle audio data from AudioWorklet
     processor.port.onmessage = (event) => {
-      if (!this.client || !this.isMicrophoneActive) return;
+      // CRITICAL: Check if microphone is active BEFORE processing audio
+      // This prevents any audio from being sent after stopMicrophone() is called
+      if (!this.isMicrophoneActive) {
+        console.log('[Deepgram] 🔇 Microphone inactive, dropping audio chunk');
+        return; // Don't process or send audio if muted
+      }
+
+      // Double-check client exists
+      if (!this.client) {
+        console.warn('[Deepgram] ⚠️ No client available, dropping audio chunk');
+        return;
+      }
 
       if (event.data.type === 'audio') {
+        // Triple-check before sending (user might have muted during processing)
+        if (!this.isMicrophoneActive) {
+          console.log('[Deepgram] 🔇 Microphone inactive during audio processing, dropping chunk');
+          return;
+        }
+
         const pcmData = new Int16Array(event.data.data);
-        
+
         // Send audio to Deepgram
         try {
           this.client.send(pcmData.buffer);
@@ -489,43 +510,13 @@ export class DeepgramVoiceAgent {
 
   stopMicrophone(): void {
     console.log('[Deepgram] 🎤 Stopping microphone...');
-    
-    // Set flag to stop processing audio chunks immediately
+
+    // Set flag to stop processing audio chunks IMMEDIATELY (before any other cleanup)
+    // This ensures no audio is sent after mute is activated
     this.isMicrophoneActive = false;
-    
-    // Send stop message to AudioWorklet
-    if (this.processorNode) {
-      try {
-        this.processorNode.port.postMessage({ type: 'stop' });
-        console.log('[Deepgram] ✅ Stop message sent to AudioWorklet');
-      } catch (error) {
-        console.warn('[Deepgram] Error sending stop message to AudioWorklet:', error);
-      }
-    }
-    
-    // Disconnect processor node
-    if (this.processorNode) {
-      try {
-        this.processorNode.disconnect();
-        console.log('[Deepgram] ✅ Processor node disconnected');
-      } catch (error) {
-        console.warn('[Deepgram] Error disconnecting processor:', error);
-      }
-      this.processorNode = null;
-    }
-    
-    // Disconnect source node
-    if (this.sourceNode) {
-      try {
-        this.sourceNode.disconnect();
-        console.log('[Deepgram] ✅ Source node disconnected');
-      } catch (error) {
-        console.warn('[Deepgram] Error disconnecting source:', error);
-      }
-      this.sourceNode = null;
-    }
-    
-    // Stop all media stream tracks
+
+    // CRITICAL: Stop media stream tracks FIRST to prevent new audio capture
+    // This stops the audio at the source before any processing
     if (this.mediaStream) {
       try {
         this.mediaStream.getTracks().forEach(track => {
@@ -540,7 +531,46 @@ export class DeepgramVoiceAgent {
         console.warn('[Deepgram] Error stopping media stream:', error);
       }
     }
-    
+
+    // Send stop message to AudioWorklet and clear the message queue
+    if (this.processorNode) {
+      const processorNode = this.processorNode;
+
+      // Clear the message handler BEFORE sending stop to drop any pending messages
+      try {
+        processorNode.port.onmessage = null;
+        console.log('[Deepgram] ✅ Cleared AudioWorklet message handler');
+      } catch (error) {
+        console.warn('[Deepgram] Error clearing AudioWorklet onmessage handler:', error);
+      }
+
+      try {
+        processorNode.port.postMessage({ type: 'stop' });
+        console.log('[Deepgram] ✅ Stop message sent to AudioWorklet');
+      } catch (error) {
+        console.warn('[Deepgram] Error sending stop message to AudioWorklet:', error);
+      }
+
+      try {
+        processorNode.disconnect();
+        console.log('[Deepgram] ✅ Processor node disconnected');
+      } catch (error) {
+        console.warn('[Deepgram] Error disconnecting processor:', error);
+      }
+      this.processorNode = null;
+    }
+
+    // Disconnect source node
+    if (this.sourceNode) {
+      try {
+        this.sourceNode.disconnect();
+        console.log('[Deepgram] ✅ Source node disconnected');
+      } catch (error) {
+        console.warn('[Deepgram] Error disconnecting source:', error);
+      }
+      this.sourceNode = null;
+    }
+
     // Close audio context
     if (this.audioContext) {
       try {
@@ -553,7 +583,7 @@ export class DeepgramVoiceAgent {
       }
       this.audioContext = null;
     }
-    
+
     console.log('[Deepgram] ✅ Microphone stopped');
   }
 

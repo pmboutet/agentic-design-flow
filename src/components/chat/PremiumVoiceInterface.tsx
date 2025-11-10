@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, MicOff, Volume2, VolumeX, Pencil } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -67,6 +67,11 @@ export function PremiumVoiceInterface({
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const isHybridAgent = modelConfig?.provider === "hybrid-voice-agent";
+  const isMutedRef = useRef(isMuted);
+
+  useEffect(() => {
+    isMutedRef.current = isMuted;
+  }, [isMuted]);
 
   // Get user name for greeting
   const getUserName = () => {
@@ -88,6 +93,16 @@ export function PremiumVoiceInterface({
   // Setup audio analysis
   const setupAudioAnalysis = useCallback(async (stream: MediaStream) => {
     try {
+      if (isMutedRef.current) {
+        console.log('[PremiumVoiceInterface] 🔇 Skipping audio analysis setup because microphone is muted');
+        stream.getTracks().forEach(track => {
+          if (track.readyState === 'live') {
+            track.stop();
+          }
+        });
+        return;
+      }
+
       const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
       const analyser = audioContext.createAnalyser();
       const microphone = audioContext.createMediaStreamSource(stream);
@@ -118,6 +133,24 @@ export function PremiumVoiceInterface({
       console.error('Error setting up audio analysis:', err);
     }
   }, []);
+
+  const startAudioVisualization = useCallback(() => {
+    navigator.mediaDevices.getUserMedia({ audio: true })
+      .then(stream => {
+        if (isMutedRef.current) {
+          stream.getTracks().forEach(track => {
+            if (track.readyState === 'live') {
+              track.stop();
+            }
+          });
+          return;
+        }
+        return setupAudioAnalysis(stream);
+      })
+      .catch(err => {
+        console.warn('[PremiumVoiceInterface] Could not setup audio analysis:', err);
+      });
+  }, [setupAudioAnalysis]);
 
   // Cleanup audio analysis
   const cleanupAudioAnalysis = useCallback(() => {
@@ -181,12 +214,16 @@ export function PremiumVoiceInterface({
       return;
     }
     
-    // Add to voice messages
-    setVoiceMessages(prev => [...prev, {
-      role: message.role === 'agent' ? 'assistant' : message.role,
-      content: message.content,
-      timestamp: new Date().toISOString(),
-    }]);
+    // Don't add to voiceMessages - onMessage will handle adding to the main messages array
+    // This prevents duplicates since the message will be in both voiceMessages and messages
+    // Only add to voiceMessages if onMessage is not provided (fallback for display)
+    if (!onMessage) {
+      setVoiceMessages(prev => [...prev, {
+        role: message.role === 'agent' ? 'assistant' : message.role,
+        content: message.content,
+        timestamp: message.timestamp || new Date().toISOString(),
+      }]);
+    }
     
     onMessage(message);
   }, [onMessage]);
@@ -235,13 +272,7 @@ export function PremiumVoiceInterface({
         
         // Setup audio analysis after microphone is started
         // We'll create a separate stream for visualization
-        try {
-          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-          await setupAudioAnalysis(stream);
-        } catch (audioErr) {
-          console.warn('[PremiumVoiceInterface] Could not setup audio analysis:', audioErr);
-          // Continue without audio visualization
-        }
+        startAudioVisualization();
       } else {
         const agent = new DeepgramVoiceAgent();
         agentRef.current = agent;
@@ -265,13 +296,7 @@ export function PremiumVoiceInterface({
         
         // Setup audio analysis after microphone is started
         // We'll create a separate stream for visualization
-        try {
-          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-          await setupAudioAnalysis(stream);
-        } catch (audioErr) {
-          console.warn('[PremiumVoiceInterface] Could not setup audio analysis:', audioErr);
-          // Continue without audio visualization
-        }
+        startAudioVisualization();
       }
 
       setIsMicrophoneActive(true);
@@ -284,64 +309,111 @@ export function PremiumVoiceInterface({
       setError(errorMessage);
       handleError(err instanceof Error ? err : new Error(errorMessage));
     }
-  }, [systemPrompt, modelConfig, isHybridAgent, handleMessage, handleError, handleConnectionChange, setupAudioAnalysis, cleanupAudioAnalysis]);
+  }, [systemPrompt, modelConfig, isHybridAgent, handleMessage, handleError, handleConnectionChange, setupAudioAnalysis, cleanupAudioAnalysis, startAudioVisualization]);
 
   const disconnect = useCallback(() => {
-    console.log('[PremiumVoiceInterface] 🔌 Disconnecting...');
+    console.log('[PremiumVoiceInterface] 🔌 Disconnecting completely...');
+    
+    // Clear timeout first
+    if (speakingTimeoutRef.current) {
+      clearTimeout(speakingTimeoutRef.current);
+      speakingTimeoutRef.current = null;
+    }
     
     // Cleanup audio analysis FIRST (stops the separate stream for visualization)
     cleanupAudioAnalysis();
     
-    // Disconnect agent (this will stop the agent's microphone stream)
+    // Disconnect agent (this will stop the agent's microphone stream AND websocket)
     if (agentRef.current) {
       try {
+        // This will:
+        // - Stop microphone
+        // - Disconnect websocket
+        // - Clear all queues
+        // - Stop audio playback
         agentRef.current.disconnect();
-        console.log('[PremiumVoiceInterface] ✅ Agent disconnected');
+        console.log('[PremiumVoiceInterface] ✅ Agent disconnected (microphone + websocket)');
       } catch (error) {
         console.warn('[PremiumVoiceInterface] Error disconnecting agent:', error);
       }
       agentRef.current = null;
     }
     
-    // Note: We can't directly enumerate active streams, but cleanupAudioAnalysis and agent.disconnect()
-    // should have stopped all tracks. If microphone is still active, check browser permissions.
-    
     // Reset all state
     setIsConnected(false);
     setIsMicrophoneActive(false);
+    setIsMuted(false);
     setIsSpeaking(false);
     setError(null);
     
-    // Clear timeout
-    if (speakingTimeoutRef.current) {
-      clearTimeout(speakingTimeoutRef.current);
-      speakingTimeoutRef.current = null;
-    }
+    // Clear voice messages
+    setVoiceMessages([]);
     
-    console.log('[PremiumVoiceInterface] ✅ Disconnection complete');
+    console.log('[PremiumVoiceInterface] ✅ Complete disconnection finished - websocket and microphone are OFF');
   }, [cleanupAudioAnalysis]);
 
-  const toggleMute = useCallback(() => {
-    if (isMuted && agentRef.current) {
-      if (isHybridAgent && agentRef.current instanceof HybridVoiceAgent) {
-        agentRef.current.startMicrophone().then(() => {
-          setIsMuted(false);
-        }).catch(handleError);
-      } else if (agentRef.current instanceof DeepgramVoiceAgent) {
-        agentRef.current.startMicrophone().then(() => {
-          setIsMuted(false);
-        }).catch(handleError);
-      }
-    } else if (agentRef.current) {
-      if (isHybridAgent && agentRef.current instanceof HybridVoiceAgent) {
-        agentRef.current.stopMicrophone();
-        setIsMuted(true);
-      } else if (agentRef.current instanceof DeepgramVoiceAgent) {
-        agentRef.current.stopMicrophone();
-        setIsMuted(true);
+  const toggleMute = useCallback(async () => {
+    const agent = agentRef.current;
+    if (!agent) {
+      return;
+    }
+
+    if (isMuted) {
+      // User wants to unmute
+      isMutedRef.current = false;
+      setIsMuted(false);
+
+      const startPromise = agent instanceof HybridVoiceAgent || agent instanceof DeepgramVoiceAgent
+        ? agent.startMicrophone()
+        : Promise.resolve();
+
+      startPromise
+        .then(() => {
+          // If the user re-muted while we were starting, stop immediately
+          if (isMutedRef.current) {
+            if (agent instanceof HybridVoiceAgent || agent instanceof DeepgramVoiceAgent) {
+              agent.stopMicrophone();
+            }
+            return;
+          }
+
+          setIsMicrophoneActive(true);
+          startAudioVisualization();
+        })
+        .catch(err => {
+          console.error('[PremiumVoiceInterface] ❌ Error restarting microphone:', err);
+          isMutedRef.current = true;
+          setIsMuted(true);
+          setIsMicrophoneActive(false);
+          handleError(err instanceof Error ? err : new Error(String(err)));
+        });
+    } else {
+      // User wants to mute
+      console.log('[PremiumVoiceInterface] 🔇 Muting - stopping both streams synchronously...');
+      isMutedRef.current = true;
+      setIsMuted(true);
+      setIsMicrophoneActive(false);
+      setIsSpeaking(false);
+
+      // CRITICAL: Stop both streams in parallel and wait for completion
+      // This ensures no audio is captured or sent after mute
+      try {
+        await Promise.all([
+          // Stop visualization stream
+          Promise.resolve(cleanupAudioAnalysis()),
+          // Stop agent microphone stream
+          (async () => {
+            if (agent instanceof HybridVoiceAgent || agent instanceof DeepgramVoiceAgent) {
+              agent.stopMicrophone();
+            }
+          })()
+        ]);
+        console.log('[PremiumVoiceInterface] ✅ Both streams stopped successfully');
+      } catch (error) {
+        console.error('[PremiumVoiceInterface] ❌ Error stopping streams:', error);
       }
     }
-  }, [isMuted, isHybridAgent, handleError]);
+  }, [isMuted, cleanupAudioAnalysis, startAudioVisualization, handleError]);
 
   // Auto-connect on mount
   useEffect(() => {
@@ -366,13 +438,104 @@ export function PremiumVoiceInterface({
     }, 100);
   }, []);
 
+  // Track previously seen messages to avoid re-animating existing ones
+  const previousMessagesRef = useRef<Set<string>>(new Set());
+  const isInitialMountRef = useRef(true);
+  
   // Scroll to bottom when messages change
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  // Combine voice messages with initial messages, avoiding duplicates
+  // Use useMemo to prevent unnecessary recalculations and flashing
+  const allMessages = useMemo(() => {
+    // Create a map to track messages by content and role to avoid duplicates
+    // Use content hash instead of timestamp to handle cases where timestamps differ slightly
+    const messageMap = new Map<string, typeof messages[0] & { stableKey: string; isNew: boolean }>();
+    const currentKeys = new Set<string>();
+    
+    // Helper to create a stable key from message content and role
+    const createStableKey = (role: string, content: string, timestamp?: string) => {
+      // Use content hash for deduplication (first 200 chars should be enough)
+      const contentHash = content.substring(0, 200).trim();
+      return `${role}-${contentHash}`;
+    };
+    
+    // First, add all messages from props (these are the source of truth)
+    messages.forEach(msg => {
+      const stableKey = createStableKey(msg.role, msg.content, msg.timestamp);
+      currentKeys.add(stableKey);
+      const isNew = !previousMessagesRef.current.has(stableKey);
+      // Only add if not already in map (prevents duplicates within messages array)
+      if (!messageMap.has(stableKey)) {
+        messageMap.set(stableKey, { ...msg, stableKey, isNew });
+      }
+    });
+    
+    // Then, add voice messages that aren't already in the props
+    // This handles the case where a message is captured but not yet persisted
+    voiceMessages.forEach(msg => {
+      const stableKey = createStableKey(msg.role, msg.content, msg.timestamp);
+      currentKeys.add(stableKey);
+      const isNew = !previousMessagesRef.current.has(stableKey);
+      // Only add if not already present in props
+      if (!messageMap.has(stableKey)) {
+        messageMap.set(stableKey, { ...msg, stableKey, isNew });
+      }
+    });
+    
+    // Convert back to array and sort by timestamp
+    const sorted = Array.from(messageMap.values()).sort((a, b) => {
+      const timeA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+      const timeB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+      return timeA - timeB;
+    });
+    
+    // Update the ref with current message keys (after first render)
+    if (!isInitialMountRef.current) {
+      previousMessagesRef.current = currentKeys;
+    } else {
+      // On initial mount, mark all as seen so they don't animate
+      previousMessagesRef.current = currentKeys;
+      isInitialMountRef.current = false;
+    }
+    
+    return sorted;
   }, [messages, voiceMessages]);
 
-  // Combine voice messages with initial messages
-  const allMessages = [...messages, ...voiceMessages];
+  // Clean up voiceMessages that are now in props to prevent accumulation
+  useEffect(() => {
+    if (messages.length > 0 && voiceMessages.length > 0) {
+      // Use the same key generation logic as allMessages
+      const createStableKey = (role: string, content: string) => {
+        const contentHash = content.substring(0, 200).trim();
+        return `${role}-${contentHash}`;
+      };
+      
+      const messageKeys = new Set(
+        messages.map(msg => createStableKey(msg.role, msg.content))
+      );
+      
+      setVoiceMessages(prev => 
+        prev.filter(msg => {
+          const key = createStableKey(msg.role, msg.content);
+          return !messageKeys.has(key);
+        })
+      );
+    }
+  }, [messages]);
+
+  // Track if we should scroll (only for new messages, not updates)
+  const previousLengthRef = useRef(0);
+  
+  useEffect(() => {
+    const hasNewMessages = allMessages.length > previousLengthRef.current;
+    previousLengthRef.current = allMessages.length;
+    
+    if (hasNewMessages) {
+      // Use requestAnimationFrame to ensure DOM is updated before scrolling
+      requestAnimationFrame(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      });
+    }
+  }, [allMessages]);
 
   return (
     <div className="fixed inset-0 z-50 overflow-hidden">
@@ -443,10 +606,12 @@ export function PremiumVoiceInterface({
             <Button
               variant="ghost"
               size="icon"
-              onClick={onEdit || (() => {
+              onClick={() => {
+                console.log('[PremiumVoiceInterface] ✏️ Edit button clicked - disconnecting everything');
                 disconnect();
+                onEdit?.();
                 onClose();
-              })}
+              }}
               className="h-10 w-10 text-white hover:bg-white/20 rounded-full"
               title="Éditer"
             >
@@ -456,10 +621,12 @@ export function PremiumVoiceInterface({
               variant="ghost"
               size="icon"
               onClick={() => {
+                console.log('[PremiumVoiceInterface] ❌ Close button clicked - disconnecting everything');
                 disconnect();
                 onClose();
               }}
               className="h-10 w-10 text-white hover:bg-white/20 rounded-full"
+              title="Fermer"
             >
               <X className="h-5 w-5" />
             </Button>
@@ -501,36 +668,46 @@ export function PremiumVoiceInterface({
               </motion.div>
             </div>
           )}
-          <AnimatePresence>
-            {allMessages.map((message, index) => (
-              <motion.div
-                key={`${message.timestamp}-${index}`}
-                initial={{ opacity: 0, y: 20, scale: 0.9 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: -20, scale: 0.9 }}
-                transition={{ duration: 0.3, delay: index * 0.05 }}
-                className={cn(
-                  "flex",
-                  message.role === 'user' ? 'justify-end' : 'justify-start'
-                )}
-              >
-                <div
-                  className={cn(
-                    "max-w-[75%] rounded-2xl px-4 py-3 backdrop-blur-xl",
-                    message.role === 'user'
-                      ? "bg-white/20 text-white shadow-lg"
-                      : "bg-white/10 text-white/90 shadow-lg"
-                  )}
-                  style={{
-                    boxShadow: '0 8px 32px 0 rgba(0, 0, 0, 0.2)',
+          <AnimatePresence mode="sync">
+            {allMessages.map((message, index) => {
+              // Use the stable key from the message object
+              const messageKey = (message as any).stableKey || `${message.role}-${message.content.substring(0, 100)}-${message.timestamp || index}`;
+              const isNewMessage = (message as any).isNew ?? false;
+              
+              return (
+                <motion.div
+                  key={messageKey}
+                  initial={isNewMessage ? { opacity: 0, y: 8, scale: 0.99 } : false}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -8, scale: 0.99 }}
+                  transition={{ 
+                    duration: isNewMessage ? 0.12 : 0,
+                    ease: "easeOut"
                   }}
+                  layout={false}
+                  className={cn(
+                    "flex",
+                    message.role === 'user' ? 'justify-end' : 'justify-start'
+                  )}
                 >
-                  <p className="text-sm leading-relaxed whitespace-pre-wrap">
-                    {message.content}
-                  </p>
-                </div>
-              </motion.div>
-            ))}
+                  <div
+                    className={cn(
+                      "max-w-[75%] rounded-2xl px-4 py-3 backdrop-blur-xl",
+                      message.role === 'user'
+                        ? "bg-white/20 text-white shadow-lg"
+                        : "bg-white/10 text-white/90 shadow-lg"
+                    )}
+                    style={{
+                      boxShadow: '0 8px 32px 0 rgba(0, 0, 0, 0.2)',
+                    }}
+                  >
+                    <p className="text-sm leading-relaxed whitespace-pre-wrap">
+                      {message.content}
+                    </p>
+                  </div>
+                </motion.div>
+              );
+            })}
           </AnimatePresence>
           {/* Invisible element at the bottom to scroll to */}
           <div ref={messagesEndRef} />

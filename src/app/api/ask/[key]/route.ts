@@ -148,16 +148,24 @@ export async function GET(
         if (tokenError) {
           console.error('❌ Error validating invite token:', tokenError);
         } else if (participant) {
+          // STRICT REQUIREMENT: Every participant MUST have a user_id
           if (!participant.user_id) {
-            console.error('❌ Invite token is not linked to a user profile', { participantId: participant.id });
+            console.error('❌ GET: Invite token is not linked to a user profile', {
+              participantId: participant.id,
+              inviteToken: inviteToken.substring(0, 8) + '...'
+            });
             return NextResponse.json<ApiResponse>({
               success: false,
-              error: "Ce lien d'invitation n'est associé à aucun profil utilisateur. Contactez votre administrateur."
+              error: "Ce lien d'invitation n'est pas correctement configuré. Contactez l'administrateur pour qu'il regénère votre lien d'accès."
             }, { status: 403 });
           }
-          console.log(`✅ Valid invite token for participant ${participant.id}`);
+
+          console.log(`✅ Valid invite token for participant ${participant.id}`, {
+            hasUserId: !!participant.user_id,
+            userId: participant.user_id
+          });
           participantId = participant.id;
-          profileId = participant.user_id;
+          profileId = participant.user_id; // REQUIRED - never NULL
           dataClient = admin;
         } else {
           console.warn('⚠️  Invite token not found in database');
@@ -600,8 +608,32 @@ export async function POST(
       }, { status: 400 });
     }
 
-    const supabase = await createServerSupabaseClient();
     const isDevBypass = process.env.IS_DEV === 'true';
+    
+    // In dev mode, createServerSupabaseClient uses service role which has no user session
+    // We need a normal client to get the user session for authentication
+    let supabase: SupabaseClient;
+    if (isDevBypass) {
+      // Create a normal client to get user session even in dev mode
+      const { createServerClient } = await import('@supabase/ssr');
+      const { cookies } = await import('next/headers');
+      const cookieStore = await cookies();
+      supabase = createServerClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+        {
+          cookies: {
+            get(name: string) {
+              return cookieStore.get(name)?.value;
+            },
+            set() {}, // No-op in route handlers
+            remove() {}, // No-op in route handlers
+          },
+        }
+      ) as unknown as SupabaseClient;
+    } else {
+      supabase = await createServerSupabaseClient();
+    }
 
     let adminClient: SupabaseClient | null = null;
     const getAdminClient = async () => {
@@ -637,16 +669,24 @@ export async function POST(
         if (tokenError) {
           console.error('❌ Error validating invite token:', tokenError);
         } else if (participant) {
+          // STRICT REQUIREMENT: Every participant MUST have a user_id
           if (!participant.user_id) {
-            console.error('❌ Invite token is not linked to a user profile', { participantId: participant.id });
+            console.error('❌ Invite token is not linked to a user profile', {
+              participantId: participant.id,
+              inviteToken: inviteToken.substring(0, 8) + '...'
+            });
             return NextResponse.json<ApiResponse>({
               success: false,
-              error: "Ce lien d'invitation n'est associé à aucun profil utilisateur. Contactez votre administrateur."
+              error: "Ce lien d'invitation n'est pas correctement configuré. Contactez l'administrateur pour qu'il regénère votre lien d'accès."
             }, { status: 403 });
           }
-          console.log(`✅ Valid invite token for participant ${participant.id}`);
+
+          console.log(`✅ Valid invite token for participant ${participant.id}`, {
+            hasUserId: !!participant.user_id,
+            userId: participant.user_id
+          });
           participantId = participant.id;
-          profileId = participant.user_id;
+          profileId = participant.user_id; // REQUIRED - never NULL
           dataClient = admin;
         } else {
           console.warn('⚠️  Invite token not found in database');
@@ -655,9 +695,11 @@ export async function POST(
 
       // If no valid token, try regular auth
       if (!inviteToken || !participantId) {
+        console.log('🔐 POST /api/ask/[key]: No valid invite token, trying regular auth...');
         const { data: userResult, error: userError } = await supabase.auth.getUser();
 
         if (userError) {
+          console.error('❌ POST /api/ask/[key]: Auth error:', userError);
           if (isPermissionDenied(userError as unknown as PostgrestError)) {
             return permissionDeniedResponse();
           }
@@ -667,11 +709,14 @@ export async function POST(
         const user = userResult?.user;
 
         if (!user) {
+          console.warn('⚠️ POST /api/ask/[key]: No authenticated user found and no valid invite token');
           return NextResponse.json<ApiResponse>({
             success: false,
             error: "Authentification requise. Veuillez vous connecter ou utiliser un lien d'invitation valide."
-          }, { status: 401 });
+          }, { status: 403 });
         }
+        
+        console.log('✅ POST /api/ask/[key]: Authenticated user found:', user.id);
 
         // Get profile ID from auth_id (user.id is the auth UUID, we need the profile UUID)
         const { data: profile, error: profileError } = await supabase
@@ -681,6 +726,7 @@ export async function POST(
           .single();
 
         if (profileError || !profile) {
+          console.error('❌ POST /api/ask/[key]: Profile not found for user:', user.id);
           return NextResponse.json<ApiResponse>({
             success: false,
             error: "Profil utilisateur introuvable"
@@ -688,8 +734,34 @@ export async function POST(
         }
 
         profileId = profile.id;
+        console.log('✅ POST /api/ask/[key]: Profile ID found:', profileId);
       }
+    } else {
+      // Dev bypass mode - no auth required
+      console.log('🔓 POST /api/ask/[key]: Dev bypass mode - no auth required');
     }
+
+    // Final check: we MUST have a profileId (no anonymous participants allowed)
+    // We need EITHER:
+    // - profileId from authenticated user OR from valid invite token
+    // - dev bypass mode
+    if (!isDevBypass && !profileId) {
+      console.error('❌ POST /api/ask/[key]: No valid user profile (profileId required)', {
+        hasParticipantId: !!participantId,
+        hasInviteToken: !!inviteToken
+      });
+      return NextResponse.json<ApiResponse>({
+        success: false,
+        error: "Authentification requise. Veuillez vous connecter avec un compte valide ou utiliser un lien d'invitation correctement configuré."
+      }, { status: 403 });
+    }
+
+    console.log('✅ POST /api/ask/[key]: Authentication validated', {
+      hasProfileId: !!profileId,
+      hasParticipantId: !!participantId,
+      isDevBypass,
+      authMethod: participantId ? 'invite_token' : 'regular_auth'
+    });
 
     const { row: askRow, error: askError } = await getAskSessionByKey<Pick<AskSessionRow, 'id' | 'ask_key' | 'is_anonymous' | 'audience_scope' | 'response_mode'>>(
       dataClient,
@@ -849,7 +921,8 @@ export async function POST(
       sender_type: senderType,
       metadata,
       created_at: timestamp,
-      user_id: finalProfileId,
+      user_id: finalProfileId, // REQUIRED - never NULL (enforced by validation above)
+      participant_id: participantId, // Optional - included when using invite token
       parent_message_id: parentMessageId,
       conversation_thread_id: conversationThread?.id ?? null,
     };

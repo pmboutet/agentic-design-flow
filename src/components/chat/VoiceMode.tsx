@@ -170,19 +170,33 @@ export function VoiceMode({
       if (isHybridAgent && agentRef.current instanceof HybridVoiceAgent) {
         agentRef.current.startMicrophone().then(() => {
           setIsMuted(false);
-        }).catch(handleError);
+          setIsMicrophoneActive(true);
+        }).catch(error => {
+          setIsMuted(true);
+          setIsMicrophoneActive(false);
+          handleError(error);
+        });
       } else if (agentRef.current instanceof DeepgramVoiceAgent) {
         agentRef.current.startMicrophone().then(() => {
           setIsMuted(false);
-        }).catch(handleError);
+          setIsMicrophoneActive(true);
+        }).catch(error => {
+          setIsMuted(true);
+          setIsMicrophoneActive(false);
+          handleError(error);
+        });
       }
     } else if (agentRef.current) {
       if (isHybridAgent && agentRef.current instanceof HybridVoiceAgent) {
         agentRef.current.stopMicrophone();
         setIsMuted(true);
+        setIsMicrophoneActive(false);
+        setIsSpeaking(false);
       } else if (agentRef.current instanceof DeepgramVoiceAgent) {
         agentRef.current.stopMicrophone();
         setIsMuted(true);
+        setIsMicrophoneActive(false);
+        setIsSpeaking(false);
       }
     }
   }, [isMuted, isHybridAgent, handleError]);

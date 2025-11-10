@@ -13,10 +13,13 @@ class DeepgramAudioProcessor extends AudioWorkletProcessor {
     this.port.onmessage = (event) => {
       if (event.data.type === 'stop') {
         this.isActive = false;
-        // Envoyer le buffer restant avant d'arrêter
-        this.flushBuffer();
+        // CRITICAL: Clear the buffer immediately instead of flushing it
+        // We don't want to send any more audio data when muted
+        this.bufferAccumulator = new Float32Array(0);
+        console.log('[AudioWorklet] Stopped and cleared buffer');
       } else if (event.data.type === 'start') {
         this.isActive = true;
+        console.log('[AudioWorklet] Started');
       }
     };
   }
@@ -76,13 +79,26 @@ class DeepgramAudioProcessor extends AudioWorkletProcessor {
 
     // Si on a atteint ou dépassé la taille cible, envoyer
     while (this.bufferAccumulator.length >= this.targetBufferSize) {
+      // Double-check that we're still active before sending
+      // This prevents race conditions where stop message arrives between checks
+      if (!this.isActive) {
+        this.bufferAccumulator = new Float32Array(0);
+        break;
+      }
+
       const chunkToSend = this.bufferAccumulator.slice(0, this.targetBufferSize);
-      
+
       // Convert Float32 [-1, 1] → Int16 [-32768, 32767]
       const pcmData = new Int16Array(this.targetBufferSize);
       for (let i = 0; i < this.targetBufferSize; i++) {
         const sample = Math.max(-1, Math.min(1, chunkToSend[i]));
         pcmData[i] = Math.round(sample * 0x7FFF);
+      }
+
+      // Triple-check before actually sending the message
+      if (!this.isActive) {
+        this.bufferAccumulator = new Float32Array(0);
+        break;
       }
 
       // Envoyer les données audio au thread principal

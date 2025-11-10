@@ -192,40 +192,45 @@ export async function POST(request: NextRequest) {
 
     // Process participants from email addresses
     const emailParticipants: Array<{ email: string; profileId?: string }> = [];
-    
+    const failedEmails: string[] = [];
+
     if (payload.participantEmails.length > 0) {
       for (const email of payload.participantEmails) {
         const normalizedEmail = email.toLowerCase().trim();
-        
+
         try {
           // Ensure profile exists and is added to project
+          // This is REQUIRED - we must have a user_id for each participant with an invite_token
           const profileId = await ensureProfileExists(normalizedEmail, payload.projectId);
-          
+
           // Check if profile already added (from participantIds)
           const alreadyAdded = participantRecords.some(p => p.user_id === profileId);
-          
+
           if (!alreadyAdded) {
             participantRecords.push({
               ask_session_id: data.id,
-              user_id: profileId,
+              user_id: profileId, // REQUIRED: Every participant must have a user_id
               participant_email: normalizedEmail,
               role: spokespersonEmail && normalizedEmail === spokespersonEmail ? "spokesperson" : "participant",
             });
-            
+
             emailParticipants.push({ email: normalizedEmail, profileId });
           }
         } catch (error) {
-          console.error(`Failed to create profile for ${normalizedEmail}:`, error);
-          // Continue with other emails even if one fails
-          // Still add as email-only participant
-          participantRecords.push({
-            ask_session_id: data.id,
-            participant_email: normalizedEmail,
-            role: spokespersonEmail && normalizedEmail === spokespersonEmail ? "spokesperson" : "participant",
-          });
-          emailParticipants.push({ email: normalizedEmail });
+          console.error(`❌ Failed to create profile for ${normalizedEmail}:`, error);
+          // CRITICAL: Do NOT create participants without user_id
+          // Invite tokens require a linked user profile for authentication
+          failedEmails.push(normalizedEmail);
+          // Log the error but DO NOT add a participant without user_id
+          // This prevents 403 errors when using invite tokens
         }
       }
+    }
+
+    // If any emails failed, log a warning
+    if (failedEmails.length > 0) {
+      console.warn(`⚠️  Failed to create participants for emails (no user_id assigned): ${failedEmails.join(', ')}`);
+      console.warn('⚠️  These participants will NOT be created. All participants must have a linked user profile.');
     }
 
     // Insert all participants
