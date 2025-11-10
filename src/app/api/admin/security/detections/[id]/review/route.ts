@@ -14,24 +14,24 @@ export async function POST(
 ) {
   try {
     const { user } = await requireAdmin();
-    const adminClient = getAdminSupabaseClient();
+    const supabase = getAdminSupabaseClient();
     const { id } = await params;
 
     const body = await request.json().catch(() => ({}));
     const status = body.status || 'reviewed'; // reviewed, resolved, false_positive
 
     // Get current user's profile ID
-    const { data: profile } = await adminClient
+    const { data: profile, error: profileError } = await supabase
       .from('profiles')
       .select('id')
       .eq('auth_id', user.id)
       .single();
 
-    if (!profile) {
+    if (profileError || !profile) {
       throw new Error('Profile not found');
     }
 
-    const { error } = await adminClient
+    const { error } = await supabase
       .from('security_detections')
       .update({
         status,

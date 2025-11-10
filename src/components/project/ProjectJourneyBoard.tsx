@@ -423,6 +423,7 @@ export function ProjectJourneyBoard({ projectId, hideHeader = false }: ProjectJo
   const rightColumnRef = useRef<HTMLDivElement | null>(null);
   const [expandedAsks, setExpandedAsks] = useState<Set<string>>(new Set());
   const [hoveredAskMenu, setHoveredAskMenu] = useState(false);
+  const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [editValues, setEditValues] = useState<ProjectEditState>({
     name: "",
     description: "",
@@ -593,6 +594,15 @@ export function ProjectJourneyBoard({ projectId, hideHeader = false }: ProjectJo
       controller.abort();
     };
   }, [loadJourneyData]);
+
+  // Nettoyer le timeout au démontage
+  useEffect(() => {
+    return () => {
+      if (hoverTimeoutRef.current) {
+        clearTimeout(hoverTimeoutRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!boardData) {
@@ -3100,8 +3110,18 @@ export function ProjectJourneyBoard({ projectId, hideHeader = false }: ProjectJo
                 </button>
                 <div
                   className="relative flex-1 min-w-0"
-                  onMouseEnter={() => setHoveredAskMenu(true)}
-                  onMouseLeave={() => setHoveredAskMenu(false)}
+                  onMouseEnter={() => {
+                    if (hoverTimeoutRef.current) {
+                      clearTimeout(hoverTimeoutRef.current);
+                      hoverTimeoutRef.current = null;
+                    }
+                    setHoveredAskMenu(true);
+                  }}
+                  onMouseLeave={() => {
+                    hoverTimeoutRef.current = setTimeout(() => {
+                      setHoveredAskMenu(false);
+                    }, 200);
+                  }}
                 >
                   <button
                     type="button"
@@ -3125,7 +3145,38 @@ export function ProjectJourneyBoard({ projectId, hideHeader = false }: ProjectJo
                     )}
                   </button>
                   {hoveredAskMenu && activeChallengeAsks && activeChallengeAsks.length > 0 && (
-                    <div className="absolute left-0 top-full mt-2 w-full min-w-[240px] max-w-[320px] rounded-xl border border-white/20 bg-slate-900/98 backdrop-blur-xl p-2 shadow-2xl z-30 ring-1 ring-white/10 animate-in fade-in slide-in-from-top-2 duration-200">
+                    <>
+                      {/* Zone de transition invisible pour éviter la perte de focus */}
+                      <div 
+                        className="absolute left-0 top-full w-full h-2 z-20"
+                        onMouseEnter={() => {
+                          if (hoverTimeoutRef.current) {
+                            clearTimeout(hoverTimeoutRef.current);
+                            hoverTimeoutRef.current = null;
+                          }
+                          setHoveredAskMenu(true);
+                        }}
+                        onMouseLeave={() => {
+                          hoverTimeoutRef.current = setTimeout(() => {
+                            setHoveredAskMenu(false);
+                          }, 200);
+                        }}
+                      />
+                      <div 
+                        className="absolute left-0 top-full mt-1 w-full rounded-xl border border-white/20 bg-slate-900 backdrop-blur-xl p-2 shadow-2xl z-30 ring-1 ring-white/10 animate-in fade-in slide-in-from-top-2 duration-200"
+                        onMouseEnter={() => {
+                          if (hoverTimeoutRef.current) {
+                            clearTimeout(hoverTimeoutRef.current);
+                            hoverTimeoutRef.current = null;
+                          }
+                          setHoveredAskMenu(true);
+                        }}
+                        onMouseLeave={() => {
+                          hoverTimeoutRef.current = setTimeout(() => {
+                            setHoveredAskMenu(false);
+                          }, 200);
+                        }}
+                      >
                       <div className="mb-1.5 px-2 py-1 text-xs font-semibold text-slate-400 uppercase tracking-wider">
                         ASKs ({activeChallengeAsks.length})
                       </div>
@@ -3149,13 +3200,14 @@ export function ProjectJourneyBoard({ projectId, hideHeader = false }: ProjectJo
                             <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-indigo-500/20 text-[10px] font-semibold text-indigo-300 group-hover:bg-indigo-500/30">
                               {index + 1}
                             </span>
-                            <span className="flex-1 truncate leading-relaxed">
-                              {ask.title.length > 45 ? `${ask.title.slice(0, 45)}...` : ask.title}
+                            <span className="flex-1 leading-relaxed">
+                              {ask.title}
                             </span>
                           </button>
                         ))}
                       </div>
                     </div>
+                    </>
                   )}
                 </div>
               </nav>

@@ -1173,11 +1173,34 @@ async function triggerInsightDetection(
     throw new Error('Insight detection agent is not configured');
   }
 
-  const job = await createInsightJob(supabase, {
-    askSessionId: options.askSessionId,
-    messageId: options.messageId ?? null,
-    agentId: insightAgent.id,
-  });
+  let job: InsightJobRow;
+  try {
+    job = await createInsightJob(supabase, {
+      askSessionId: options.askSessionId,
+      messageId: options.messageId ?? null,
+      agentId: insightAgent.id,
+    });
+  } catch (error: unknown) {
+    // Handle race condition: if another request created the job between our check and insert,
+    // we'll get a duplicate key error. In this case, check again and return existing insights.
+    const isDuplicateKeyError = 
+      (error && typeof error === 'object' && 'code' in error && error.code === '23505') ||
+      (error instanceof Error && (
+        error.message.includes('unique constraint') ||
+        error.message.includes('duplicate key') ||
+        error.message.includes('ai_insight_jobs_active_session_idx')
+      ));
+
+    if (isDuplicateKeyError) {
+      // Another request created the job, check again and return existing insights
+      const retryActiveJob = await findActiveInsightJob(supabase, options.askSessionId);
+      if (retryActiveJob) {
+        return existingInsights.map(mapInsightRowToInsight);
+      }
+      // If still no active job, something else is wrong - rethrow
+    }
+    throw error;
+  }
 
   try {
     const result = await executeAgent({

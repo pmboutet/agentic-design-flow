@@ -52,7 +52,7 @@ function mapDetectionRow(row: SecurityDetectionRow): SecurityDetection {
 export async function GET(request: NextRequest) {
   try {
     await requireAdmin();
-    const adminClient = getAdminSupabaseClient();
+    const supabase = getAdminSupabaseClient();
 
     const searchParams = request.nextUrl.searchParams;
     const detectionType = searchParams.get('detectionType');
@@ -62,7 +62,7 @@ export async function GET(request: NextRequest) {
     const limit = parseInt(searchParams.get('limit') || '100', 10);
     const offset = parseInt(searchParams.get('offset') || '0', 10);
 
-    let query = adminClient
+    let query = supabase
       .from('security_detections')
       .select('*')
       .order('created_at', { ascending: false });

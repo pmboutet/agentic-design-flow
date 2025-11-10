@@ -764,13 +764,23 @@ export default function HomePage() {
           ok: response.ok
         });
 
-        const data: ApiResponse<{ message: Message }> = await response.json();
+        let data: ApiResponse<{ message: Message }>;
+        try {
+          data = await response.json();
+        } catch (jsonError) {
+          console.error('[HomePage] ❌ Failed to parse response JSON:', jsonError);
+          const text = await response.text();
+          console.error('[HomePage] ❌ Response text:', text);
+          throw new Error(`Erreur ${response.status}: ${response.statusText}`);
+        }
 
         if (!response.ok) {
           const errorMessage = data.error || `Erreur ${response.status}: ${response.statusText}`;
           console.error('[HomePage] ❌ Voice user message persistence failed:', {
             status: response.status,
-            error: errorMessage
+            statusText: response.statusText,
+            error: errorMessage,
+            data: data
           });
           
           // Show user-friendly error message
