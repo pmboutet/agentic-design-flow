@@ -342,6 +342,7 @@ export async function GET(
       data: {
         systemPrompt: agentConfig.systemPrompt,
         userPrompt: agentConfig.userPrompt,
+        promptVariables: promptVariables, // Pass prompt variables for template rendering
         modelConfig: agentConfig.modelConfig ? {
           id: agentConfig.modelConfig.id,
           provider: agentConfig.modelConfig.provider,

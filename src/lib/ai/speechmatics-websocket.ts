@@ -1,0 +1,530 @@
+/**
+ * WebSocket management for Speechmatics Voice Agent
+ */
+
+import type { SpeechmaticsConfig, SpeechmaticsConnectionCallback, SpeechmaticsErrorCallback } from './speechmatics-types';
+import { SpeechmaticsAuth } from './speechmatics-auth';
+
+export class SpeechmaticsWebSocket {
+  private ws: WebSocket | null = null;
+  private wsConnected: boolean = false;
+  private isDisconnecting: boolean = false; // Track if we're intentionally disconnecting
+  private readonly RECONNECT_DELAY_MS = 5000; // Increased to 5 seconds to ensure server releases session
+  private readonly QUOTA_ERROR_DELAY_MS = 10000; // 10 seconds delay after quota errors
+  private readonly SERVER_SESSION_RELEASE_DELAY_MS = 3000; // Additional delay after disconnect to ensure server releases session (increased for reliability)
+  private lastDisconnectTimestamp: number = 0;
+  private static lastGlobalDisconnectTimestamp: number = 0;
+  public static lastQuotaErrorTimestamp: number = 0; // Track last quota error to enforce longer delay (public for access from speechmatics.ts)
+  private static globalDisconnectPromise: Promise<void> | null = null;
+  private messageHandler: ((data: any) => void) | null = null;
+
+  constructor(
+    private auth: SpeechmaticsAuth,
+    private onConnectionCallback: SpeechmaticsConnectionCallback | null,
+    private onErrorCallback: SpeechmaticsErrorCallback | null,
+    handleWebSocketMessage: (data: any) => void
+  ) {
+    this.messageHandler = handleWebSocketMessage;
+  }
+
+  async connect(
+    config: SpeechmaticsConfig,
+    disconnectPromise: Promise<void> | null
+  ): Promise<void> {
+    // Wait for any global disconnect to complete
+    if (SpeechmaticsWebSocket.globalDisconnectPromise) {
+      await SpeechmaticsWebSocket.globalDisconnectPromise;
+    }
+    
+    // Wait for any instance-specific disconnect to complete
+    if (disconnectPromise) {
+      await disconnectPromise;
+    }
+    
+    // If there's an existing connection, disconnect it first
+    if (this.ws) {
+      console.log('[Speechmatics] 🔌 Disconnecting existing WebSocket before reconnecting...');
+      await this.disconnect(false);
+    }
+
+    const lastDisconnect = Math.max(
+      this.lastDisconnectTimestamp,
+      SpeechmaticsWebSocket.lastGlobalDisconnectTimestamp
+    );
+
+    // Check if we need to wait due to a recent quota error
+    const lastQuotaError = SpeechmaticsWebSocket.lastQuotaErrorTimestamp;
+    if (lastQuotaError) {
+      const elapsedSinceQuotaError = Date.now() - lastQuotaError;
+      if (elapsedSinceQuotaError < this.QUOTA_ERROR_DELAY_MS) {
+        const waitTime = this.QUOTA_ERROR_DELAY_MS - elapsedSinceQuotaError;
+        console.log(`[Speechmatics] ⏳ Waiting ${Math.round(waitTime / 1000)}s after quota error before reconnecting...`);
+        await this.delay(waitTime);
+      }
+    }
+
+    // Ensure minimum delay between disconnect and reconnect
+    if (lastDisconnect) {
+      const elapsed = Date.now() - lastDisconnect;
+      if (elapsed < this.RECONNECT_DELAY_MS) {
+        const waitTime = this.RECONNECT_DELAY_MS - elapsed;
+        console.log(`[Speechmatics] ⏳ Waiting ${Math.round(waitTime / 1000)}s before reconnecting (${Math.round(elapsed / 1000)}s since last disconnect)...`);
+        await this.delay(waitTime);
+      }
+    }
+    
+    this.wsConnected = false;
+
+    // Authenticate with Speechmatics
+    await this.auth.authenticate();
+    
+    if (!this.auth.hasJWT() && !this.auth.getApiKey()) {
+      throw new Error('No Speechmatics authentication token available');
+    }
+
+    // Determine WebSocket URL
+    const language = config.sttLanguage || "fr";
+    const region = (typeof process !== 'undefined' && process.env.NEXT_PUBLIC_SPEECHMATICS_REGION) || 'eu2';
+    
+    const isLocalhost = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+    const forceProxy = (typeof process !== 'undefined' && process.env.NEXT_PUBLIC_SPEECHMATICS_USE_PROXY === 'true');
+    const useProxy = forceProxy || (isLocalhost && !this.auth.hasJWT());
+    
+    let wsUrl: string;
+    if (useProxy) {
+      const proxyPort = (typeof process !== 'undefined' && process.env.NEXT_PUBLIC_SPEECHMATICS_PROXY_PORT) || '3001';
+      wsUrl = `ws://localhost:${proxyPort}/speechmatics-ws?language=${encodeURIComponent(language)}`;
+    } else if (this.auth.hasJWT()) {
+      wsUrl = `wss://${region}.rt.speechmatics.com/v2?jwt=${encodeURIComponent(this.auth.getJWT()!)}`;
+    } else {
+      wsUrl = `wss://${region}.rt.speechmatics.com/v2`;
+      console.warn('[Speechmatics] ⚠️ No JWT or proxy, trying direct connection (may fail)');
+    }
+
+    return new Promise<void>((resolve, reject) => {
+      let resolved = false;
+      const timeout = setTimeout(() => {
+        if (!resolved) {
+          const error = new Error('Connection timeout: Did not receive RecognitionStarted event within 10 seconds');
+          console.error('[Speechmatics] ❌', error.message);
+          resolved = true;
+          reject(error);
+        }
+      }, 10000);
+
+      try {
+        const ws = new WebSocket(wsUrl);
+        const currentWs = ws;
+        this.ws = ws;
+
+        ws.onopen = () => {
+          clearTimeout(timeout);
+          
+          // Use the language as-is, but ensure it's a valid single language code
+          // Speechmatics supports: "fr", "en", "es", "de", etc.
+          // For multi-language, we default to "fr" (French)
+          let transcriptionLanguage = language;
+          if (!language || language === "multi" || language === "fr,en" || language.includes(",")) {
+            transcriptionLanguage = "fr"; // Default to French
+            console.log('[Speechmatics] ℹ️ Language set to "fr" (default)');
+          } else {
+            // Ensure it's a valid single language code
+            transcriptionLanguage = language.trim().toLowerCase();
+            console.log('[Speechmatics] ℹ️ Language set to:', transcriptionLanguage);
+          }
+          
+          const settings: any = {
+            message: "StartRecognition",
+            audio_format: {
+              type: "raw",
+              encoding: "pcm_s16le",
+              sample_rate: 16000,
+            },
+            transcription_config: {
+              language: transcriptionLanguage,
+              enable_partials: config.sttEnablePartials !== false,
+              max_delay: config.sttMaxDelay || 3.0,
+              operating_point: config.sttOperatingPoint || "enhanced",
+            },
+          };
+
+          console.log('[Speechmatics] 📤 Sending StartRecognition:', {
+            language: transcriptionLanguage,
+            originalLanguage: language,
+            enable_partials: config.sttEnablePartials !== false,
+            max_delay: config.sttMaxDelay || 3.0,
+            operating_point: config.sttOperatingPoint || "enhanced",
+          });
+
+          ws.send(JSON.stringify(settings));
+        };
+
+        ws.onmessage = (event) => {
+          try {
+            if (event.data instanceof Blob || event.data instanceof ArrayBuffer) {
+              // Binary data - log for debugging
+              console.log('[Speechmatics] 📦 Received binary data from server (size:', event.data instanceof Blob ? event.data.size : (event.data as ArrayBuffer).byteLength, ')');
+              return;
+            }
+
+            const text = typeof event.data === 'string' ? event.data : event.data.toString();
+            const data = JSON.parse(text);
+            
+            // Log ALL messages from server for debugging
+            console.log('[Speechmatics] 📨 Server message:', {
+              message: data.message,
+              type: data.type,
+              reason: data.reason,
+              code: data.code,
+              timestamp: new Date().toISOString(),
+              isDisconnecting: this.isDisconnecting,
+              wsState: ws.readyState,
+            });
+            
+            if (data.message === "RecognitionStarted") {
+              if (this.ws === currentWs && !resolved) {
+                clearTimeout(timeout);
+                resolved = true;
+                this.wsConnected = true;
+                this.onConnectionCallback?.(true);
+                resolve();
+              }
+            }
+            
+            // Call the message handler if it exists
+            if (this.messageHandler) {
+              this.messageHandler(data);
+            }
+          } catch (error) {
+            if (!(event.data instanceof Blob || event.data instanceof ArrayBuffer)) {
+              console.error('[Speechmatics] ❌ Error parsing WebSocket message:', error);
+            }
+          }
+        };
+
+        ws.onerror = (error) => {
+          if (!resolved && this.ws === currentWs) {
+            console.error('[Speechmatics] ❌ WebSocket error:', error);
+            clearTimeout(timeout);
+            resolved = true;
+            const err = new Error(`Speechmatics WebSocket error: ${error}`);
+            this.onErrorCallback?.(err);
+            reject(err);
+          }
+        };
+
+        ws.onclose = (event) => {
+          console.log('[Speechmatics] 🔚 WebSocket onclose event', {
+            code: event.code,
+            reason: event.reason,
+            wasClean: event.wasClean,
+            timestamp: new Date().toISOString(),
+            isDisconnecting: this.isDisconnecting,
+            wsState: ws.readyState,
+            isCurrentWs: this.ws === currentWs,
+          });
+          
+          if (this.ws === currentWs) {
+            this.wsConnected = false;
+            this.onConnectionCallback?.(false);
+            
+            // Don't report errors if we're intentionally disconnecting
+            if (this.isDisconnecting) {
+              console.log('[Speechmatics] ℹ️ Intentional disconnect - ignoring close event');
+              return;
+            }
+            
+            // Handle quota errors more gracefully
+            if (event.code === 4005 || event.reason?.includes('quota') || event.reason?.includes('Quota') || event.reason?.includes('Concurrent')) {
+              // Record quota error timestamp to enforce longer delay on reconnect
+              SpeechmaticsWebSocket.lastQuotaErrorTimestamp = Date.now();
+              const error = new Error(`Speechmatics quota exceeded. Please wait 10 seconds before trying again, or check your account limits. If you have multiple tabs open, close them to free up concurrent sessions.`);
+              console.error('[Speechmatics] ⏳ Quota error - preventing reconnection for 10 seconds');
+              if (!resolved) {
+                clearTimeout(timeout);
+                resolved = true;
+                this.onErrorCallback?.(error);
+                reject(error);
+              } else {
+                this.onErrorCallback?.(error);
+              }
+              return;
+            }
+            
+            // Code 1005 (No Status Received) is often used for normal closures, don't treat as error
+            // Code 1000 (Normal Closure) is also normal
+            if (event.code === 1005 || event.code === 1000) {
+              if (!resolved) {
+                clearTimeout(timeout);
+                resolved = true;
+                resolve();
+              }
+              return;
+            }
+            
+            if (!resolved) {
+              clearTimeout(timeout);
+              resolved = true;
+              const error = new Error(`WebSocket closed unexpectedly: ${event.code} ${event.reason || ''}`);
+              this.onErrorCallback?.(error);
+              reject(error);
+            } else if (event.code !== 1000 && event.code !== 1005) {
+              // Only report unexpected closes after connection was established (excluding normal closure codes)
+              const error = new Error(`WebSocket closed unexpectedly: ${event.code} ${event.reason || ''}`);
+              this.onErrorCallback?.(error);
+            }
+          }
+        };
+      } catch (error) {
+        if (!resolved) {
+          clearTimeout(timeout);
+          resolved = true;
+          console.error('[Speechmatics] ❌ Error creating WebSocket:', error);
+          reject(error);
+        }
+      }
+    });
+  }
+
+  async disconnect(isDisconnected: boolean): Promise<void> {
+    const disconnectStartTime = Date.now();
+    console.log('[Speechmatics] 🔌 DISCONNECT START', {
+      timestamp: new Date().toISOString(),
+      wsState: this.ws?.readyState,
+      wsConnected: this.wsConnected,
+      isDisconnecting: this.isDisconnecting,
+    });
+    
+    // Mark as intentionally disconnecting to avoid error callbacks
+    this.isDisconnecting = true;
+    
+    const ws = this.ws;
+    if (!ws) {
+      console.log('[Speechmatics] ⚠️ No WebSocket to disconnect');
+      this.wsConnected = false;
+      this.isDisconnecting = false;
+      return;
+    }
+
+    console.log('[Speechmatics] 📊 WebSocket state before disconnect:', {
+      readyState: ws.readyState,
+      readyStateText: ['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED'][ws.readyState],
+      url: ws.url?.substring(0, 50) + '...',
+    });
+
+    // Step 1: Send EndOfStream message if connection is open
+    // According to Speechmatics API docs, this properly closes the session on server side
+    // CRITICAL: We must send EndOfStream BEFORE closing the WebSocket
+    // This tells the server to release the session properly
+    if (ws.readyState === WebSocket.OPEN) {
+      try {
+        // Send EndOfStream with proper format according to Speechmatics API
+        const endOfStreamMessage = JSON.stringify({ 
+          message: "EndOfStream",
+          last_seq_no: 0 
+        });
+        
+        console.log('[Speechmatics] 📤 Sending EndOfStream:', {
+          message: endOfStreamMessage,
+          timestamp: new Date().toISOString(),
+        });
+        
+        // Send the message
+        ws.send(endOfStreamMessage);
+        console.log('[Speechmatics] ✅ EndOfStream message sent to server');
+        
+        // CRITICAL: Wait for server to process EndOfStream and release the session
+        // According to Speechmatics API docs:
+        // - EndOfStream declares that the client has no more audio to send
+        // - The server needs time to process this and release the session from quota
+        // - Without this wait, the session may not be released before we reconnect
+        // Recommended: wait at least 1-2 seconds after EndOfStream before closing
+        console.log('[Speechmatics] ⏳ Waiting 1.5s for server to process EndOfStream...');
+        await this.delay(1500); // 1.5 seconds to ensure server processes EndOfStream and releases session
+        
+        console.log('[Speechmatics] ✅ Waited for server to process EndOfStream', {
+          elapsed: Date.now() - disconnectStartTime,
+          wsState: ws.readyState,
+        });
+      } catch (error) {
+        console.error('[Speechmatics] ❌ Error sending EndOfStream:', error);
+        // Continue with closure even if EndOfStream fails, but wait anyway
+        // This ensures any pending session on server side has time to timeout/release
+        console.log('[Speechmatics] ⏳ Waiting 1.5s after EndOfStream error...');
+        await this.delay(1500);
+      }
+    } else {
+      // Connection not open, but wait anyway to ensure any pending session is released
+      // If we couldn't send EndOfStream, the server may still have the session active
+      console.warn('[Speechmatics] ⚠️ WebSocket not open, cannot send EndOfStream', {
+        readyState: ws.readyState,
+        readyStateText: ['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED'][ws.readyState],
+        'waiting-for-timeout': '2s',
+      });
+      await this.delay(2000); // Longer wait if we couldn't send EndOfStream
+    }
+
+    // Step 2: Close WebSocket with proper close code (1000 = Normal Closure)
+    console.log('[Speechmatics] 🔒 Step 2: Closing WebSocket...', {
+      readyState: ws.readyState,
+      readyStateText: ['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED'][ws.readyState],
+    });
+    
+    try {
+      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+        // Use 1000 (Normal Closure) - this is the proper way to close according to WebSocket spec
+        console.log('[Speechmatics] 📤 Calling ws.close(1000, "Normal closure")');
+        ws.close(1000, 'Normal closure');
+        console.log('[Speechmatics] ✅ ws.close() called');
+      } else if (ws.readyState === WebSocket.CLOSING) {
+        console.log('[Speechmatics] ℹ️ WebSocket already closing, waiting...');
+      } else if (ws.readyState === WebSocket.CLOSED) {
+        console.log('[Speechmatics] ℹ️ WebSocket already closed');
+        // Already closed, nothing to do
+        if (this.ws === ws) {
+          this.ws = null;
+        }
+        this.wsConnected = false;
+        this.isDisconnecting = false;
+        console.log('[Speechmatics] ✅ Disconnect complete (already closed)', {
+          totalTime: Date.now() - disconnectStartTime,
+        });
+        return;
+      }
+    } catch (error) {
+      console.error('[Speechmatics] ❌ Error closing WebSocket:', error);
+      // Force close if normal close failed
+      try {
+        if (ws.readyState !== WebSocket.CLOSED && ws.readyState !== WebSocket.CLOSING) {
+          console.log('[Speechmatics] 🔧 Force closing WebSocket...');
+          ws.close();
+        }
+      } catch {
+        // Ignore secondary errors
+      }
+    }
+
+    // Step 3: Wait for WebSocket to be fully closed
+    // This ensures the connection is completely terminated before we continue
+    console.log('[Speechmatics] ⏳ Step 3: Waiting for WebSocket to close (max 3s)...');
+    const closeStartTime = Date.now();
+    await this.waitForWebSocketClose(ws, 3000).catch(() => {
+      // Timeout waiting for close, but continue anyway
+      console.warn('[Speechmatics] ⚠️ Timeout waiting for WebSocket close, forcing cleanup', {
+        elapsed: Date.now() - closeStartTime,
+        finalState: ws.readyState,
+      });
+    });
+    console.log('[Speechmatics] ✅ WebSocket close confirmed', {
+      elapsed: Date.now() - closeStartTime,
+      finalState: ws.readyState,
+    });
+
+    // Step 4: Clean up reference
+    if (this.ws === ws) {
+      this.ws = null;
+      console.log('[Speechmatics] 🧹 WebSocket reference cleared');
+    }
+
+    this.wsConnected = false;
+    this.lastDisconnectTimestamp = Date.now();
+    SpeechmaticsWebSocket.lastGlobalDisconnectTimestamp = this.lastDisconnectTimestamp;
+    
+    console.log('[Speechmatics] 📊 State after WebSocket close:', {
+      wsConnected: this.wsConnected,
+      lastDisconnectTimestamp: this.lastDisconnectTimestamp,
+      timeSinceStart: Date.now() - disconnectStartTime,
+    });
+    
+    // Step 5: Wait additional time to ensure server releases the session
+    // This is critical - Speechmatics needs time to release the session on their side
+    // According to Speechmatics API docs:
+    // - For quota_exceeded errors: "we recommend adding a client retry interval of at least 5-10 seconds"
+    // - This means the server needs time to release the session from quota
+    // We already waited 1.5 seconds after EndOfStream, so this is additional safety
+    console.log('[Speechmatics] ⏳ Step 5: Waiting additional', this.SERVER_SESSION_RELEASE_DELAY_MS, 'ms for server to release session...');
+    await this.delay(this.SERVER_SESSION_RELEASE_DELAY_MS);
+    
+    const totalDisconnectTime = Date.now() - disconnectStartTime;
+    console.log('[Speechmatics] ✅ DISCONNECT COMPLETE', {
+      totalTime: totalDisconnectTime,
+      timestamp: new Date().toISOString(),
+      'session-should-be-released': true,
+    });
+    
+    // Step 6: Reset disconnecting flag
+    this.isDisconnecting = false;
+  }
+
+  isConnected(): boolean {
+    return this.wsConnected && this.ws !== null && this.ws.readyState === WebSocket.OPEN;
+  }
+
+  getWebSocket(): WebSocket | null {
+    return this.ws;
+  }
+
+  send(data: ArrayBuffer): void {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(data);
+    }
+  }
+
+  private delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  private async waitForWebSocketClose(ws: WebSocket, timeoutMs = 3000): Promise<void> {
+    // If already closed, return immediately
+    if (ws.readyState === WebSocket.CLOSED) {
+      return;
+    }
+
+    // Wait for close event or timeout
+    await new Promise<void>(resolve => {
+      let resolved = false;
+      
+      const handleClose = () => {
+        if (!resolved) {
+          resolved = true;
+          cleanup();
+          resolve();
+        }
+      };
+
+      const timeout = setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          cleanup();
+          resolve();
+        }
+      }, timeoutMs);
+
+      const cleanup = () => {
+        ws.removeEventListener('close', handleClose);
+        ws.removeEventListener('error', handleClose); // Also listen for error as it might close the connection
+        clearTimeout(timeout);
+      };
+
+      // Listen for both close and error events
+      ws.addEventListener('close', handleClose, { once: true });
+      ws.addEventListener('error', handleClose, { once: true });
+      
+      // Also check periodically if already closed (in case event was missed)
+      const checkInterval = setInterval(() => {
+        if (ws.readyState === WebSocket.CLOSED) {
+          if (!resolved) {
+            resolved = true;
+            clearInterval(checkInterval);
+            cleanup();
+            resolve();
+          }
+        }
+      }, 100);
+      
+      // Clear interval on timeout or close
+      setTimeout(() => clearInterval(checkInterval), timeoutMs);
+    });
+  }
+}
+

@@ -12,7 +12,10 @@
     "start": "next start",
     "lint": "next lint",
     "migrate": "node scripts/migrate.js up",
-    "migrate:status": "node scripts/migrate.js status"
+    "migrate:status": "node scripts/migrate.js status",
+    "clean": "rm -rf .next node_modules/.cache tsconfig.tsbuildinfo",
+    "clean:all": "npm run clean && rm -rf node_modules && npm install",
+    "dev:clean": "npm run clean && npm run dev"
   },
   "dependencies": {
     "@deepgram/sdk": "^4.11.2",

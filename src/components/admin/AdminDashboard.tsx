@@ -38,6 +38,7 @@ import { AskRelationshipCanvas } from "./AskRelationshipCanvas";
 import { FormDateTimeField } from "./FormDateTimeField";
 import { GraphRAGPanel } from "./GraphRAGPanel";
 import { SecurityPanel } from "./SecurityPanel";
+import { AskPromptTemplateSelector } from "./AskPromptTemplateSelector";
 import { useAdminResources } from "./useAdminResources";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { UserSearchCombobox } from "@/components/ui/user-search-combobox";
@@ -109,7 +110,8 @@ const askFormSchema = z.object({
   participantIds: z.array(z.string().uuid()).default([]),
   participantEmails: z.array(z.string().email()).default([]),
   spokespersonId: z.string().uuid().optional().or(z.literal("")),
-  spokespersonEmail: z.string().email().optional().or(z.literal(""))
+  spokespersonEmail: z.string().email().optional().or(z.literal("")),
+  systemPrompt: z.string().trim().optional().or(z.literal(""))
 });
 
 const userRoles = ["full_admin", "admin", "moderator", "facilitator", "participant", "sponsor", "observer", "guest"] as const;
@@ -172,7 +174,8 @@ const defaultAskFormValues: AskFormInput = {
   participantIds: [],
   participantEmails: [],
   spokespersonId: "",
-  spokespersonEmail: ""
+  spokespersonEmail: "",
+  systemPrompt: ""
 };
 
 const defaultUserFormValues: UserFormInput = {
@@ -1792,7 +1795,8 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
       participantIds: values.participantIds ?? [],
       participantEmails: values.participantEmails ?? [],
       spokespersonId: values.spokespersonId ?? "",
-      spokespersonEmail: values.spokespersonEmail ?? ""
+      spokespersonEmail: values.spokespersonEmail ?? "",
+      systemPrompt: values.systemPrompt ?? ""
     };
 
     if (editingAskId) {
@@ -1846,7 +1850,8 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
       participantIds: session.participants?.map(participant => participant.id).filter((value): value is string => Boolean(value)) ?? [],
       participantEmails: session.participants?.filter(participant => !participant.id && participant.email).map(participant => participant.email!).filter(Boolean) ?? [],
       spokespersonId: session.participants?.find(participant => participant.isSpokesperson && participant.id)?.id ?? "",
-      spokespersonEmail: session.participants?.find(participant => participant.isSpokesperson && participant.email && !participant.id)?.email ?? ""
+      spokespersonEmail: session.participants?.find(participant => participant.isSpokesperson && participant.email && !participant.id)?.email ?? "",
+      systemPrompt: session.systemPrompt ?? ""
     });
   };
 
@@ -2609,6 +2614,21 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                           rows={2}
                           placeholder="Share additional context"
                           {...askForm.register("description")}
+                          disabled={isBusy}
+                        />
+                      </div>
+                      <div className="flex flex-col gap-2">
+                        <AskPromptTemplateSelector
+                          value={askForm.watch("systemPrompt") || ""}
+                          onChange={(value) => askForm.setValue("systemPrompt", value, { shouldDirty: true })}
+                          disabled={isBusy}
+                        />
+                        <Label htmlFor="ask-system-prompt">System prompt</Label>
+                        <Textarea
+                          id="ask-system-prompt"
+                          rows={6}
+                          placeholder="Provide the system prompt used by the AI for this ask"
+                          {...askForm.register("systemPrompt")}
                           disabled={isBusy}
                         />
                       </div>

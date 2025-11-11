@@ -358,8 +358,8 @@ export class DeepgramVoiceAgent {
     });
   }
 
-  async startMicrophone(): Promise<void> {
-    console.log('[Deepgram] 🎤 Starting microphone...');
+  async startMicrophone(deviceId?: string, voiceIsolation: boolean = true): Promise<void> {
+    console.log('[Deepgram] 🎤 Starting microphone...', { deviceId, voiceIsolation });
     if (!this.client) {
       const error = new Error('Not connected to Deepgram');
       console.error('[Deepgram] ❌', error.message);
@@ -373,23 +373,35 @@ export class DeepgramVoiceAgent {
     
     if (isFirefox) {
       audioConstraints = {
-        echoCancellation: true,
+        deviceId: deviceId ? { exact: deviceId } : undefined,
+        echoCancellation: voiceIsolation,
         noiseSuppression: false,
       };
     } else {
       audioConstraints = {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
+        deviceId: deviceId ? { exact: deviceId } : undefined,
+        echoCancellation: voiceIsolation,
+        noiseSuppression: voiceIsolation,
+        autoGainControl: voiceIsolation,
         sampleRate: 24000,
         channelCount: 1
       };
     }
 
-    console.log('[Deepgram] Requesting microphone access with constraints:', audioConstraints);
+    // Remove undefined values (TypeScript-safe way)
+    const cleanedConstraints: MediaTrackConstraints = {};
+    Object.keys(audioConstraints).forEach(key => {
+      const value = audioConstraints[key as keyof MediaTrackConstraints];
+      if (value !== undefined) {
+        (cleanedConstraints as any)[key] = value;
+      }
+    });
+    const finalConstraints = Object.keys(cleanedConstraints).length > 0 ? cleanedConstraints : audioConstraints;
+
+    console.log('[Deepgram] Requesting microphone access with constraints:', finalConstraints);
     // Get microphone stream
     const stream = await navigator.mediaDevices.getUserMedia({
-      audio: audioConstraints
+      audio: finalConstraints
     });
     console.log('[Deepgram] ✅ Microphone access granted');
     this.mediaStream = stream;
@@ -455,9 +467,18 @@ export class DeepgramVoiceAgent {
         return; // Don't process or send audio if muted
       }
 
-      // Double-check client exists
+      // Double-check client exists and is connected
       if (!this.client) {
+        // Don't log warning if we're intentionally disconnected (to reduce noise)
+        if (this.isDisconnected) {
+          return;
+        }
         console.warn('[Deepgram] ⚠️ No client available, dropping audio chunk');
+        return;
+      }
+      
+      // Triple-check: if disconnected, don't process audio
+      if (this.isDisconnected) {
         return;
       }
 

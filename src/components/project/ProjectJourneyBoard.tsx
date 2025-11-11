@@ -51,6 +51,7 @@ import {
 } from "@/types";
 import { AiChallengeBuilderPanel } from "@/components/project/AiChallengeBuilderPanel";
 import { AiAskGeneratorPanel } from "@/components/project/AiAskGeneratorPanel";
+import { AskPromptTemplateSelector } from "@/components/admin/AskPromptTemplateSelector";
 import { GraphRAGPanel } from "@/components/admin/GraphRAGPanel";
 
 interface ProjectJourneyBoardProps {
@@ -349,6 +350,7 @@ type AskFormState = {
   deliveryMode: AskDeliveryMode;
   audienceScope: AskAudienceScope;
   responseMode: AskGroupResponseMode;
+  systemPrompt: string;
 };
 
 function generateAskKey(base: string) {
@@ -381,6 +383,7 @@ function createEmptyAskForm(challengeId?: string): AskFormState {
     deliveryMode: "digital",
     audienceScope: "individual",
     responseMode: "collective",
+    systemPrompt: "",
   };
 }
 
@@ -2368,6 +2371,10 @@ export function ProjectJourneyBoard({ projectId, hideHeader = false }: ProjectJo
     setAskFormValues(current => ({ ...current, description: value }));
   };
 
+  const handleAskSystemPromptChange = (value: string) => {
+    setAskFormValues(current => ({ ...current, systemPrompt: value }));
+  };
+
   const handleAskStartChange = (value: string) => {
     setAskFormValues(current => ({ ...current, startDate: value }));
   };
@@ -2495,6 +2502,7 @@ export function ProjectJourneyBoard({ projectId, hideHeader = false }: ProjectJo
       participantIds,
       spokespersonId,
       challengeId,
+      systemPrompt: askFormValues.systemPrompt || null,
     };
 
     setIsSavingAsk(true);
@@ -2587,6 +2595,7 @@ export function ProjectJourneyBoard({ projectId, hideHeader = false }: ProjectJo
         deliveryMode: record.deliveryMode ?? "digital",
         audienceScope: record.audienceScope ?? (participants.length > 1 ? "group" : "individual"),
         responseMode: record.responseMode ?? "collective",
+        systemPrompt: record.systemPrompt ?? "",
       });
     } catch (error) {
       console.error("Failed to load ASK details", error);
@@ -3816,6 +3825,23 @@ export function ProjectJourneyBoard({ projectId, hideHeader = false }: ProjectJo
                       value={askFormValues.description}
                       onChange={handleAskDescriptionChange}
                       placeholder="Share additional context"
+                      disabled={isSavingAsk || isLoadingAskDetails}
+                    />
+                  </div>
+
+                  <div className="flex flex-col gap-2">
+                    <AskPromptTemplateSelector
+                      value={askFormValues.systemPrompt}
+                      onChange={handleAskSystemPromptChange}
+                      disabled={isSavingAsk || isLoadingAskDetails}
+                    />
+                    <Label htmlFor="ask-system-prompt">System prompt</Label>
+                    <Textarea
+                      id="ask-system-prompt"
+                      rows={6}
+                      value={askFormValues.systemPrompt}
+                      onChange={(e) => handleAskSystemPromptChange(e.target.value)}
+                      placeholder="Provide the system prompt used by the AI for this ask"
                       disabled={isSavingAsk || isLoadingAskDetails}
                     />
                   </div>

@@ -1835,21 +1835,30 @@ export async function POST(
 
     let refreshedInsights: Insight[] = existingInsights;
 
-    try {
-      refreshedInsights = await triggerInsightDetection(
-        supabase,
-        {
-          askSessionId: askRow.id,
-          messageId: detectionMessageId,
-          variables: detectionVariables,
-          conversationThreadId: conversationThread?.id ?? null,
-        },
-        insightRows,
-        currentUserId,
-      );
-    } catch (error) {
-      console.error('Insight detection failed', error);
-      throw error;
+    // Only trigger insight detection if we have a valid message ID
+    // For voice messages, insight detection is optional and shouldn't fail the request
+    if (detectionMessageId) {
+      try {
+        refreshedInsights = await triggerInsightDetection(
+          supabase,
+          {
+            askSessionId: askRow.id,
+            messageId: detectionMessageId,
+            variables: detectionVariables,
+            conversationThreadId: conversationThread?.id ?? null,
+          },
+          insightRows,
+          currentUserId,
+        );
+      } catch (error) {
+        // For voice messages, don't fail the entire request if insight detection fails
+        // Just log the error and continue with existing insights
+        console.error('Insight detection failed (non-blocking for voice messages):', error);
+        if (!isVoiceMessage) {
+          // Only throw for non-voice messages to maintain existing behavior
+          throw error;
+        }
+      }
     }
 
     return NextResponse.json<ApiResponse<{ message?: Message; insights: Insight[] }>>({

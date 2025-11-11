@@ -19,6 +19,8 @@ import "highlight.js/styles/github-dark.css";
 import { VoiceMode } from "./VoiceMode";
 import { PremiumVoiceInterface } from "./PremiumVoiceInterface";
 import { DeepgramMessageEvent } from "@/lib/ai/deepgram";
+import { HybridVoiceAgentMessage } from "@/lib/ai/hybrid-voice-agent";
+import { SpeechmaticsMessageEvent } from "@/lib/ai/speechmatics";
 
 /**
  * Chat component that handles all conversation interactions
@@ -37,6 +39,8 @@ export function ChatComponent({
   showAgentTyping,
   voiceModeEnabled = false,
   voiceModeSystemPrompt,
+  voiceModeUserPrompt,
+  voiceModePromptVariables,
   voiceModeModelConfig,
   onVoiceMessage,
   onReplyBoxFocusChange,
@@ -54,18 +58,18 @@ export function ChatComponent({
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const previousVoiceModeRef = useRef(false);
 
-  // Auto-scroll to bottom when new messages arrive
+  // Auto-scroll to bottom when new messages arrive (smooth for normal chat)
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+    if (!isVoiceMode) {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [messages, isVoiceMode]);
 
-  // Scroll to bottom when voice mode is closed (returns to normal chat)
+  // Scroll to bottom instantly when entering voice mode (no animation)
   useEffect(() => {
-    if (previousVoiceModeRef.current && !isVoiceMode) {
-      // Voice mode was just closed, scroll to bottom
-      setTimeout(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-      }, 100);
+    if (isVoiceMode && !previousVoiceModeRef.current) {
+      // Just entered voice mode - scroll instantly to bottom
+      messagesEndRef.current?.scrollIntoView({ behavior: "auto" });
     }
     previousVoiceModeRef.current = isVoiceMode;
   }, [isVoiceMode]);
@@ -231,9 +235,14 @@ export function ChatComponent({
   };
 
   // Handle voice mode messages
-  const handleVoiceMessage = (message: DeepgramMessageEvent) => {
+  const handleVoiceMessage = (message: DeepgramMessageEvent | HybridVoiceAgentMessage | SpeechmaticsMessageEvent) => {
     if (onVoiceMessage) {
-      onVoiceMessage(message.role, message.content);
+      // Pass the full message object to allow parent to handle messageId and isInterim
+      onVoiceMessage(message.role, message.content, {
+        isInterim: message.isInterim,
+        messageId: (message as SpeechmaticsMessageEvent).messageId,
+        timestamp: message.timestamp,
+      });
     }
   };
 
@@ -271,20 +280,31 @@ export function ChatComponent({
   // Show premium voice interface when voice mode is active
   if (isVoiceMode && voiceModeEnabled && voiceModeSystemPrompt) {
     // Convert messages to voice interface format
+    // Preserve messageId from metadata for proper deduplication
     const voiceMessages = messages
       .filter(msg => msg.senderType === 'user' || msg.senderType === 'ai')
-      .map(msg => ({
-        role: msg.senderType === 'user' ? 'user' as const : 'assistant' as const,
-        content: msg.content,
-        timestamp: msg.timestamp,
-      }));
+      .map(msg => {
+        // Extract messageId from metadata if available (for voice messages)
+        const metadataMessageId = (msg.metadata as any)?.messageId;
+        return {
+          role: msg.senderType === 'user' ? 'user' as const : 'assistant' as const,
+          content: msg.content,
+          timestamp: msg.timestamp,
+          messageId: metadataMessageId || undefined, // Preserve messageId for deduplication
+          metadata: msg.metadata, // Preserve metadata to access messageId later
+        };
+      });
 
     return (
       <PremiumVoiceInterface
         askKey={askKey}
         askSessionId={ask?.askSessionId}
         systemPrompt={voiceModeSystemPrompt}
-        modelConfig={voiceModeModelConfig}
+        userPrompt={voiceModeUserPrompt}
+        modelConfig={{
+          ...(voiceModeModelConfig || {}),
+          promptVariables: voiceModePromptVariables,
+        } as any}
         onMessage={handleVoiceMessage}
         onError={handleVoiceError}
         onClose={() => {
@@ -516,9 +536,12 @@ function MessageBubble({
       ? 'bg-primary text-primary-foreground'
       : 'bg-muted text-foreground';
 
+  // Check if this is an interim message (streaming update)
+  const isInterim = message.metadata?.isInterim === true;
+  
   return (
     <motion.div
-      initial={{ opacity: 0, y: 20 }}
+      initial={isInterim ? false : { opacity: 0, y: 20 }} // No animation for interim messages
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -20 }}
       className={cn(
@@ -546,31 +569,10 @@ function MessageBubble({
               "prose prose-sm dark:prose-invert max-w-none prose-p:my-2 prose-pre:my-2 prose-headings:my-2 prose-ul:my-2 prose-ol:my-2 prose-li:my-1",
               isUser && "[&>*]:text-white [&_p]:text-white [&_li]:text-white [&_strong]:text-white [&_em]:text-white"
             )}>
-              <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
-                rehypePlugins={[rehypeHighlight]}
-                components={{
-                  // Customize link rendering to open in new tab
-                  a: ({ node, ...props }) => (
-                    <a {...props} target="_blank" rel="noopener noreferrer" />
-                  ),
-                  // Customize code blocks
-                  code: ({ node, className, children, ...props }) => {
-                    const match = /language-(\w+)/.exec(className || '');
-                    return match ? (
-                      <code className={className} {...props}>
-                        {children}
-                      </code>
-                    ) : (
-                      <code className="px-1 py-0.5 rounded bg-muted/50" {...props}>
-                        {children}
-                      </code>
-                    );
-                  },
-                }}
-              >
-                {message.content}
-              </ReactMarkdown>
+              <TypewriterText 
+                content={message.content}
+                isInterim={message.metadata?.isInterim === true}
+              />
             </div>
           )}
           {message.type === 'image' && (
@@ -602,6 +604,77 @@ function MessageBubble({
         </div>
       </div>
     </motion.div>
+  );
+}
+
+/**
+ * Typewriter component to smoothly display text without flickering
+ * For interim messages: updates text directly in DOM without re-rendering container
+ * For final messages: uses ReactMarkdown for proper formatting
+ */
+function TypewriterText({ 
+  content, 
+  isInterim = false 
+}: { 
+  content: string; 
+  isInterim?: boolean;
+}) {
+  const textRef = useRef<HTMLDivElement>(null);
+  const markdownRef = useRef<HTMLDivElement>(null);
+  const isInterimRef = useRef(isInterim);
+  const previousContentRef = useRef(content);
+
+  // Update refs
+  isInterimRef.current = isInterim;
+  previousContentRef.current = content;
+
+  useEffect(() => {
+    if (isInterim && textRef.current) {
+      // For interim messages: update text directly in DOM (no React re-render = no flickering)
+      if (textRef.current.textContent !== content) {
+        textRef.current.textContent = content;
+      }
+    }
+  }, [content, isInterim]);
+
+  // For interim messages: use a stable div that we update directly
+  if (isInterim) {
+    return (
+      <div 
+        ref={textRef}
+        className="whitespace-pre-wrap break-words"
+        style={{ minHeight: '1em' }}
+      />
+    );
+  }
+
+  // Final message - use ReactMarkdown for proper formatting
+  return (
+    <div ref={markdownRef}>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        rehypePlugins={[rehypeHighlight]}
+        components={{
+          a: ({ node, ...props }) => (
+            <a {...props} target="_blank" rel="noopener noreferrer" />
+          ),
+          code: ({ node, className, children, ...props }) => {
+            const match = /language-(\w+)/.exec(className || '');
+            return match ? (
+              <code className={className} {...props}>
+                {children}
+              </code>
+            ) : (
+              <code className="px-1 py-0.5 rounded bg-muted/50" {...props}>
+                {children}
+              </code>
+            );
+          },
+        }}
+      >
+        {content}
+      </ReactMarkdown>
+    </div>
   );
 }
 

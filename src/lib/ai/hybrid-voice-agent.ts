@@ -715,8 +715,8 @@ export class HybridVoiceAgent {
     });
   }
 
-  async startMicrophone(): Promise<void> {
-    console.log('[HybridVoiceAgent] 🎤 Starting microphone...');
+  async startMicrophone(deviceId?: string, voiceIsolation: boolean = true): Promise<void> {
+    console.log('[HybridVoiceAgent] 🎤 Starting microphone...', { deviceId, voiceIsolation });
     if (!this.deepgramClient) {
       throw new Error('Not connected to Deepgram');
     }
@@ -726,21 +726,33 @@ export class HybridVoiceAgent {
     
     if (isFirefox) {
       audioConstraints = {
-        echoCancellation: true,
+        deviceId: deviceId ? { exact: deviceId } : undefined,
+        echoCancellation: voiceIsolation,
         noiseSuppression: false,
       };
     } else {
       audioConstraints = {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
+        deviceId: deviceId ? { exact: deviceId } : undefined,
+        echoCancellation: voiceIsolation,
+        noiseSuppression: voiceIsolation,
+        autoGainControl: voiceIsolation,
         sampleRate: 24000,
         channelCount: 1
       };
     }
 
+    // Remove undefined values (TypeScript-safe way)
+    const cleanedConstraints: MediaTrackConstraints = {};
+    Object.keys(audioConstraints).forEach(key => {
+      const value = audioConstraints[key as keyof MediaTrackConstraints];
+      if (value !== undefined) {
+        (cleanedConstraints as any)[key] = value;
+      }
+    });
+    const finalConstraints = Object.keys(cleanedConstraints).length > 0 ? cleanedConstraints : audioConstraints;
+
     const stream = await navigator.mediaDevices.getUserMedia({
-      audio: audioConstraints
+      audio: finalConstraints
     });
     this.mediaStream = stream;
 

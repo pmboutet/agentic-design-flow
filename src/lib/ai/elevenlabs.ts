@@ -26,6 +26,7 @@ export class ElevenLabsTTS {
   constructor(config: ElevenLabsConfig) {
     this.config = {
       voiceId: config.voiceId || '21m00Tcm4TlvDq8ikWAM', // Default: Rachel
+      // Use turbo model for faster generation (lower latency, faster speech)
       modelId: config.modelId || 'eleven_turbo_v2_5',
       stability: config.stability ?? 0.5,
       similarityBoost: config.similarityBoost ?? 0.75,

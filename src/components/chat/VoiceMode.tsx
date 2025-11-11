@@ -12,6 +12,7 @@ interface VoiceModeProps {
   askKey: string;
   askSessionId?: string;
   systemPrompt: string;
+  userPrompt?: string; // User prompt template (same as text mode)
   modelConfig?: {
     provider?: "deepgram-voice-agent" | "hybrid-voice-agent" | "speechmatics-voice-agent";
     voiceAgentProvider?: "deepgram-voice-agent" | "speechmatics-voice-agent";
@@ -38,6 +39,7 @@ export function VoiceMode({
   askKey,
   askSessionId,
   systemPrompt,
+  userPrompt,
   modelConfig,
   onMessage,
   onError,
@@ -70,6 +72,7 @@ export function VoiceMode({
 
   const handleMessage = useCallback((message: DeepgramMessageEvent | HybridVoiceAgentMessage | SpeechmaticsMessageEvent) => {
     const isInterim = Boolean(message.isInterim);
+    const messageId = (message as SpeechmaticsMessageEvent).messageId;
 
     // Detect when user is speaking
     if (message.role === 'user') {
@@ -83,10 +86,13 @@ export function VoiceMode({
       }, 2000);
     }
 
-    if (isInterim) {
+    // For interim messages with messageId, pass them through for streaming updates
+    // Otherwise, ignore interim messages
+    if (isInterim && !messageId) {
       return;
     }
 
+    // Pass all messages (including interim with messageId) to parent
     onMessage(message);
   }, [onMessage]);
 
@@ -148,6 +154,8 @@ export function VoiceMode({
 
         const config: SpeechmaticsConfig = {
           systemPrompt,
+          userPrompt,
+          promptVariables: (modelConfig as any)?.promptVariables, // Pass prompt variables for template rendering
           sttLanguage: modelConfig?.speechmaticsSttLanguage || "fr",
           sttOperatingPoint: modelConfig?.speechmaticsSttOperatingPoint || "enhanced",
           sttMaxDelay: modelConfig?.speechmaticsSttMaxDelay || 2.0,
@@ -229,7 +237,14 @@ export function VoiceMode({
 
       try {
         // Reconnect WebSocket first (since stopMicrophone() closed it)
-        if (isHybridAgent && agent instanceof HybridVoiceAgent) {
+        if (agent instanceof SpeechmaticsVoiceAgent) {
+          agent.setMicrophoneMuted(false);
+          setIsMuted(false);
+          setIsMicrophoneActive(true);
+          setIsConnecting(false);
+          console.log('[VoiceMode] ✅ Speechmatics unmuted - microphone resumed');
+          return;
+        } else if (isHybridAgent && agent instanceof HybridVoiceAgent) {
           const config: HybridVoiceAgentConfig = {
             systemPrompt,
             sttModel: modelConfig?.deepgramSttModel || "nova-3",
@@ -267,7 +282,9 @@ export function VoiceMode({
       // User wants to mute - stop microphone and close WebSocket
       console.log('[VoiceMode] 🔇 Muting - stopping microphone and closing WebSocket...');
       
-      if (isHybridAgent && agent instanceof HybridVoiceAgent) {
+      if (agent instanceof SpeechmaticsVoiceAgent) {
+        agent.setMicrophoneMuted(true);
+      } else if (isHybridAgent && agent instanceof HybridVoiceAgent) {
         agent.stopMicrophone();
       } else if (agent instanceof DeepgramVoiceAgent) {
         agent.stopMicrophone();

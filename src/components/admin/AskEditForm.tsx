@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { DateTimePicker } from "@/components/ui/date-time-picker";
+import { AskPromptTemplateSelector } from "./AskPromptTemplateSelector";
 import { type AskSessionRecord, type ManagedUser } from "@/types";
 
 const statusOptions = ["active", "inactive", "draft", "closed"] as const;
@@ -38,7 +39,8 @@ const formSchema = z.object({
   audienceScope: z.enum(audienceScopes),
   responseMode: z.enum(responseModes),
   participantIds: z.array(z.string().uuid()).default([]),
-  spokespersonId: z.string().uuid().optional().or(z.literal(""))
+  spokespersonId: z.string().uuid().optional().or(z.literal("")),
+  systemPrompt: z.string().trim().optional().or(z.literal(""))
 });
 
 export type AskEditFormValues = z.infer<typeof formSchema>;
@@ -69,7 +71,8 @@ export function AskEditForm({ asks, availableUsers, onSubmit, isLoading }: AskEd
       audienceScope: "individual",
       responseMode: "collective",
       participantIds: [],
-      spokespersonId: ""
+      spokespersonId: "",
+      systemPrompt: ""
     }
   });
 
@@ -120,7 +123,8 @@ export function AskEditForm({ asks, availableUsers, onSubmit, isLoading }: AskEd
       audienceScope: ask.audienceScope ?? (ask.participants && ask.participants.length > 1 ? "group" : "individual"),
       responseMode: ask.responseMode ?? "collective",
       participantIds: ask.participants?.map(participant => participant.id) ?? [],
-      spokespersonId: ask.participants?.find(participant => participant.isSpokesperson)?.id ?? ""
+      spokespersonId: ask.participants?.find(participant => participant.isSpokesperson)?.id ?? "",
+      systemPrompt: ask.systemPrompt ?? ""
     });
   }, [selectedId, asks, form]);
 
@@ -157,7 +161,8 @@ export function AskEditForm({ asks, availableUsers, onSubmit, isLoading }: AskEd
       audienceScope: values.audienceScope,
       responseMode: values.responseMode,
       participantIds: values.participantIds,
-      spokespersonId: values.spokespersonId ?? ""
+      spokespersonId: values.spokespersonId ?? "",
+      systemPrompt: values.systemPrompt ?? ""
     });
   };
 
@@ -208,6 +213,22 @@ export function AskEditForm({ asks, availableUsers, onSubmit, isLoading }: AskEd
           id="edit-description"
           rows={2}
           {...form.register("description")}
+          disabled={isLoading}
+        />
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <AskPromptTemplateSelector
+          value={form.watch("systemPrompt") || ""}
+          onChange={(value) => form.setValue("systemPrompt", value, { shouldDirty: true })}
+          disabled={isLoading}
+        />
+        <Label htmlFor="edit-system-prompt">System prompt</Label>
+        <Textarea
+          id="edit-system-prompt"
+          rows={6}
+          placeholder="Provide the system prompt used by the AI for this ask"
+          {...form.register("systemPrompt")}
           disabled={isLoading}
         />
       </div>

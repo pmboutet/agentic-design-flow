@@ -302,13 +302,15 @@ export interface ChatComponentProps {
   // Voice mode props
   voiceModeEnabled?: boolean;
   voiceModeSystemPrompt?: string;
+  voiceModeUserPrompt?: string; // User prompt template (same as text mode)
+  voiceModePromptVariables?: Record<string, string | null | undefined>; // Variables for userPrompt template rendering
   voiceModeModelConfig?: {
     deepgramSttModel?: string;
     deepgramTtsModel?: string;
     deepgramLlmProvider?: "anthropic" | "openai";
     deepgramLlmModel?: string;
   };
-  onVoiceMessage?: (role: 'user' | 'agent', content: string) => void;
+  onVoiceMessage?: (role: 'user' | 'agent', content: string, metadata?: { isInterim?: boolean; messageId?: string; timestamp?: string }) => void;
   onReplyBoxFocusChange?: (isFocused: boolean) => void;
   onVoiceModeChange?: (isActive: boolean) => void;
 }
@@ -432,6 +434,17 @@ export interface AskSessionRecord {
   createdAt: string;
   updatedAt: string;
   participants?: AskParticipant[];
+  systemPrompt?: string | null;
+}
+
+export interface AskPromptTemplate {
+  id: string;
+  name: string;
+  description?: string | null;
+  systemPrompt: string;
+  createdBy?: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface AskContact {

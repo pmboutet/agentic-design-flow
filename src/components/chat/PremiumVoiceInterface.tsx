@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, MicOff, Volume2, VolumeX, Pencil } from 'lucide-react';
+import { X, MicOff, Volume2, VolumeX, Pencil, Settings } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { DeepgramVoiceAgent, DeepgramMessageEvent } from '@/lib/ai/deepgram';
 import { HybridVoiceAgent, HybridVoiceAgentMessage } from '@/lib/ai/hybrid-voice-agent';
@@ -14,6 +14,7 @@ interface PremiumVoiceInterfaceProps {
   askKey: string;
   askSessionId?: string;
   systemPrompt: string;
+  userPrompt?: string; // User prompt template (same as text mode)
   modelConfig?: {
     provider?: "deepgram-voice-agent" | "hybrid-voice-agent" | "speechmatics-voice-agent";
     voiceAgentProvider?: "deepgram-voice-agent" | "speechmatics-voice-agent";
@@ -39,13 +40,24 @@ interface PremiumVoiceInterfaceProps {
     role: 'user' | 'assistant';
     content: string;
     timestamp?: string;
+    messageId?: string; // Added to support stable keys throughout lifecycle
+    metadata?: Record<string, unknown>; // Preserve metadata to access messageId
   }>;
 }
+
+type VoiceMessage = {
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: string;
+  messageId?: string;
+  isInterim?: boolean;
+};
 
 export function PremiumVoiceInterface({
   askKey,
   askSessionId,
   systemPrompt,
+  userPrompt,
   modelConfig,
   onMessage,
   onError,
@@ -61,12 +73,18 @@ export function PremiumVoiceInterface({
   const [isConnecting, setIsConnecting] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [audioLevel, setAudioLevel] = useState(0);
-  const [voiceMessages, setVoiceMessages] = useState<Array<{
-    role: 'user' | 'assistant';
-    content: string;
-    timestamp: string;
-  }>>([]);
-  
+
+  // Microphone controls state
+  const [selectedMicrophoneId, setSelectedMicrophoneId] = useState<string | null>(null);
+  const [microphoneSensitivity, setMicrophoneSensitivity] = useState<number>(1.5);
+  const [voiceIsolationEnabled, setVoiceIsolationEnabled] = useState<boolean>(true);
+  const [availableMicrophones, setAvailableMicrophones] = useState<MediaDeviceInfo[]>([]);
+  const [showMicrophoneSettings, setShowMicrophoneSettings] = useState<boolean>(false);
+
+  // NEW: Optimistic message cache for real-time updates
+  // This replaces the complex voiceMessages state system
+  const [optimisticCache, setOptimisticCache] = useState<Map<string, VoiceMessage>>(new Map());
+
   const agentRef = useRef<DeepgramVoiceAgent | HybridVoiceAgent | SpeechmaticsVoiceAgent | null>(null);
   const speakingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -76,10 +94,12 @@ export function PremiumVoiceInterface({
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const isHybridAgent = modelConfig?.provider === "hybrid-voice-agent";
-  // Use voiceAgentProvider if available, otherwise fall back to provider
   const voiceAgentProvider = modelConfig?.voiceAgentProvider || modelConfig?.provider;
   const isSpeechmaticsAgent = voiceAgentProvider === "speechmatics-voice-agent";
   const isMutedRef = useRef(isMuted);
+
+  // Message registry for deduplication at source
+  const messageRegistry = useRef<Map<string, { content: string; status: 'interim' | 'final'; timestamp: number }>>(new Map());
   
   // Debug log
   useEffect(() => {
@@ -96,6 +116,125 @@ export function PremiumVoiceInterface({
   useEffect(() => {
     isMutedRef.current = isMuted;
   }, [isMuted]);
+
+  /**
+   * NEW SIMPLIFIED MESSAGE SYSTEM
+   * Updates optimistic cache with deduplication at source
+   */
+  const updateOptimisticMessage = useCallback((message: SpeechmaticsMessageEvent) => {
+    if (!message.messageId) {
+      console.log('[PremiumVoice] ⚠️ Message without messageId, skipping:', {
+        role: message.role,
+        content: message.content.substring(0, 30) + '...',
+        isInterim: message.isInterim,
+      });
+      return;
+    }
+
+    const id = message.messageId;
+    const existing = messageRegistry.current.get(id);
+    const now = Date.now();
+
+    console.log('[PremiumVoice] 🔄 updateOptimisticMessage:', {
+      messageId: id,
+      isInterim: message.isInterim,
+      content: message.content.substring(0, 40) + '...',
+      existingStatus: existing?.status,
+      existingContent: existing?.content?.substring(0, 30),
+    });
+
+    // If we receive a final message, it should replace any interim message with the same ID
+    if (!message.isInterim) {
+      console.log('[PremiumVoice] ✅ Final message - replacing interim:', {
+        messageId: id,
+        hadInterim: existing?.status === 'interim',
+        content: message.content.substring(0, 40) + '...',
+      });
+      
+      // Final message - always update/replace
+      messageRegistry.current.set(id, {
+        content: message.content,
+        status: 'final',
+        timestamp: now,
+      });
+
+      // Update optimistic cache - this replaces the interim message
+      setOptimisticCache(prev => {
+        const next = new Map(prev);
+        const hadInterim = prev.has(id);
+        next.set(id, {
+          role: message.role === 'agent' ? 'assistant' : message.role,
+          content: message.content,
+          timestamp: message.timestamp || new Date().toISOString(),
+          messageId: id,
+          isInterim: false,
+        });
+        console.log('[PremiumVoice] 📦 Final message added to cache:', {
+          messageId: id,
+          replacedInterim: hadInterim,
+          cacheSize: next.size,
+        });
+        return next;
+      });
+      return;
+    }
+
+    // For interim messages:
+    // Skip if we already have final version (final takes precedence)
+    if (existing?.status === 'final') {
+      console.log('[PremiumVoice] ⏸️ Skipping interim (already have final):', {
+        messageId: id,
+        finalContent: existing.content.substring(0, 30),
+      });
+      return; // Don't overwrite final with interim
+    }
+
+    // Skip if interim and content unchanged
+    if (existing?.content === message.content) {
+      console.log('[PremiumVoice] ⏸️ Skipping interim (content unchanged):', {
+        messageId: id,
+      });
+      return; // No change, skip
+    }
+
+    console.log('[PremiumVoice] 📝 Adding/updating interim message:', {
+      messageId: id,
+      content: message.content.substring(0, 40) + '...',
+      hadExisting: !!existing,
+    });
+
+    // Update registry for interim message
+    messageRegistry.current.set(id, {
+      content: message.content,
+      status: 'interim',
+      timestamp: now,
+    });
+
+    // Clean up old entries (> 30 seconds)
+    const cutoff = now - 30000;
+    for (const [key, value] of messageRegistry.current) {
+      if (value.timestamp < cutoff) {
+        messageRegistry.current.delete(key);
+      }
+    }
+
+    // Update optimistic cache
+    setOptimisticCache(prev => {
+      const next = new Map(prev);
+      next.set(id, {
+        role: message.role === 'agent' ? 'assistant' : message.role,
+        content: message.content,
+        timestamp: message.timestamp || new Date().toISOString(),
+        messageId: id,
+        isInterim: true,
+      });
+      console.log('[PremiumVoice] 📦 Interim message added to cache:', {
+        messageId: id,
+        cacheSize: next.size,
+      });
+      return next;
+    });
+  }, []);
 
   // Get user name for greeting
   const getUserName = () => {
@@ -140,18 +279,31 @@ export function PremiumVoiceInterface({
       streamRef.current = stream;
 
       const dataArray = new Uint8Array(analyser.frequencyBinCount);
-      
+      let lastLevel = 0;
+
       const updateAudioLevel = () => {
-        if (!analyserRef.current) return;
-        
+        // Stop if analyser was cleaned up (component unmounted or muted)
+        if (!analyserRef.current) {
+          if (animationFrameRef.current) {
+            cancelAnimationFrame(animationFrameRef.current);
+            animationFrameRef.current = null;
+          }
+          return;
+        }
+
         analyserRef.current.getByteFrequencyData(dataArray);
         const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
         const normalizedLevel = Math.min(average / 128, 1);
-        setAudioLevel(normalizedLevel);
-        
+
+        // Only update if level changed significantly (reduce re-renders)
+        if (Math.abs(normalizedLevel - lastLevel) > 0.01) {
+          lastLevel = normalizedLevel;
+          setAudioLevel(normalizedLevel);
+        }
+
         animationFrameRef.current = requestAnimationFrame(updateAudioLevel);
       };
-      
+
       updateAudioLevel();
     } catch (err) {
       console.error('Error setting up audio analysis:', err);
@@ -176,9 +328,57 @@ export function PremiumVoiceInterface({
       });
   }, [setupAudioAnalysis]);
 
+  // Load available microphone devices
+  const loadMicrophoneDevices = useCallback(async () => {
+    try {
+      // Request permission first to get device labels
+      await navigator.mediaDevices.getUserMedia({ audio: true });
+      
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const microphones = devices.filter(device => device.kind === 'audioinput');
+      
+      setAvailableMicrophones(microphones);
+      
+      // Load saved preferences from localStorage
+      const savedDeviceId = localStorage.getItem('voiceAgent_microphoneDeviceId');
+      const savedSensitivity = localStorage.getItem('voiceAgent_microphoneSensitivity');
+      const savedIsolation = localStorage.getItem('voiceAgent_voiceIsolation');
+      
+      if (savedDeviceId && microphones.some(m => m.deviceId === savedDeviceId)) {
+        setSelectedMicrophoneId(savedDeviceId);
+      } else if (microphones.length > 0) {
+        setSelectedMicrophoneId(microphones[0].deviceId);
+      }
+      
+      if (savedSensitivity) {
+        const sensitivity = parseFloat(savedSensitivity);
+        if (!isNaN(sensitivity) && sensitivity >= 0.5 && sensitivity <= 3.0) {
+          setMicrophoneSensitivity(sensitivity);
+        }
+      }
+      
+      if (savedIsolation !== null) {
+        setVoiceIsolationEnabled(savedIsolation === 'true');
+      }
+    } catch (error) {
+      console.error('[PremiumVoiceInterface] Error loading microphone devices:', error);
+    }
+  }, []);
+
+  // Save preferences to localStorage
+  const savePreferences = useCallback(() => {
+    if (selectedMicrophoneId) {
+      localStorage.setItem('voiceAgent_microphoneDeviceId', selectedMicrophoneId);
+    }
+    localStorage.setItem('voiceAgent_microphoneSensitivity', microphoneSensitivity.toString());
+    localStorage.setItem('voiceAgent_voiceIsolation', voiceIsolationEnabled.toString());
+  }, [selectedMicrophoneId, microphoneSensitivity, voiceIsolationEnabled]);
+
   // Cleanup audio analysis
-  const cleanupAudioAnalysis = useCallback(() => {
-    console.log('[PremiumVoiceInterface] 🧹 Cleaning up audio analysis...');
+  // When muting, we keep the audio context open for TTS playback
+  // When disconnecting, we close everything including the audio context
+  const cleanupAudioAnalysis = useCallback((closeAudioContext: boolean = false) => {
+    console.log('[PremiumVoiceInterface] 🧹 Cleaning up audio analysis...', { closeAudioContext });
     
     // Stop animation frame
     if (animationFrameRef.current) {
@@ -186,8 +386,9 @@ export function PremiumVoiceInterface({
       animationFrameRef.current = null;
     }
     
-    // Stop and close audio context
-    if (audioContextRef.current) {
+    // Only close audio context if explicitly requested (full disconnect)
+    // When muting, we keep it open for TTS playback
+    if (closeAudioContext && audioContextRef.current) {
       try {
         if (audioContextRef.current.state !== 'closed') {
           audioContextRef.current.close();
@@ -197,9 +398,11 @@ export function PremiumVoiceInterface({
         console.warn('[PremiumVoiceInterface] Error closing audio context:', error);
       }
       audioContextRef.current = null;
+    } else if (closeAudioContext === false) {
+      console.log('[PremiumVoiceInterface] ℹ️ Audio context kept open for TTS playback');
     }
     
-    // Stop all media stream tracks
+    // Stop all media stream tracks (microphone input)
     if (streamRef.current) {
       try {
         streamRef.current.getTracks().forEach(track => {
@@ -220,8 +423,17 @@ export function PremiumVoiceInterface({
     console.log('[PremiumVoiceInterface] ✅ Audio analysis cleanup complete');
   }, []);
 
-  const handleMessage = useCallback((message: DeepgramMessageEvent | HybridVoiceAgentMessage) => {
+  const handleMessage = useCallback((message: DeepgramMessageEvent | HybridVoiceAgentMessage | SpeechmaticsMessageEvent) => {
     const isInterim = Boolean(message.isInterim);
+    const messageId = (message as SpeechmaticsMessageEvent).messageId;
+
+    console.log('[PremiumVoice] 📨 handleMessage received:', {
+      messageId,
+      isInterim,
+      role: message.role,
+      content: message.content.substring(0, 50) + '...',
+      timestamp: message.timestamp,
+    });
 
     // Detect when user is speaking
     if (message.role === 'user') {
@@ -234,23 +446,32 @@ export function PremiumVoiceInterface({
       }, 2000);
     }
     
-    if (isInterim) {
-      return;
+    // Update optimistic cache for real-time display
+    // This handles interim messages and their transition to final
+    if (messageId) {
+      updateOptimisticMessage({
+        ...(message as SpeechmaticsMessageEvent),
+        isInterim,
+        messageId,
+      });
+    } else {
+      console.log('[PremiumVoice] ⚠️ Message without messageId, generating one');
     }
+
+    // Always call parent callback with preserved messageId
+    // This ensures the message is persisted and appears in props.messages
+    const finalMessageId = messageId || `msg-${Date.now()}`;
+    console.log('[PremiumVoice] 📤 Calling onMessage callback:', {
+      messageId: finalMessageId,
+      isInterim,
+      role: message.role,
+    });
     
-    // Don't add to voiceMessages - onMessage will handle adding to the main messages array
-    // This prevents duplicates since the message will be in both voiceMessages and messages
-    // Only add to voiceMessages if onMessage is not provided (fallback for display)
-    if (!onMessage) {
-      setVoiceMessages(prev => [...prev, {
-        role: message.role === 'agent' ? 'assistant' : message.role,
-        content: message.content,
-        timestamp: message.timestamp || new Date().toISOString(),
-      }]);
-    }
-    
-    onMessage(message);
-  }, [onMessage]);
+    onMessage({
+      ...message,
+      messageId: finalMessageId, // Ensure stable ID
+    });
+  }, [onMessage, updateOptimisticMessage]);
 
   const handleError = useCallback((error: Error) => {
     setError(error.message);
@@ -262,7 +483,7 @@ export function PremiumVoiceInterface({
     if (!connected && agentRef.current) {
       setIsMicrophoneActive(false);
       setIsSpeaking(false);
-      cleanupAudioAnalysis();
+      cleanupAudioAnalysis(true); // Close audio context on disconnect
     }
   }, [cleanupAudioAnalysis]);
 
@@ -292,7 +513,7 @@ export function PremiumVoiceInterface({
         };
 
         await agent.connect(config);
-        await agent.startMicrophone();
+        await agent.startMicrophone(selectedMicrophoneId || undefined, voiceIsolationEnabled);
         
         // Setup audio analysis after microphone is started
         // We'll create a separate stream for visualization
@@ -309,6 +530,8 @@ export function PremiumVoiceInterface({
 
         const config: any = {
           systemPrompt,
+          userPrompt,
+          promptVariables: (modelConfig as any)?.promptVariables, // Pass prompt variables for template rendering
           sttLanguage: modelConfig?.speechmaticsSttLanguage || "fr",
           sttOperatingPoint: modelConfig?.speechmaticsSttOperatingPoint || "enhanced",
           sttMaxDelay: modelConfig?.speechmaticsSttMaxDelay || 2.0,
@@ -317,10 +540,13 @@ export function PremiumVoiceInterface({
           llmModel: modelConfig?.speechmaticsLlmModel,
           elevenLabsVoiceId: modelConfig?.elevenLabsVoiceId,
           elevenLabsModelId: modelConfig?.elevenLabsModelId || "eleven_turbo_v2_5",
+          microphoneSensitivity,
+          microphoneDeviceId: selectedMicrophoneId || undefined,
+          voiceIsolation: voiceIsolationEnabled,
         };
 
         await agent.connect(config);
-        await agent.startMicrophone();
+        await agent.startMicrophone(selectedMicrophoneId || undefined, voiceIsolationEnabled);
         
         // Setup audio analysis after microphone is started
         // We'll create a separate stream for visualization
@@ -344,7 +570,7 @@ export function PremiumVoiceInterface({
         };
 
         await agent.connect(config);
-        await agent.startMicrophone();
+        await agent.startMicrophone(selectedMicrophoneId || undefined, voiceIsolationEnabled);
         
         // Setup audio analysis after microphone is started
         // We'll create a separate stream for visualization
@@ -356,7 +582,7 @@ export function PremiumVoiceInterface({
     } catch (err) {
       console.error('[PremiumVoiceInterface] ❌ Connection error:', err);
       setIsConnecting(false);
-      cleanupAudioAnalysis();
+      cleanupAudioAnalysis(true); // Close audio context on connection error
       const errorMessage = err instanceof Error ? err.message : 'Failed to connect to voice agent';
       setError(errorMessage);
       handleError(err instanceof Error ? err : new Error(errorMessage));
@@ -373,7 +599,7 @@ export function PremiumVoiceInterface({
     }
     
     // Cleanup audio analysis FIRST (stops the separate stream for visualization)
-    cleanupAudioAnalysis();
+    cleanupAudioAnalysis(true); // Close audio context on disconnect
     
     // Disconnect agent (this will stop the agent's microphone stream AND websocket)
     if (agentRef.current) {
@@ -397,9 +623,10 @@ export function PremiumVoiceInterface({
     setIsMuted(false);
     setIsSpeaking(false);
     setError(null);
-    
-    // Clear voice messages
-    setVoiceMessages([]);
+
+    // Clear optimistic cache and message registry
+    setOptimisticCache(new Map());
+    messageRegistry.current.clear();
     
     console.log('[PremiumVoiceInterface] ✅ Complete disconnection finished - websocket and microphone are OFF');
   }, [cleanupAudioAnalysis]);
@@ -419,7 +646,14 @@ export function PremiumVoiceInterface({
 
       try {
         // Reconnect WebSocket first (since stopMicrophone() closed it)
-        if (isHybridAgent && agent instanceof HybridVoiceAgent) {
+        if (agent instanceof SpeechmaticsVoiceAgent) {
+          agent.setMicrophoneMuted(false);
+          setIsMicrophoneActive(true);
+          setIsConnecting(false);
+          startAudioVisualization();
+          console.log('[PremiumVoiceInterface] ✅ Speechmatics unmuted - stream resumed');
+          return;
+        } else if (isHybridAgent && agent instanceof HybridVoiceAgent) {
           const config: any = {
             systemPrompt,
             sttModel: modelConfig?.deepgramSttModel || "nova-3",
@@ -429,7 +663,7 @@ export function PremiumVoiceInterface({
             elevenLabsModelId: modelConfig?.elevenLabsModelId || "eleven_turbo_v2_5",
           };
           await agent.connect(config);
-          await agent.startMicrophone();
+          await agent.startMicrophone(selectedMicrophoneId || undefined, voiceIsolationEnabled);
         } else if (agent instanceof DeepgramVoiceAgent) {
           const config: any = {
             systemPrompt,
@@ -439,7 +673,7 @@ export function PremiumVoiceInterface({
             llmModel: modelConfig?.deepgramLlmModel,
           };
           await agent.connect(config);
-          await agent.startMicrophone();
+          await agent.startMicrophone(selectedMicrophoneId || undefined, voiceIsolationEnabled);
         }
 
         // If the user re-muted while we were reconnecting, stop immediately
@@ -463,32 +697,60 @@ export function PremiumVoiceInterface({
         handleError(err instanceof Error ? err : new Error(String(err)));
       }
     } else {
-      // User wants to mute - stop microphone and close WebSocket
-      console.log('[PremiumVoiceInterface] 🔇 Muting - stopping both streams and closing WebSocket...');
+      // User wants to mute - stop sending audio chunks but keep WebSocket open for TTS
+      console.log('[PremiumVoiceInterface] 🔇 Muting - stopping microphone input but keeping WebSocket open for responses...');
       isMutedRef.current = true;
       setIsMuted(true);
       setIsMicrophoneActive(false);
       setIsSpeaking(false);
 
-      // CRITICAL: Stop both streams in parallel and wait for completion
-      // stopMicrophone() will now also close the WebSocket connection
       try {
-        await Promise.all([
-          // Stop visualization stream
-          Promise.resolve(cleanupAudioAnalysis()),
-          // Stop agent microphone stream (this will also close WebSocket)
-          (async () => {
-            if (agent instanceof HybridVoiceAgent || agent instanceof DeepgramVoiceAgent) {
-              agent.stopMicrophone();
-            }
-          })()
-        ]);
-        console.log('[PremiumVoiceInterface] ✅ Both streams stopped and WebSocket closed successfully');
+        if (agent instanceof SpeechmaticsVoiceAgent) {
+          // Just mute the microphone - WebSocket stays open for receiving agent responses
+          agent.setMicrophoneMuted(true);
+          // Stop audio visualization but keep audio context for TTS playback
+          cleanupAudioAnalysis(false); // false = don't close audio context
+        } else {
+          // For other agents, stop microphone but keep connection for responses
+          await Promise.all([
+            // Stop visualization stream
+            Promise.resolve(cleanupAudioAnalysis(false)), // Keep audio context for TTS
+            // Stop agent microphone stream (but keep connection for TTS)
+            (async () => {
+              if (agent instanceof HybridVoiceAgent || agent instanceof DeepgramVoiceAgent) {
+                agent.stopMicrophone();
+              }
+            })()
+          ]);
+        }
+        console.log('[PremiumVoiceInterface] ✅ Microphone muted - WebSocket remains open for agent responses');
       } catch (error) {
-        console.error('[PremiumVoiceInterface] ❌ Error stopping streams:', error);
+        console.error('[PremiumVoiceInterface] ❌ Error muting microphone:', error);
       }
     }
   }, [isMuted, isHybridAgent, isSpeechmaticsAgent, systemPrompt, modelConfig, cleanupAudioAnalysis, startAudioVisualization, handleError]);
+
+  // Load microphone devices on mount
+  useEffect(() => {
+    loadMicrophoneDevices();
+  }, [loadMicrophoneDevices]);
+
+  // Close microphone settings when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+      if (showMicrophoneSettings && !target.closest('.microphone-settings-container')) {
+        setShowMicrophoneSettings(false);
+      }
+    };
+
+    if (showMicrophoneSettings) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => {
+        document.removeEventListener('mousedown', handleClickOutside);
+      };
+    }
+  }, [showMicrophoneSettings]);
 
   // Auto-connect on mount
   useEffect(() => {
@@ -511,7 +773,7 @@ export function PremiumVoiceInterface({
       connected = false;
       disconnect();
       // Extra safety cleanup - ensure all streams are stopped
-      cleanupAudioAnalysis();
+      cleanupAudioAnalysis(true); // Close audio context on unmount
       if (speakingTimeoutRef.current) {
         clearTimeout(speakingTimeoutRef.current);
       }
@@ -526,109 +788,234 @@ export function PremiumVoiceInterface({
     }, 100);
   }, []);
 
-  // Track previously seen messages to avoid re-animating existing ones
+  /**
+   * NEW SIMPLIFIED MESSAGE MERGING
+   * Merge props.messages (source of truth) with optimisticCache (temporary interim messages)
+   */
   const previousMessagesRef = useRef<Set<string>>(new Set());
   const isInitialMountRef = useRef(true);
-  
-  // Scroll to bottom when messages change
-  // Combine voice messages with initial messages, avoiding duplicates
-  // Use useMemo to prevent unnecessary recalculations and flashing
+
   const allMessages = useMemo(() => {
-    // Create a map to track messages by content and role to avoid duplicates
-    // Use content hash instead of timestamp to handle cases where timestamps differ slightly
-    const messageMap = new Map<string, typeof messages[0] & { stableKey: string; isNew: boolean }>();
+    type DisplayMessage = VoiceMessage & { stableKey: string; isNew: boolean };
+    const finalMap = new Map<string, DisplayMessage>();
     const currentKeys = new Set<string>();
-    
-    // Helper to create a stable key from message content and role
-    const createStableKey = (role: string, content: string, timestamp?: string) => {
-      // Use content hash for deduplication (first 200 chars should be enough)
-      const contentHash = content.substring(0, 200).trim();
-      return `${role}-${contentHash}`;
-    };
-    
-    // First, add all messages from props (these are the source of truth)
+
+    console.log('[PremiumVoice] 🔀 Merging messages:', {
+      optimisticCacheSize: optimisticCache.size,
+      propsMessagesCount: messages.length,
+      optimisticIds: Array.from(optimisticCache.keys()),
+      propsIds: messages.map(m => m.messageId).filter(Boolean),
+    });
+
+    // Step 1: Add messages from optimistic cache first (interim messages)
+    // These will be replaced by final messages if they have the same messageId
+    for (const [id, cachedMsg] of optimisticCache) {
+      currentKeys.add(id);
+      const isNew = !previousMessagesRef.current.has(id);
+
+      finalMap.set(id, {
+        ...cachedMsg,
+        stableKey: id,
+        isNew,
+      });
+      
+      console.log('[PremiumVoice] 📥 Added from optimistic cache:', {
+        messageId: id,
+        isInterim: cachedMsg.isInterim,
+        content: cachedMsg.content.substring(0, 30) + '...',
+      });
+    }
+
+    // Step 2: Add/Replace with messages from props (these are the source of truth - final messages)
+    // If a message has the same messageId, it replaces the interim one
     messages.forEach(msg => {
-      const stableKey = createStableKey(msg.role, msg.content, msg.timestamp);
-      currentKeys.add(stableKey);
-      const isNew = !previousMessagesRef.current.has(stableKey);
-      // Only add if not already in map (prevents duplicates within messages array)
-      if (!messageMap.has(stableKey)) {
-        messageMap.set(stableKey, { ...msg, stableKey, isNew });
+      // Extract messageId from metadata if available (for voice messages)
+      // This ensures we match the messageId used in optimistic cache
+      const metadataMessageId = (msg.metadata as any)?.messageId;
+      const messageId = metadataMessageId || msg.messageId;
+      
+      // Use messageId if available, otherwise fallback to content-based key
+      const key = messageId || `${msg.role}-${msg.content.substring(0, 100)}`;
+      currentKeys.add(key);
+      const isNew = !previousMessagesRef.current.has(key);
+      const existingInMap = finalMap.get(key);
+      const hadInterim = existingInMap?.isInterim;
+
+      console.log('[PremiumVoice] 📥 Processing message from props:', {
+        originalMessageId: msg.messageId,
+        metadataMessageId,
+        finalKey: key,
+        hadInterim,
+        existingInMap: existingInMap ? {
+          messageId: existingInMap.messageId,
+          isInterim: existingInMap.isInterim,
+          content: existingInMap.content.substring(0, 30),
+        } : null,
+        content: msg.content.substring(0, 30) + '...',
+      });
+      
+      // If we're replacing an interim message, log it clearly
+      if (hadInterim) {
+        console.log('[PremiumVoice] ✅ Replacing interim with final:', {
+          messageId: key,
+          interimContent: existingInMap?.content.substring(0, 30),
+          finalContent: msg.content.substring(0, 30),
+        });
       }
+
+      // Always replace with final message (props.messages are final)
+      finalMap.set(key, {
+        role: msg.role,
+        content: msg.content,
+        timestamp: msg.timestamp || new Date().toISOString(),
+        messageId: messageId || undefined, // Use extracted messageId
+        isInterim: false, // Messages from props are always final
+        stableKey: key,
+        isNew,
+      });
+      
+      console.log('[PremiumVoice] 📥 Added from props:', {
+        messageId: key,
+        content: msg.content.substring(0, 30) + '...',
+        replacedInterim: hadInterim,
+      });
     });
-    
-    // Then, add voice messages that aren't already in the props
-    // This handles the case where a message is captured but not yet persisted
-    voiceMessages.forEach(msg => {
-      const stableKey = createStableKey(msg.role, msg.content, msg.timestamp);
-      currentKeys.add(stableKey);
-      const isNew = !previousMessagesRef.current.has(stableKey);
-      // Only add if not already present in props
-      if (!messageMap.has(stableKey)) {
-        messageMap.set(stableKey, { ...msg, stableKey, isNew });
-      }
-    });
-    
-    // Convert back to array and sort by timestamp
-    const sorted = Array.from(messageMap.values()).sort((a, b) => {
-      const timeA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
-      const timeB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+
+    // Step 3: Sort by timestamp
+    const sorted = Array.from(finalMap.values()).sort((a, b) => {
+      const timeA = new Date(a.timestamp).getTime();
+      const timeB = new Date(b.timestamp).getTime();
       return timeA - timeB;
     });
-    
-    // Update the ref with current message keys (after first render)
-    if (!isInitialMountRef.current) {
-      previousMessagesRef.current = currentKeys;
-    } else {
-      // On initial mount, mark all as seen so they don't animate
-      previousMessagesRef.current = currentKeys;
-      isInitialMountRef.current = false;
-    }
-    
+
+    console.log('[PremiumVoice] 📊 Final merged messages:', {
+      totalCount: sorted.length,
+      messages: sorted.map(m => ({
+        messageId: m.messageId,
+        isInterim: m.isInterim,
+        content: m.content.substring(0, 30) + '...',
+        role: m.role,
+      })),
+    });
+
+    // Update tracking
+    previousMessagesRef.current = currentKeys;
+    isInitialMountRef.current = false;
+
     return sorted;
-  }, [messages, voiceMessages]);
+  }, [messages, optimisticCache]);
 
-  // Clean up voiceMessages that are now in props to prevent accumulation
+  // Clean up optimistic cache when messages arrive in props
+  // This removes interim messages that have been finalized
   useEffect(() => {
-    if (messages.length > 0 && voiceMessages.length > 0) {
-      // Use the same key generation logic as allMessages
-      const createStableKey = (role: string, content: string) => {
-        const contentHash = content.substring(0, 200).trim();
-        return `${role}-${contentHash}`;
-      };
-      
-      const messageKeys = new Set(
-        messages.map(msg => createStableKey(msg.role, msg.content))
-      );
-      
-      setVoiceMessages(prev => 
-        prev.filter(msg => {
-          const key = createStableKey(msg.role, msg.content);
-          return !messageKeys.has(key);
-        })
-      );
-    }
-  }, [messages]);
+    if (messages.length === 0) return;
 
-  // Track if we should scroll (only for new messages, not updates)
+    const propsMessageIds = new Set(
+      messages.map(m => m.messageId).filter((id): id is string => Boolean(id))
+    );
+
+    console.log('[PremiumVoice] 🧹 Cleaning optimistic cache:', {
+      propsMessageIds: Array.from(propsMessageIds),
+      currentCacheSize: optimisticCache.size,
+      currentCacheIds: Array.from(optimisticCache.keys()),
+    });
+
+    setOptimisticCache(prev => {
+      const next = new Map(prev);
+      let hasChanges = false;
+      const removedIds: string[] = [];
+
+      // Remove any interim messages that now have a final version in props
+      for (const id of propsMessageIds) {
+        if (next.has(id)) {
+          // Message is now final in props, remove from optimistic cache
+          const removed = next.get(id);
+          console.log('[PremiumVoice] 🗑️ Removing from cache (now in props):', {
+            messageId: id,
+            wasInterim: removed?.isInterim,
+            content: removed?.content.substring(0, 30),
+          });
+          next.delete(id);
+          removedIds.push(id);
+          hasChanges = true;
+        }
+      }
+
+      // Also remove any interim messages that are older than 5 seconds
+      // This prevents stale interim messages from lingering
+      const now = Date.now();
+      for (const [id, cachedMsg] of next) {
+        const msgTime = new Date(cachedMsg.timestamp).getTime();
+        if (cachedMsg.isInterim && (now - msgTime > 5000)) {
+          console.log('[PremiumVoice] 🗑️ Removing stale interim message:', {
+            messageId: id,
+            age: now - msgTime,
+            content: cachedMsg.content.substring(0, 30),
+          });
+          next.delete(id);
+          removedIds.push(id);
+          hasChanges = true;
+        }
+      }
+
+      if (hasChanges) {
+        console.log('[PremiumVoice] ✅ Cache cleaned:', {
+          removedCount: removedIds.length,
+          removedIds,
+          newCacheSize: next.size,
+          remainingIds: Array.from(next.keys()),
+        });
+      }
+
+      return hasChanges ? next : prev;
+    });
+  }, [messages, optimisticCache]);
+
+  // Auto-scroll when new messages arrive
   const previousLengthRef = useRef(0);
-  
   useEffect(() => {
     const hasNewMessages = allMessages.length > previousLengthRef.current;
     previousLengthRef.current = allMessages.length;
-    
+
     if (hasNewMessages) {
-      // Use requestAnimationFrame to ensure DOM is updated before scrolling
       requestAnimationFrame(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
       });
     }
   }, [allMessages]);
 
+  /**
+   * NEW PURE REACT TEXT COMPONENT
+   * Uses Framer Motion for smooth animations without DOM manipulation
+   */
+  function AnimatedText({
+    content,
+    isInterim = false
+  }: {
+    content: string;
+    isInterim?: boolean;
+  }) {
+    return (
+      <motion.p
+        key={content.substring(0, 50)} // Re-mount on major content change
+        initial={{ opacity: 0.8 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.15, ease: "easeOut" }}
+        className={cn(
+          "text-sm leading-relaxed whitespace-pre-wrap font-normal tracking-wide",
+          isInterim && "opacity-80"
+        )}
+        style={{ minHeight: "1em" }}
+      >
+        {content}
+      </motion.p>
+    );
+  }
+
   return (
     <div className="fixed inset-0 z-50 overflow-hidden">
       {/* Dark base background */}
-      <div 
+      <div
         className="absolute inset-0"
         style={{
           background: 'rgb(15, 15, 25)',
@@ -756,42 +1143,44 @@ export function PremiumVoiceInterface({
               </motion.div>
             </div>
           )}
-          <AnimatePresence mode="sync">
-            {allMessages.map((message, index) => {
-              // Use the stable key from the message object
-              const messageKey = (message as any).stableKey || `${message.role}-${message.content.substring(0, 100)}-${message.timestamp || index}`;
-              const isNewMessage = (message as any).isNew ?? false;
-              
+          <AnimatePresence mode="popLayout" initial={false}>
+            {allMessages.map((message) => {
+              const messageKey = message.stableKey;
+              const isNewMessage = message.isNew;
+
               return (
                 <motion.div
                   key={messageKey}
-                  initial={isNewMessage ? { opacity: 0, y: 8, scale: 0.99 } : false}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: -8, scale: 0.99 }}
-                  transition={{ 
-                    duration: isNewMessage ? 0.12 : 0,
-                    ease: "easeOut"
+                  layout
+                  initial={isNewMessage ? { opacity: 0, y: 8 } : false}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.95 }}
+                  transition={{
+                    duration: 0.2,
+                    ease: "easeOut",
+                    layout: { duration: 0.3 }
                   }}
-                  layout={false}
                   className={cn(
                     "flex",
-                    message.role === 'user' ? 'justify-end' : 'justify-start'
+                    message.role === "user" ? "justify-end" : "justify-start"
                   )}
                 >
                   <div
                     className={cn(
-                      "max-w-[75%] rounded-2xl px-4 py-3 backdrop-blur-xl",
-                      message.role === 'user'
-                        ? "bg-white/20 text-white shadow-lg"
-                        : "bg-white/10 text-white/90 shadow-lg"
+                      "max-w-[75%] rounded-2xl px-4 py-3 backdrop-blur-xl shadow-lg",
+                      message.role === "user"
+                        ? "bg-white/20 text-white"
+                        : "bg-white/10 text-white/90"
                     )}
                     style={{
-                      boxShadow: '0 8px 32px 0 rgba(0, 0, 0, 0.2)',
+                      boxShadow: "0 8px 32px 0 rgba(0,0,0,0.2)",
+                      willChange: "opacity, transform",
                     }}
                   >
-                    <p className="text-sm leading-relaxed whitespace-pre-wrap">
-                      {message.content}
-                    </p>
+                    <AnimatedText
+                      content={message.content}
+                      isInterim={message.isInterim}
+                    />
                   </div>
                 </motion.div>
               );
@@ -922,6 +1311,97 @@ export function PremiumVoiceInterface({
               {isConnected && isMuted && "Microphone muted"}
               {error && <span className="text-red-300">{error}</span>}
             </p>
+          </div>
+
+          {/* Microphone settings - compact dropdown */}
+          <div className="relative mt-4 microphone-settings-container">
+            <button
+              onClick={() => setShowMicrophoneSettings(!showMicrophoneSettings)}
+              className="p-2 rounded-full bg-white/10 backdrop-blur-sm border border-white/20 hover:bg-white/20 transition-colors"
+              aria-label="Microphone settings"
+            >
+              <Settings className="h-5 w-5 text-white/80" />
+            </button>
+
+            {/* Dropdown menu */}
+            {showMicrophoneSettings && (
+              <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 w-64 bg-gray-900/95 backdrop-blur-xl border border-white/20 rounded-lg shadow-2xl p-4 z-50 microphone-settings-container">
+                <div className="flex flex-col gap-3">
+                  {/* Microphone selector */}
+                  <div className="flex flex-col gap-1">
+                    <label className="text-white/70 text-xs">Microphone</label>
+                    <select
+                      value={selectedMicrophoneId || ''}
+                      onChange={(e) => {
+                        setSelectedMicrophoneId(e.target.value);
+                        savePreferences();
+                      }}
+                      disabled={isConnected}
+                      className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-white/30 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {availableMicrophones.map((mic) => (
+                        <option key={mic.deviceId} value={mic.deviceId} className="bg-gray-800">
+                          {mic.label || `Microphone ${mic.deviceId.substring(0, 8)}`}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Sensitivity slider */}
+                  <div className="flex flex-col gap-1">
+                    <div className="flex justify-between items-center">
+                      <label className="text-white/70 text-xs">Sensibilité</label>
+                      <span className="text-white/80 text-xs">{microphoneSensitivity.toFixed(1)}x</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0.5"
+                      max="3.0"
+                      step="0.1"
+                      value={microphoneSensitivity}
+                      onChange={(e) => {
+                        const value = parseFloat(e.target.value);
+                        setMicrophoneSensitivity(value);
+                        savePreferences();
+                        // Update sensitivity in real-time if connected
+                        if (isConnected && agentRef.current instanceof SpeechmaticsVoiceAgent) {
+                          agentRef.current.setMicrophoneSensitivity?.(value);
+                        }
+                      }}
+                      disabled={isConnected}
+                      className="w-full h-2 bg-white/10 rounded-lg appearance-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                      style={{
+                        background: `linear-gradient(to right, rgba(255,255,255,0.3) 0%, rgba(255,255,255,0.3) ${((microphoneSensitivity - 0.5) / 2.5) * 100}%, rgba(255,255,255,0.1) ${((microphoneSensitivity - 0.5) / 2.5) * 100}%, rgba(255,255,255,0.1) 100%)`
+                      }}
+                    />
+                  </div>
+
+                  {/* Voice isolation toggle */}
+                  <div className="flex items-center justify-between">
+                    <label className="text-white/70 text-xs">Isolation de voix</label>
+                    <button
+                      onClick={() => {
+                        setVoiceIsolationEnabled(!voiceIsolationEnabled);
+                        savePreferences();
+                      }}
+                      disabled={isConnected}
+                      className={cn(
+                        "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
+                        voiceIsolationEnabled ? "bg-white/30" : "bg-white/10",
+                        isConnected && "opacity-50 cursor-not-allowed"
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          "inline-block h-4 w-4 transform rounded-full bg-white transition-transform",
+                          voiceIsolationEnabled ? "translate-x-6" : "translate-x-1"
+                        )}
+                      />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>

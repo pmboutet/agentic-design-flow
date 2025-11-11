@@ -37,6 +37,8 @@ interface MobileLayoutProps {
   currentParticipantName: string | null;
   awaitingAiResponse: boolean;
   voiceModeSystemPrompt: string | null;
+  voiceModeUserPrompt: string | null;
+  voiceModePromptVariables: Record<string, string | null | undefined> | null;
   voiceModeModelConfig: {
     provider?: "deepgram-voice-agent" | "hybrid-voice-agent" | "speechmatics-voice-agent";
     voiceAgentProvider?: "deepgram-voice-agent" | "speechmatics-voice-agent";
@@ -53,10 +55,11 @@ interface MobileLayoutProps {
     speechmaticsApiKeyEnvVar?: string;
     elevenLabsVoiceId?: string;
     elevenLabsModelId?: string;
+    promptVariables?: Record<string, string | null | undefined>; // Variables for userPrompt template rendering
   } | null;
   isDetectingInsights: boolean;
   onSendMessage: (content: string, type?: Message['type'], metadata?: Message['metadata']) => void;
-  onVoiceMessage: (role: 'user' | 'agent', content: string) => void;
+  onVoiceMessage: (role: 'user' | 'agent', content: string, metadata?: { isInterim?: boolean; messageId?: string; timestamp?: string }) => void;
   setIsReplyBoxFocused: (focused: boolean) => void;
   setIsVoiceModeActive: (active: boolean) => void;
   isVoiceModeActive: boolean;
@@ -81,6 +84,8 @@ function MobileLayout({
   currentParticipantName,
   awaitingAiResponse,
   voiceModeSystemPrompt,
+  voiceModeUserPrompt,
+  voiceModePromptVariables,
   voiceModeModelConfig,
   isDetectingInsights,
   onSendMessage,
@@ -299,6 +304,8 @@ function MobileLayout({
                 showAgentTyping={awaitingAiResponse}
                 voiceModeEnabled={!!voiceModeSystemPrompt}
                 voiceModeSystemPrompt={voiceModeSystemPrompt || undefined}
+                voiceModeUserPrompt={voiceModeUserPrompt || undefined}
+                voiceModePromptVariables={voiceModePromptVariables || undefined}
                 voiceModeModelConfig={voiceModeModelConfig || undefined}
                 onVoiceMessage={onVoiceMessage}
                 onReplyBoxFocusChange={setIsReplyBoxFocused}
@@ -401,6 +408,8 @@ export default function HomePage() {
   const [debugAuthId, setDebugAuthId] = useState<string | null>(null);
   // Voice mode configuration
   const [voiceModeSystemPrompt, setVoiceModeSystemPrompt] = useState<string | null>(null);
+  const [voiceModeUserPrompt, setVoiceModeUserPrompt] = useState<string | null>(null);
+  const [voiceModePromptVariables, setVoiceModePromptVariables] = useState<Record<string, string | null | undefined> | null>(null);
   const [voiceModeModelConfig, setVoiceModeModelConfig] = useState<{
     provider?: "deepgram-voice-agent" | "hybrid-voice-agent" | "speechmatics-voice-agent";
     voiceAgentProvider?: "deepgram-voice-agent" | "speechmatics-voice-agent";
@@ -417,6 +426,7 @@ export default function HomePage() {
     speechmaticsApiKeyEnvVar?: string;
     elevenLabsVoiceId?: string;
     elevenLabsModelId?: string;
+    promptVariables?: Record<string, string | null | undefined>; // Variables for userPrompt template rendering
   } | null>(null);
   // Store logId for voice agent exchanges (user message -> agent response)
   const voiceAgentLogIdRef = useRef<string | null>(null);
@@ -1047,39 +1057,177 @@ export default function HomePage() {
   };
 
   // Handle voice mode messages
+  // Track current streaming message ID to update the same message
+  const currentStreamingMessageIdRef = useRef<string | null>(null);
+  const currentStreamingMessageClientIdRef = useRef<string | null>(null);
+
   const handleVoiceMessage = useCallback(async (
     role: 'user' | 'agent',
-    content: string
+    content: string,
+    metadata?: { isInterim?: boolean; messageId?: string; timestamp?: string }
   ) => {
     if (!sessionData.askKey || !content.trim()) return;
 
-    const timestamp = new Date().toISOString();
+    const isInterim = metadata?.isInterim || false;
+    const messageId = metadata?.messageId;
+    const timestamp = metadata?.timestamp || new Date().toISOString();
     const optimisticId = `temp-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
     
     if (role === 'user') {
-      // Create user message from transcribed speech (without triggering text streaming)
       const senderName = currentParticipantName || 'Vous';
-      const optimisticMessage: Message = {
-        clientId: optimisticId,
-        id: optimisticId,
-        askKey: sessionData.askKey,
-        askSessionId: sessionData.ask?.askSessionId,
-        content,
-        type: 'text',
-        senderType: 'user',
-        senderId: null,
-        senderName,
-        timestamp,
-        metadata: {
-          voiceTranscribed: true,
-          senderName,
-        },
-      };
+      
+      // If this is an interim message with messageId, update the existing message
+      // Logic: add to the same message until we get an agent response
+      if (isInterim && messageId) {
+        // Check if we have a current streaming message
+        if (currentStreamingMessageIdRef.current === messageId && currentStreamingMessageClientIdRef.current) {
+          // Update existing message
+          setSessionData(prev => {
+            const messageIndex = prev.messages.findIndex(
+              msg => msg.clientId === currentStreamingMessageClientIdRef.current
+            );
+            
+            if (messageIndex >= 0) {
+              const updated = [...prev.messages];
+              updated[messageIndex] = {
+                ...updated[messageIndex],
+                content, // Update content
+                timestamp, // Update timestamp
+              };
+              return { ...prev, messages: updated };
+            }
+            
+            // Message not found, create new one
+            const optimisticMessage: Message = {
+              clientId: optimisticId,
+              id: optimisticId,
+              askKey: sessionData.askKey,
+              askSessionId: sessionData.ask?.askSessionId,
+              content,
+              type: 'text',
+              senderType: 'user',
+              senderId: null,
+              senderName,
+              timestamp,
+              metadata: {
+                voiceTranscribed: true,
+                senderName,
+                messageId, // Store messageId in metadata
+                isInterim: true, // Mark as interim for typewriter effect
+              },
+            };
+            currentStreamingMessageClientIdRef.current = optimisticId;
+            return { ...prev, messages: [...prev.messages, optimisticMessage] };
+          });
+          return; // Don't persist interim messages
+        } else {
+          // New streaming message, create it
+          currentStreamingMessageIdRef.current = messageId;
+          const optimisticMessage: Message = {
+            clientId: optimisticId,
+            id: optimisticId,
+            askKey: sessionData.askKey,
+            askSessionId: sessionData.ask?.askSessionId,
+            content,
+            type: 'text',
+            senderType: 'user',
+            senderId: null,
+            senderName,
+            timestamp,
+            metadata: {
+              voiceTranscribed: true,
+              senderName,
+              messageId, // Store messageId in metadata
+            },
+          };
+          currentStreamingMessageClientIdRef.current = optimisticId;
 
-      setSessionData(prev => ({
-        ...prev,
-        messages: [...prev.messages, optimisticMessage],
-      }));
+          setSessionData(prev => ({
+            ...prev,
+            messages: [...prev.messages, optimisticMessage],
+          }));
+          return; // Don't persist interim messages
+        }
+      }
+      
+      // Final message (not interim) - update existing if it exists, otherwise create new
+      if (!isInterim && messageId && currentStreamingMessageIdRef.current === messageId) {
+        // Update the existing streaming message to final
+        setSessionData(prev => {
+          const messageIndex = prev.messages.findIndex(
+            msg => msg.clientId === currentStreamingMessageClientIdRef.current
+          );
+          
+          if (messageIndex >= 0) {
+            const updated = [...prev.messages];
+            updated[messageIndex] = {
+              ...updated[messageIndex],
+              content, // Final content
+              timestamp, // Final timestamp
+              metadata: {
+                ...updated[messageIndex].metadata,
+                messageId, // Preserve messageId in metadata
+                isInterim: false, // Mark as final for instant display
+              },
+            };
+            return { ...prev, messages: updated };
+          }
+          
+          // Message not found, create new one
+          const optimisticMessage: Message = {
+            clientId: optimisticId,
+            id: optimisticId,
+            askKey: sessionData.askKey,
+            askSessionId: sessionData.ask?.askSessionId,
+            content,
+            type: 'text',
+            senderType: 'user',
+            senderId: null,
+            senderName,
+            timestamp,
+            metadata: {
+              voiceTranscribed: true,
+              senderName,
+              messageId, // Store messageId in metadata
+            },
+          };
+          return { ...prev, messages: [...prev.messages, optimisticMessage] };
+        });
+      } else if (!isInterim) {
+        // Final message without messageId or different messageId - create new
+        const optimisticMessage: Message = {
+          clientId: optimisticId,
+          id: optimisticId,
+          askKey: sessionData.askKey,
+          askSessionId: sessionData.ask?.askSessionId,
+          content,
+          type: 'text',
+          senderType: 'user',
+          senderId: null,
+          senderName,
+          timestamp,
+          metadata: {
+            voiceTranscribed: true,
+            senderName,
+            messageId, // Store messageId in metadata if available
+            isInterim: false, // Final message
+          },
+        };
+
+        setSessionData(prev => ({
+          ...prev,
+          messages: [...prev.messages, optimisticMessage],
+        }));
+      } else {
+        // Interim without messageId - skip (shouldn't happen but handle gracefully)
+        return;
+      }
+      
+      // Clear streaming message refs if this is a final message
+      if (!isInterim) {
+        currentStreamingMessageIdRef.current = null;
+        currentStreamingMessageClientIdRef.current = null;
+      }
 
       // Persist the message to database (without triggering AI response)
       try {
@@ -1108,7 +1256,10 @@ export default function HomePage() {
           body: JSON.stringify({
             content,
             type: 'text',
-            metadata: { voiceTranscribed: true },
+            metadata: { 
+              voiceTranscribed: true,
+              messageId, // Preserve messageId in metadata for deduplication
+            },
             senderName,
             timestamp,
           }),
@@ -1200,6 +1351,11 @@ export default function HomePage() {
         console.error('Error persisting voice user message:', error);
       }
     } else {
+      // Agent response - clear streaming message refs to allow new user message
+      // This allows the next user message to create a new message instead of updating the previous one
+      currentStreamingMessageIdRef.current = null;
+      currentStreamingMessageClientIdRef.current = null;
+      
       // Create AI message from agent response
       const optimisticMessage: Message = {
         clientId: optimisticId,
@@ -1304,6 +1460,8 @@ export default function HomePage() {
         const data = await response.json();
         if (data.success && data.data) {
           setVoiceModeSystemPrompt(data.data.systemPrompt || null);
+          setVoiceModeUserPrompt(data.data.userPrompt || null);
+          setVoiceModePromptVariables(data.data.promptVariables || null);
           // Extract voice agent config from model config if available
           // These fields are now stored directly in the database columns
           if (data.data.modelConfig) {
@@ -1330,7 +1488,8 @@ export default function HomePage() {
               speechmaticsApiKeyEnvVar: modelConfig.speechmaticsApiKeyEnvVar,
               elevenLabsVoiceId: modelConfig.elevenLabsVoiceId,
               elevenLabsModelId: modelConfig.elevenLabsModelId,
-            });
+              promptVariables: voiceModePromptVariables || undefined, // Include prompt variables
+            } as any);
           } else {
             // Use default config when no model config is available
             setVoiceModeModelConfig({
@@ -1846,6 +2005,8 @@ export default function HomePage() {
           currentParticipantName={currentParticipantName}
           awaitingAiResponse={awaitingAiResponse}
           voiceModeSystemPrompt={voiceModeSystemPrompt}
+          voiceModeUserPrompt={voiceModeUserPrompt}
+          voiceModePromptVariables={voiceModePromptVariables}
           voiceModeModelConfig={voiceModeModelConfig}
           isDetectingInsights={isDetectingInsights}
           onSendMessage={handleSendMessage}
@@ -1886,6 +2047,8 @@ export default function HomePage() {
                 showAgentTyping={awaitingAiResponse}
                 voiceModeEnabled={!!voiceModeSystemPrompt}
                 voiceModeSystemPrompt={voiceModeSystemPrompt || undefined}
+                voiceModeUserPrompt={voiceModeUserPrompt || undefined}
+                voiceModePromptVariables={voiceModePromptVariables || undefined}
                 voiceModeModelConfig={voiceModeModelConfig || undefined}
                 onVoiceMessage={handleVoiceMessage}
                 onReplyBoxFocusChange={setIsReplyBoxFocused}

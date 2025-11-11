@@ -26,7 +26,8 @@ const updateSchema = z.object({
   audienceScope: z.enum(audienceScopes).optional(),
   responseMode: z.enum(responseModes).optional(),
   participantIds: z.array(z.string().uuid()).optional(),
-  spokespersonId: z.string().uuid().optional().or(z.literal(""))
+  spokespersonId: z.string().uuid().optional().or(z.literal("")),
+  systemPrompt: z.string().trim().optional().or(z.literal(""))
 });
 
 /**
@@ -121,6 +122,7 @@ function mapAsk(row: any): AskSessionRecord {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     participants,
+    systemPrompt: row.system_prompt ?? null,
   };
 }
 
@@ -219,6 +221,7 @@ export async function PATCH(
   if (payload.deliveryMode) updateData.delivery_mode = payload.deliveryMode;
   if (payload.audienceScope) updateData.audience_scope = payload.audienceScope;
   if (payload.responseMode) updateData.response_mode = payload.responseMode;
+  if (payload.systemPrompt !== undefined) updateData.system_prompt = sanitizeOptional(payload.systemPrompt || null);
 
   const hasParticipantUpdate = payload.participantIds !== undefined;
   const hasSpokespersonUpdate = payload.spokespersonId !== undefined;

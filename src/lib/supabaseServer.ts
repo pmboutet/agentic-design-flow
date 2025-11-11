@@ -76,6 +76,32 @@ export async function getCurrentUser() {
 }
 
 /**
+ * Helper to verify the current user is authenticated.
+ * Throws an error if not authenticated.
+ * Does not check for admin role.
+ */
+export async function requireAuth() {
+  // In development, allow bypass when IS_DEV=true
+  if (process.env.IS_DEV === 'true') {
+    return {
+      user: {
+        id: 'dev-user',
+        email: 'dev-user@example.com',
+      },
+    }
+  }
+
+  const supabase = await createServerSupabaseClient()
+  const { data: { user }, error } = await supabase.auth.getUser()
+  
+  if (error || !user) {
+    throw new Error('Authentication required')
+  }
+  
+  return { user }
+}
+
+/**
  * Helper to verify the current user is an admin.
  * Throws an error if not authenticated or not an admin.
  */

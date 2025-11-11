@@ -11,7 +11,7 @@ const statusValues = ["active", "inactive", "draft", "closed"] as const;
 const deliveryModes = ["physical", "digital"] as const;
 const audienceScopes = ["individual", "group"] as const;
 const responseModes = ["collective", "simultaneous"] as const;
-const askSelect = "*, projects(name), ask_participants(id, user_id, role, participant_name, participant_email, is_spokesperson, invite_token)";
+const askSelect = "*, projects(name), ask_participants(id, user_id, role, participant_name, participant_email, is_spokesperson, invite_token), system_prompt";
 const dateSchema = z.string().trim().min(1).refine(value => !Number.isNaN(new Date(value).getTime()), {
   message: "Invalid date"
 });
@@ -34,7 +34,8 @@ const askSchema = z.object({
   participantIds: z.array(z.string().uuid()).default([]),
   participantEmails: z.array(z.string().email()).default([]),
   spokespersonId: z.string().uuid().optional().or(z.literal("")),
-  spokespersonEmail: z.string().email().optional().or(z.literal(""))
+  spokespersonEmail: z.string().email().optional().or(z.literal("")),
+  systemPrompt: z.string().trim().optional().or(z.literal(""))
 });
 
 function mapAsk(row: any): AskSessionRecord {
@@ -75,6 +76,7 @@ function mapAsk(row: any): AskSessionRecord {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     participants,
+    systemPrompt: row.system_prompt ?? null,
   };
 }
 
@@ -149,7 +151,8 @@ export async function POST(request: NextRequest) {
       max_participants: payload.maxParticipants ?? null,
       delivery_mode: payload.deliveryMode,
       audience_scope: payload.audienceScope,
-      response_mode: payload.responseMode
+      response_mode: payload.responseMode,
+      system_prompt: sanitizeOptional(payload.systemPrompt || null)
     };
 
     console.log('📝 ASK insert data to be sent to DB:', insertData);

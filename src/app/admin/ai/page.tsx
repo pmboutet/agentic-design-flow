@@ -6,8 +6,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
-import { Loader2, Network, Sparkles, ChevronDown, ChevronUp, TestTube2, Settings } from "lucide-react";
-import type { AiAgentRecord, AiModelConfig, PromptVariableDefinition, ApiResponse } from "@/types";
+import { Loader2, Network, Sparkles, ChevronDown, ChevronUp, TestTube2, Settings, Pencil, Trash2, Plus } from "lucide-react";
+import type { AiAgentRecord, AiModelConfig, PromptVariableDefinition, ApiResponse, AskPromptTemplate } from "@/types";
 import { extractTemplateVariables } from "@/lib/ai/templates";
 import { AgentTestMode } from "@/components/admin/AgentTestMode";
 
@@ -404,6 +404,18 @@ export default function AiConfigurationPage() {
   }));
   const [testModeAgentId, setTestModeAgentId] = useState<string | null>(null);
   
+  // Ask prompt templates state
+  const [templates, setTemplates] = useState<AskPromptTemplate[]>([]);
+  const [isLoadingTemplates, setIsLoadingTemplates] = useState(false);
+  const [isCreatingTemplate, setIsCreatingTemplate] = useState(false);
+  const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
+  const [newTemplate, setNewTemplate] = useState<{ name: string; description: string; systemPrompt: string }>({
+    name: "",
+    description: "",
+    systemPrompt: "",
+  });
+  const [templateDrafts, setTemplateDrafts] = useState<Map<string, { name: string; description: string; systemPrompt: string }>>(new Map());
+  
   // Graph RAG state
   const [graphStats, setGraphStats] = useState<{
     totalInsights: number;
@@ -515,9 +527,28 @@ export default function AiConfigurationPage() {
     }
   };
 
+  const fetchTemplates = async () => {
+    setIsLoadingTemplates(true);
+    try {
+      const response = await fetch("/api/admin/ask-prompt-templates", { credentials: "include" });
+      const data: ApiResponse<AskPromptTemplate[]> = await response.json();
+      
+      if (data.success && data.data) {
+        setTemplates(data.data);
+      } else {
+        console.error("Failed to load templates:", data.error);
+      }
+    } catch (err) {
+      console.error("Failed to load templates:", err);
+    } finally {
+      setIsLoadingTemplates(false);
+    }
+  };
+
   useEffect(() => {
     fetchConfiguration();
     loadGraphStats();
+    fetchTemplates();
   }, []);
 
   const loadGraphStats = async () => {
@@ -2301,6 +2332,295 @@ export default function AiConfigurationPage() {
           })
         )}
       </div>
+
+      {/* Ask Prompt Templates Section */}
+      <Card className="mt-8">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Sparkles className="h-5 w-5" />
+            Templates de prompts ASK
+          </CardTitle>
+          <CardDescription>
+            Gérez les templates de prompts système pour les sessions ASK. Les templates peuvent être sélectionnés lors de la création ou modification d'une ASK.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {isLoadingTemplates ? (
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span>Chargement des templates...</span>
+            </div>
+          ) : (
+            <>
+              <div className="flex justify-end">
+                <Button
+                  onClick={() => {
+                    setIsCreatingTemplate(true);
+                    setNewTemplate({ name: "", description: "", systemPrompt: "" });
+                  }}
+                  disabled={isCreatingTemplate}
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  Nouveau template
+                </Button>
+              </div>
+
+              {isCreatingTemplate && (
+                <Card className="border-primary">
+                  <CardHeader>
+                    <CardTitle>Créer un nouveau template</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="new-template-name">Nom</Label>
+                      <Input
+                        id="new-template-name"
+                        value={newTemplate.name}
+                        onChange={(e) => setNewTemplate({ ...newTemplate, name: e.target.value })}
+                        placeholder="Nom du template"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="new-template-description">Description</Label>
+                      <Textarea
+                        id="new-template-description"
+                        value={newTemplate.description}
+                        onChange={(e) => setNewTemplate({ ...newTemplate, description: e.target.value })}
+                        placeholder="Description du template (optionnel)"
+                        rows={2}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="new-template-prompt">System prompt</Label>
+                      <Textarea
+                        id="new-template-prompt"
+                        value={newTemplate.systemPrompt}
+                        onChange={(e) => setNewTemplate({ ...newTemplate, systemPrompt: e.target.value })}
+                        placeholder="Contenu du prompt système"
+                        rows={8}
+                      />
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        onClick={async () => {
+                          if (!newTemplate.name || !newTemplate.systemPrompt) {
+                            alert("Le nom et le prompt système sont requis");
+                            return;
+                          }
+                          try {
+                            const response = await fetch("/api/admin/ask-prompt-templates", {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              credentials: "include",
+                              body: JSON.stringify({
+                                name: newTemplate.name,
+                                description: newTemplate.description || null,
+                                systemPrompt: newTemplate.systemPrompt,
+                              }),
+                            });
+                            const data: ApiResponse<AskPromptTemplate> = await response.json();
+                            if (data.success) {
+                              await fetchTemplates();
+                              setIsCreatingTemplate(false);
+                              setNewTemplate({ name: "", description: "", systemPrompt: "" });
+                            } else {
+                              alert(data.error || "Erreur lors de la création");
+                            }
+                          } catch (err) {
+                            alert("Erreur lors de la création du template");
+                            console.error(err);
+                          }
+                        }}
+                      >
+                        Créer
+                      </Button>
+                      <Button
+                        variant="outline"
+                        onClick={() => {
+                          setIsCreatingTemplate(false);
+                          setNewTemplate({ name: "", description: "", systemPrompt: "" });
+                        }}
+                      >
+                        Annuler
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {templates.length === 0 ? (
+                <p className="text-muted-foreground">Aucun template créé pour le moment.</p>
+              ) : (
+                <div className="space-y-4">
+                  {templates.map((template) => {
+                    const draft = templateDrafts.get(template.id) || {
+                      name: template.name,
+                      description: template.description || "",
+                      systemPrompt: template.systemPrompt,
+                    };
+                    const isEditing = editingTemplateId === template.id;
+
+                    return (
+                      <Card key={template.id}>
+                        <CardContent className="pt-6 space-y-4">
+                          {isEditing ? (
+                            <>
+                              <div className="space-y-2">
+                                <Label htmlFor={`template-name-${template.id}`}>Nom</Label>
+                                <Input
+                                  id={`template-name-${template.id}`}
+                                  value={draft.name}
+                                  onChange={(e) =>
+                                    setTemplateDrafts(
+                                      new Map(templateDrafts.set(template.id, { ...draft, name: e.target.value }))
+                                    )
+                                  }
+                                />
+                              </div>
+                              <div className="space-y-2">
+                                <Label htmlFor={`template-description-${template.id}`}>Description</Label>
+                                <Textarea
+                                  id={`template-description-${template.id}`}
+                                  value={draft.description}
+                                  onChange={(e) =>
+                                    setTemplateDrafts(
+                                      new Map(templateDrafts.set(template.id, { ...draft, description: e.target.value }))
+                                    )
+                                  }
+                                  rows={2}
+                                />
+                              </div>
+                              <div className="space-y-2">
+                                <Label htmlFor={`template-prompt-${template.id}`}>System prompt</Label>
+                                <Textarea
+                                  id={`template-prompt-${template.id}`}
+                                  value={draft.systemPrompt}
+                                  onChange={(e) =>
+                                    setTemplateDrafts(
+                                      new Map(templateDrafts.set(template.id, { ...draft, systemPrompt: e.target.value }))
+                                    )
+                                  }
+                                  rows={8}
+                                />
+                              </div>
+                              <div className="flex gap-2">
+                                <Button
+                                  onClick={async () => {
+                                    try {
+                                      const response = await fetch(`/api/admin/ask-prompt-templates/${template.id}`, {
+                                        method: "PUT",
+                                        headers: { "Content-Type": "application/json" },
+                                        credentials: "include",
+                                        body: JSON.stringify({
+                                          name: draft.name,
+                                          description: draft.description || null,
+                                          systemPrompt: draft.systemPrompt,
+                                        }),
+                                      });
+                                      const data: ApiResponse<AskPromptTemplate> = await response.json();
+                                      if (data.success) {
+                                        await fetchTemplates();
+                                        setEditingTemplateId(null);
+                                        setTemplateDrafts(new Map());
+                                      } else {
+                                        alert(data.error || "Erreur lors de la mise à jour");
+                                      }
+                                    } catch (err) {
+                                      alert("Erreur lors de la mise à jour du template");
+                                      console.error(err);
+                                    }
+                                  }}
+                                >
+                                  Enregistrer
+                                </Button>
+                                <Button
+                                  variant="outline"
+                                  onClick={() => {
+                                    setEditingTemplateId(null);
+                                    setTemplateDrafts(new Map());
+                                  }}
+                                >
+                                  Annuler
+                                </Button>
+                              </div>
+                            </>
+                          ) : (
+                            <>
+                              <div className="flex items-start justify-between">
+                                <div className="flex-1">
+                                  <h3 className="font-semibold text-lg">{template.name}</h3>
+                                  {template.description && (
+                                    <p className="text-sm text-muted-foreground mt-1">{template.description}</p>
+                                  )}
+                                </div>
+                                <div className="flex gap-2">
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => {
+                                      setEditingTemplateId(template.id);
+                                      setTemplateDrafts(
+                                        new Map([
+                                          [
+                                            template.id,
+                                            {
+                                              name: template.name,
+                                              description: template.description || "",
+                                              systemPrompt: template.systemPrompt,
+                                            },
+                                          ],
+                                        ])
+                                      );
+                                    }}
+                                  >
+                                    <Pencil className="h-4 w-4 mr-1" />
+                                    Modifier
+                                  </Button>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={async () => {
+                                      if (!confirm(`Êtes-vous sûr de vouloir supprimer le template "${template.name}" ?`)) {
+                                        return;
+                                      }
+                                      try {
+                                        const response = await fetch(`/api/admin/ask-prompt-templates/${template.id}`, {
+                                          method: "DELETE",
+                                          credentials: "include",
+                                        });
+                                        const data: ApiResponse = await response.json();
+                                        if (data.success) {
+                                          await fetchTemplates();
+                                        } else {
+                                          alert(data.error || "Erreur lors de la suppression");
+                                        }
+                                      } catch (err) {
+                                        alert("Erreur lors de la suppression du template");
+                                        console.error(err);
+                                      }
+                                    }}
+                                  >
+                                    <Trash2 className="h-4 w-4 mr-1" />
+                                    Supprimer
+                                  </Button>
+                                </div>
+                              </div>
+                              <div className="rounded-lg border bg-muted/30 p-3">
+                                <Label className="text-xs text-muted-foreground">System prompt</Label>
+                                <pre className="mt-2 text-sm whitespace-pre-wrap font-mono">{template.systemPrompt}</pre>
+                              </div>
+                            </>
+                          )}
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
+                </div>
+              )}
+            </>
+          )}
+        </CardContent>
+      </Card>
       </div>
   );
 }
