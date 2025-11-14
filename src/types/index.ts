@@ -227,6 +227,7 @@ export interface AiModelConfig {
   elevenLabsVoiceId?: string; // ElevenLabs voice ID
   elevenLabsModelId?: string; // ElevenLabs TTS model ID (e.g., "eleven_turbo_v2_5")
   elevenLabsApiKeyEnvVar?: string; // Environment variable name for ElevenLabs API key
+  disableElevenLabsTTS?: boolean; // If true, disable ElevenLabs TTS for Speechmatics (only STT will work)
 }
 
 export interface AiAgentRecord {
@@ -240,6 +241,7 @@ export interface AiAgentRecord {
   userPrompt: string;
   availableVariables: string[];
   metadata?: Record<string, unknown> | null;
+  voice?: boolean;
   createdAt?: string;
   updatedAt?: string;
   modelConfig?: AiModelConfig | null;
