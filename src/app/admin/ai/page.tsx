@@ -32,6 +32,7 @@ type AgentDraft = AiAgentRecord & {
   availableVariablesDraft: string[];
   modelConfigIdDraft: string | null;
   fallbackModelConfigIdDraft: string | null;
+  voiceDraft: boolean;
   isSaving?: boolean;
   saveError?: string | null;
   saveSuccess?: boolean;
@@ -46,6 +47,7 @@ type NewAgentDraft = {
   availableVariables: string[];
   modelConfigId: string | null;
   fallbackModelConfigId: string | null;
+  voice: boolean;
   slugManuallyEdited: boolean;
   isSaving: boolean;
   error: string | null;
@@ -326,6 +328,7 @@ function createEmptyNewAgentDraft(): NewAgentDraft {
     availableVariables: [],
     modelConfigId: null,
     fallbackModelConfigId: null,
+    voice: false,
     slugManuallyEdited: false,
     isSaving: false,
     error: null,
@@ -341,6 +344,7 @@ function mergeAgentWithDraft(agent: AiAgentRecord): AgentDraft {
     availableVariablesDraft: [...agent.availableVariables],
     modelConfigIdDraft: agent.modelConfigId ?? null,
     fallbackModelConfigIdDraft: agent.fallbackModelConfigId ?? null,
+    voiceDraft: agent.voice ?? false,
     isSaving: false,
     saveError: null,
     saveSuccess: false,
@@ -725,6 +729,7 @@ export default function AiConfigurationPage() {
           availableVariables: newAgent.availableVariables,
           modelConfigId: newAgent.modelConfigId,
           fallbackModelConfigId: newAgent.fallbackModelConfigId,
+          voice: newAgent.voice,
         }),
       });
 
@@ -805,6 +810,15 @@ export default function AiConfigurationPage() {
     }));
   };
 
+  const handleVoiceChange = (agentId: string, value: boolean) => {
+    setAgents(prev => prev.map(agent => {
+      if (agent.id !== agentId) {
+        return agent;
+      }
+      return { ...agent, voiceDraft: value, saveSuccess: false };
+    }));
+  };
+
   const handleSaveAgent = async (agentId: string) => {
     setAgents(prev => prev.map(agent => agent.id === agentId ? { ...agent, isSaving: true, saveError: null, saveSuccess: false } : agent));
 
@@ -824,6 +838,7 @@ export default function AiConfigurationPage() {
           availableVariables: agent.availableVariablesDraft,
           modelConfigId: agent.modelConfigIdDraft,
           fallbackModelConfigId: agent.fallbackModelConfigIdDraft,
+          voice: agent.voiceDraft,
         }),
       });
 
@@ -844,6 +859,7 @@ export default function AiConfigurationPage() {
           availableVariables: [...item.availableVariablesDraft],
           modelConfigId: item.modelConfigIdDraft,
           fallbackModelConfigId: item.fallbackModelConfigIdDraft,
+          voice: item.voiceDraft,
           isSaving: false,
           saveSuccess: true,
         };
@@ -1012,6 +1028,25 @@ export default function AiConfigurationPage() {
                   ))}
                 </select>
               </div>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="new-agent-voice"
+                  checked={newAgent.voice}
+                  onChange={event => setNewAgent(prev => ({ ...prev, voice: event.target.checked }))}
+                  disabled={newAgent.isSaving}
+                  className="h-4 w-4 rounded border-gray-300"
+                />
+                <Label htmlFor="new-agent-voice" className="cursor-pointer">
+                  Agent vocal (utilise voiceAgentProvider du modèle)
+                </Label>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Si activé, l'agent utilisera le voiceAgentProvider du modèle configuré. Sinon, il utilisera le provider normal (texte/JSON).
+              </p>
             </div>
 
             <div className="grid gap-4 md:grid-cols-2">
@@ -2226,6 +2261,24 @@ export default function AiConfigurationPage() {
                             </div>
                           </div>
 
+                          <div className="space-y-2">
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="checkbox"
+                                id={`voice-${agent.id}`}
+                                checked={agent.voiceDraft}
+                                onChange={event => handleVoiceChange(agent.id, event.target.checked)}
+                                className="h-4 w-4 rounded border-gray-300"
+                              />
+                              <Label htmlFor={`voice-${agent.id}`} className="cursor-pointer">
+                                Agent vocal (utilise voiceAgentProvider du modèle)
+                              </Label>
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                              Si activé, l'agent utilisera le voiceAgentProvider du modèle configuré. Sinon, il utilisera le provider normal (texte/JSON).
+                            </p>
+                          </div>
+
                           <div className="grid gap-4 md:grid-cols-2">
                             <div className="space-y-2">
                               <Label htmlFor={`system-${agent.id}`}>System prompt</Label>
@@ -2506,28 +2559,63 @@ export default function AiConfigurationPage() {
                               <div className="flex gap-2">
                                 <Button
                                   onClick={async () => {
+                                    // Validate before sending
+                                    if (!draft.name || !draft.name.trim()) {
+                                      alert("Le nom est requis");
+                                      return;
+                                    }
+                                    if (!draft.systemPrompt || !draft.systemPrompt.trim()) {
+                                      alert("Le prompt système est requis");
+                                      return;
+                                    }
+                                    
                                     try {
+                                      const payload = {
+                                        name: draft.name.trim(),
+                                        description: draft.description?.trim() || null,
+                                        systemPrompt: draft.systemPrompt.trim(),
+                                      };
+                                      
+                                      console.log("Updating template:", template.id, payload);
+                                      
                                       const response = await fetch(`/api/admin/ask-prompt-templates/${template.id}`, {
                                         method: "PUT",
                                         headers: { "Content-Type": "application/json" },
                                         credentials: "include",
-                                        body: JSON.stringify({
-                                          name: draft.name,
-                                          description: draft.description || null,
-                                          systemPrompt: draft.systemPrompt,
-                                        }),
+                                        body: JSON.stringify(payload),
                                       });
+                                      
                                       const data: ApiResponse<AskPromptTemplate> = await response.json();
-                                      if (data.success) {
+                                      
+                                      console.log("Update response:", {
+                                        status: response.status,
+                                        ok: response.ok,
+                                        data,
+                                      });
+                                      
+                                      if (!response.ok) {
+                                        console.error("Update failed:", response.status, data);
+                                        alert(data.error || `Erreur lors de la mise à jour (${response.status})`);
+                                        return;
+                                      }
+                                      
+                                      if (data.success && data.data) {
+                                        console.log("Template updated successfully, refreshing list...");
+                                        // Update the template in the list immediately
+                                        setTemplates(prev => prev.map(t => 
+                                          t.id === template.id ? data.data! : t
+                                        ));
+                                        // Then refresh from server to ensure consistency
                                         await fetchTemplates();
                                         setEditingTemplateId(null);
                                         setTemplateDrafts(new Map());
                                       } else {
+                                        console.error("Update failed:", data);
                                         alert(data.error || "Erreur lors de la mise à jour");
                                       }
                                     } catch (err) {
-                                      alert("Erreur lors de la mise à jour du template");
-                                      console.error(err);
+                                      console.error("Error updating template:", err);
+                                      alert(`Erreur lors de la mise à jour du template: ${err instanceof Error ? err.message : 'Erreur inconnue'}`);
                                     }
                                   }}
                                 >
