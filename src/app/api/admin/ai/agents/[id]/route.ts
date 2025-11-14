@@ -12,6 +12,7 @@ interface AgentUpdatePayload {
   modelConfigId?: string | null;
   fallbackModelConfigId?: string | null;
   availableVariables?: string[];
+  voice?: boolean;
 }
 
 export async function PUT(
@@ -43,6 +44,9 @@ export async function PUT(
     }
     if (body.fallbackModelConfigId === null || typeof body.fallbackModelConfigId === 'string') {
       updatePayload.fallback_model_config_id = body.fallbackModelConfigId ?? null;
+    }
+    if (typeof body.voice === 'boolean') {
+      updatePayload.voice = body.voice;
     }
 
     // Synchronize variables from prompts if systemPrompt or userPrompt are being updated

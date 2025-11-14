@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminSupabaseClient } from '@/lib/supabaseAdmin';
-import { fetchAgentByIdOrSlug } from '@/lib/ai/agent-config';
+import { fetchAgentByIdOrSlug, buildChatAgentVariables, type PromptVariables } from '@/lib/ai/agent-config';
+import { executeAgent } from '@/lib/ai/service';
 import { renderTemplate } from '@/lib/ai/templates';
 import { parseErrorMessage } from '@/lib/utils';
 
@@ -32,7 +33,63 @@ export async function POST(
     const variables: Record<string, string> = {};
 
     if (body.askSessionId) {
-      // Build variables for ASK context
+      // For ask-conversation-response agent, use executeAgent to ensure consistency
+      // with other modes (text, streaming, voice)
+      if (agent.slug === 'ask-conversation-response') {
+        // Build variables using the shared function for consistency
+        const baseVariables = await buildChatAgentVariables(supabase, body.askSessionId);
+        
+        // Add mock conversation variables for testing
+        const testVariables: PromptVariables = {
+          ...baseVariables,
+          message_history: 'Message 1: Test message\nMessage 2: Another test message',
+          latest_user_message: 'Test user message',
+          latest_ai_response: 'Test AI response',
+          participant_name: 'Test User',
+          participants: 'Test User (Participant), Another User (Observer)',
+          existing_insights_json: JSON.stringify([]),
+          messages_json: JSON.stringify([
+            { id: '1', senderType: 'user', senderName: 'Test User', content: 'Test message', timestamp: new Date().toISOString() },
+            { id: '2', senderType: 'ai', senderName: 'Agent', content: 'Test AI response', timestamp: new Date().toISOString() },
+          ]),
+        };
+
+        // Use executeAgent to get the same behavior as production
+        try {
+          const result = await executeAgent({
+            supabase,
+            agentSlug: agent.slug,
+            askSessionId: body.askSessionId,
+            interactionType: 'ask.chat.response.test',
+            variables: testVariables,
+          });
+
+          // Extract prompts from the result (they're already resolved)
+          // We need to get them from the agent config that was used
+          const { getAgentConfigForAsk } = await import('@/lib/ai/agent-config');
+          const agentConfig = await getAgentConfigForAsk(supabase, body.askSessionId, testVariables);
+
+          return NextResponse.json({
+            success: true,
+            data: {
+              systemPrompt: agentConfig.systemPrompt,
+              userPrompt: agentConfig.userPrompt || '',
+              variables: testVariables,
+              // Include execution result for reference
+              executionResult: {
+                content: typeof result.content === 'string' ? result.content : 'N/A',
+                logId: result.logId,
+              },
+            },
+          });
+        } catch (execError) {
+          // If executeAgent fails, fall back to renderTemplate for debugging
+          console.warn('executeAgent failed in test mode, falling back to renderTemplate:', execError);
+          // Continue to renderTemplate fallback below
+        }
+      }
+
+      // Fallback: Build variables manually for other agents or if executeAgent fails
       const { data: askSession, error: askError } = await supabase
         .from('ask_sessions')
         .select(`

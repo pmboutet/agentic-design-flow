@@ -13,6 +13,7 @@ interface AgentCreatePayload {
   modelConfigId?: string | null;
   fallbackModelConfigId?: string | null;
   availableVariables?: string[];
+  voice?: boolean;
 }
 
 function slugify(input: string): string {
@@ -100,6 +101,7 @@ export async function POST(request: NextRequest) {
       system_prompt: systemPrompt,
       user_prompt: userPrompt,
       available_variables: variables,
+      voice: typeof body.voice === 'boolean' ? body.voice : false,
       metadata: null,
     } as AiAgentRow;
 
@@ -115,6 +117,7 @@ export async function POST(request: NextRequest) {
         system_prompt: insertPayload.system_prompt,
         user_prompt: insertPayload.user_prompt,
         available_variables: insertPayload.available_variables ?? [],
+        voice: insertPayload.voice ?? false,
         metadata: insertPayload.metadata ?? null,
       })
       .select('*')
