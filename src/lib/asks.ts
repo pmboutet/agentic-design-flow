@@ -15,7 +15,16 @@ export interface AskSessionConfig {
 
 /**
  * Determine if an ASK session should use a shared thread
- * Mode partagé: audience_scope = 'group' AND response_mode = 'collective'
+ * 
+ * Mode partagé (shared thread):
+ * - audience_scope = 'group' AND response_mode = 'collective'
+ * - Tous les participants partagent le même thread
+ * - user_id = NULL, is_shared = true
+ * 
+ * Mode individuel (individual thread):
+ * - audience_scope = 'individual' OR response_mode = 'simultaneous'
+ * - Chaque utilisateur a son propre thread
+ * - user_id = user's profile ID, is_shared = false
  */
 export function shouldUseSharedThread(askSession: AskSessionConfig): boolean {
   return (
@@ -26,8 +35,17 @@ export function shouldUseSharedThread(askSession: AskSessionConfig): boolean {
 
 /**
  * Get or create a conversation thread for an ASK session
+ * 
+ * Thread Logic:
  * - Shared thread: is_shared = true, user_id = NULL (for group/collective mode)
+ *   → Tous les participants voient les mêmes messages et insights
+ * 
  * - Individual thread: is_shared = false, user_id = specific user (for individual/simultaneous mode)
+ *   → Chaque utilisateur a son propre thread isolé
+ *   → Les messages et insights sont séparés par utilisateur
+ * 
+ * Important: Si userId est fourni en mode individuel, le thread sera créé/recherché pour cet utilisateur spécifique.
+ * Si userId est NULL en mode individuel, on bascule vers un thread partagé (fallback).
  */
 export async function getOrCreateConversationThread(
   supabase: SupabaseClient,
