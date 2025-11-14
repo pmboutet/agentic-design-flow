@@ -543,7 +543,8 @@ function MessageBubble({
     <motion.div
       initial={isInterim ? false : { opacity: 0, y: 20 }} // No animation for interim messages
       animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -20 }}
+      exit={{ opacity: 0, y: -20, scale: 0.95 }}
+      layout={false} // Disable layout animations to prevent disappearing messages
       className={cn(
         'flex',
         isSystem ? 'justify-center' : isUser ? 'justify-end' : 'justify-start'

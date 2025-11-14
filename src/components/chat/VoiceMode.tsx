@@ -29,6 +29,7 @@ interface VoiceModeProps {
     speechmaticsApiKeyEnvVar?: string;
     elevenLabsVoiceId?: string;
     elevenLabsModelId?: string;
+    disableElevenLabsTTS?: boolean;
   };
   onMessage: (message: DeepgramMessageEvent | HybridVoiceAgentMessage | SpeechmaticsMessageEvent) => void;
   onError: (error: Error) => void;
@@ -164,6 +165,7 @@ export function VoiceMode({
           llmModel: modelConfig?.speechmaticsLlmModel,
           elevenLabsVoiceId: modelConfig?.elevenLabsVoiceId,
           elevenLabsModelId: modelConfig?.elevenLabsModelId || "eleven_turbo_v2_5",
+          disableElevenLabsTTS: modelConfig?.disableElevenLabsTTS || false,
         };
 
         console.log('[VoiceMode] Speechmatics configuration:', config);
