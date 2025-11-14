@@ -213,17 +213,43 @@ function buildAvailableOwnerOptions(boardData: ProjectJourneyBoardData) {
 // ============================================================================
 
 function sanitizeJsonString(jsonString: string): string {
-  let cleaned = jsonString.replace(/^\uFEFF/, "").trim();
+  // Remove BOM and non-printables
+  let cleaned = jsonString.replace(/^\uFEFF/, "").replace(/[\u0000-\u001F]+/g, " ").trim();
 
-  cleaned = cleaned
-    .replace(/[""]/g, '"')
-    .replace(/['']/g, "'")
-    .replace(/([{,]\s*)'([^']*?)'\s*:/g, '$1"$2":')
-    .replace(/([{,]\s*)([A-Za-z_$][A-Za-z0-9_$]*)\s*:/g, '$1"$2":')
-    .replace(/([{,]\s*)([^"'\[{\s][^:]*?)\s*:/g, '$1"$2":')
-    .replace(/:\s*'([^']*?)'(\s*[},])/g, (_, value: string, suffix: string) => `: "${value.replace(/"/g, '\\"')}"${suffix}`)
-    .replace(/,(\s*[}\]])/g, '$1')
-    .replace(/([}\]])(\s*)([{\[])/g, '$1,$2$3');
+  // Strip markdown code fences/backticks
+  cleaned = cleaned.replace(/```[a-zA-Z]*[\s\S]*?```/g, (block) => {
+    const inner = block.replace(/^```[a-zA-Z]*\n?/, "").replace(/\n?```$/, "");
+    return inner;
+  });
+  cleaned = cleaned.replace(/`([^`\\]*(?:\\.[^`\\]*)*)`/g, '"$1"');
+
+  // Normalize quotes
+  cleaned = cleaned.replace(/[""]/g, '"').replace(/['']/g, "'");
+
+  // Remove JS/JSONC comments
+  cleaned = cleaned.replace(/\/\*[\s\S]*?\*\//g, "");
+  cleaned = cleaned.replace(/(^|[^:])\/\/.*$/gm, "$1");
+
+  // Quote unquoted keys
+  cleaned = cleaned.replace(/([,{]\s*)([A-Za-z_$][A-Za-z0-9_$]*)\s*:/g, '$1"$2":');
+  cleaned = cleaned.replace(/([{,]\s*)([^"'\[{\s][^:]*?)\s*:/g, '$1"$2":');
+
+  // Convert single-quoted strings to double-quoted strings
+  cleaned = cleaned.replace(/'([^'\\]*(?:\\.[^'\\]*)*)'/g, (_m, g1) => '"' + g1.replace(/\\?"/g, '\\"') + '"');
+
+  // Remove trailing commas in objects/arrays
+  cleaned = cleaned.replace(/,(\s*[}\]])/g, '$1');
+
+  // Convert undefined to null; normalize booleans and null casing
+  cleaned = cleaned.replace(/:\s*undefined(\s*[,}\]])/g, ': null$1');
+  cleaned = cleaned.replace(/\bTrue\b/g, 'true').replace(/\bFalse\b/g, 'false');
+  cleaned = cleaned.replace(/\bNULL\b/g, 'null');
+
+  // Trim any noise outside first/last braces/brackets
+  cleaned = cleaned.replace(/^[^\[{]+/, '').replace(/[^\]}]+$/, '');
+
+  // Fix missing commas between objects/arrays
+  cleaned = cleaned.replace(/([}\]])(\s*)([{\[])/g, '$1,$2$3');
 
   return cleaned;
 }
@@ -232,29 +258,103 @@ function extractJsonCandidate(raw: string): string {
   const trimmed = raw.trim();
   if (!trimmed) throw new Error("Empty response from agent");
 
-  if (trimmed.startsWith("```")) {
-    const lines = trimmed.split(/\r?\n/);
-    const startIndex = lines.findIndex(line => line.trim().startsWith("{"));
-    const endIndex = lines.reduceRight((acc, line, index) => {
-      if (acc !== -1) return acc;
-      return line.trim().endsWith("}") ? index : -1;
-    }, -1);
-
-    if (startIndex >= 0 && endIndex >= startIndex) {
-      return lines.slice(startIndex, endIndex + 1).join("\n");
+  // Try to extract from markdown code blocks first
+  const codeBlockMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  if (codeBlockMatch && codeBlockMatch[1]) {
+    const extracted = codeBlockMatch[1].trim();
+    if (extracted.includes('{') || extracted.includes('[')) {
+      return extracted;
     }
   }
 
-  const firstBrace = trimmed.indexOf("{");
-  if (firstBrace === -1) return trimmed;
+  // Try line-based extraction for code blocks
+  if (trimmed.startsWith("```")) {
+    const lines = trimmed.split(/\r?\n/);
+    const startIndex = lines.findIndex(line => {
+      const trimmedLine = line.trim();
+      return trimmedLine.startsWith("{") || trimmedLine.startsWith("[");
+    });
+    
+    if (startIndex >= 0) {
+      const opener = lines[startIndex].trim()[0];
+      const closer = opener === '{' ? '}' : ']';
+      
+      let braceCount = 0;
+      let endIndex = -1;
+      
+      for (let i = startIndex; i < lines.length; i++) {
+        const line = lines[i];
+        for (let j = 0; j < line.length; j++) {
+          if (line[j] === opener) braceCount++;
+          if (line[j] === closer) {
+            braceCount--;
+            if (braceCount === 0) {
+              endIndex = i;
+              break;
+            }
+          }
+        }
+        if (endIndex >= 0) break;
+      }
 
+      if (endIndex >= startIndex) {
+        return lines.slice(startIndex, endIndex + 1).join("\n");
+      }
+    }
+  }
+
+  // Find first brace or bracket
+  const firstBrace = trimmed.indexOf("{");
+  const firstBracket = trimmed.indexOf("[");
+  
+  let startPos = -1;
+  let opener = '';
+  let closer = '';
+  
+  if (firstBrace !== -1 && (firstBracket === -1 || firstBrace < firstBracket)) {
+    startPos = firstBrace;
+    opener = '{';
+    closer = '}';
+  } else if (firstBracket !== -1) {
+    startPos = firstBracket;
+    opener = '[';
+    closer = ']';
+  }
+  
+  if (startPos === -1) {
+    // No JSON structure found, return as-is (might be plain text error)
+    return trimmed;
+  }
+
+  // Count braces/brackets to find matching closer
   let braceCount = 0;
   let lastBrace = -1;
+  let inString = false;
+  let escapeNext = false;
 
-  for (let i = firstBrace; i < trimmed.length; i++) {
-    if (trimmed[i] === '{') {
+  for (let i = startPos; i < trimmed.length; i++) {
+    const char = trimmed[i];
+    
+    if (escapeNext) {
+      escapeNext = false;
+      continue;
+    }
+    
+    if (char === '\\') {
+      escapeNext = true;
+      continue;
+    }
+    
+    if (char === '"' && !escapeNext) {
+      inString = !inString;
+      continue;
+    }
+    
+    if (inString) continue;
+    
+    if (char === opener) {
       braceCount++;
-    } else if (trimmed[i] === '}') {
+    } else if (char === closer) {
       braceCount--;
       if (braceCount === 0) {
         lastBrace = i;
@@ -263,14 +363,16 @@ function extractJsonCandidate(raw: string): string {
     }
   }
 
-  if (lastBrace > firstBrace) {
-    const candidate = trimmed.slice(firstBrace, lastBrace + 1);
-    if (candidate.includes('"') && candidate.includes('{')) {
+  if (lastBrace > startPos) {
+    const candidate = trimmed.slice(startPos, lastBrace + 1);
+    // Validate it looks like JSON (has quotes or is an array)
+    if (candidate.includes('"') || candidate.includes('{') || candidate.includes('[')) {
       return candidate;
     }
   }
 
-  const fallbackMatch = trimmed.match(/\{[\s\S]*\}/);
+  // Fallback: try regex match
+  const fallbackMatch = trimmed.match(/(\{[\s\S]*\}|\[[\s\S]*\])/);
   if (fallbackMatch) return fallbackMatch[0];
 
   return trimmed;
@@ -288,14 +390,26 @@ function buildJsonParseAttempts(raw: string): string[] {
     attempts.push(normalised);
   };
 
+  // Base candidate
   pushAttempt(raw);
+
+  // Remove control characters
   pushAttempt(raw.replace(/[\u0000-\u001F\u007F-\u009F]/g, ""));
+  
+  // Normalize whitespace
   pushAttempt(raw.replace(/\n/g, " ").replace(/\s+/g, " "));
+  
+  // Remove non-printable characters
   pushAttempt(raw.replace(/[^\x20-\x7E\u00A0-\uFFFF]/g, ""));
 
+  // Sanitized versions
   const sanitised = sanitizeJsonString(raw);
   pushAttempt(sanitised);
+  
+  // Sanitized with normalized whitespace
+  pushAttempt(sanitizeJsonString(raw.replace(/\n/g, " ").replace(/\s+/g, " ")));
 
+  // Try jsonrepair on various versions
   try {
     pushAttempt(jsonrepair(raw));
   } catch (error) {
@@ -308,15 +422,40 @@ function buildJsonParseAttempts(raw: string): string[] {
     // Ignore
   }
 
+  try {
+    pushAttempt(jsonrepair(raw.replace(/[\u0000-\u001F\u007F-\u009F]/g, "")));
+  } catch (error) {
+    // Ignore
+  }
+
+  // Try to fix common issues manually
+  try {
+    let fixed = raw
+      .replace(/,(\s*[}\]])/g, '$1') // Remove trailing commas
+      .replace(/([{,]\s*)([A-Za-z_$][A-Za-z0-9_$]*)(\s*:)/g, '$1"$2"$3') // Quote keys
+      .replace(/'([^'\\]*(?:\\.[^'\\]*)*)'/g, '"$1"'); // Single to double quotes
+    pushAttempt(fixed);
+  } catch (error) {
+    // Ignore
+  }
+
   return attempts;
 }
 
 function parseAgentResponse<T>(content: string, schema: z.ZodSchema<T>, context: string): T {
-  const candidate = extractJsonCandidate(content);
+  let candidate: string;
+  try {
+    candidate = extractJsonCandidate(content);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to extract JSON candidate";
+    throw new Error(`Invalid JSON response from ${context} (extraction failed): ${message}\n\nRaw content preview: ${content.slice(0, 500)}`);
+  }
+
   const attempts = buildJsonParseAttempts(candidate);
 
   let parsed: unknown | undefined;
   let lastError: unknown = null;
+  let lastErrorDetails: string | null = null;
 
   for (const attempt of attempts) {
     try {
@@ -324,15 +463,36 @@ function parseAgentResponse<T>(content: string, schema: z.ZodSchema<T>, context:
       break;
     } catch (error) {
       lastError = error;
+      if (error instanceof SyntaxError) {
+        lastErrorDetails = error.message;
+      }
     }
   }
 
   if (parsed === undefined) {
     const message = lastError instanceof Error ? lastError.message : "Unknown error";
-    throw new Error(`Invalid JSON response from ${context}: ${message}`);
+    const details = lastErrorDetails ? ` (${lastErrorDetails})` : "";
+    const preview = candidate.length > 500 ? candidate.slice(0, 500) + "..." : candidate;
+    throw new Error(
+      `Invalid JSON response from ${context}: ${message}${details}\n\n` +
+      `Attempted ${attempts.length} parsing strategies.\n` +
+      `Content preview:\n${preview}`
+    );
   }
 
-  return schema.parse(parsed);
+  // Try to parse with schema, with better error messages
+  try {
+    return schema.parse(parsed);
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      const issues = error.errors.map(e => `  - ${e.path.join('.')}: ${e.message}`).join('\n');
+      throw new Error(
+        `Schema validation failed for ${context}:\n${issues}\n\n` +
+        `Parsed JSON structure: ${JSON.stringify(parsed, null, 2).slice(0, 1000)}`
+      );
+    }
+    throw error;
+  }
 }
 
 // ============================================================================
