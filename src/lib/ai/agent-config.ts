@@ -158,7 +158,103 @@ export interface PromptVariables {
   delivery_mode?: string;
   audience_scope?: string;
   response_mode?: string;
+  system_prompt_ask?: string;
+  system_prompt_project?: string;
+  system_prompt_challenge?: string;
   [key: string]: string | undefined;
+}
+
+interface AskSessionRow {
+  id: string;
+  ask_key: string;
+  question: string;
+  description?: string | null;
+  system_prompt?: string | null;
+  project_id?: string | null;
+  challenge_id?: string | null;
+}
+
+interface ProjectRow {
+  id: string;
+  name?: string | null;
+  system_prompt?: string | null;
+}
+
+interface ChallengeRow {
+  id: string;
+  name?: string | null;
+  system_prompt?: string | null;
+}
+
+/**
+ * Build standardized variables for chat agent from ASK session data
+ * This function retrieves ask, project, and challenge data from the database
+ * and constructs variables including system_prompt_* variables
+ */
+export async function buildChatAgentVariables(
+  supabase: SupabaseClient,
+  askSessionId: string,
+  additionalVariables?: Partial<PromptVariables>
+): Promise<PromptVariables> {
+  // Fetch ASK session
+  const { data: askRow, error: askError } = await supabase
+    .from('ask_sessions')
+    .select('id, ask_key, question, description, system_prompt, project_id, challenge_id')
+    .eq('id', askSessionId)
+    .maybeSingle<AskSessionRow>();
+
+  if (askError) {
+    throw new Error(`Failed to fetch ASK session: ${askError.message}`);
+  }
+
+  if (!askRow) {
+    throw new Error('ASK session not found');
+  }
+
+  // Fetch project if exists
+  let projectData: ProjectRow | null = null;
+  if (askRow.project_id) {
+    const { data, error } = await supabase
+      .from('projects')
+      .select('id, name, system_prompt')
+      .eq('id', askRow.project_id)
+      .maybeSingle<ProjectRow>();
+
+    if (error) {
+      console.warn(`Failed to fetch project: ${error.message}`);
+    } else {
+      projectData = data ?? null;
+    }
+  }
+
+  // Fetch challenge if exists
+  let challengeData: ChallengeRow | null = null;
+  if (askRow.challenge_id) {
+    const { data, error } = await supabase
+      .from('challenges')
+      .select('id, name, system_prompt')
+      .eq('id', askRow.challenge_id)
+      .maybeSingle<ChallengeRow>();
+
+    if (error) {
+      console.warn(`Failed to fetch challenge: ${error.message}`);
+    } else {
+      challengeData = data ?? null;
+    }
+  }
+
+  // Build base variables
+  const variables: PromptVariables = {
+    ask_key: askRow.ask_key,
+    ask_question: askRow.question,
+    ask_description: askRow.description ?? '',
+    system_prompt_ask: askRow.system_prompt ?? '',
+    system_prompt_project: projectData?.system_prompt ?? '',
+    system_prompt_challenge: challengeData?.system_prompt ?? '',
+    ...additionalVariables,
+  };
+
+  return variables;
 }
 
 /**
@@ -273,8 +369,15 @@ export async function getAgentConfigForAsk(
     const modelConfig = await getDefaultModelConfig(supabase);
     const fallbackModelConfig = await getFallbackModelConfig(supabase);
     
+    // Get default chat agent for userPrompt if not provided
+    const defaultAgent = await fetchAgentBySlug(supabase, DEFAULT_CHAT_AGENT_SLUG);
+    const userPrompt = defaultAgent?.userPrompt 
+      ? substitutePromptVariables(defaultAgent.userPrompt, variables || {})
+      : undefined;
+    
     return {
       systemPrompt,
+      userPrompt,
       modelConfig,
       fallbackModelConfig: fallbackModelConfig || undefined,
     };
@@ -328,8 +431,15 @@ export async function getAgentConfigForAsk(
     const modelConfig = await getDefaultModelConfig(supabase);
     const fallbackModelConfig = await getFallbackModelConfig(supabase);
     
+    // Get default chat agent for userPrompt if not provided
+    const defaultAgent = await fetchAgentBySlug(supabase, DEFAULT_CHAT_AGENT_SLUG);
+    const userPrompt = defaultAgent?.userPrompt 
+      ? substitutePromptVariables(defaultAgent.userPrompt, variables || {})
+      : undefined;
+    
     return {
       systemPrompt,
+      userPrompt,
       modelConfig,
       fallbackModelConfig: fallbackModelConfig || undefined,
     };
@@ -341,8 +451,15 @@ export async function getAgentConfigForAsk(
     const modelConfig = await getDefaultModelConfig(supabase);
     const fallbackModelConfig = await getFallbackModelConfig(supabase);
     
+    // Get default chat agent for userPrompt if not provided
+    const defaultAgent = await fetchAgentBySlug(supabase, DEFAULT_CHAT_AGENT_SLUG);
+    const userPrompt = defaultAgent?.userPrompt 
+      ? substitutePromptVariables(defaultAgent.userPrompt, variables || {})
+      : undefined;
+    
     return {
       systemPrompt,
+      userPrompt,
       modelConfig,
       fallbackModelConfig: fallbackModelConfig || undefined,
     };

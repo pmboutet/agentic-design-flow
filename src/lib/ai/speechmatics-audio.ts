@@ -196,7 +196,7 @@ export class SpeechmaticsAudio {
     processor.connect(audioContext.destination);
   }
 
-  stopMicrophone(): void {
+  async stopMicrophone(): Promise<void> {
     console.log('[Speechmatics] 🎤 stopMicrophone() called', {
       timestamp: new Date().toISOString(),
       isMicrophoneActive: this.isMicrophoneActive,
@@ -235,6 +235,7 @@ export class SpeechmaticsAudio {
 
     // Stop media stream tracks AFTER clearing handler
     // This ensures no new audio chunks are generated
+    // CRITICAL: Stop ALL tracks (audio + video if present) to fully release the microphone
     if (this.mediaStream) {
       try {
         console.log('[Speechmatics] 🛑 Stopping media stream tracks...');
@@ -242,7 +243,7 @@ export class SpeechmaticsAudio {
         tracks.forEach(track => {
           if (track.readyState === 'live') {
             track.stop();
-            console.log('[Speechmatics] ✅ Audio track stopped:', track.label);
+            console.log('[Speechmatics] ✅ Track stopped:', track.kind, track.label);
           }
         });
         this.mediaStream = null;
@@ -254,27 +255,51 @@ export class SpeechmaticsAudio {
       console.log('[Speechmatics] ℹ️ No media stream to stop');
     }
 
+    // CRITICAL: Disconnect ALL AudioNodes before closing AudioContext
+    // This ensures no audio graph connections remain active
+    // Order matters: disconnect nodes before closing context
+    
+    // Disconnect gain node if present (from audio playback)
+    if (this.currentGainNode) {
+      try {
+        this.currentGainNode.disconnect();
+        this.currentGainNode = null;
+        console.log('[Speechmatics] ✅ Gain node disconnected');
+      } catch (error) {
+        console.warn('[Speechmatics] ⚠️ Error disconnecting gain node:', error);
+      }
+    }
+
     // Disconnect source node
     if (this.sourceNode) {
       try {
         this.sourceNode.disconnect();
         this.sourceNode = null;
+        console.log('[Speechmatics] ✅ Source node disconnected');
       } catch (error) {
-        console.warn('[Speechmatics] Error disconnecting source:', error);
+        console.warn('[Speechmatics] ⚠️ Error disconnecting source node:', error);
       }
     }
 
-    // Close audio context
+    // Close audio context AFTER all nodes are disconnected
     if (this.audioContext) {
       try {
         if (this.audioContext.state !== 'closed') {
-          this.audioContext.close();
+          // audioContext.close() returns a Promise, but we don't need to await it
+          // The context will close asynchronously, which is fine for cleanup
+          this.audioContext.close().catch(() => {
+            // Ignore errors during close
+          });
+          console.log('[Speechmatics] ✅ Audio context closing');
         }
         this.audioContext = null;
       } catch (error) {
-        console.warn('[Speechmatics] Error closing audio context:', error);
+        console.warn('[Speechmatics] ⚠️ Error closing audio context:', error);
       }
     }
+
+    // NOTE: enumerateDevices() is now called AFTER WebSocket disconnect in speechmatics.ts
+    // This ensures all resources are fully released before forcing browser cleanup
   }
 
   setMicrophoneMuted(muted: boolean): void {

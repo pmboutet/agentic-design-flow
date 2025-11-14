@@ -94,29 +94,71 @@ export async function executeAgent(options: ExecuteAgentOptions): Promise<AgentE
 
   await ensureAgentHasModel(agent);
 
-  const resolvePrompt = (override: PromptOverride | undefined, fallback: string): string => {
-    if (!override) {
-      return renderTemplate(fallback, options.variables);
+  // For ask-conversation-response agent, use getAgentConfigForAsk to ensure
+  // proper system_prompt priority resolution (ask > challenge > project)
+  // This ensures consistency with other modes (streaming, voice)
+  let prompts: { system: string; user: string };
+  if (options.agentSlug === 'ask-conversation-response' && options.askSessionId) {
+    const { getAgentConfigForAsk } = await import('./agent-config');
+    // Filter out null values to match PromptVariables type (string | undefined, not null)
+    const filteredVariables: Record<string, string | undefined> = {};
+    for (const [key, value] of Object.entries(options.variables)) {
+      if (value !== null) {
+        filteredVariables[key] = value ?? undefined;
+      }
     }
+    const agentConfig = await getAgentConfigForAsk(options.supabase, options.askSessionId, filteredVariables);
+    
+    // Apply overrides if provided
+    const resolvePrompt = (override: PromptOverride | undefined, fallback: string): string => {
+      if (!override) {
+        return fallback; // Already resolved by getAgentConfigForAsk
+      }
 
-    if (typeof override === 'string') {
-      return renderTemplate(override, options.variables);
-    }
+      if (typeof override === 'string') {
+        return renderTemplate(override, options.variables);
+      }
 
-    const template = override.template;
-    const vars = override.variables ?? options.variables;
+      const template = override.template;
+      const vars = override.variables ?? options.variables;
 
-    if (override.render === false) {
-      return template;
-    }
+      if (override.render === false) {
+        return template;
+      }
 
-    return renderTemplate(template, vars);
-  };
+      return renderTemplate(template, vars);
+    };
 
-  const prompts = {
-    system: resolvePrompt(options.overridePrompts?.system, agent.systemPrompt),
-    user: resolvePrompt(options.overridePrompts?.user, agent.userPrompt),
-  };
+    prompts = {
+      system: resolvePrompt(options.overridePrompts?.system, agentConfig.systemPrompt),
+      user: resolvePrompt(options.overridePrompts?.user, agentConfig.userPrompt || agent.userPrompt),
+    };
+  } else {
+    // For other agents, use standard prompt resolution
+    const resolvePrompt = (override: PromptOverride | undefined, fallback: string): string => {
+      if (!override) {
+        return renderTemplate(fallback, options.variables);
+      }
+
+      if (typeof override === 'string') {
+        return renderTemplate(override, options.variables);
+      }
+
+      const template = override.template;
+      const vars = override.variables ?? options.variables;
+
+      if (override.render === false) {
+        return template;
+      }
+
+      return renderTemplate(template, vars);
+    };
+
+    prompts = {
+      system: resolvePrompt(options.overridePrompts?.system, agent.systemPrompt),
+      user: resolvePrompt(options.overridePrompts?.user, agent.userPrompt),
+    };
+  }
 
   // Payload optimisé pour le logging : on garde seulement les variables actives (available_variables)
   // Les prompts sont déjà résolus avec toutes les variables, mais on garde les variables brutes
@@ -158,39 +200,48 @@ export async function executeAgent(options: ExecuteAgentOptions): Promise<AgentE
     throw new Error(`No model configuration available for agent ${agent.slug}`);
   }
 
-  // Check if the primary config is a voice agent
-  const primaryConfig = configs[0];
-  // Use voiceAgentProvider if available (even if provider is not a voice agent), otherwise use provider
-  const effectiveProvider = primaryConfig.voiceAgentProvider || primaryConfig.provider;
-  
-  if (effectiveProvider === "deepgram-voice-agent" || effectiveProvider === "speechmatics-voice-agent" || effectiveProvider === "hybrid-voice-agent") {
-    // For voice agents, return the VoiceAgentResponse immediately
-    // The log will be completed when we receive the agent's response via callback
-    await markAgentLogProcessing(options.supabase, log.id, { modelConfigId: primaryConfig.id });
+  // Check if this agent is a voice agent using the voice flag from the database
+  // This is the source of truth, not the model configuration
+  const isVoiceAgent = agent.voice ?? 
+                      (options.agentSlug?.includes('voice') || 
+                      options.interactionType?.includes('voice'));
 
-    try {
-      const response = await callModelProvider(
-        primaryConfig,
-        {
-          systemPrompt: prompts.system,
-          userPrompt: prompts.user,
-          maxOutputTokens: options.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS,
-          temperature: options.temperature,
-        },
-      );
+  // Only check for voice agent provider if the agent itself is marked as a voice agent
+  // This prevents text/JSON agents from using voice providers even if the model has one configured
+  if (isVoiceAgent) {
+    const primaryConfig = configs[0];
+    // Use voiceAgentProvider if available (even if provider is not a voice agent), otherwise use provider
+    const effectiveProvider = primaryConfig.voiceAgentProvider || primaryConfig.provider;
+    
+    if (effectiveProvider === "deepgram-voice-agent" || effectiveProvider === "speechmatics-voice-agent" || effectiveProvider === "hybrid-voice-agent") {
+      // For voice agents, return the VoiceAgentResponse immediately
+      // The log will be completed when we receive the agent's response via callback
+      await markAgentLogProcessing(options.supabase, log.id, { modelConfigId: primaryConfig.id });
 
-      if ('connect' in response && typeof response.connect === 'function') {
-        // This is a VoiceAgentResponse
-        return {
-          voiceAgent: response as VoiceAgentResponse,
-          logId: log.id,
-          agent,
-          modelConfig: primaryConfig,
-        } as VoiceAgentExecutionResult as unknown as AgentExecutionResult;
+      try {
+        const response = await callModelProvider(
+          primaryConfig,
+          {
+            systemPrompt: prompts.system,
+            userPrompt: prompts.user,
+            maxOutputTokens: options.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS,
+            temperature: options.temperature,
+          },
+        );
+
+        if ('connect' in response && typeof response.connect === 'function') {
+          // This is a VoiceAgentResponse
+          return {
+            voiceAgent: response as VoiceAgentResponse,
+            logId: log.id,
+            agent,
+            modelConfig: primaryConfig,
+          } as VoiceAgentExecutionResult as unknown as AgentExecutionResult;
+        }
+      } catch (error) {
+        await failAgentLog(options.supabase, log.id, error instanceof Error ? error.message : "Unknown error");
+        throw error;
       }
-    } catch (error) {
-      await failAgentLog(options.supabase, log.id, error instanceof Error ? error.message : "Unknown error");
-      throw error;
     }
   }
 
@@ -204,8 +255,35 @@ export async function executeAgent(options: ExecuteAgentOptions): Promise<AgentE
     for (let attempt = 1; attempt <= 3; attempt += 1) {
       try {
         const started = Date.now();
+        
+        // For non-voice agents, force use of the regular provider (not voiceAgentProvider)
+        // This prevents voice agent responses for agents that should return text/JSON
+        // isVoiceAgent is already determined above, reuse it here
+        console.log('🔍 Agent execution check:', {
+          agentSlug: options.agentSlug,
+          agentVoice: agent.voice,
+          isVoiceAgent,
+          modelProvider: config.provider,
+          modelVoiceAgentProvider: config.voiceAgentProvider,
+        });
+        
+        // Create a config without voiceAgentProvider for non-voice agents
+        // This ensures callModelProvider will use the regular provider, not the voiceAgentProvider
+        const configForCall: AiModelConfig = isVoiceAgent 
+          ? config 
+          : {
+              ...config,
+              voiceAgentProvider: undefined,
+            };
+        
+        console.log('🔍 Config for call:', {
+          provider: configForCall.provider,
+          voiceAgentProvider: configForCall.voiceAgentProvider,
+          isVoiceAgent,
+        });
+        
         const response = await callModelProvider(
-          config,
+          configForCall,
           {
             systemPrompt: prompts.system,
             userPrompt: prompts.user,

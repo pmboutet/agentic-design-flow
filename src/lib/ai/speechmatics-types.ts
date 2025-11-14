@@ -24,6 +24,7 @@ export interface SpeechmaticsConfig {
   elevenLabsApiKey?: string; // Optional - will be fetched automatically if not provided
   elevenLabsVoiceId?: string;
   elevenLabsModelId?: string;
+  disableElevenLabsTTS?: boolean; // If true, disable ElevenLabs TTS (only STT will work)
 }
 
 export interface SpeechmaticsMessageEvent {

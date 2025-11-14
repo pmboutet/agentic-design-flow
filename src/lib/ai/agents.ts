@@ -13,6 +13,7 @@ export interface AiAgentRow {
   user_prompt: string;
   available_variables?: string[] | null;
   metadata?: Record<string, unknown> | null;
+  voice?: boolean | null;
   created_at?: string | null;
   updated_at?: string | null;
 }
@@ -48,6 +49,7 @@ export function mapAgentRow(row: AiAgentRow): AiAgentRecord {
     name: row.name,
     description: row.description ?? null,
     modelConfigId: row.model_config_id ?? null,
+    voice: row.voice ?? false,
     fallbackModelConfigId: row.fallback_model_config_id ?? null,
     systemPrompt: row.system_prompt,
     userPrompt: row.user_prompt,

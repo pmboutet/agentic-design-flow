@@ -741,6 +741,7 @@ async function callSpeechmaticsVoiceAgent(
     llmApiKey: undefined, // Will be fetched client-side
     elevenLabsVoiceId: config.elevenLabsVoiceId,
     elevenLabsModelId: config.elevenLabsModelId || "eleven_turbo_v2_5",
+    disableElevenLabsTTS: config.disableElevenLabsTTS || false,
   };
 
   const agent = new SpeechmaticsVoiceAgent();
@@ -802,7 +803,10 @@ export async function callModelProvider(
   abortSignal?: AbortSignal,
 ): Promise<AiProviderResponse | VoiceAgentResponse> {
   // Use voiceAgentProvider if available (even if provider is not a voice agent), otherwise use provider
-  const effectiveProvider = config.voiceAgentProvider || config.provider;
+  // If voiceAgentProvider is explicitly undefined (not just missing), don't use it
+  const effectiveProvider = (config.voiceAgentProvider !== undefined) 
+    ? config.voiceAgentProvider 
+    : config.provider;
 
   switch (effectiveProvider) {
     case "anthropic":
