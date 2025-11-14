@@ -114,3 +114,7 @@ Donc il n'est pas nécessaire de les dupliquer dans `variables` ou `context`.
 - `src/lib/ai/service.ts` - Optimisation de `variables` dans le payload de logging
 
 
+
+
+
+

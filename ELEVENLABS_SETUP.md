@@ -254,3 +254,7 @@ Si vous rencontrez des problèmes :
 2. Vérifiez les logs de l'API ElevenLabs dans le dashboard
 3. Consultez la documentation ElevenLabs pour les erreurs spécifiques
 
+
+
+
+
