@@ -24,3 +24,7 @@ CREATE POLICY "Authenticated users can read templates"
 
 COMMIT;
 
+
+
+
+

@@ -35,3 +35,7 @@ CREATE POLICY "Admins can manage security detections"
 
 COMMIT;
 
+
+
+
+

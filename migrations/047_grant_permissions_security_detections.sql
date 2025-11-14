@@ -14,3 +14,7 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON public.security_monitoring_queue TO auth
 
 COMMIT;
 
+
+
+
+

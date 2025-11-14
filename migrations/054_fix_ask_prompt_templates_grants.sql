@@ -20,3 +20,7 @@ REVOKE ALL ON public.ask_prompt_templates FROM service_role;
 
 COMMIT;
 
+
+
+
+
