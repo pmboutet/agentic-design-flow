@@ -6,7 +6,7 @@ import { normaliseMessageMetadata } from '@/lib/messages';
 import { callModelProviderStream } from '@/lib/ai/providers';
 import { createAgentLog, markAgentLogProcessing, completeAgentLog, failAgentLog } from '@/lib/ai/logs';
 import { DEFAULT_MAX_OUTPUT_TOKENS } from '@/lib/ai/constants';
-import { getChatAgentConfig, DEFAULT_CHAT_AGENT_SLUG, type PromptVariables, type AgentConfigResult } from '@/lib/ai/agent-config';
+import { getAgentConfigForAsk, DEFAULT_CHAT_AGENT_SLUG, type PromptVariables, type AgentConfigResult } from '@/lib/ai/agent-config';
 import type { AiAgentLog, Insight } from '@/types';
 import { createServerSupabaseClient } from '@/lib/supabaseServer';
 
@@ -359,8 +359,11 @@ export async function POST(
       response_mode: askRow.response_mode ?? null,
     };
     
+    // In dev bypass mode, use admin client to bypass RLS for thread operations
+    const threadClient = isDevBypass ? await getAdminClient() : dataClient;
+    
     const { thread: conversationThread, error: threadError } = await getOrCreateConversationThread(
-      dataClient,
+      threadClient,
       askRow.id,
       profileId,
       askConfig
@@ -388,7 +391,27 @@ export async function POST(
         throw threadMessagesError;
       }
       
-      messageRows = threadMessages;
+      // Also get messages without conversation_thread_id for backward compatibility
+      // This ensures messages created before thread creation are still visible
+      const { data: messagesWithoutThread, error: messagesWithoutThreadError } = await dataClient
+        .from('messages')
+        .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at, conversation_thread_id')
+        .eq('ask_session_id', askRow.id)
+        .is('conversation_thread_id', null)
+        .order('created_at', { ascending: true });
+
+      if (messagesWithoutThreadError && !isPermissionDenied(messagesWithoutThreadError)) {
+        console.warn('⚠️ Error fetching messages without thread:', messagesWithoutThreadError);
+      }
+      
+      // Combine thread messages with messages without thread
+      const threadMessagesList = (threadMessages ?? []) as any[];
+      const messagesWithoutThreadList = (messagesWithoutThread ?? []) as any[];
+      messageRows = [...threadMessagesList, ...messagesWithoutThreadList].sort((a, b) => {
+        const timeA = new Date(a.created_at ?? new Date().toISOString()).getTime();
+        const timeB = new Date(b.created_at ?? new Date().toISOString()).getTime();
+        return timeA - timeB;
+      });
     } else {
       // Fallback: get all messages for backward compatibility
       const { data, error: messageError } = await dataClient
@@ -537,12 +560,17 @@ export async function POST(
     // - participants remplace participants_count + participant_name
     // - Suppression de current_timestamp (inutile)
     // - Suppression de challenge_name et project_name (non utilisés dans les prompts)
+    // IMPORTANT: Inclure system_prompt_* pour que getAgentConfigForAsk puisse les utiliser
     const agentVariables: PromptVariables = {
       ask_key: askRow.ask_key,
       ask_question: promptVariables.ask_question || askRow.question,
       ask_description: promptVariables.ask_description || askRow.description || '',
       participants: promptVariables.participants || '',
       messages_json: JSON.stringify(conversationMessagesPayload),
+      // Inclure les system_prompt_* pour la fusion correcte des variables
+      system_prompt_ask: promptVariables.system_prompt_ask || '',
+      system_prompt_project: promptVariables.system_prompt_project || '',
+      system_prompt_challenge: promptVariables.system_prompt_challenge || '',
     };
 
     let agentConfig: AgentConfigResult;
@@ -551,7 +579,8 @@ export async function POST(
       console.log('Agent slug:', DEFAULT_CHAT_AGENT_SLUG);
       console.log('Variables:', agentVariables);
 
-      agentConfig = await getChatAgentConfig(dataClient, agentVariables);
+      // Utiliser getAgentConfigForAsk qui gère correctement les system_prompt depuis la base
+      agentConfig = await getAgentConfigForAsk(dataClient, askRow.id, agentVariables);
 
       console.log('✅ Chat agent config loaded successfully');
       console.log('System prompt length:', agentConfig.systemPrompt?.length || 0);

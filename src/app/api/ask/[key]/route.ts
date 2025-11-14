@@ -348,12 +348,28 @@ export async function GET(
       response_mode: askRow.response_mode ?? null,
     };
     
+    console.log('🔍 GET /api/ask/[key]: Determining conversation thread:', {
+      askSessionId,
+      profileId,
+      askConfig,
+      isDevBypass,
+    });
+    
+    // In dev bypass mode, use admin client to bypass RLS for thread operations
+    const threadClient = isDevBypass ? await getAdminClient() : dataClient;
+    
     const { thread: conversationThread, error: threadError } = await getOrCreateConversationThread(
-      dataClient,
+      threadClient,
       askSessionId,
       profileId,
       askConfig
     );
+
+    console.log('🔍 GET /api/ask/[key]: Conversation thread determined:', {
+      threadId: conversationThread?.id ?? null,
+      profileId,
+      isShared: conversationThread?.is_shared ?? null,
+    });
 
     if (threadError) {
       if (isPermissionDenied(threadError)) {
@@ -364,7 +380,33 @@ export async function GET(
 
     // Get messages for the thread (or all messages if no thread yet for backward compatibility)
     let messageRows: MessageRow[] = [];
-    if (conversationThread) {
+    
+    // Special handling for dev mode when falling back to shared thread in individual mode
+    // In this case, we want to show ALL messages (from all threads) to help with debugging
+    const isIndividualModeButUsingSharedThread = 
+      !shouldUseSharedThread(askConfig) && 
+      conversationThread?.is_shared === true &&
+      isDevBypass;
+    
+    if (isIndividualModeButUsingSharedThread) {
+      // In dev mode, if we're in individual mode but using shared thread (because profileId is null),
+      // fetch ALL messages from all threads to help with debugging
+      console.log('⚠️ Dev mode: Individual ASK but using shared thread (profileId is null). Fetching ALL messages from all threads for debugging.');
+      const { data, error: messageError } = await dataClient
+        .from('messages')
+        .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at, conversation_thread_id')
+        .eq('ask_session_id', askSessionId)
+        .order('created_at', { ascending: true });
+
+      if (messageError) {
+        if (isPermissionDenied(messageError)) {
+          return permissionDeniedResponse();
+        }
+        throw messageError;
+      }
+      
+      messageRows = (data ?? []) as MessageRow[];
+    } else if (conversationThread) {
       const { messages: threadMessages, error: threadMessagesError } = await getMessagesForThread(
         dataClient,
         conversationThread.id
@@ -377,7 +419,27 @@ export async function GET(
         throw threadMessagesError;
       }
       
-      messageRows = threadMessages as MessageRow[];
+      // Also get messages without conversation_thread_id for backward compatibility
+      // This ensures messages created before thread creation are still visible
+      const { data: messagesWithoutThread, error: messagesWithoutThreadError } = await dataClient
+        .from('messages')
+        .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at, conversation_thread_id')
+        .eq('ask_session_id', askSessionId)
+        .is('conversation_thread_id', null)
+        .order('created_at', { ascending: true });
+
+      if (messagesWithoutThreadError && !isPermissionDenied(messagesWithoutThreadError)) {
+        console.warn('⚠️ Error fetching messages without thread:', messagesWithoutThreadError);
+      }
+      
+      // Combine thread messages with messages without thread
+      const threadMessagesList = (threadMessages ?? []) as MessageRow[];
+      const messagesWithoutThreadList = (messagesWithoutThread ?? []) as MessageRow[];
+      messageRows = [...threadMessagesList, ...messagesWithoutThreadList].sort((a, b) => {
+        const timeA = new Date(a.created_at ?? new Date().toISOString()).getTime();
+        const timeB = new Date(b.created_at ?? new Date().toISOString()).getTime();
+        return timeA - timeB;
+      });
     } else {
       // Fallback: get all messages for backward compatibility
       const { data, error: messageError } = await dataClient
@@ -466,48 +528,31 @@ export async function GET(
       };
     });
 
-    // Get insights for the thread (or all insights if no thread yet for backward compatibility)
+    // Get insights for the session
+    // In individual mode, we should ideally filter by thread, but to ensure all insights are visible
+    // (especially when insights are created in individual threads but viewed from shared thread),
+    // we fetch all insights for the session and filter client-side if needed
     let insightRows;
     try {
-      if (conversationThread) {
-        const { insights: threadInsights, error: threadInsightsError } = await getInsightsForThread(
-          dataClient,
-          conversationThread.id
-        );
-        
-        if (threadInsightsError) {
-          if (isPermissionDenied(threadInsightsError)) {
-            return permissionDeniedResponse();
-          }
-          throw threadInsightsError;
-        }
-        
-        // Transform to InsightRow format (simplified - may need adjustment based on actual structure)
-        insightRows = threadInsights.map((insight: any) => ({
-          id: insight.id,
-          ask_session_id: insight.ask_session_id,
-          ask_id: insight.ask_session_id,
-          user_id: insight.user_id,
-          challenge_id: insight.challenge_id,
-          content: insight.content,
-          summary: insight.summary,
-          insight_type_id: null,
-          type: insight.insight_type,
-          category: insight.category,
-          priority: insight.priority,
-          status: insight.status,
-          source_message_id: insight.source_message_id,
-          ai_generated: insight.ai_generated,
-          created_at: insight.created_at,
-          updated_at: insight.updated_at,
-          related_challenge_ids: [],
-          insight_authors: [],
-          kpis: [],
-        }));
-      } else {
-        // Fallback: get all insights for backward compatibility
-        insightRows = await fetchInsightsForSession(dataClient, askSessionId);
-      }
+      // Always fetch all insights for the session to ensure visibility across threads
+      // This is important because insights might be created in individual threads
+      // but need to be visible when viewing from a shared thread or different user context
+      insightRows = await fetchInsightsForSession(dataClient, askSessionId);
+      
+      console.log('📊 GET /api/ask/[key]: Fetched insights for session:', {
+        totalInsights: insightRows.length,
+        threadId: conversationThread?.id ?? null,
+        isShared: conversationThread?.is_shared ?? null,
+        insightsByThread: insightRows.reduce((acc, insight) => {
+          const threadId = (insight as any).conversation_thread_id ?? 'no-thread';
+          acc[threadId] = (acc[threadId] || 0) + 1;
+          return acc;
+        }, {} as Record<string, number>),
+      });
+      
+      // If we have a specific thread and it's not shared, we could filter by thread
+      // But for now, we show all insights to ensure visibility
+      // TODO: Consider adding a query parameter to filter by thread if needed
     } catch (error) {
       if (isPermissionDenied((error as PostgrestError) ?? null)) {
         return permissionDeniedResponse();
@@ -521,6 +566,12 @@ export async function GET(
         ...insight,
         conversationThreadId: conversationThread?.id ?? null,
       };
+    });
+
+    console.log('📊 GET /api/ask/[key]: Returning insights:', {
+      insightCount: insights.length,
+      insightIds: insights.map(i => i.id),
+      conversationThreadId: conversationThread?.id ?? null,
     });
 
     const endDate = askRow.end_date ?? new Date().toISOString();
@@ -864,8 +915,12 @@ export async function POST(
       isDevBypass
     });
     
+    // In dev bypass mode, use admin client to bypass RLS for thread operations
+    const threadClient = isDevBypass ? await getAdminClient() : dataClient;
+    
+    
     const { thread: conversationThread, error: threadError } = await getOrCreateConversationThread(
-      dataClient,
+      threadClient,
       askRow.id,
       finalProfileId,
       askConfig

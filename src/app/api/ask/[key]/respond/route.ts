@@ -76,14 +76,41 @@ function parseAgentJsonSafely(rawText: string): unknown | null {
 
   attempts.push(trimmed);
 
-  const codeFenceMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
-  if (codeFenceMatch && codeFenceMatch[1]) {
-    attempts.push(codeFenceMatch[1].trim());
+  // Try to extract JSON from code fences (```json ... ``` or ``` ... ```)
+  // Handle both single-line and multi-line code blocks
+  let jsonStr = trimmed;
+  if (jsonStr.startsWith("```json")) {
+    jsonStr = jsonStr.replace(/^```json\s*/i, "").replace(/\s*```$/i, "");
+    attempts.push(jsonStr.trim());
+  } else if (jsonStr.startsWith("```")) {
+    jsonStr = jsonStr.replace(/^```\s*/i, "").replace(/\s*```$/i, "");
+    attempts.push(jsonStr.trim());
   }
 
+  // Also try regex-based extraction (more flexible for nested structures)
+  const codeFenceMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  if (codeFenceMatch && codeFenceMatch[1]) {
+    const extracted = codeFenceMatch[1].trim();
+    if (!attempts.includes(extracted)) {
+      attempts.push(extracted);
+    }
+    // Also try to extract JSON from the extracted content
+    const bracketCandidate = extractBracketedJson(extracted);
+    if (bracketCandidate && !attempts.includes(bracketCandidate)) {
+      attempts.push(bracketCandidate);
+    }
+  }
+
+  // Try to extract JSON from the original text
   const bracketCandidate = extractBracketedJson(trimmed);
-  if (bracketCandidate) {
+  if (bracketCandidate && !attempts.includes(bracketCandidate)) {
     attempts.push(bracketCandidate);
+  }
+
+  // Try to find any JSON object in the text (more permissive)
+  const jsonObjectMatch = trimmed.match(/\{[\s\S]*\}/);
+  if (jsonObjectMatch && !attempts.includes(jsonObjectMatch[0])) {
+    attempts.push(jsonObjectMatch[0]);
   }
 
   for (const candidate of attempts) {
@@ -182,16 +209,14 @@ function extractTextFromRawResponse(raw: unknown): string | null {
 
   const record = raw as Record<string, unknown>;
 
-  if (typeof record.content === 'string' && record.content.trim().length > 0) {
-    return record.content.trim();
-  }
-
+  // Handle Anthropic API response structure: { content: [{ type: "text", text: "..." }] }
   if (Array.isArray(record.content)) {
     const text = record.content
       .map(block => {
         if (!block) return '';
         if (typeof block === 'string') return block;
         const entry = block as Record<string, unknown>;
+        // Anthropic uses { type: "text", text: "..." }
         if (typeof entry.text === 'string') {
           return entry.text;
         }
@@ -215,6 +240,12 @@ function extractTextFromRawResponse(raw: unknown): string | null {
     }
   }
 
+  // Handle simple string content
+  if (typeof record.content === 'string' && record.content.trim().length > 0) {
+    return record.content.trim();
+  }
+
+  // Handle OpenAI-style choices structure
   const choices = Array.isArray((record as any).choices) ? (record as any).choices : [];
   for (const choice of choices) {
     const message = choice?.message;
@@ -828,11 +859,30 @@ async function persistInsights(
 
   const processedKeys = new Set<string>();
 
+  console.log('💾 persistInsights called with:', {
+    incomingInsightsCount: incomingInsights.length,
+    askSessionId,
+    conversationThreadId,
+    existingInsightsCount: insightRows.length,
+  });
+
   for (const incoming of incomingInsights) {
     const nowIso = new Date().toISOString();
     const dedupeKey = [normaliseKey(incoming.content), normaliseKey(incoming.summary), incoming.type ?? ''].join('|');
+    
+    console.log('💾 Processing insight:', {
+      id: incoming.id,
+      hasContent: !!incoming.content,
+      hasSummary: !!incoming.summary,
+      type: incoming.type,
+      contentPreview: incoming.content?.substring(0, 100),
+      summaryPreview: incoming.summary?.substring(0, 100),
+      dedupeKey,
+    });
+    
     if (dedupeKey.trim().length > 0) {
       if (processedKeys.has(dedupeKey)) {
+        console.log('⏭️  Skipping duplicate insight:', dedupeKey);
         continue;
       }
       processedKeys.add(dedupeKey);
@@ -1128,27 +1178,85 @@ function resolveInsightAgentPayload(result: AgentExecutionResult): unknown | nul
     candidates.add(trimmed);
   };
 
+  // Try to extract JSON from content
   addCandidate(typeof result.content === 'string' ? result.content : null);
   if (typeof result.content === 'string') {
     addCandidate(sanitiseJsonString(result.content));
+    // Also try to extract JSON that might be embedded in text (look for any JSON object, not just insights)
+    const jsonMatch = result.content.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      addCandidate(jsonMatch[0]);
+    }
   }
-  addCandidate(extractTextFromRawResponse(result.raw));
+  
+  // Extract text from raw response (this handles Anthropic's content array structure)
+  const extractedText = extractTextFromRawResponse(result.raw);
+  if (extractedText) {
+    addCandidate(extractedText);
+    addCandidate(sanitiseJsonString(extractedText));
+    // Try to extract JSON from extracted text
+    const jsonMatch = extractedText.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      addCandidate(jsonMatch[0]);
+    }
+  }
+
+  console.log('🔍 Resolving insight payload:', {
+    hasContent: !!result.content,
+    contentLength: typeof result.content === 'string' ? result.content.length : 0,
+    hasRaw: !!result.raw,
+    extractedTextLength: extractedText?.length || 0,
+    candidatesCount: candidates.size,
+  });
 
   const candidateList = Array.from(candidates);
   for (let i = 0; i < candidateList.length; i += 1) {
     const parsed = parseAgentJsonSafely(candidateList[i]);
     if (parsed !== null) {
-      return parsed;
+      console.log(`✅ Parsed candidate ${i + 1}/${candidateList.length}:`, {
+        isObject: typeof parsed === 'object',
+        isArray: Array.isArray(parsed),
+        keys: typeof parsed === 'object' && parsed !== null ? Object.keys(parsed) : [],
+        hasInsights: typeof parsed === 'object' && parsed !== null && 'insights' in parsed,
+        hasItems: typeof parsed === 'object' && parsed !== null && 'items' in parsed,
+      });
+      
+      // Verify that the parsed result has the expected structure
+      if (typeof parsed === 'object' && parsed !== null) {
+        const obj = parsed as Record<string, unknown>;
+        // Accept if it has insights, items, or is an array (for direct array of insights)
+        if ('insights' in obj || 'items' in obj || Array.isArray(parsed)) {
+          console.log('✅ Returning parsed payload with expected structure');
+          return parsed;
+        }
+        // Also accept if it looks like a valid insight structure (has content or summary)
+        if ('content' in obj || 'summary' in obj) {
+          // Wrap single insight in an array
+          console.log('✅ Found single insight-like object, wrapping in array');
+          return { insights: [parsed] };
+        }
+      }
     }
   }
 
+  // Try to extract from raw response object directly
   if (result.raw && typeof result.raw === 'object') {
     const rawRecord = result.raw as Record<string, unknown>;
     if ('insights' in rawRecord || 'items' in rawRecord) {
+      console.log('✅ Found insights/items in raw record');
       return rawRecord;
+    }
+    // Some providers might nest the content differently
+    if ('content' in rawRecord && typeof rawRecord.content === 'object') {
+      const contentObj = rawRecord.content as Record<string, unknown>;
+      if ('insights' in contentObj || 'items' in contentObj) {
+        console.log('✅ Found insights/items in nested content');
+        return contentObj;
+      }
     }
   }
 
+  console.log('❌ No valid payload found');
   return null;
 }
 
@@ -1212,28 +1320,186 @@ async function triggerInsightDetection(
       variables: options.variables,
     });
 
+    // Check if this is a voice agent response (which shouldn't happen for insight detection)
+    if ('voiceAgent' in result && result.voiceAgent) {
+      throw new Error('Insight detection agent returned a voice agent response, which is not supported. The agent should return text/JSON.');
+    }
+
+    // Verify that we have the required fields
+    if (!result.content && !result.raw) {
+      console.error('❌ Agent execution returned empty result:', {
+        hasContent: !!result.content,
+        hasRaw: !!result.raw,
+        hasVoiceAgent: 'voiceAgent' in result,
+        logId: result.logId,
+        agentId: result.agent?.id,
+        modelConfigId: result.modelConfig?.id
+      });
+      
+      // Try to get the log from database to see what happened and potentially recover the response
+      const { data: logData, error: logError } = await supabase
+        .from('ai_agent_logs')
+        .select('status, error_message, response_payload, request_payload')
+        .eq('id', result.logId)
+        .single();
+      
+      if (logError) {
+        console.error('Error fetching agent log:', logError);
+        throw new Error(`Insight detection agent returned empty response and could not fetch log details (logId: ${result.logId}).`);
+      }
+      
+      console.error('Agent log details:', {
+        status: logData?.status,
+        errorMessage: logData?.error_message,
+        hasResponsePayload: !!logData?.response_payload,
+        responsePayloadType: logData?.response_payload ? typeof logData.response_payload : 'none'
+      });
+      
+      // If the log has a response payload but result doesn't, try to extract it
+      if (logData?.response_payload && typeof logData.response_payload === 'object') {
+        const responsePayload = logData.response_payload as Record<string, unknown>;
+        console.log('Attempting to recover response from log payload:', {
+          keys: Object.keys(responsePayload),
+          hasContent: 'content' in responsePayload
+        });
+        
+        // Try to extract content from the response payload
+        const extractedContent = extractTextFromRawResponse(responsePayload);
+        if (extractedContent) {
+          console.log('✅ Recovered content from log payload, length:', extractedContent.length);
+          // Update result with recovered content
+          (result as any).content = extractedContent;
+          (result as any).raw = responsePayload;
+        } else {
+          throw new Error(`Insight detection agent returned empty response. Log status: ${logData.status}, error: ${logData.error_message || 'none'}. Check logs for details (logId: ${result.logId}).`);
+        }
+      } else if (logData?.status === 'failed') {
+        throw new Error(`Insight detection agent execution failed: ${logData.error_message || 'Unknown error'}. Check logs for details (logId: ${result.logId}).`);
+      } else {
+        throw new Error(`Insight detection agent returned empty response. Log status: ${logData.status}. Check logs for details (logId: ${result.logId}).`);
+      }
+    }
+
     await supabase
       .from('ai_insight_jobs')
       .update({ model_config_id: result.modelConfig.id })
       .eq('id', job.id);
 
-    const parsedPayload = (() => {
-      const payload = resolveInsightAgentPayload(result);
-      if (payload && typeof payload === 'object') {
-        return payload;
+    let parsedPayload: unknown;
+    let parsingFailed = false;
+    
+    const payload = resolveInsightAgentPayload(result);
+    if (payload && typeof payload === 'object') {
+      const payloadObj = payload as Record<string, unknown>;
+      const hasInsights = 'insights' in payloadObj;
+      const hasItems = 'items' in payloadObj;
+      const isArray = Array.isArray(payload);
+      
+      console.log('✅ Insight agent payload parsed successfully:', {
+        hasInsights,
+        hasItems,
+        isArray,
+        payloadKeys: Object.keys(payloadObj),
+        insightsCount: hasInsights && Array.isArray(payloadObj.insights) ? payloadObj.insights.length : 'not an array',
+        itemsCount: hasItems && Array.isArray(payloadObj.items) ? payloadObj.items.length : 'not an array',
+      });
+      
+      // Check if the payload has the wrong structure (keywords/concepts/themes instead of insights)
+      if (!hasInsights && !hasItems && !isArray && ('keywords' in payloadObj || 'concepts' in payloadObj || 'themes' in payloadObj)) {
+        console.error('⚠️  Agent returned entity extraction format (keywords/concepts/themes) instead of insights format. This suggests the wrong agent was called or the agent prompt is incorrect.');
+        console.error('Payload structure:', {
+          hasKeywords: 'keywords' in payloadObj,
+          hasConcepts: 'concepts' in payloadObj,
+          hasThemes: 'themes' in payloadObj,
+          allKeys: Object.keys(payloadObj),
+        });
+        // Return empty insights since we can't convert entity extraction to insights
+        parsedPayload = { insights: [] };
+        parsingFailed = true;
+      } else {
+        parsedPayload = payload;
       }
-
-      throw new Error('Le contenu retourné par l’agent insight n’est pas un JSON valide.');
-    })();
+    } else {
+      // If payload is null or invalid, log detailed information for debugging
+      parsingFailed = true;
+      console.error('❌ Insight agent returned invalid JSON payload. Details:', {
+        hasContent: !!result.content,
+        contentType: typeof result.content,
+        contentLength: typeof result.content === 'string' ? result.content.length : 0,
+        contentPreview: typeof result.content === 'string' 
+          ? result.content.substring(0, 500) 
+          : 'N/A',
+        hasRaw: !!result.raw,
+        rawType: typeof result.raw,
+        rawKeys: result.raw && typeof result.raw === 'object' 
+          ? Object.keys(result.raw as Record<string, unknown>)
+          : [],
+        logId: result.logId
+      });
+      
+      // Log the full content for debugging
+      if (typeof result.content === 'string' && result.content.length > 0) {
+        console.error('Full agent response content:', result.content);
+      } else {
+        console.error('No content in agent response. Raw response:', JSON.stringify(result.raw, null, 2));
+      }
+      
+      // Return an empty insights structure instead of throwing
+      // This allows the function to continue without throwing, which is important
+      // for voice messages where insight detection is non-blocking
+      parsedPayload = { insights: [] };
+    }
 
     const insightsSource = (typeof parsedPayload === 'object' && parsedPayload !== null && 'insights' in parsedPayload)
       ? (parsedPayload as Record<string, unknown>).insights
       : parsedPayload;
 
-    const incoming = normaliseIncomingInsights(insightsSource, currentUserId);
-    await persistInsights(supabase, options.askSessionId, incoming.items, existingInsights, currentUserId, options.conversationThreadId);
+    console.log('📊 Processing insights source:', {
+      isObject: typeof insightsSource === 'object',
+      isArray: Array.isArray(insightsSource),
+      hasInsights: typeof parsedPayload === 'object' && parsedPayload !== null && 'insights' in parsedPayload,
+      insightsSourceType: typeof insightsSource,
+      insightsSourceKeys: typeof insightsSource === 'object' && insightsSource !== null && !Array.isArray(insightsSource)
+        ? Object.keys(insightsSource as Record<string, unknown>)
+        : Array.isArray(insightsSource)
+        ? `Array with ${insightsSource.length} items`
+        : 'not an object/array',
+    });
 
-    await completeInsightJob(supabase, job.id, { modelConfigId: result.modelConfig.id });
+    const incoming = normaliseIncomingInsights(insightsSource, currentUserId);
+    const newInsightsCount = incoming.items.length;
+    
+    console.log('📊 Normalised insights:', {
+      newInsightsCount,
+      items: incoming.items.map(item => ({
+        hasContent: !!item.content,
+        hasSummary: !!item.summary,
+        type: item.type,
+        contentPreview: item.content?.substring(0, 100),
+      })),
+    });
+    
+    // If parsing failed, log a warning but continue processing
+    // This allows the system to continue even if the agent response format is unexpected
+    if (parsingFailed) {
+      console.warn('⚠️ Insight detection parsing failed, but continuing with existing insights. New insights detected:', newInsightsCount);
+      // Don't persist insights if parsing failed, as we can't trust the data
+      // But still mark job as completed to avoid blocking future detections
+      // This is important for voice messages and non-critical insight detection
+      await completeInsightJob(supabase, job.id, { 
+        modelConfigId: result.modelConfig.id,
+      });
+    } else {
+      // Only persist insights if parsing succeeded
+      console.log('💾 Persisting insights:', {
+        count: incoming.items.length,
+        askSessionId: options.askSessionId,
+        conversationThreadId: options.conversationThreadId,
+      });
+      await persistInsights(supabase, options.askSessionId, incoming.items, existingInsights, currentUserId, options.conversationThreadId);
+      await completeInsightJob(supabase, job.id, { modelConfigId: result.modelConfig.id });
+      console.log('✅ Insights persisted successfully');
+    }
 
     // Get refreshed insights filtered by thread if thread is provided
     let refreshedInsights: InsightRow[];
@@ -1252,7 +1518,14 @@ async function triggerInsightDetection(
       refreshedInsights = await fetchInsightsForSession(supabase, options.askSessionId);
     }
     
-    return refreshedInsights.map(mapInsightRowToInsight);
+    const mappedInsights = refreshedInsights.map(mapInsightRowToInsight);
+    console.log('📤 Returning insights:', {
+      count: mappedInsights.length,
+      insightIds: mappedInsights.map(i => i.id),
+      conversationThreadId: options.conversationThreadId,
+    });
+    
+    return mappedInsights;
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error during insight detection';
     await failInsightJob(supabase, job.id, {
@@ -1440,45 +1713,62 @@ export async function POST(
     });
 
     // Get or create conversation thread
-    // Determine thread based on last user message or current user
+    // Simplified logic: use currentUserId if available, otherwise use last user message's user_id
     const askConfig = {
       audience_scope: askRow.audience_scope ?? null,
       response_mode: askRow.response_mode ?? null,
     };
 
-    // First, get the last user message to determine which thread to use
-    const { data: lastUserMessageRow, error: lastMessageError } = await supabase
-      .from('messages')
-      .select('id, user_id, conversation_thread_id')
-      .eq('ask_session_id', askRow.id)
-      .eq('sender_type', 'user')
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (lastMessageError && lastMessageError.code !== 'PGRST116') {
-      throw lastMessageError;
-    }
-
     // Determine which user's thread to use
+    // Priority: 1) currentUserId (if available), 2) last user message's user_id, 3) null (shared thread)
     let threadUserId: string | null = null;
-    if (lastUserMessageRow?.conversation_thread_id) {
-      // If last message has a thread, get that thread to find the user
-      const { data: existingThread, error: threadError } = await supabase
-        .from('conversation_threads')
-        .select('user_id, is_shared')
-        .eq('id', lastUserMessageRow.conversation_thread_id)
+    
+    if (currentUserId) {
+      // If we have a current user, use their thread (most reliable)
+      threadUserId = currentUserId;
+    } else {
+      // Fallback: get the last user message to determine which thread to use
+      const { data: lastUserMessageRow, error: lastMessageError } = await supabase
+        .from('messages')
+        .select('id, user_id, conversation_thread_id')
+        .eq('ask_session_id', askRow.id)
+        .eq('sender_type', 'user')
+        .order('created_at', { ascending: false })
+        .limit(1)
         .maybeSingle();
 
-      if (!threadError && existingThread && !existingThread.is_shared) {
-        threadUserId = existingThread.user_id;
-      } else if (existingThread?.is_shared) {
-        threadUserId = null; // Use shared thread
+      if (lastMessageError && lastMessageError.code !== 'PGRST116') {
+        throw lastMessageError;
       }
-    } else {
-      // Fallback to current user if available
-      threadUserId = currentUserId;
+
+      if (lastUserMessageRow?.user_id) {
+        // Use the user_id from the last message
+        threadUserId = lastUserMessageRow.user_id;
+      } else if (lastUserMessageRow?.conversation_thread_id) {
+        // If last message has a thread but no user_id, check if it's a shared thread
+        const { data: existingThread, error: threadError } = await supabase
+          .from('conversation_threads')
+          .select('user_id, is_shared')
+          .eq('id', lastUserMessageRow.conversation_thread_id)
+          .maybeSingle();
+
+        if (!threadError && existingThread) {
+          if (existingThread.is_shared) {
+            threadUserId = null; // Use shared thread
+          } else if (existingThread.user_id) {
+            threadUserId = existingThread.user_id; // Use the thread's user_id
+          }
+        }
+      }
+      // If no user_id found, threadUserId remains null (will use shared thread)
     }
+
+    console.log('🔍 POST /respond: Determining conversation thread:', {
+      currentUserId,
+      threadUserId,
+      askSessionId: askRow.id,
+      askConfig,
+    });
 
     // Get or create the appropriate thread
     const { thread: conversationThread, error: threadError } = await getOrCreateConversationThread(
@@ -1487,6 +1777,12 @@ export async function POST(
       threadUserId,
       askConfig
     );
+
+    console.log('🔍 POST /respond: Conversation thread determined:', {
+      threadId: conversationThread?.id ?? null,
+      threadUserId,
+      isShared: conversationThread?.is_shared ?? null,
+    });
 
     if (threadError) {
       throw threadError;
