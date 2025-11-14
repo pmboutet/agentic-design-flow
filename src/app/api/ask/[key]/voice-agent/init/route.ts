@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabaseServer';
 import { executeAgent } from '@/lib/ai/service';
-import { getChatAgentConfig, DEFAULT_CHAT_AGENT_SLUG } from '@/lib/ai/agent-config';
+import { buildChatAgentVariables, DEFAULT_CHAT_AGENT_SLUG, type PromptVariables } from '@/lib/ai/agent-config';
 import { getAskSessionByKey } from '@/lib/asks';
 import { parseErrorMessage } from '@/lib/utils';
 import type { ApiResponse } from '@/types';
@@ -42,45 +42,25 @@ export async function POST(
       }, { status: 404 });
     }
 
-    // Get agent config with voice model
-    const agentConfig = await getChatAgentConfig(supabase, {
-      ask_question: askRow.question || '',
-      ask_description: askRow.description || '',
-    });
-
-    if (!agentConfig.modelConfig) {
-      return NextResponse.json<ApiResponse>({
-        success: false,
-        error: 'Failed to load agent configuration'
-      }, { status: 500 });
-    }
-
-    // Check if model config has voice agent provider
-    const modelConfig = agentConfig.modelConfig;
-    const voiceAgentProvider = (modelConfig as any).voiceAgentProvider || modelConfig.provider;
-    if (voiceAgentProvider !== 'deepgram-voice-agent' && voiceAgentProvider !== 'speechmatics-voice-agent') {
-      return NextResponse.json<ApiResponse>({
-        success: false,
-        error: 'Voice agent not configured for this model'
-      }, { status: 400 });
-    }
-
-    // Build prompt variables (minimal for voice agent init)
-    const promptVariables = {
-      ask_question: askRow.question || '',
-      ask_description: askRow.description || '',
+    // Build complete variables including system_prompt_* from database
+    // This ensures consistency with other modes (text, streaming)
+    const baseVariables = await buildChatAgentVariables(supabase, askRow.id);
+    
+    // For voice agent init, we need minimal variables but still include system_prompt_*
+    // The full conversation context will be added later when messages are sent
+    const promptVariables: PromptVariables = {
+      ...baseVariables,
+      // Additional variables can be added here if needed for voice init
     };
 
     // Execute agent to get voice agent response
+    // executeAgent will use getAgentConfigForAsk internally which handles system_prompt_* correctly
     const result = await executeAgent({
       supabase,
       agentSlug: CHAT_AGENT_SLUG,
       askSessionId: askRow.id,
       interactionType: CHAT_INTERACTION_TYPE,
-      variables: {
-        ask_question: askRow.question || '',
-        ask_description: askRow.description || '',
-      },
+      variables: promptVariables,
     });
 
     // Check if result is a voice agent response
