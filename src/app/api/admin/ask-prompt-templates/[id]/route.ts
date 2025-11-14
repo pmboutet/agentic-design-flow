@@ -80,7 +80,16 @@ export async function PUT(
     const resolvedParams = await params;
     const templateId = z.string().uuid().parse(resolvedParams.id);
     const body = await request.json();
+    
+    console.log('PUT /api/admin/ask-prompt-templates/[id]:', {
+      templateId,
+      body,
+      bodyKeys: Object.keys(body),
+    });
+    
     const payload = updateSchema.parse(body);
+    
+    console.log('Parsed payload:', payload);
 
     const updateData: Record<string, any> = {
       updated_at: new Date().toISOString(),
@@ -103,6 +112,8 @@ export async function PUT(
       }, { status: 400 });
     }
 
+    console.log('Update data:', updateData);
+    
     const { data, error } = await supabase
       .from("ask_prompt_templates")
       .update(updateData)
@@ -111,6 +122,7 @@ export async function PUT(
       .single();
 
     if (error) {
+      console.error('Database error updating template:', error);
       if (error.code === "PGRST116") {
         return NextResponse.json<ApiResponse>({
           success: false,
@@ -119,6 +131,8 @@ export async function PUT(
       }
       throw error;
     }
+    
+    console.log('Template updated successfully:', data.id);
 
     const template: AskPromptTemplate = {
       id: data.id,
@@ -135,13 +149,20 @@ export async function PUT(
       data: template,
     });
   } catch (error) {
+    console.error('Error in PUT /api/admin/ask-prompt-templates/[id]:', error);
     let status = 500;
-    if (error instanceof z.ZodError) status = 400;
-    else if (error instanceof Error && error.message.includes('required')) status = 403;
+    if (error instanceof z.ZodError) {
+      status = 400;
+      console.error('Zod validation errors:', error.errors);
+    } else if (error instanceof Error && error.message.includes('required')) {
+      status = 403;
+    }
     
     return NextResponse.json<ApiResponse>({
       success: false,
-      error: error instanceof z.ZodError ? error.errors[0]?.message || "Invalid payload" : parseErrorMessage(error),
+      error: error instanceof z.ZodError 
+        ? error.errors.map(e => `${e.path.join('.')}: ${e.message}`).join(', ') || "Invalid payload"
+        : parseErrorMessage(error),
     }, { status });
   }
 }
