@@ -900,6 +900,16 @@ export default function HomePage() {
         }))
       });
 
+      console.log('[HomePage] 💡 Loaded insights from API:', {
+        insightCount: (data.data?.insights ?? []).length,
+        insights: (data.data?.insights ?? []).map(i => ({
+          id: i.id,
+          type: i.type,
+          contentPreview: i.content?.substring(0, 100),
+          summary: i.summary
+        }))
+      });
+
       setSessionData(prev => {
         const messagesWithClientIds = (data.data?.messages ?? []).map(message => {
           const existing = prev.messages.find(prevMessage => prevMessage.id === message.id);
@@ -1240,14 +1250,14 @@ export default function HomePage() {
           headers['X-Invite-Token'] = inviteToken;
           console.log('[HomePage] 🔑 Using invite token for voice user message:', inviteToken.substring(0, 8) + '...');
         } else {
-          console.log('[HomePage] ⚠️ No invite token available, will use regular auth');
         }
 
         const endpoint = isTestMode ? `/api/test/${sessionData.askKey}` : `/api/ask/${sessionData.askKey}`;
         console.log('[HomePage] 📤 Persisting voice user message:', {
           endpoint,
           hasInviteToken: !!inviteTokenRef.current,
-          content: content.substring(0, 50)
+          contentPreview: content.substring(0, 50) + (content.length > 50 ? '...' : ''),
+          contentLength: content.length,
         });
         
         const response = await fetch(endpoint, {

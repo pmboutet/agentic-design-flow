@@ -77,26 +77,32 @@ export class SpeechmaticsVoiceAgent {
   async connect(config: SpeechmaticsConfig): Promise<void> {
     // Reset disconnect flag
     this.isDisconnected = false;
+    console.log('[Speechmatics] 🔌 connect() called, isDisconnected reset to false');
     this.config = config;
 
-    // Validate required ElevenLabs configuration
-    if (!config.elevenLabsVoiceId) {
-      throw new Error('ElevenLabs voice ID is required for Speechmatics voice agent');
-    }
+    // Only initialize ElevenLabs if TTS is not disabled
+    if (!config.disableElevenLabsTTS) {
+      // Validate required ElevenLabs configuration
+      if (!config.elevenLabsVoiceId) {
+        throw new Error('ElevenLabs voice ID is required for Speechmatics voice agent (or set disableElevenLabsTTS to true)');
+      }
 
-    // Get ElevenLabs API key if not provided
-    let elevenLabsApiKey = config.elevenLabsApiKey;
-    if (!elevenLabsApiKey) {
-      elevenLabsApiKey = await this.auth.getElevenLabsApiKey();
-    }
+      // Get ElevenLabs API key if not provided
+      let elevenLabsApiKey = config.elevenLabsApiKey;
+      if (!elevenLabsApiKey) {
+        elevenLabsApiKey = await this.auth.getElevenLabsApiKey();
+      }
 
-    // Initialize ElevenLabs TTS
-    const elevenLabsConfig: ElevenLabsConfig = {
-      apiKey: elevenLabsApiKey,
-      voiceId: config.elevenLabsVoiceId,
-      modelId: config.elevenLabsModelId,
-    };
-    this.elevenLabsTTS = new ElevenLabsTTS(elevenLabsConfig);
+      // Initialize ElevenLabs TTS
+      const elevenLabsConfig: ElevenLabsConfig = {
+        apiKey: elevenLabsApiKey,
+        voiceId: config.elevenLabsVoiceId,
+        modelId: config.elevenLabsModelId,
+      };
+      this.elevenLabsTTS = new ElevenLabsTTS(elevenLabsConfig);
+    } else {
+      console.log('[Speechmatics] 🔊 ElevenLabs TTS is disabled - only STT will work');
+    }
 
     // Reset dedupe cache
     this.audioDedupe.reset();
@@ -139,8 +145,17 @@ export class SpeechmaticsVoiceAgent {
   }
 
   private handleWebSocketMessage(data: any): void {
-    if (this.isDisconnected && this.websocket?.isConnected()) {
+    // CRITICAL FIX: Only skip if we're disconnected AND websocket is not connected
+    // If websocket is connected, we should process messages even if isDisconnected flag is set
+    // (This can happen if disconnect() was called but connection is still active)
+    if (this.isDisconnected && !this.websocket?.isConnected()) {
       return;
+    }
+    
+    // If websocket is connected but isDisconnected flag is true, reset the flag
+    // This handles the case where disconnect() was called but connection is still active
+    if (this.isDisconnected && this.websocket?.isConnected()) {
+      this.isDisconnected = false;
     }
 
     // Handle RecognitionStarted
@@ -160,13 +175,9 @@ export class SpeechmaticsVoiceAgent {
 
     // Handle partial transcription
     if (data.message === "AddPartialTranscript") {
+      // Speechmatics API structure: transcript is in metadata.transcript (full text)
       const transcript = data.metadata?.transcript || "";
       if (transcript && transcript.trim()) {
-        console.log('[Speechmatics] 📝 AddPartialTranscript received:', {
-          transcript: transcript.substring(0, 50) + (transcript.length > 50 ? '...' : ''),
-          length: transcript.length,
-          language: this.config?.sttLanguage,
-        });
         this.transcriptionManager?.handlePartialTranscript(transcript.trim());
       }
       return;
@@ -174,21 +185,24 @@ export class SpeechmaticsVoiceAgent {
 
     // Handle final transcription
     if (data.message === "AddTranscript") {
+      // Speechmatics API structure: transcript is in metadata.transcript (full text)
       const transcript = data.metadata?.transcript || "";
       if (transcript && transcript.trim()) {
-        console.log('[Speechmatics] ✅ AddTranscript received:', {
-          transcript: transcript.substring(0, 50) + (transcript.length > 50 ? '...' : ''),
-          length: transcript.length,
-          language: this.config?.sttLanguage,
-        });
         this.transcriptionManager?.handleFinalTranscript(transcript.trim());
       }
       return;
     }
 
     // Handle EndOfUtterance
+    // This is the signal from Speechmatics that the user has finished speaking
+    // IMPORTANT: We DON'T process immediately on EndOfUtterance because it can arrive too early
+    // Instead, we just mark it and let the silence timeout handle the processing
+    // This gives the user more time to continue speaking if they want
     if (data.message === "EndOfUtterance") {
-      this.transcriptionManager?.processPendingTranscript();
+      console.log('[Speechmatics] 🎯 EndOfUtterance received - will wait for silence timeout');
+      // Just mark that we received it, but don't process yet
+      // The silence timeout will handle processing after the configured delay
+      this.transcriptionManager?.markEndOfUtterance();
       return;
     }
 
@@ -197,7 +211,7 @@ export class SpeechmaticsVoiceAgent {
     // This indicates the server has processed our EndOfStream and is ready to close
     if (data.message === "EndOfStream") {
       console.log('[Speechmatics] 📨 Server sent EndOfStream response - server has processed our EndOfStream');
-      this.transcriptionManager?.processPendingTranscript();
+      this.transcriptionManager?.processPendingTranscript(true);
       return;
     }
 
@@ -296,8 +310,8 @@ export class SpeechmaticsVoiceAgent {
         isInterim: false,
       });
 
-      // Generate TTS audio
-      if (this.elevenLabsTTS && this.audio) {
+      // Generate TTS audio only if ElevenLabs is enabled
+      if (!this.config?.disableElevenLabsTTS && this.elevenLabsTTS && this.audio) {
         try {
           const audioStream = await this.elevenLabsTTS.streamTextToSpeech(llmResponse);
           const audioData = await this.audio.streamToUint8Array(audioStream);
@@ -311,6 +325,8 @@ export class SpeechmaticsVoiceAgent {
           console.error('[Speechmatics] ❌ Error generating TTS audio:', error);
           // Don't fail the whole message processing if TTS fails
         }
+      } else if (this.config?.disableElevenLabsTTS) {
+        console.log('[Speechmatics] 🔊 TTS disabled - skipping audio generation');
       }
 
       // Process queued messages
@@ -350,8 +366,8 @@ export class SpeechmaticsVoiceAgent {
     this.audio?.setMicrophoneSensitivity(sensitivity);
   }
 
-  stopMicrophone(): void {
-    this.audio?.stopMicrophone();
+  async stopMicrophone(): Promise<void> {
+    await this.audio?.stopMicrophone();
   }
 
   async disconnect(): Promise<void> {
@@ -380,7 +396,7 @@ export class SpeechmaticsVoiceAgent {
         console.log('[Speechmatics] 🎤 Step 1: Stopping microphone...');
         // Stop microphone input completely - this stops all AddAudio messages
         this.audio.setMicrophoneMuted(true);
-        this.audio.stopMicrophone();
+        await this.audio.stopMicrophone();
         console.log('[Speechmatics] ✅ Microphone stopped');
         
         // CRITICAL: Wait to ensure NO audio chunks are in flight
@@ -419,6 +435,22 @@ export class SpeechmaticsVoiceAgent {
       this.audioDedupe.reset();
 
       this.onConnectionCallback?.(false);
+      
+      // CRITICAL: Force browser to release any ghost microphone permissions
+      // This must be called AFTER everything is disconnected (WebSocket + audio)
+      // Wait a bit to ensure all resources are fully released before forcing cleanup
+      console.log('[Speechmatics] 🧹 Step 4: Forcing browser to release microphone permissions...');
+      await new Promise(resolve => setTimeout(resolve, 500)); // Small delay to ensure cleanup is complete
+      
+      if (typeof navigator !== 'undefined' && navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
+        try {
+          await navigator.mediaDevices.enumerateDevices();
+          console.log('[Speechmatics] ✅ Called enumerateDevices() to release ghost permissions');
+        } catch (error) {
+          // Ignore errors - this is just a cleanup trick
+          console.log('[Speechmatics] ℹ️ enumerateDevices() call completed (may have failed silently)');
+        }
+      }
       
       console.log('[Speechmatics] ✅ Agent disconnect() complete', {
         totalTime: Date.now() - disconnectStartTime,

@@ -31,6 +31,7 @@ interface PremiumVoiceInterfaceProps {
     speechmaticsApiKeyEnvVar?: string;
     elevenLabsVoiceId?: string;
     elevenLabsModelId?: string;
+    disableElevenLabsTTS?: boolean;
   };
   onMessage: (message: DeepgramMessageEvent | HybridVoiceAgentMessage | SpeechmaticsMessageEvent) => void;
   onError: (error: Error) => void;
@@ -89,29 +90,71 @@ export function PremiumVoiceInterface({
   const speakingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
+  const microphoneNodeRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const isDisconnectingRef = useRef<boolean>(false);
+  const isConnectingRef = useRef<boolean>(false);
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const previousOptimisticCountRef = useRef<number>(0);
+  const previousPropsCountRef = useRef<number>(0);
   const isHybridAgent = modelConfig?.provider === "hybrid-voice-agent";
+  // Use voiceAgentProvider if available, otherwise fallback to provider
+  // But warn if provider is not a voice agent (e.g., "anthropic", "openai")
   const voiceAgentProvider = modelConfig?.voiceAgentProvider || modelConfig?.provider;
   const isSpeechmaticsAgent = voiceAgentProvider === "speechmatics-voice-agent";
+  
+  // Warn if we're using a non-voice-agent provider as fallback
+  const validVoiceAgents = ["deepgram-voice-agent", "hybrid-voice-agent", "speechmatics-voice-agent"];
+  if (!modelConfig?.voiceAgentProvider && modelConfig?.provider && 
+      !validVoiceAgents.includes(modelConfig.provider)) {
+    console.warn('[PremiumVoiceInterface] ⚠️ Using non-voice-agent provider as fallback:', {
+      provider: modelConfig.provider,
+      voiceAgentProvider: modelConfig.voiceAgentProvider,
+      message: 'This is likely a configuration error. voice_agent_provider should be set in the database.',
+    });
+  }
   const isMutedRef = useRef(isMuted);
+
+  const voiceAgentLogData = useMemo(() => {
+    const promptVariables = (modelConfig as any)?.promptVariables;
+    const promptVariableKeys = promptVariables ? Object.keys(promptVariables).sort() : null;
+    const modelConfigKeys = modelConfig ? Object.keys(modelConfig).sort() : [];
+    
+    const payload = {
+      provider: modelConfig?.provider,
+      voiceAgentProvider,
+      effectiveProvider: voiceAgentProvider,
+      isSpeechmaticsAgent,
+      isHybridAgent,
+      modelConfigKeys,
+      speechmaticsSttLanguage: modelConfig?.speechmaticsSttLanguage,
+      promptVariables: promptVariableKeys,
+    };
+    
+    return {
+      payload,
+      signature: JSON.stringify(payload),
+    };
+  }, [modelConfig, voiceAgentProvider, isSpeechmaticsAgent, isHybridAgent]);
 
   // Message registry for deduplication at source
   const messageRegistry = useRef<Map<string, { content: string; status: 'interim' | 'final'; timestamp: number }>>(new Map());
   
   // Debug log
   useEffect(() => {
-    console.log('[PremiumVoiceInterface] 🎤 Voice Agent Selection:', {
-      provider: modelConfig?.provider,
-      voiceAgentProvider: modelConfig?.voiceAgentProvider,
-      effectiveProvider: voiceAgentProvider,
-      isSpeechmaticsAgent,
-      isHybridAgent,
-      modelConfigKeys: modelConfig ? Object.keys(modelConfig) : [],
-    });
-  }, [modelConfig, voiceAgentProvider, isSpeechmaticsAgent, isHybridAgent]);
+    console.log('[PremiumVoiceInterface] 🎤 Voice Agent Selection:', voiceAgentLogData.payload);
+    
+    if (!isSpeechmaticsAgent) {
+      console.warn('[PremiumVoiceInterface] ⚠️ Speechmatics not selected!', {
+        voiceAgentProvider,
+        provider: modelConfig?.provider,
+        expected: 'speechmatics-voice-agent',
+      });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [voiceAgentLogData.signature]);
 
   useEffect(() => {
     isMutedRef.current = isMuted;
@@ -121,6 +164,17 @@ export function PremiumVoiceInterface({
    * NEW SIMPLIFIED MESSAGE SYSTEM
    * Updates optimistic cache with deduplication at source
    */
+  const mergeStreamingContent = useCallback((previous: string | undefined, incoming: string): string => {
+    if (!previous) return incoming;
+    if (!incoming) return previous;
+    if (incoming === previous) return previous;
+    if (incoming.startsWith(previous)) return incoming;
+    if (previous.startsWith(incoming)) return previous;
+    if (incoming.includes(previous)) return incoming;
+    if (previous.includes(incoming)) return previous;
+    return `${previous} ${incoming}`.replace(/\s+/g, ' ').trim();
+  }, []);
+
   const updateOptimisticMessage = useCallback((message: SpeechmaticsMessageEvent) => {
     if (!message.messageId) {
       console.log('[PremiumVoice] ⚠️ Message without messageId, skipping:', {
@@ -135,25 +189,12 @@ export function PremiumVoiceInterface({
     const existing = messageRegistry.current.get(id);
     const now = Date.now();
 
-    console.log('[PremiumVoice] 🔄 updateOptimisticMessage:', {
-      messageId: id,
-      isInterim: message.isInterim,
-      content: message.content.substring(0, 40) + '...',
-      existingStatus: existing?.status,
-      existingContent: existing?.content?.substring(0, 30),
-    });
-
     // If we receive a final message, it should replace any interim message with the same ID
     if (!message.isInterim) {
-      console.log('[PremiumVoice] ✅ Final message - replacing interim:', {
-        messageId: id,
-        hadInterim: existing?.status === 'interim',
-        content: message.content.substring(0, 40) + '...',
-      });
       
       // Final message - always update/replace
       messageRegistry.current.set(id, {
-        content: message.content,
+        content: message.content, // Store complete content
         status: 'final',
         timestamp: now,
       });
@@ -162,17 +203,13 @@ export function PremiumVoiceInterface({
       setOptimisticCache(prev => {
         const next = new Map(prev);
         const hadInterim = prev.has(id);
+        const oldContent = prev.get(id)?.content;
         next.set(id, {
           role: message.role === 'agent' ? 'assistant' : message.role,
-          content: message.content,
+          content: message.content, // Use complete content from message
           timestamp: message.timestamp || new Date().toISOString(),
           messageId: id,
           isInterim: false,
-        });
-        console.log('[PremiumVoice] 📦 Final message added to cache:', {
-          messageId: id,
-          replacedInterim: hadInterim,
-          cacheSize: next.size,
         });
         return next;
       });
@@ -182,26 +219,13 @@ export function PremiumVoiceInterface({
     // For interim messages:
     // Skip if we already have final version (final takes precedence)
     if (existing?.status === 'final') {
-      console.log('[PremiumVoice] ⏸️ Skipping interim (already have final):', {
-        messageId: id,
-        finalContent: existing.content.substring(0, 30),
-      });
       return; // Don't overwrite final with interim
     }
 
     // Skip if interim and content unchanged
     if (existing?.content === message.content) {
-      console.log('[PremiumVoice] ⏸️ Skipping interim (content unchanged):', {
-        messageId: id,
-      });
       return; // No change, skip
     }
-
-    console.log('[PremiumVoice] 📝 Adding/updating interim message:', {
-      messageId: id,
-      content: message.content.substring(0, 40) + '...',
-      hadExisting: !!existing,
-    });
 
     // Update registry for interim message
     messageRegistry.current.set(id, {
@@ -221,20 +245,19 @@ export function PremiumVoiceInterface({
     // Update optimistic cache
     setOptimisticCache(prev => {
       const next = new Map(prev);
+      const previousMessage = next.get(id);
+      const previousContent = previousMessage?.content || existing?.content;
+      const mergedContent = mergeStreamingContent(previousContent, message.content);
       next.set(id, {
         role: message.role === 'agent' ? 'assistant' : message.role,
-        content: message.content,
-        timestamp: message.timestamp || new Date().toISOString(),
+        content: mergedContent,
+        timestamp: message.timestamp || previousMessage?.timestamp || new Date().toISOString(),
         messageId: id,
         isInterim: true,
       });
-      console.log('[PremiumVoice] 📦 Interim message added to cache:', {
-        messageId: id,
-        cacheSize: next.size,
-      });
       return next;
     });
-  }, []);
+  }, [mergeStreamingContent]);
 
   // Get user name for greeting
   const getUserName = () => {
@@ -276,6 +299,7 @@ export function PremiumVoiceInterface({
       
       audioContextRef.current = audioContext;
       analyserRef.current = analyser;
+      microphoneNodeRef.current = microphone;
       streamRef.current = stream;
 
       const dataArray = new Uint8Array(analyser.frequencyBinCount);
@@ -386,23 +410,33 @@ export function PremiumVoiceInterface({
       animationFrameRef.current = null;
     }
     
-    // Only close audio context if explicitly requested (full disconnect)
-    // When muting, we keep it open for TTS playback
-    if (closeAudioContext && audioContextRef.current) {
+    // CRITICAL: Disconnect ALL AudioNodes before closing AudioContext
+    // This ensures no audio graph connections remain active
+    
+    // Disconnect microphone node (MediaStreamAudioSourceNode)
+    if (microphoneNodeRef.current) {
       try {
-        if (audioContextRef.current.state !== 'closed') {
-          audioContextRef.current.close();
-        }
-        console.log('[PremiumVoiceInterface] ✅ Audio context closed');
+        microphoneNodeRef.current.disconnect();
+        microphoneNodeRef.current = null;
+        console.log('[PremiumVoiceInterface] ✅ Microphone node disconnected');
       } catch (error) {
-        console.warn('[PremiumVoiceInterface] Error closing audio context:', error);
+        console.warn('[PremiumVoiceInterface] ⚠️ Error disconnecting microphone node:', error);
       }
-      audioContextRef.current = null;
-    } else if (closeAudioContext === false) {
-      console.log('[PremiumVoiceInterface] ℹ️ Audio context kept open for TTS playback');
+    }
+    
+    // Disconnect analyser node
+    if (analyserRef.current) {
+      try {
+        analyserRef.current.disconnect();
+        analyserRef.current = null;
+        console.log('[PremiumVoiceInterface] ✅ Analyser node disconnected');
+      } catch (error) {
+        console.warn('[PremiumVoiceInterface] ⚠️ Error disconnecting analyser node:', error);
+      }
     }
     
     // Stop all media stream tracks (microphone input)
+    // CRITICAL: Stop ALL tracks (audio + video if present) to fully release the microphone
     if (streamRef.current) {
       try {
         streamRef.current.getTracks().forEach(track => {
@@ -414,11 +448,27 @@ export function PremiumVoiceInterface({
         streamRef.current = null;
         console.log('[PremiumVoiceInterface] ✅ Media stream cleaned up');
       } catch (error) {
-        console.warn('[PremiumVoiceInterface] Error stopping stream tracks:', error);
+        console.warn('[PremiumVoiceInterface] ⚠️ Error stopping stream tracks:', error);
       }
     }
     
-    analyserRef.current = null;
+    // Only close audio context if explicitly requested (full disconnect)
+    // When muting, we keep it open for TTS playback
+    // CRITICAL: Close AudioContext AFTER all nodes are disconnected
+    if (closeAudioContext && audioContextRef.current) {
+      try {
+        if (audioContextRef.current.state !== 'closed') {
+          audioContextRef.current.close();
+        }
+        console.log('[PremiumVoiceInterface] ✅ Audio context closed');
+      } catch (error) {
+        console.warn('[PremiumVoiceInterface] ⚠️ Error closing audio context:', error);
+      }
+      audioContextRef.current = null;
+    } else if (closeAudioContext === false) {
+      console.log('[PremiumVoiceInterface] ℹ️ Audio context kept open for TTS playback');
+    }
+    
     setAudioLevel(0);
     console.log('[PremiumVoiceInterface] ✅ Audio analysis cleanup complete');
   }, []);
@@ -426,14 +476,6 @@ export function PremiumVoiceInterface({
   const handleMessage = useCallback((message: DeepgramMessageEvent | HybridVoiceAgentMessage | SpeechmaticsMessageEvent) => {
     const isInterim = Boolean(message.isInterim);
     const messageId = (message as SpeechmaticsMessageEvent).messageId;
-
-    console.log('[PremiumVoice] 📨 handleMessage received:', {
-      messageId,
-      isInterim,
-      role: message.role,
-      content: message.content.substring(0, 50) + '...',
-      timestamp: message.timestamp,
-    });
 
     // Detect when user is speaking
     if (message.role === 'user') {
@@ -454,18 +496,11 @@ export function PremiumVoiceInterface({
         isInterim,
         messageId,
       });
-    } else {
-      console.log('[PremiumVoice] ⚠️ Message without messageId, generating one');
     }
 
     // Always call parent callback with preserved messageId
     // This ensures the message is persisted and appears in props.messages
     const finalMessageId = messageId || `msg-${Date.now()}`;
-    console.log('[PremiumVoice] 📤 Calling onMessage callback:', {
-      messageId: finalMessageId,
-      isInterim,
-      role: message.role,
-    });
     
     onMessage({
       ...message,
@@ -488,7 +523,36 @@ export function PremiumVoiceInterface({
   }, [cleanupAudioAnalysis]);
 
   const connect = useCallback(async () => {
+    // CRITICAL: Prevent multiple simultaneous connections
+    if (isConnectingRef.current) {
+      console.warn('[PremiumVoiceInterface] ⚠️ Connection already in progress, ignoring duplicate call');
+      return;
+    }
+
+    // CRITICAL: Wait for any ongoing disconnect to complete before connecting
+    if (isDisconnectingRef.current) {
+      console.log('[PremiumVoiceInterface] ⏳ Waiting for previous disconnect to complete...');
+      // Wait up to 5 seconds for disconnect to complete
+      let waitCount = 0;
+      while (isDisconnectingRef.current && waitCount < 50) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+        waitCount++;
+      }
+      if (isDisconnectingRef.current) {
+        console.warn('[PremiumVoiceInterface] ⚠️ Previous disconnect still in progress after 5s, aborting new connection');
+        setError('Previous disconnect still in progress. Please wait a moment and try again.');
+        return;
+      }
+    }
+
+    // Check if already connected
+    if (agentRef.current && isConnected) {
+      console.log('[PremiumVoiceInterface] ℹ️ Already connected, skipping new connection');
+      return;
+    }
+
     try {
+      isConnectingRef.current = true;
       console.log('[PremiumVoiceInterface] 🔌 Starting connection...');
       setError(null);
       setIsConnecting(true);
@@ -540,6 +604,7 @@ export function PremiumVoiceInterface({
           llmModel: modelConfig?.speechmaticsLlmModel,
           elevenLabsVoiceId: modelConfig?.elevenLabsVoiceId,
           elevenLabsModelId: modelConfig?.elevenLabsModelId || "eleven_turbo_v2_5",
+          disableElevenLabsTTS: modelConfig?.disableElevenLabsTTS || false,
           microphoneSensitivity,
           microphoneDeviceId: selectedMicrophoneId || undefined,
           voiceIsolation: voiceIsolationEnabled,
@@ -579,56 +644,77 @@ export function PremiumVoiceInterface({
 
       setIsMicrophoneActive(true);
       setIsConnecting(false);
+      isConnectingRef.current = false;
     } catch (err) {
       console.error('[PremiumVoiceInterface] ❌ Connection error:', err);
       setIsConnecting(false);
+      isConnectingRef.current = false;
       cleanupAudioAnalysis(true); // Close audio context on connection error
       const errorMessage = err instanceof Error ? err.message : 'Failed to connect to voice agent';
       setError(errorMessage);
       handleError(err instanceof Error ? err : new Error(errorMessage));
     }
-  }, [systemPrompt, modelConfig, isHybridAgent, isSpeechmaticsAgent, handleMessage, handleError, handleConnectionChange, setupAudioAnalysis, cleanupAudioAnalysis, startAudioVisualization]);
+  }, [systemPrompt, modelConfig, isHybridAgent, isSpeechmaticsAgent, isConnected, handleMessage, handleError, handleConnectionChange, setupAudioAnalysis, cleanupAudioAnalysis, startAudioVisualization]);
 
-  const disconnect = useCallback(() => {
+  const disconnect = useCallback(async () => {
+    // CRITICAL: Prevent multiple simultaneous disconnects
+    if (isDisconnectingRef.current) {
+      console.warn('[PremiumVoiceInterface] ⚠️ Disconnect already in progress, ignoring duplicate call');
+      return;
+    }
+
+    isDisconnectingRef.current = true;
     console.log('[PremiumVoiceInterface] 🔌 Disconnecting completely...');
     
-    // Clear timeout first
-    if (speakingTimeoutRef.current) {
-      clearTimeout(speakingTimeoutRef.current);
-      speakingTimeoutRef.current = null;
-    }
-    
-    // Cleanup audio analysis FIRST (stops the separate stream for visualization)
-    cleanupAudioAnalysis(true); // Close audio context on disconnect
-    
-    // Disconnect agent (this will stop the agent's microphone stream AND websocket)
-    if (agentRef.current) {
-      try {
-        // This will:
-        // - Stop microphone
-        // - Disconnect websocket
-        // - Clear all queues
-        // - Stop audio playback
-        agentRef.current.disconnect();
-        console.log('[PremiumVoiceInterface] ✅ Agent disconnected (microphone + websocket)');
-      } catch (error) {
-        console.warn('[PremiumVoiceInterface] Error disconnecting agent:', error);
+    try {
+      // Clear timeout first
+      if (speakingTimeoutRef.current) {
+        clearTimeout(speakingTimeoutRef.current);
+        speakingTimeoutRef.current = null;
       }
-      agentRef.current = null;
-    }
-    
-    // Reset all state
-    setIsConnected(false);
-    setIsMicrophoneActive(false);
-    setIsMuted(false);
-    setIsSpeaking(false);
-    setError(null);
+      
+      // Cleanup audio analysis FIRST (stops the separate stream for visualization)
+      // This ensures the visualization stream is stopped before the agent stream
+      cleanupAudioAnalysis(true); // Close audio context on disconnect
+      
+      // Disconnect agent (this will stop the agent's microphone stream AND websocket)
+      // CRITICAL: Wait for agent disconnect to complete to ensure all resources are released
+      if (agentRef.current) {
+        try {
+          // This will:
+          // - Stop microphone
+          // - Disconnect websocket
+          // - Clear all queues
+          // - Stop audio playback
+          // - Call enumerateDevices() to force browser cleanup
+          await agentRef.current.disconnect();
+          console.log('[PremiumVoiceInterface] ✅ Agent disconnected (microphone + websocket)');
+        } catch (error) {
+          console.warn('[PremiumVoiceInterface] Error disconnecting agent:', error);
+        }
+        agentRef.current = null;
+      }
+      
+      // CRITICAL: Additional delay to ensure browser has time to release all microphone resources
+      // This helps prevent the red microphone indicator from staying active
+      await new Promise(resolve => setTimeout(resolve, 200));
+      
+      // Reset all state
+      setIsConnected(false);
+      setIsMicrophoneActive(false);
+      setIsMuted(false);
+      setIsSpeaking(false);
+      setError(null);
 
-    // Clear optimistic cache and message registry
-    setOptimisticCache(new Map());
-    messageRegistry.current.clear();
-    
-    console.log('[PremiumVoiceInterface] ✅ Complete disconnection finished - websocket and microphone are OFF');
+      // Clear optimistic cache and message registry
+      setOptimisticCache(new Map());
+      messageRegistry.current.clear();
+      
+      console.log('[PremiumVoiceInterface] ✅ Complete disconnection finished - websocket and microphone are OFF');
+    } finally {
+      // Always reset the disconnecting flag, even if there was an error
+      isDisconnectingRef.current = false;
+    }
   }, [cleanupAudioAnalysis]);
 
   const toggleMute = useCallback(async () => {
@@ -730,6 +816,21 @@ export function PremiumVoiceInterface({
     }
   }, [isMuted, isHybridAgent, isSpeechmaticsAgent, systemPrompt, modelConfig, cleanupAudioAnalysis, startAudioVisualization, handleError]);
 
+  const connectRef = useRef(connect);
+  useEffect(() => {
+    connectRef.current = connect;
+  }, [connect]);
+
+  const disconnectRef = useRef(disconnect);
+  useEffect(() => {
+    disconnectRef.current = disconnect;
+  }, [disconnect]);
+
+  const cleanupAudioAnalysisRef = useRef(cleanupAudioAnalysis);
+  useEffect(() => {
+    cleanupAudioAnalysisRef.current = cleanupAudioAnalysis;
+  }, [cleanupAudioAnalysis]);
+
   // Load microphone devices on mount
   useEffect(() => {
     loadMicrophoneDevices();
@@ -754,31 +855,31 @@ export function PremiumVoiceInterface({
 
   // Auto-connect on mount
   useEffect(() => {
-    // Use a ref to track if we've already connected to avoid double connections in StrictMode
-    let connected = false;
-    
+    let isUnmounting = false;
+
     const doConnect = async () => {
-      if (connected) {
-        console.log('[PremiumVoiceInterface] ⚠️ Already connecting, skipping duplicate call');
+      if (isUnmounting) {
         return;
       }
-      connected = true;
-      await connect();
+      if (isConnectingRef.current || isDisconnectingRef.current) {
+        console.log('[PremiumVoiceInterface] ⚠️ Connection or disconnect in progress, skipping duplicate call');
+        return;
+      }
+      await connectRef.current?.();
     };
     
     doConnect();
     
     return () => {
+      isUnmounting = true;
       console.log('[PremiumVoiceInterface] 🧹 Component unmounting, cleaning up all streams...');
-      connected = false;
-      disconnect();
-      // Extra safety cleanup - ensure all streams are stopped
-      cleanupAudioAnalysis(true); // Close audio context on unmount
+      void disconnectRef.current?.();
+      cleanupAudioAnalysisRef.current?.(true); // Close audio context on unmount
       if (speakingTimeoutRef.current) {
         clearTimeout(speakingTimeoutRef.current);
       }
     };
-  }, [disconnect, cleanupAudioAnalysis]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Scroll to bottom when component mounts (voice mode activated)
   useEffect(() => {
@@ -800,12 +901,8 @@ export function PremiumVoiceInterface({
     const finalMap = new Map<string, DisplayMessage>();
     const currentKeys = new Set<string>();
 
-    console.log('[PremiumVoice] 🔀 Merging messages:', {
-      optimisticCacheSize: optimisticCache.size,
-      propsMessagesCount: messages.length,
-      optimisticIds: Array.from(optimisticCache.keys()),
-      propsIds: messages.map(m => m.messageId).filter(Boolean),
-    });
+    previousOptimisticCountRef.current = optimisticCache.size;
+    previousPropsCountRef.current = messages.length;
 
     // Step 1: Add messages from optimistic cache first (interim messages)
     // These will be replaced by final messages if they have the same messageId
@@ -817,12 +914,6 @@ export function PremiumVoiceInterface({
         ...cachedMsg,
         stableKey: id,
         isNew,
-      });
-      
-      console.log('[PremiumVoice] 📥 Added from optimistic cache:', {
-        messageId: id,
-        isInterim: cachedMsg.isInterim,
-        content: cachedMsg.content.substring(0, 30) + '...',
       });
     }
 
@@ -841,28 +932,6 @@ export function PremiumVoiceInterface({
       const existingInMap = finalMap.get(key);
       const hadInterim = existingInMap?.isInterim;
 
-      console.log('[PremiumVoice] 📥 Processing message from props:', {
-        originalMessageId: msg.messageId,
-        metadataMessageId,
-        finalKey: key,
-        hadInterim,
-        existingInMap: existingInMap ? {
-          messageId: existingInMap.messageId,
-          isInterim: existingInMap.isInterim,
-          content: existingInMap.content.substring(0, 30),
-        } : null,
-        content: msg.content.substring(0, 30) + '...',
-      });
-      
-      // If we're replacing an interim message, log it clearly
-      if (hadInterim) {
-        console.log('[PremiumVoice] ✅ Replacing interim with final:', {
-          messageId: key,
-          interimContent: existingInMap?.content.substring(0, 30),
-          finalContent: msg.content.substring(0, 30),
-        });
-      }
-
       // Always replace with final message (props.messages are final)
       finalMap.set(key, {
         role: msg.role,
@@ -873,12 +942,6 @@ export function PremiumVoiceInterface({
         stableKey: key,
         isNew,
       });
-      
-      console.log('[PremiumVoice] 📥 Added from props:', {
-        messageId: key,
-        content: msg.content.substring(0, 30) + '...',
-        replacedInterim: hadInterim,
-      });
     });
 
     // Step 3: Sort by timestamp
@@ -886,16 +949,6 @@ export function PremiumVoiceInterface({
       const timeA = new Date(a.timestamp).getTime();
       const timeB = new Date(b.timestamp).getTime();
       return timeA - timeB;
-    });
-
-    console.log('[PremiumVoice] 📊 Final merged messages:', {
-      totalCount: sorted.length,
-      messages: sorted.map(m => ({
-        messageId: m.messageId,
-        isInterim: m.isInterim,
-        content: m.content.substring(0, 30) + '...',
-        role: m.role,
-      })),
     });
 
     // Update tracking
@@ -914,12 +967,6 @@ export function PremiumVoiceInterface({
       messages.map(m => m.messageId).filter((id): id is string => Boolean(id))
     );
 
-    console.log('[PremiumVoice] 🧹 Cleaning optimistic cache:', {
-      propsMessageIds: Array.from(propsMessageIds),
-      currentCacheSize: optimisticCache.size,
-      currentCacheIds: Array.from(optimisticCache.keys()),
-    });
-
     setOptimisticCache(prev => {
       const next = new Map(prev);
       let hasChanges = false;
@@ -928,13 +975,6 @@ export function PremiumVoiceInterface({
       // Remove any interim messages that now have a final version in props
       for (const id of propsMessageIds) {
         if (next.has(id)) {
-          // Message is now final in props, remove from optimistic cache
-          const removed = next.get(id);
-          console.log('[PremiumVoice] 🗑️ Removing from cache (now in props):', {
-            messageId: id,
-            wasInterim: removed?.isInterim,
-            content: removed?.content.substring(0, 30),
-          });
           next.delete(id);
           removedIds.push(id);
           hasChanges = true;
@@ -947,24 +987,10 @@ export function PremiumVoiceInterface({
       for (const [id, cachedMsg] of next) {
         const msgTime = new Date(cachedMsg.timestamp).getTime();
         if (cachedMsg.isInterim && (now - msgTime > 5000)) {
-          console.log('[PremiumVoice] 🗑️ Removing stale interim message:', {
-            messageId: id,
-            age: now - msgTime,
-            content: cachedMsg.content.substring(0, 30),
-          });
           next.delete(id);
           removedIds.push(id);
           hasChanges = true;
         }
-      }
-
-      if (hasChanges) {
-        console.log('[PremiumVoice] ✅ Cache cleaned:', {
-          removedCount: removedIds.length,
-          removedIds,
-          newCacheSize: next.size,
-          remainingIds: Array.from(next.keys()),
-        });
       }
 
       return hasChanges ? next : prev;
@@ -1408,3 +1434,6 @@ export function PremiumVoiceInterface({
     </div>
   );
 }
+
+
+

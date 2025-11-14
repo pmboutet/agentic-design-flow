@@ -170,16 +170,14 @@ export class SpeechmaticsWebSocket {
             const text = typeof event.data === 'string' ? event.data : event.data.toString();
             const data = JSON.parse(text);
             
-            // Log ALL messages from server for debugging
-            console.log('[Speechmatics] 📨 Server message:', {
-              message: data.message,
-              type: data.type,
-              reason: data.reason,
-              code: data.code,
-              timestamp: new Date().toISOString(),
-              isDisconnecting: this.isDisconnecting,
-              wsState: ws.readyState,
-            });
+            // Log only partial transcripts (interim text as user speaks)
+            // Final transcripts (AddTranscript) are accumulated and logged once complete
+            if (data.message === 'AddPartialTranscript') {
+              const transcript = data.metadata?.transcript || '';
+              if (transcript && transcript.trim()) {
+                console.log('[Speechmatics] 📝:', transcript);
+              }
+            }
             
             if (data.message === "RecognitionStarted") {
               if (this.ws === currentWs && !resolved) {
@@ -420,7 +418,21 @@ export class SpeechmaticsWebSocket {
       finalState: ws.readyState,
     });
 
-    // Step 4: Clean up reference
+    // Step 4: Remove ALL WebSocket event listeners before clearing reference
+    // This prevents any handlers from firing after disconnect
+    if (ws) {
+      try {
+        ws.onopen = null;
+        ws.onmessage = null;
+        ws.onerror = null;
+        ws.onclose = null;
+        console.log('[Speechmatics] 🧹 WebSocket event listeners removed');
+      } catch (error) {
+        console.warn('[Speechmatics] ⚠️ Error removing WebSocket listeners:', error);
+      }
+    }
+
+    // Step 4b: Clean up reference
     if (this.ws === ws) {
       this.ws = null;
       console.log('[Speechmatics] 🧹 WebSocket reference cleared');
