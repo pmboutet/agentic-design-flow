@@ -158,6 +158,26 @@ export class TranscriptionManager {
         return;
       }
       
+      // Skip orphan chunks that are just a single word already present in the previous message
+      // This prevents duplicate words from appearing as separate messages
+      if (this.lastProcessedContent && this.isOrphanWordRepeat(finalMessage, this.lastProcessedContent)) {
+        console.log('[Transcription] ⏸️ Skipping orphan chunk (repeated word from previous message):', finalMessage);
+        this.pendingFinalTranscript = null;
+        this.lastPartialUserContent = null;
+        this.currentStreamingMessageId = null;
+        return;
+      }
+      
+      // Skip orphan chunks that are just punctuation already present at the end of previous message
+      // Example: previous="OK, je suis reparti de mon côté.", new="." -> skip
+      if (this.lastProcessedContent && this.isOrphanPunctuation(finalMessage, this.lastProcessedContent)) {
+        console.log('[Transcription] ⏸️ Skipping orphan chunk (repeated punctuation from previous message):', finalMessage);
+        this.pendingFinalTranscript = null;
+        this.lastPartialUserContent = null;
+        this.currentStreamingMessageId = null;
+        return;
+      }
+      
       if (!/[.!?…]$/.test(finalMessage)) {
         finalMessage = `${finalMessage}.`;
       }
@@ -288,6 +308,94 @@ export class TranscriptionManager {
     // Allow up to 10 characters to catch cases like "...." or "???"
     const punctuationRegex = /^[.,!?;:…\-—–'"]+$/;
     return punctuationRegex.test(cleaned) && cleaned.length <= 10;
+  }
+
+  /**
+   * Check if a new message is just an orphan chunk containing a single word
+   * that's already present in the previous message
+   * Example: previous="OK, je suis reparti de mon côté", new="côté" -> true
+   */
+  private isOrphanWordRepeat(newMessage: string, previousMessage: string): boolean {
+    // Remove punctuation and normalize
+    const newClean = newMessage.trim().replace(/[.,!?;:…\-—–'"]+$/g, '').trim();
+    const prevClean = previousMessage.trim();
+    
+    // If new message is empty after cleaning, it's not a word repeat
+    if (!newClean || newClean.length < 2) {
+      return false;
+    }
+    
+    // Extract words from both messages (case-insensitive)
+    const newWords = newClean.toLowerCase().split(/\s+/).filter(w => w.length > 0);
+    const prevWords = prevClean.toLowerCase().split(/\s+/).filter(w => w.length > 0);
+    
+    // If new message has more than 2 words, it's not an orphan chunk
+    if (newWords.length > 2) {
+      return false;
+    }
+    
+    // Check if all words in new message are already in previous message
+    // This catches cases like "côté" or "de mon côté" when "côté" was already in previous
+    const allWordsInPrevious = newWords.every(word => prevWords.includes(word));
+    
+    if (allWordsInPrevious && newWords.length <= 2) {
+      // Additional check: if it's just 1-2 words and they appear at the end of previous message,
+      // it's definitely an orphan chunk
+      const lastWordsOfPrevious = prevWords.slice(-Math.max(2, newWords.length));
+      const matchesEnd = newWords.every((word, idx) => 
+        lastWordsOfPrevious[lastWordsOfPrevious.length - newWords.length + idx] === word
+      );
+      
+      if (matchesEnd) {
+        return true;
+      }
+    }
+    
+    return false;
+  }
+
+  /**
+   * Check if a new message is just punctuation that's already present at the end of previous message
+   * Example: previous="OK, je suis reparti de mon côté.", new="." -> true
+   * Example: previous="OK, je suis reparti de mon côté.", new="..." -> false (different punctuation)
+   */
+  private isOrphanPunctuation(newMessage: string, previousMessage: string): boolean {
+    const newTrimmed = newMessage.trim();
+    const prevTrimmed = previousMessage.trim();
+    
+    // If new message is empty, it's not punctuation
+    if (!newTrimmed) {
+      return false;
+    }
+    
+    // Check if new message is only punctuation (or punctuation + whitespace)
+    const newClean = newTrimmed.replace(/\s+/g, '');
+    if (!newClean) {
+      return false;
+    }
+    
+    const punctuationRegex = /^[.,!?;:…\-—–'"]+$/;
+    if (!punctuationRegex.test(newClean)) {
+      return false; // Not just punctuation
+    }
+    
+    // Extract punctuation from the end of previous message
+    const prevPunctuationMatch = prevTrimmed.match(/[.,!?;:…\-—–'"]+$/);
+    if (!prevPunctuationMatch) {
+      return false; // Previous message has no punctuation at the end
+    }
+    
+    const prevEndPunctuation = prevPunctuationMatch[0];
+    
+    // Check if new punctuation matches or is contained in previous punctuation
+    // Example: prev=".", new="." -> true
+    // Example: prev="...", new="." -> true (new is subset)
+    // Example: prev=".", new="..." -> false (new is different)
+    if (prevEndPunctuation.includes(newClean) || newClean === prevEndPunctuation) {
+      return true;
+    }
+    
+    return false;
   }
 
   /**
