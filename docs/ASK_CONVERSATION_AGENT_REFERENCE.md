@@ -221,7 +221,154 @@ const agentConfig = await getAgentConfigForAsk(supabase, askRow.id, agentVariabl
 - ✅ Inclut toutes les variables `system_prompt_*`
 - ⚠️ Utilisé pour le logging, pas pour l'exécution directe
 
-### 5. Mode test (admin) - `/api/admin/ai/agents/[id]/test/route.ts`
+### 5. Transcription Speechmatics - Traitement des messages vocaux
+
+**Fichier principal** : `src/lib/ai/speechmatics-transcription.ts`
+
+**Classe** : `TranscriptionManager`
+
+#### Vue d'ensemble
+
+Le système de transcription Speechmatics traite les chunks de transcription partiels et finaux avant de les envoyer à l'agent de conversation. Il implémente plusieurs mécanismes pour garantir la qualité et la complétude des messages :
+
+#### Fonctionnalités principales
+
+##### 1. Buffer d'énoncés avec déduplication
+
+**Problème résolu** : Speechmatics renvoie parfois plusieurs versions du même chunk (auto-corrections du modèle).
+
+**Solution** :
+- Buffer intelligent qui accumule les chunks partiels
+- Détection de similarité (>90%) pour ignorer les duplications
+- Fusion intelligente des segments qui se chevauchent
+- Nettoyage automatique des répétitions internes (ex: "manifestement manifestement" → "manifestement")
+
+**Configuration** :
+```typescript
+private readonly UTTERANCE_FINALIZATION_DELAY = 800; // Attendre 0.8s sans nouveau chunk avant finaliser
+```
+
+##### 2. Filtrage des fragments
+
+**Problème résolu** : Les micro-chunks (ex: "transcrire", "Et Nous") étaient traités comme des messages complets.
+
+**Solution** :
+- Validation de longueur minimale : ≥20 caractères
+- Validation de mots minimaux : ≥3 mots
+- Détection de fins de phrases incomplètes (ex: se termine par "et", "de", "que")
+- Attente automatique si le message est trop court (sauf en cas de timeout de sécurité)
+
+**Configuration** :
+```typescript
+private readonly MIN_UTTERANCE_CHAR_LENGTH = 20;
+private readonly MIN_UTTERANCE_WORDS = 3;
+private readonly FRAGMENT_ENDINGS = new Set(['et','de','des','du','si','que',...]);
+```
+
+##### 3. Prévisualisation stable
+
+**Problème résolu** : L'interface affichait chaque chunk individuellement, créant une cascade de messages.
+
+**Solution** :
+- Un seul message prévisualisé (`isInterim: true`) qui se met à jour progressivement
+- Le contenu est nettoyé et dédupliqué avant affichage
+- Mise à jour uniquement si le contenu change réellement
+- Remplacement automatique par le message final quand disponible
+
+##### 4. Gestion des chunks orphelins
+
+**Problème résolu** : Des chunks arrivent après le message principal avec juste un mot répété ou de la ponctuation.
+
+**Solution** :
+- Détection des mots répétés : si le nouveau message contient 1-2 mots déjà présents à la fin du message précédent → ignoré
+- Détection de ponctuation répétée : si le nouveau message n'est que de la ponctuation déjà présente en fin de message précédent → ignoré
+
+**Méthodes** :
+- `isOrphanWordRepeat()` : Détecte les mots répétés
+- `isOrphanPunctuation()` : Détecte la ponctuation répétée
+
+##### 5. Timeout de sécurité
+
+**Problème résolu** : Si Speechmatics ne renvoie plus de chunks, le message reste bloqué.
+
+**Solution** :
+- Timeout de sécurité de 5 secondes si aucun nouveau chunk n'arrive
+- Flag `force` pour forcer le traitement (utilisé lors de `EndOfStream`)
+- Validation finale avant traitement même en mode `force`
+
+**Configuration** :
+```typescript
+private readonly SILENCE_DETECTION_TIMEOUT = 5000; // Timeout de sécurité (5s)
+```
+
+#### Flux de traitement
+
+1. **Réception d'un chunk partiel** (`handlePartialTranscript`)
+   - Vérification de déduplication (similarité >90%)
+   - Mise à jour du buffer `pendingFinalTranscript`
+   - Génération d'un preview nettoyé pour l'UI
+   - Réinitialisation du timer de finalisation (0.8s)
+
+2. **Réception d'un chunk final** (`handleFinalTranscript`)
+   - Fusion intelligente avec le buffer existant
+   - Gestion de la ponctuation isolée
+   - Réinitialisation du timer
+
+3. **Finalisation de l'énoncé** (`processPendingTranscript`)
+   - Déclenché après 0.8s sans nouveau chunk OU timeout de sécurité (5s)
+   - Validation : longueur minimale, mots minimaux, fin de phrase complète
+   - Nettoyage : suppression des répétitions, normalisation de la ponctuation
+   - Vérification des chunks orphelins (mots/ponctuation répétés)
+   - Envoi à l'agent de conversation via `processUserMessage()`
+
+#### Nettoyage des transcriptions
+
+La méthode `cleanTranscript()` applique plusieurs transformations :
+
+1. **Suppression des répétitions de mots** : `/(\b[\w']+\b)(\s+\1\b)+/gi`
+2. **Suppression des répétitions de phrases** : Détection de séquences répétées
+3. **Normalisation des espaces** : Suppression des espaces multiples
+4. **Normalisation de la ponctuation** : Espacement cohérent autour de la ponctuation
+
+#### Exemples de traitement
+
+**Exemple 1 : Déduplication**
+```
+Chunks reçus :
+- "L'idée c'est que"
+- "L'idée c'est que le système"
+- "L'idée c'est que le système marche"
+
+Résultat final : "L'idée c'est que le système marche"
+```
+
+**Exemple 2 : Filtrage de fragment**
+```
+Chunk reçu : "transcrire"
+Action : Attente (trop court, < 20 caractères)
+```
+
+**Exemple 3 : Chunk orphelin**
+```
+Message précédent : "OK, je suis reparti de mon côté."
+Chunk orphelin : "côté"
+Action : Ignoré (mot répété du message précédent)
+```
+
+**Exemple 4 : Ponctuation répétée**
+```
+Message précédent : "OK, je suis reparti de mon côté."
+Chunk orphelin : "."
+Action : Ignoré (ponctuation déjà présente)
+```
+
+#### Références techniques
+
+- `src/lib/ai/speechmatics-transcription.ts` : Classe `TranscriptionManager`
+- `src/lib/ai/speechmatics.ts` : Intégration avec l'agent vocal
+- `src/lib/ai/speechmatics-websocket.ts` : Réception des chunks depuis Speechmatics
+
+### 6. Mode test (admin) - `/api/admin/ai/agents/[id]/test/route.ts`
 
 **Fonction utilisée** : `executeAgent` (pour ask-conversation-response) ou `renderTemplate` (pour les autres agents)
 
