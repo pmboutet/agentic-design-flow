@@ -287,6 +287,8 @@ export interface PromptVariableDefinition {
   label: string;
   description: string;
   example?: string;
+  type?: string; // Type de la variable: string, array, object, etc.
+  category?: string; // Catégorie: session, conversation, participants, insights, etc.
 }
 
 // Types for component props
@@ -315,6 +317,7 @@ export interface ChatComponentProps {
   onVoiceMessage?: (role: 'user' | 'agent', content: string, metadata?: { isInterim?: boolean; messageId?: string; timestamp?: string }) => void;
   onReplyBoxFocusChange?: (isFocused: boolean) => void;
   onVoiceModeChange?: (isActive: boolean) => void;
+  onInitConversation?: () => void;
 }
 
 export interface ChallengeComponentProps {
