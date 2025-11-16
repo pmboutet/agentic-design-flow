@@ -17,6 +17,7 @@ interface AskSessionRow {
   name?: string | null;
   question: string;
   description?: string | null;
+  system_prompt?: string | null;
   status?: string | null;
   start_date?: string | null;
   end_date?: string | null;
@@ -545,6 +546,15 @@ export async function GET(
       };
     });
 
+    // Get conversation plan if thread exists (do this BEFORE initializing messages)
+    let conversationPlan: ConversationPlan | null = null;
+    if (conversationThread) {
+      conversationPlan = await getConversationPlan(dataClient, conversationThread.id);
+      if (conversationPlan) {
+        console.log('📋 GET /api/ask/[key]: Loaded existing conversation plan with', conversationPlan.plan_data.steps.length, 'steps');
+      }
+    }
+
     // If no messages exist, initiate conversation with agent
     if (messages.length === 0) {
       try {
@@ -585,12 +595,49 @@ export async function GET(
           }
         }
 
+        // Generate conversation plan if it doesn't exist yet and we have a thread
+        if (conversationThread && !conversationPlan) {
+          console.log('📋 GET /api/ask/[key]: Generating conversation plan for new conversation');
+          try {
+            const { generateConversationPlan, createConversationPlan } = await import('@/lib/ai/conversation-plan');
+            
+            const planGenerationVariables = {
+              ask_key: askRow.ask_key,
+              ask_question: askRow.question,
+              ask_description: askRow.description ?? '',
+              system_prompt_ask: askRow.system_prompt ?? '',
+              system_prompt_project: projectData?.system_prompt ?? '',
+              system_prompt_challenge: challengeData?.system_prompt ?? '',
+              participants: participantSummaries.map(p => p.name).join(', '),
+              participants_list: participantSummaries,
+            };
+
+            const planData = await generateConversationPlan(
+              dataClient,
+              askRow.id,
+              planGenerationVariables
+            );
+
+            conversationPlan = await createConversationPlan(
+              dataClient,
+              conversationThread.id,
+              planData
+            );
+
+            console.log('✅ GET /api/ask/[key]: Conversation plan created with', planData.steps.length, 'steps');
+          } catch (planError) {
+            console.error('⚠️ GET /api/ask/[key]: Failed to generate conversation plan:', planError);
+            // Continue without the plan - it's an enhancement, not a requirement
+          }
+        }
+
         const agentVariables = buildConversationAgentVariables({
           ask: askRow,
           project: projectData,
           challenge: challengeData,
           messages,
           participants: participantSummaries,
+          conversationPlan,
         });
         
         // Execute agent to get initial response
@@ -691,15 +738,6 @@ export async function GET(
       insightIds: insights.map(i => i.id),
       conversationThreadId: conversationThread?.id ?? null,
     });
-
-    // Get conversation plan if thread exists
-    let conversationPlan: ConversationPlan | null = null;
-    if (conversationThread) {
-      conversationPlan = await getConversationPlan(dataClient, conversationThread.id);
-      if (conversationPlan) {
-        console.log('📋 GET /api/ask/[key]: Loaded conversation plan with', conversationPlan.plan_data.steps.length, 'steps');
-      }
-    }
 
     const endDate = askRow.end_date ?? new Date().toISOString();
     const createdAt = askRow.created_at ?? new Date().toISOString();
