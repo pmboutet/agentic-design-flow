@@ -16,21 +16,23 @@ async function createConversationPlanAgent() {
 
   try {
     // Get default model config
-    const { data: modelConfig, error: modelError } = await supabase
+    const { data: modelConfigs, error: modelError } = await supabase
       .from('ai_model_configs')
       .select('*')
       .eq('is_default', true)
-      .maybeSingle();
+      .limit(1);
 
     if (modelError) {
       console.error('❌ Error fetching default model config:', modelError);
       return;
     }
 
-    if (!modelConfig) {
+    if (!modelConfigs || modelConfigs.length === 0) {
       console.error('❌ No default model config found. Please create one first.');
       return;
     }
+
+    const modelConfig = modelConfigs[0];
 
     console.log('✅ Using default model config:', modelConfig.code);
 
