@@ -1,8 +1,9 @@
 import { randomUUID } from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminSupabaseClient } from '@/lib/supabaseAdmin';
-import { AiAgentRow, listAgents, mapAgentRow, sanitizePromptVariables } from '@/lib/ai/agents';
+import { AiAgentRow, listAgents, mapAgentRow } from '@/lib/ai/agents';
 import { PROMPT_VARIABLES } from '@/lib/ai/constants';
+import { extractTemplateVariables } from '@/lib/ai/templates';
 
 interface AgentCreatePayload {
   slug?: string;
@@ -12,7 +13,6 @@ interface AgentCreatePayload {
   userPrompt?: string;
   modelConfigId?: string | null;
   fallbackModelConfigId?: string | null;
-  availableVariables?: string[];
   voice?: boolean;
 }
 
@@ -89,7 +89,10 @@ export async function POST(request: NextRequest) {
 
     const supabase = getAdminSupabaseClient();
 
-    const variables = sanitizePromptVariables(body.availableVariables) ?? [];
+    // Vibe Coding: Auto-extract variables from templates
+    const systemVars = extractTemplateVariables(systemPrompt);
+    const userVars = extractTemplateVariables(userPrompt);
+    const detectedVariables = Array.from(new Set([...systemVars, ...userVars]));
 
     const insertPayload: AiAgentRow = {
       id: randomUUID(),
@@ -100,7 +103,7 @@ export async function POST(request: NextRequest) {
       fallback_model_config_id: body.fallbackModelConfigId ?? null,
       system_prompt: systemPrompt,
       user_prompt: userPrompt,
-      available_variables: variables,
+      available_variables: detectedVariables,
       voice: typeof body.voice === 'boolean' ? body.voice : false,
       metadata: null,
     } as AiAgentRow;

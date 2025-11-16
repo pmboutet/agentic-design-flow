@@ -7,6 +7,8 @@ import { fetchInsightsForSession } from '@/lib/insightQueries';
 import { normaliseMessageMetadata } from '@/lib/messages';
 import { getAskSessionByKey, getOrCreateConversationThread, getMessagesForThread, getInsightsForThread, shouldUseSharedThread } from '@/lib/asks';
 import { createServerSupabaseClient } from '@/lib/supabaseServer';
+import { executeAgent } from '@/lib/ai/service';
+import { buildConversationAgentVariables } from '@/lib/ai/conversation-agent';
 
 interface AskSessionRow {
   id: string;
@@ -23,6 +25,20 @@ interface AskSessionRow {
   is_anonymous?: boolean | null;
   created_at?: string | null;
   updated_at?: string | null;
+  project_id?: string | null;
+  challenge_id?: string | null;
+}
+
+interface ProjectRow {
+  id: string;
+  name?: string | null;
+  system_prompt?: string | null;
+}
+
+interface ChallengeRow {
+  id: string;
+  name?: string | null;
+  system_prompt?: string | null;
 }
 
 interface ParticipantRow {
@@ -527,6 +543,107 @@ export async function GET(
         metadata: metadata,
       };
     });
+
+    // If no messages exist, initiate conversation with agent
+    if (messages.length === 0) {
+      try {
+        console.log('💬 GET /api/ask/[key]: No messages found, initiating conversation with agent');
+        
+        const participantSummaries = participants.map(participant => ({
+          name: participant.name,
+          role: participant.role ?? null,
+        }));
+
+        let projectData: ProjectRow | null = null;
+        if (askRow.project_id) {
+          const { data, error } = await dataClient
+            .from('projects')
+            .select('id, name, system_prompt')
+            .eq('id', askRow.project_id)
+            .maybeSingle<ProjectRow>();
+
+          if (error) {
+            console.error('❌ GET /api/ask/[key]: Failed to fetch project for init prompt:', error);
+          } else {
+            projectData = data ?? null;
+          }
+        }
+
+        let challengeData: ChallengeRow | null = null;
+        if (askRow.challenge_id) {
+          const { data, error } = await dataClient
+            .from('challenges')
+            .select('id, name, system_prompt')
+            .eq('id', askRow.challenge_id)
+            .maybeSingle<ChallengeRow>();
+
+          if (error) {
+            console.error('❌ GET /api/ask/[key]: Failed to fetch challenge for init prompt:', error);
+          } else {
+            challengeData = data ?? null;
+          }
+        }
+
+        const agentVariables = buildConversationAgentVariables({
+          ask: askRow,
+          project: projectData,
+          challenge: challengeData,
+          messages,
+          participants: participantSummaries,
+        });
+        
+        // Execute agent to get initial response
+        const agentResult = await executeAgent({
+          supabase: dataClient,
+          agentSlug: 'ask-conversation-response',
+          askSessionId: askSessionId,
+          interactionType: 'ask.chat.response',
+          variables: agentVariables,
+        });
+
+        if (typeof agentResult.content === 'string' && agentResult.content.trim().length > 0) {
+          const aiResponse = agentResult.content.trim();
+          
+          // Insert the initial AI message
+          const { data: insertedRows, error: insertError } = await dataClient
+            .from('messages')
+            .insert({
+              ask_session_id: askSessionId,
+              content: aiResponse,
+              sender_type: 'ai',
+              message_type: 'text',
+              metadata: { senderName: 'Agent' },
+              conversation_thread_id: conversationThread?.id ?? null,
+            })
+            .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at, conversation_thread_id')
+            .limit(1);
+
+          if (!insertError && insertedRows && insertedRows.length > 0) {
+            const inserted = insertedRows[0] as MessageRow;
+            const initialMessage: Message = {
+              id: inserted.id,
+              askKey: askRow.ask_key,
+              askSessionId: inserted.ask_session_id,
+              conversationThreadId: (inserted as any).conversation_thread_id ?? null,
+              content: inserted.content,
+              type: (inserted.message_type as Message['type']) ?? 'text',
+              senderType: 'ai',
+              senderId: inserted.user_id ?? null,
+              senderName: 'Agent',
+              timestamp: inserted.created_at ?? new Date().toISOString(),
+              metadata: normaliseMessageMetadata(inserted.metadata),
+            };
+            messages.push(initialMessage);
+            console.log('✅ GET /api/ask/[key]: Initial conversation message created:', initialMessage.id);
+          } else {
+            console.error('❌ GET /api/ask/[key]: Failed to insert initial message:', insertError);
+          }
+        }
+      } catch (error) {
+        // Log error but don't fail the request - user can still interact
+        console.error('⚠️ GET /api/ask/[key]: Failed to initiate conversation:', error);
+      }
+    }
 
     // Get insights for the session
     // In individual mode, we should ideally filter by thread, but to ensure all insights are visible

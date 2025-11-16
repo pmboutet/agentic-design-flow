@@ -6,9 +6,10 @@ import { normaliseMessageMetadata } from '@/lib/messages';
 import { callModelProviderStream } from '@/lib/ai/providers';
 import { createAgentLog, markAgentLogProcessing, completeAgentLog, failAgentLog } from '@/lib/ai/logs';
 import { DEFAULT_MAX_OUTPUT_TOKENS } from '@/lib/ai/constants';
-import { getAgentConfigForAsk, DEFAULT_CHAT_AGENT_SLUG, type PromptVariables, type AgentConfigResult } from '@/lib/ai/agent-config';
+import { getAgentConfigForAsk, DEFAULT_CHAT_AGENT_SLUG, type AgentConfigResult } from '@/lib/ai/agent-config';
 import type { AiAgentLog, Insight } from '@/types';
 import { createServerSupabaseClient } from '@/lib/supabaseServer';
+import { buildConversationAgentVariables } from '@/lib/ai/conversation-agent';
 
 interface InsightDetectionResponse {
   success: boolean;
@@ -92,51 +93,6 @@ function buildParticipantDisplayName(participant: ParticipantRow, user: UserRow 
   }
 
   return `Participant ${index + 1}`;
-}
-
-function formatMessageHistory(messages: any[]): string {
-  return messages
-    .map(message => {
-      const timestamp = (() => {
-        const date = new Date(message.timestamp);
-        if (Number.isNaN(date.getTime())) {
-          return '';
-        }
-        return date.toISOString();
-      })();
-
-      const sender = message.senderName ?? (message.senderType === 'ai' ? 'Agent IA' : 'Participant');
-      return `${timestamp ? `[${timestamp}] ` : ''}${sender}: ${message.content}`;
-    })
-    .join('\n');
-}
-
-function buildPromptVariables(options: {
-  ask: AskSessionRow;
-  project: ProjectRow | null;
-  challenge: ChallengeRow | null;
-  messages: any[];
-  participants: { name: string; role?: string | null }[];
-}): Record<string, string | null | undefined> {
-  const history = formatMessageHistory(options.messages);
-  const lastUserMessage = [...options.messages].reverse().find(message => message.senderType === 'user');
-
-  const participantsSummary = options.participants
-    .map(participant => participant.role ? `${participant.name} (${participant.role})` : participant.name)
-    .join(', ');
-
-  return {
-    ask_key: options.ask.ask_key,
-    ask_question: options.ask.question,
-    ask_description: options.ask.description ?? '',
-    system_prompt_project: options.project?.system_prompt ?? '',
-    system_prompt_challenge: options.challenge?.system_prompt ?? '',
-    system_prompt_ask: options.ask.system_prompt ?? '',
-    message_history: history,
-    latest_user_message: lastUserMessage?.content ?? '',
-    participant_name: lastUserMessage?.senderName ?? lastUserMessage?.metadata?.senderName ?? '',
-    participants: participantsSummary,
-  } satisfies Record<string, string | null | undefined>;
 }
 
 function isPermissionDenied(error: unknown): boolean {
@@ -430,6 +386,18 @@ export async function POST(
       messageRows = data ?? [];
     }
 
+    // Debug: Log raw messages from database
+    console.log('📥 Messages bruts de la DB:');
+    console.log(`   Total: ${messageRows.length} messages`);
+    const dbUserMsgCount = messageRows.filter(m => m.sender_type === 'user').length;
+    const dbAiMsgCount = messageRows.filter(m => m.sender_type === 'ai').length;
+    console.log(`   👤 User messages in DB: ${dbUserMsgCount}`);
+    console.log(`   🤖 AI messages in DB: ${dbAiMsgCount}`);
+    if (conversationThread) {
+      const withThread = messageRows.filter(m => m.conversation_thread_id === conversationThread.id).length;
+      console.log(`   🧵 Messages avec thread ID ${conversationThread.id.substring(0, 8)}...: ${withThread}`);
+    }
+
     const messageUserIds = (messageRows ?? [])
       .map(row => row.user_id)
       .filter((value): value is string => Boolean(value));
@@ -538,7 +506,28 @@ export async function POST(
 
     const participantSummaries = participants.map(p => ({ name: p.name, role: p.role ?? null }));
 
-    const promptVariables = buildPromptVariables({
+    // Parse the request body to get the new user message
+    let newUserMessage = '';
+    try {
+      const body = await request.json();
+      newUserMessage = body.message || body.content || '';
+    } catch (error) {
+      console.warn('⚠️ Could not parse request body for new user message:', error);
+    }
+
+    // Debug: Log message counts
+    console.log('📊 Messages récupérés pour messages_json:');
+    console.log(`   Total: ${messages.length} messages`);
+    const userMsgCount = messages.filter(m => m.senderType === 'user').length;
+    const aiMsgCount = messages.filter(m => m.senderType === 'ai').length;
+    console.log(`   👤 User messages: ${userMsgCount}`);
+    console.log(`   🤖 AI messages: ${aiMsgCount}`);
+    if (messages.length > 0) {
+      console.log(`   Premier message: ${messages[0].senderType} - "${messages[0].content.substring(0, 50)}..."`);
+      console.log(`   Dernier message: ${messages[messages.length - 1].senderType} - "${messages[messages.length - 1].content.substring(0, 50)}..."`);
+    }
+
+    const agentVariables = buildConversationAgentVariables({
       ask: askRow,
       project: projectData,
       challenge: challengeData,
@@ -546,32 +535,10 @@ export async function POST(
       participants: participantSummaries,
     });
 
-    // Construire le payload JSON des messages (format optimisé, sans redondance)
-    const conversationMessagesPayload = messages.map(message => ({
-      id: message.id,
-      senderType: message.senderType,
-      senderName: message.senderName,
-      content: message.content,
-      timestamp: message.timestamp,
-    }));
-
-    // Variables optimisées : suppression des redondances
-    // - messages_json remplace message_history + previous_messages + latest_user_message
-    // - participants remplace participants_count + participant_name
-    // - Suppression de current_timestamp (inutile)
-    // - Suppression de challenge_name et project_name (non utilisés dans les prompts)
-    // IMPORTANT: Inclure system_prompt_* pour que getAgentConfigForAsk puisse les utiliser
-    const agentVariables: PromptVariables = {
-      ask_key: askRow.ask_key,
-      ask_question: promptVariables.ask_question || askRow.question,
-      ask_description: promptVariables.ask_description || askRow.description || '',
-      participants: promptVariables.participants || '',
-      messages_json: JSON.stringify(conversationMessagesPayload),
-      // Inclure les system_prompt_* pour la fusion correcte des variables
-      system_prompt_ask: promptVariables.system_prompt_ask || '',
-      system_prompt_project: promptVariables.system_prompt_project || '',
-      system_prompt_challenge: promptVariables.system_prompt_challenge || '',
-    };
+    // Override latest_user_message with the new message from the request
+    if (newUserMessage) {
+      agentVariables.latest_user_message = newUserMessage;
+    }
 
     let agentConfig: AgentConfigResult;
     try {
@@ -631,46 +598,13 @@ export async function POST(
 
     console.log('Using agent config:', agentConfig.modelConfig.provider);
 
-    // Payload optimisé pour le logging : on garde seulement les variables actives (available_variables)
-    // Les prompts sont déjà résolus avec toutes les variables, mais on garde les variables brutes
-    // pour référence/debug, en filtrant seulement celles qui sont déclarées comme disponibles
-    const availableVariables = agentConfig.agent?.availableVariables ?? [];
-    
-    const activeVariables: Record<string, string | undefined> = {};
-    
-    // Si availableVariables est vide, on inclut toutes les variables pour éviter de perdre des données
-    // Sinon, on filtre selon availableVariables
-    if (availableVariables.length === 0) {
-      console.warn('⚠️  No availableVariables found in agent config, including all variables');
-      // Si pas de availableVariables défini, on inclut toutes les variables pour le debugging
-      Object.assign(activeVariables, agentVariables);
-    } else {
-      // Ajouter seulement les variables qui sont dans available_variables ET dans agentVariables
-      for (const varKey of availableVariables) {
-        if (varKey in agentVariables) {
-          activeVariables[varKey] = agentVariables[varKey];
-        }
-      }
-      
-      // Toujours ajouter ask_key pour référence si présent dans agentVariables
-      // (même s'il n'est pas dans available_variables, c'est utile pour le debugging)
-      if (agentVariables.ask_key && !('ask_key' in activeVariables)) {
-        activeVariables.ask_key = agentVariables.ask_key;
-      }
-    }
-    
-    console.log('📊 Variables filtering result:');
-    console.log('  - Available variables from agent:', availableVariables);
-    console.log('  - Active variables in payload:', Object.keys(activeVariables));
-
+    // Vibe Coding: Les variables sont déjà compilées dans les prompts via Handlebars
+    // Le payload ne contient que les prompts finaux (system et user)
     const agentRequestPayload = {
       agentSlug: CHAT_AGENT_SLUG,
       modelConfigId: agentConfig.modelConfig.id,
-      // Prompts résolus (contiennent déjà toutes les infos via substitution de variables)
       systemPrompt: prompts.system,
       userPrompt: prompts.user,
-      // Variables actives sélectionnées (seulement celles dans available_variables)
-      variables: activeVariables,
     } satisfies Record<string, unknown>;
 
     // Create a log entry for tracking

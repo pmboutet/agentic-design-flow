@@ -1,12 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminSupabaseClient } from '@/lib/supabaseAdmin';
-import { fetchAgentByIdOrSlug, buildChatAgentVariables, type PromptVariables } from '@/lib/ai/agent-config';
+import { fetchAgentByIdOrSlug, buildChatAgentVariables, type PromptVariables, getAgentConfigForAsk } from '@/lib/ai/agent-config';
 import { executeAgent } from '@/lib/ai/service';
 import { renderTemplate } from '@/lib/ai/templates';
 import { parseErrorMessage } from '@/lib/utils';
+import { buildConversationAgentVariables } from '@/lib/ai/conversation-agent';
+import { getAskSessionByKey, getOrCreateConversationThread, getMessagesForThread } from '@/lib/asks';
+import { normaliseMessageMetadata } from '@/lib/messages';
 
 interface TestRequest {
   askSessionId?: string;
+  userId?: string;
   projectId?: string;
   challengeId?: string;
 }
@@ -30,67 +34,14 @@ export async function POST(
     }
 
     // Build variables based on context
-    const variables: Record<string, string> = {};
+    const variables: Record<string, string | undefined> = {};
 
     if (body.askSessionId) {
-      // For ask-conversation-response agent, use executeAgent to ensure consistency
-      // with other modes (text, streaming, voice)
-      if (agent.slug === 'ask-conversation-response') {
-        // Build variables using the shared function for consistency
-        const baseVariables = await buildChatAgentVariables(supabase, body.askSessionId);
-        
-        // Add mock conversation variables for testing
-        const testVariables: PromptVariables = {
-          ...baseVariables,
-          message_history: 'Message 1: Test message\nMessage 2: Another test message',
-          latest_user_message: 'Test user message',
-          latest_ai_response: 'Test AI response',
-          participant_name: 'Test User',
-          participants: 'Test User (Participant), Another User (Observer)',
-          existing_insights_json: JSON.stringify([]),
-          messages_json: JSON.stringify([
-            { id: '1', senderType: 'user', senderName: 'Test User', content: 'Test message', timestamp: new Date().toISOString() },
-            { id: '2', senderType: 'ai', senderName: 'Agent', content: 'Test AI response', timestamp: new Date().toISOString() },
-          ]),
-        };
-
-        // Use executeAgent to get the same behavior as production
-        try {
-          const result = await executeAgent({
-            supabase,
-            agentSlug: agent.slug,
-            askSessionId: body.askSessionId,
-            interactionType: 'ask.chat.response.test',
-            variables: testVariables,
-          });
-
-          // Extract prompts from the result (they're already resolved)
-          // We need to get them from the agent config that was used
-          const { getAgentConfigForAsk } = await import('@/lib/ai/agent-config');
-          const agentConfig = await getAgentConfigForAsk(supabase, body.askSessionId, testVariables);
-
-          return NextResponse.json({
-            success: true,
-            data: {
-              systemPrompt: agentConfig.systemPrompt,
-              userPrompt: agentConfig.userPrompt || '',
-              variables: testVariables,
-              // Include execution result for reference
-              executionResult: {
-                content: typeof result.content === 'string' ? result.content : 'N/A',
-                logId: result.logId,
-              },
-            },
-          });
-        } catch (execError) {
-          // If executeAgent fails, fall back to renderTemplate for debugging
-          console.warn('executeAgent failed in test mode, falling back to renderTemplate:', execError);
-          // Continue to renderTemplate fallback below
-        }
-      }
-
-      // Fallback: Build variables manually for other agents or if executeAgent fails
-      const { data: askSession, error: askError } = await supabase
+      // Use THE SAME CODE as the streaming route to get real data
+      // This ensures the test mode shows exactly what will be used in production
+      
+      // Fetch ASK session
+      const { data: askRow, error: askError } = await supabase
         .from('ask_sessions')
         .select(`
           id,
@@ -100,8 +51,8 @@ export async function POST(
           system_prompt,
           project_id,
           challenge_id,
-          projects(id, name, system_prompt),
-          challenges(id, name, system_prompt)
+          audience_scope,
+          response_mode
         `)
         .eq('id', body.askSessionId)
         .maybeSingle();
@@ -110,26 +61,201 @@ export async function POST(
         throw new Error(`Failed to fetch ASK session: ${askError.message}`);
       }
 
-      if (askSession) {
-        variables.ask_key = askSession.ask_key ?? askSession.id;
-        variables.ask_question = askSession.question ?? '';
-        variables.ask_description = askSession.description ?? '';
-        variables.system_prompt_ask = askSession.system_prompt ?? '';
-        
-        const project = Array.isArray(askSession.projects) ? askSession.projects[0] : askSession.projects;
-        const challenge = Array.isArray(askSession.challenges) ? askSession.challenges[0] : askSession.challenges;
-        
-        variables.system_prompt_project = project?.system_prompt ?? '';
-        variables.system_prompt_challenge = challenge?.system_prompt ?? '';
-        
-        // Mock some common ASK variables
-        variables.message_history = 'Message 1: Test message\nMessage 2: Another test message';
-        variables.latest_user_message = 'Test user message';
-        variables.latest_ai_response = 'Test AI response';
-        variables.participant_name = 'Test User';
-        variables.participants = 'Test User (Participant), Another User (Observer)';
-        variables.existing_insights_json = JSON.stringify([]);
+      if (!askRow) {
+        throw new Error('ASK session not found');
       }
+
+      // Fetch participants
+      const { data: participantRows } = await supabase
+        .from('ask_participants')
+        .select('id, user_id, participant_name, participant_email, role, is_spokesperson')
+        .eq('ask_session_id', askRow.id)
+        .order('joined_at', { ascending: true });
+
+      const participantUserIds = (participantRows ?? [])
+        .map(row => row.user_id)
+        .filter((value): value is string => Boolean(value));
+
+      let usersById: Record<string, any> = {};
+
+      if (participantUserIds.length > 0) {
+        const { data: userRows } = await supabase
+          .from('profiles')
+          .select('id, email, full_name, first_name, last_name')
+          .in('id', participantUserIds);
+
+        usersById = (userRows ?? []).reduce<Record<string, any>>((acc, user) => {
+          acc[user.id] = user;
+          return acc;
+        }, {});
+      }
+
+      const buildParticipantDisplayName = (row: any, user: any, index: number): string => {
+        if (row.participant_name) return row.participant_name;
+        if (user) {
+          if (user.full_name && user.full_name.trim().length > 0) return user.full_name;
+          const nameParts = [user.first_name, user.last_name].filter(Boolean);
+          if (nameParts.length) return nameParts.join(' ');
+          if (user.email) return user.email;
+        }
+        return `Participant ${index + 1}`;
+      };
+
+      const participants = (participantRows ?? []).map((row, index) => {
+        const user = row.user_id ? usersById[row.user_id] ?? null : null;
+        return {
+          name: buildParticipantDisplayName(row, user, index),
+          email: row.participant_email ?? user?.email ?? null,
+          role: row.role ?? null,
+        };
+      });
+
+      // Get or create conversation thread
+      const askConfig = {
+        audience_scope: askRow.audience_scope ?? null,
+        response_mode: askRow.response_mode ?? null,
+      };
+
+      // Use the userId from the request to get the correct thread
+      const profileId = body.userId || null;
+
+      const { thread: conversationThread } = await getOrCreateConversationThread(
+        supabase,
+        askRow.id,
+        profileId,
+        askConfig
+      );
+
+      // Get REAL messages
+      let messageRows: any[] = [];
+      if (conversationThread) {
+        const { messages: threadMessages } = await getMessagesForThread(
+          supabase,
+          conversationThread.id
+        );
+
+        const { data: messagesWithoutThread } = await supabase
+          .from('messages')
+          .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at, conversation_thread_id')
+          .eq('ask_session_id', askRow.id)
+          .is('conversation_thread_id', null)
+          .order('created_at', { ascending: true });
+
+        const threadMessagesList = (threadMessages ?? []) as any[];
+        const messagesWithoutThreadList = (messagesWithoutThread ?? []) as any[];
+        messageRows = [...threadMessagesList, ...messagesWithoutThreadList].sort((a, b) => {
+          const timeA = new Date(a.created_at ?? new Date().toISOString()).getTime();
+          const timeB = new Date(b.created_at ?? new Date().toISOString()).getTime();
+          return timeA - timeB;
+        });
+      } else {
+        const { data } = await supabase
+          .from('messages')
+          .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at, conversation_thread_id')
+          .eq('ask_session_id', askRow.id)
+          .order('created_at', { ascending: true });
+        messageRows = data ?? [];
+      }
+
+      // Get user info for message senders
+      const messageUserIds = (messageRows ?? [])
+        .map(row => row.user_id)
+        .filter((value): value is string => Boolean(value));
+
+      const additionalUserIds = messageUserIds.filter(id => !usersById[id]);
+
+      if (additionalUserIds.length > 0) {
+        const { data: extraUsers } = await supabase
+          .from('profiles')
+          .select('id, email, full_name, first_name, last_name')
+          .in('id', additionalUserIds);
+
+        (extraUsers ?? []).forEach(user => {
+          usersById[user.id] = user;
+        });
+      }
+
+      // Build REAL messages
+      const messages: any[] = (messageRows ?? []).map((row, index) => {
+        const metadata = normaliseMessageMetadata(row.metadata);
+        const user = row.user_id ? usersById[row.user_id] ?? null : null;
+
+        const senderName = (() => {
+          if (metadata && typeof metadata.senderName === 'string' && metadata.senderName.trim().length > 0) {
+            return metadata.senderName;
+          }
+          if (row.sender_type === 'ai') return 'Agent';
+          if (user) {
+            if (user.full_name) return user.full_name;
+            const nameParts = [user.first_name, user.last_name].filter(Boolean);
+            if (nameParts.length > 0) return nameParts.join(' ');
+            if (user.email) return user.email;
+          }
+          return `Participant ${index + 1}`;
+        })();
+
+        return {
+          id: row.id,
+          senderType: row.sender_type ?? 'user',
+          senderName,
+          content: row.content,
+          timestamp: row.created_at ?? new Date().toISOString(),
+        };
+      });
+
+      // Fetch project data
+      let projectData: any = null;
+      if (askRow.project_id) {
+        const { data } = await supabase
+          .from('projects')
+          .select('id, name, system_prompt')
+          .eq('id', askRow.project_id)
+          .maybeSingle();
+        projectData = data ?? null;
+      }
+
+      // Fetch challenge data
+      let challengeData: any = null;
+      if (askRow.challenge_id) {
+        const { data } = await supabase
+          .from('challenges')
+          .select('id, name, system_prompt')
+          .eq('id', askRow.challenge_id)
+          .maybeSingle();
+        challengeData = data ?? null;
+      }
+
+      // Build variables using THE SAME function as streaming route
+      const agentVariables = buildConversationAgentVariables({
+        ask: askRow,
+        project: projectData,
+        challenge: challengeData,
+        messages,
+        participants,
+      });
+
+      // For ask-conversation-response agent, use getAgentConfigForAsk
+      if (agent.slug === 'ask-conversation-response') {
+        const agentConfig = await getAgentConfigForAsk(supabase, body.askSessionId, agentVariables);
+
+        // Vibe Coding: Return only compiled prompts, no variables
+        return NextResponse.json({
+          success: true,
+          data: {
+            systemPrompt: agentConfig.systemPrompt,
+            userPrompt: agentConfig.userPrompt || '',
+            metadata: {
+              messagesCount: messages.length,
+              participantsCount: participants.length,
+              hasProject: !!projectData,
+              hasChallenge: !!challengeData,
+            },
+          },
+        });
+      }
+
+      // For other agents, assign variables for rendering
+      Object.assign(variables, agentVariables);
     } else if (body.challengeId) {
       // Build variables for challenge context (ask-generator or challenge-builder)
       const { data: challenge, error: challengeError } = await supabase
@@ -185,12 +311,12 @@ export async function POST(
     const systemPrompt = renderTemplate(agent.systemPrompt, variables);
     const userPrompt = renderTemplate(agent.userPrompt, variables);
 
+    // Vibe Coding: Return only compiled prompts, no variables
     return NextResponse.json({
       success: true,
       data: {
         systemPrompt,
         userPrompt,
-        variables,
       },
     });
   } catch (error) {

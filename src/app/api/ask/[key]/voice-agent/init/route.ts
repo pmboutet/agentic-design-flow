@@ -2,9 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabaseServer';
 import { executeAgent } from '@/lib/ai/service';
 import { buildChatAgentVariables, DEFAULT_CHAT_AGENT_SLUG, type PromptVariables } from '@/lib/ai/agent-config';
-import { getAskSessionByKey } from '@/lib/asks';
+import { getAskSessionByKey, getOrCreateConversationThread, getMessagesForThread } from '@/lib/asks';
 import { parseErrorMessage } from '@/lib/utils';
 import type { ApiResponse } from '@/types';
+import { buildConversationAgentVariables } from '@/lib/ai/conversation-agent';
 
 const CHAT_AGENT_SLUG = DEFAULT_CHAT_AGENT_SLUG;
 const CHAT_INTERACTION_TYPE = 'ask.chat.response.voice';
@@ -18,6 +19,61 @@ interface AskSessionRow {
   system_prompt?: string | null;
   project_id?: string | null;
   challenge_id?: string | null;
+  audience_scope?: string | null;
+  response_mode?: string | null;
+}
+
+interface ParticipantRow {
+  id: string;
+  participant_name?: string | null;
+  participant_email?: string | null;
+  role?: string | null;
+  is_spokesperson?: boolean | null;
+  user_id?: string | null;
+  last_active?: string | null;
+}
+
+interface UserRow {
+  id: string;
+  email?: string | null;
+  full_name?: string | null;
+  first_name?: string | null;
+  last_name?: string | null;
+}
+
+interface ProjectRow {
+  id: string;
+  name?: string | null;
+  system_prompt?: string | null;
+}
+
+interface ChallengeRow {
+  id: string;
+  name?: string | null;
+  system_prompt?: string | null;
+}
+
+function buildParticipantDisplayName(participant: ParticipantRow, user: UserRow | null, index: number): string {
+  if (participant.participant_name) {
+    return participant.participant_name;
+  }
+
+  if (user) {
+    if (user.full_name && user.full_name.trim().length > 0) {
+      return user.full_name;
+    }
+
+    const nameParts = [user.first_name, user.last_name].filter(Boolean);
+    if (nameParts.length) {
+      return nameParts.join(' ');
+    }
+
+    if (user.email) {
+      return user.email;
+    }
+  }
+
+  return `Participant ${index + 1}`;
 }
 
 export async function POST(
@@ -32,7 +88,7 @@ export async function POST(
     const { row: askRow, error: askError } = await getAskSessionByKey<AskSessionRow>(
       supabase,
       key,
-      'id, ask_key, question, description, status, system_prompt, project_id, challenge_id'
+      'id, ask_key, question, description, status, system_prompt, project_id, challenge_id, audience_scope, response_mode'
     );
 
     if (askError || !askRow) {
@@ -40,6 +96,187 @@ export async function POST(
         success: false,
         error: 'ASK session not found'
       }, { status: 404 });
+    }
+
+    // Get or create conversation thread
+    // For voice mode, we need to determine the thread to check for existing messages
+    const askConfig = {
+      audience_scope: askRow.audience_scope ?? null,
+      response_mode: askRow.response_mode ?? null,
+    };
+
+    // Try to get current user for thread determination
+    let profileId: string | null = null;
+    try {
+      const { data: userResult } = await supabase.auth.getUser();
+      if (userResult?.user) {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('id')
+          .eq('auth_id', userResult.user.id)
+          .single();
+        if (profile) {
+          profileId = profile.id;
+        }
+      }
+    } catch (error) {
+      // Ignore auth errors - will use shared thread if needed
+      console.log('⚠️ Voice agent init: Could not get user profile, will use shared thread if needed');
+    }
+
+    const { thread: conversationThread } = await getOrCreateConversationThread(
+      supabase,
+      askRow.id,
+      profileId,
+      askConfig
+    );
+
+    // Check if there are any messages in the thread
+    let hasMessages = false;
+    if (conversationThread) {
+      const { messages: threadMessages } = await getMessagesForThread(
+        supabase,
+        conversationThread.id
+      );
+      hasMessages = (threadMessages ?? []).length > 0;
+    } else {
+      // Check for messages without thread
+      const { data: messagesWithoutThread } = await supabase
+        .from('messages')
+        .select('id')
+        .eq('ask_session_id', askRow.id)
+        .is('conversation_thread_id', null)
+        .limit(1);
+      hasMessages = (messagesWithoutThread ?? []).length > 0;
+    }
+
+    // If no messages exist, initiate conversation with agent
+    if (!hasMessages) {
+      try {
+        console.log('💬 Voice agent init: No messages found, initiating conversation with agent');
+        
+        const { data: participantRows, error: participantError } = await supabase
+          .from('ask_participants')
+          .select('*')
+          .eq('ask_session_id', askRow.id)
+          .order('joined_at', { ascending: true });
+
+        if (participantError) {
+          console.error('❌ Voice agent init: Failed to fetch participants:', participantError);
+          throw participantError;
+        }
+
+        const participantUserIds = (participantRows ?? [])
+          .map(row => row.user_id)
+          .filter((value): value is string => Boolean(value));
+
+        let usersById: Record<string, UserRow> = {};
+        if (participantUserIds.length > 0) {
+          const { data: userRows, error: userError } = await supabase
+            .from('profiles')
+            .select('id, email, full_name, first_name, last_name')
+            .in('id', participantUserIds);
+
+          if (userError) {
+            console.error('❌ Voice agent init: Failed to fetch participant profiles:', userError);
+            throw userError;
+          }
+
+          usersById = (userRows ?? []).reduce<Record<string, UserRow>>((acc, user) => {
+            acc[user.id] = user;
+            return acc;
+          }, {});
+        }
+
+        const participants = (participantRows ?? []).map((row, index) => {
+          const user = row.user_id ? usersById[row.user_id] ?? null : null;
+          return {
+            id: row.id,
+            name: buildParticipantDisplayName(row, user, index),
+            role: row.role ?? null,
+          };
+        });
+
+        const participantSummaries = participants.map(participant => ({
+          name: participant.name,
+          role: participant.role,
+        }));
+
+        let projectData: ProjectRow | null = null;
+        if (askRow.project_id) {
+          const { data, error } = await supabase
+            .from('projects')
+            .select('id, name, system_prompt')
+            .eq('id', askRow.project_id)
+            .maybeSingle<ProjectRow>();
+
+          if (error) {
+            console.error('❌ Voice agent init: Failed to fetch project:', error);
+          } else {
+            projectData = data ?? null;
+          }
+        }
+
+        let challengeData: ChallengeRow | null = null;
+        if (askRow.challenge_id) {
+          const { data, error } = await supabase
+            .from('challenges')
+            .select('id, name, system_prompt')
+            .eq('id', askRow.challenge_id)
+            .maybeSingle<ChallengeRow>();
+
+          if (error) {
+            console.error('❌ Voice agent init: Failed to fetch challenge:', error);
+          } else {
+            challengeData = data ?? null;
+          }
+        }
+
+        const agentVariables = buildConversationAgentVariables({
+          ask: askRow,
+          project: projectData,
+          challenge: challengeData,
+          messages: [],
+          participants: participantSummaries,
+        });
+        
+        // Execute agent to get initial response
+        // Use 'ask.chat.response' for initial message (same as text mode)
+        const agentResult = await executeAgent({
+          supabase,
+          agentSlug: CHAT_AGENT_SLUG,
+          askSessionId: askRow.id,
+          interactionType: 'ask.chat.response',
+          variables: agentVariables,
+        });
+
+        if (typeof agentResult.content === 'string' && agentResult.content.trim().length > 0) {
+          const aiResponse = agentResult.content.trim();
+          
+          // Insert the initial AI message
+          const { data: insertedRows, error: insertError } = await supabase
+            .from('messages')
+            .insert({
+              ask_session_id: askRow.id,
+              content: aiResponse,
+              sender_type: 'ai',
+              message_type: 'text',
+              metadata: { senderName: 'Agent' },
+              conversation_thread_id: conversationThread?.id ?? null,
+            })
+            .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at, conversation_thread_id')
+            .limit(1);
+
+          if (!insertError && insertedRows && insertedRows.length > 0) {
+            console.log('✅ Voice agent init: Initial conversation message created:', insertedRows[0].id);
+          } else {
+            console.error('❌ Voice agent init: Failed to insert initial message:', insertError);
+          }
+        }
+      } catch (error) {
+        // Log error but don't fail the request - voice agent can still initialize
+        console.error('⚠️ Voice agent init: Failed to initiate conversation:', error);
+      }
     }
 
     // Build complete variables including system_prompt_* from database
