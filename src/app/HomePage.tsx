@@ -9,6 +9,7 @@ import { InsightPanel } from "@/components/insight/InsightPanel";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SessionData, Ask, Message, Insight, Challenge, ApiResponse } from "@/types";
+import { ConversationProgressBar } from "@/components/conversation/ConversationProgressBar";
 import {
   validateAskKey,
   parseErrorMessage,
@@ -294,34 +295,42 @@ function MobileLayout({
             }}
             transition={{ duration: 0.2 }}
           >
-            <div className="h-full p-2 md:p-4 overflow-y-auto">
-              <ChatComponent
-                askKey={sessionDataAskKey}
-                ask={sessionData.ask}
-                messages={sessionData.messages}
-                onSendMessage={onSendMessage}
-                isLoading={sessionData.isLoading}
-                currentParticipantName={currentParticipantName}
-                isMultiUser={Boolean(sessionData.ask && sessionData.ask.participants.length > 1)}
-                showAgentTyping={awaitingAiResponse}
-                voiceModeEnabled={!!voiceModeSystemPrompt}
-                voiceModeSystemPrompt={voiceModeSystemPrompt || undefined}
-                voiceModeUserPrompt={voiceModeUserPrompt || undefined}
-                voiceModePromptVariables={voiceModePromptVariables || undefined}
-                voiceModeModelConfig={voiceModeModelConfig || undefined}
-                onVoiceMessage={onVoiceMessage}
-                onReplyBoxFocusChange={setIsReplyBoxFocused}
-                onInitConversation={onInitConversation}
-                onVoiceModeChange={(active) => {
-                  const wasActive = isVoiceModeActive;
-                  setIsVoiceModeActive(active);
-                  if (wasActive && !active) {
-                    setTimeout(() => {
-                      reloadMessagesAfterVoiceMode();
-                    }, 1000);
-                  }
-                }}
-              />
+            <div className="h-full flex flex-col">
+              {sessionData.conversationPlan && (
+                <ConversationProgressBar
+                  steps={sessionData.conversationPlan.plan_data.steps}
+                  currentStepId={sessionData.conversationPlan.current_step_id}
+                />
+              )}
+              <div className="flex-1 p-2 md:p-4 overflow-y-auto">
+                <ChatComponent
+                  askKey={sessionDataAskKey}
+                  ask={sessionData.ask}
+                  messages={sessionData.messages}
+                  onSendMessage={onSendMessage}
+                  isLoading={sessionData.isLoading}
+                  currentParticipantName={currentParticipantName}
+                  isMultiUser={Boolean(sessionData.ask && sessionData.ask.participants.length > 1)}
+                  showAgentTyping={awaitingAiResponse}
+                  voiceModeEnabled={!!voiceModeSystemPrompt}
+                  voiceModeSystemPrompt={voiceModeSystemPrompt || undefined}
+                  voiceModeUserPrompt={voiceModeUserPrompt || undefined}
+                  voiceModePromptVariables={voiceModePromptVariables || undefined}
+                  voiceModeModelConfig={voiceModeModelConfig || undefined}
+                  onVoiceMessage={onVoiceMessage}
+                  onReplyBoxFocusChange={setIsReplyBoxFocused}
+                  onInitConversation={onInitConversation}
+                  onVoiceModeChange={(active) => {
+                    const wasActive = isVoiceModeActive;
+                    setIsVoiceModeActive(active);
+                    if (wasActive && !active) {
+                      setTimeout(() => {
+                        reloadMessagesAfterVoiceMode();
+                      }, 1000);
+                    }
+                  }}
+                />
+              </div>
             </div>
           </motion.div>
 
@@ -840,6 +849,7 @@ export default function HomePage() {
           messages: messagesWithClientIds,
           insights: data.data?.insights ?? [],
           challenges: data.data?.challenges ?? [],
+          conversationPlan: data.data?.conversationPlan ?? null,
           isLoading: false,
           error: null,
         };
@@ -940,6 +950,7 @@ export default function HomePage() {
           messages: messagesWithClientIds,
           insights: data.data?.insights ?? [],
           challenges: data.data?.challenges ?? [],
+          conversationPlan: data.data?.conversationPlan ?? null,
           isLoading: false,
           error: null,
         };
@@ -2144,41 +2155,49 @@ export default function HomePage() {
             transition={{ duration: 0.6 }}
             className="w-1/3"
           >
-            <div className="chat-container h-full">
-              <ChatComponent
-                askKey={sessionData.askKey}
-                ask={sessionData.ask}
-                messages={sessionData.messages}
-                onSendMessage={handleSendMessage}
-                isLoading={sessionData.isLoading}
-                currentParticipantName={currentParticipantName}
-                isMultiUser={Boolean(sessionData.ask && sessionData.ask.participants.length > 1)}
-                showAgentTyping={awaitingAiResponse}
-                voiceModeEnabled={!!voiceModeSystemPrompt}
-                voiceModeSystemPrompt={voiceModeSystemPrompt || undefined}
-                voiceModeUserPrompt={voiceModeUserPrompt || undefined}
-                voiceModePromptVariables={voiceModePromptVariables || undefined}
-                voiceModeModelConfig={voiceModeModelConfig || undefined}
-                onVoiceMessage={handleVoiceMessage}
-                onReplyBoxFocusChange={setIsReplyBoxFocused}
-                onInitConversation={handleInitConversation}
-                onVoiceModeChange={(active) => {
-                  const wasActive = isVoiceModeActive;
-                  setIsVoiceModeActive(active);
-                  // Reload messages when voice mode is closed to ensure voice messages appear in text mode
-                  if (wasActive && !active) {
-                    console.log('[HomePage] 🎤 Voice mode closed, will reload messages in 1 second...', {
-                      currentMessageCount: sessionData.messages.length,
-                      hasInviteToken: !!sessionData.inviteToken,
-                      hasAskKey: !!sessionData.askKey
-                    });
-                    // Longer delay to ensure voice messages are fully persisted
-                    setTimeout(() => {
-                      reloadMessagesAfterVoiceMode();
-                    }, 1000);
-                  }
-                }}
-              />
+            <div className="chat-container h-full flex flex-col">
+              {sessionData.conversationPlan && (
+                <ConversationProgressBar
+                  steps={sessionData.conversationPlan.plan_data.steps}
+                  currentStepId={sessionData.conversationPlan.current_step_id}
+                />
+              )}
+              <div className="flex-1 overflow-hidden">
+                <ChatComponent
+                  askKey={sessionData.askKey}
+                  ask={sessionData.ask}
+                  messages={sessionData.messages}
+                  onSendMessage={handleSendMessage}
+                  isLoading={sessionData.isLoading}
+                  currentParticipantName={currentParticipantName}
+                  isMultiUser={Boolean(sessionData.ask && sessionData.ask.participants.length > 1)}
+                  showAgentTyping={awaitingAiResponse}
+                  voiceModeEnabled={!!voiceModeSystemPrompt}
+                  voiceModeSystemPrompt={voiceModeSystemPrompt || undefined}
+                  voiceModeUserPrompt={voiceModeUserPrompt || undefined}
+                  voiceModePromptVariables={voiceModePromptVariables || undefined}
+                  voiceModeModelConfig={voiceModeModelConfig || undefined}
+                  onVoiceMessage={handleVoiceMessage}
+                  onReplyBoxFocusChange={setIsReplyBoxFocused}
+                  onInitConversation={handleInitConversation}
+                  onVoiceModeChange={(active) => {
+                    const wasActive = isVoiceModeActive;
+                    setIsVoiceModeActive(active);
+                    // Reload messages when voice mode is closed to ensure voice messages appear in text mode
+                    if (wasActive && !active) {
+                      console.log('[HomePage] 🎤 Voice mode closed, will reload messages in 1 second...', {
+                        currentMessageCount: sessionData.messages.length,
+                        hasInviteToken: !!sessionData.inviteToken,
+                        hasAskKey: !!sessionData.askKey
+                      });
+                      // Longer delay to ensure voice messages are fully persisted
+                      setTimeout(() => {
+                        reloadMessagesAfterVoiceMode();
+                      }, 1000);
+                    }
+                  }}
+                />
+              </div>
             </div>
           </motion.div>
 

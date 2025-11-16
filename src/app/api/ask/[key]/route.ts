@@ -9,6 +9,7 @@ import { getAskSessionByKey, getOrCreateConversationThread, getMessagesForThread
 import { createServerSupabaseClient } from '@/lib/supabaseServer';
 import { executeAgent } from '@/lib/ai/service';
 import { buildConversationAgentVariables } from '@/lib/ai/conversation-agent';
+import { getConversationPlan, type ConversationPlan } from '@/lib/ai/conversation-plan';
 
 interface AskSessionRow {
   id: string;
@@ -691,6 +692,15 @@ export async function GET(
       conversationThreadId: conversationThread?.id ?? null,
     });
 
+    // Get conversation plan if thread exists
+    let conversationPlan: ConversationPlan | null = null;
+    if (conversationThread) {
+      conversationPlan = await getConversationPlan(dataClient, conversationThread.id);
+      if (conversationPlan) {
+        console.log('📋 GET /api/ask/[key]: Loaded conversation plan with', conversationPlan.plan_data.steps.length, 'steps');
+      }
+    }
+
     const endDate = askRow.end_date ?? new Date().toISOString();
     const createdAt = askRow.created_at ?? new Date().toISOString();
     const updatedAt = askRow.updated_at ?? createdAt;
@@ -735,6 +745,7 @@ export async function GET(
       messages: Message[];
       insights: Insight[];
       challenges: any[];
+      conversationPlan?: ConversationPlan | null;
     }>>({
       success: true,
       data: {
@@ -742,6 +753,7 @@ export async function GET(
         messages,
         insights,
         challenges: [],
+        conversationPlan,
       }
     });
   } catch (error) {

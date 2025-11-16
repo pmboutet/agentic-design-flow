@@ -171,6 +171,33 @@ export interface FileUpload {
   preview?: string; // For images
 }
 
+// Types for conversation plan
+export interface ConversationPlanStep {
+  id: string;
+  title: string;
+  objective: string;
+  status: 'pending' | 'active' | 'completed' | 'skipped';
+  summary?: string | null;
+  created_at?: string;
+  updated_at?: string;
+  completed_at?: string;
+}
+
+export interface ConversationPlanData {
+  title: string;
+  description: string;
+  steps: ConversationPlanStep[];
+}
+
+export interface ConversationPlan {
+  id: string;
+  conversation_thread_id: string;
+  plan_data: ConversationPlanData;
+  current_step_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
 // Types for session data
 export interface SessionData {
   askKey: string;
@@ -179,6 +206,7 @@ export interface SessionData {
   messages: Message[];
   insights: Insight[];
   challenges?: Challenge[];
+  conversationPlan?: ConversationPlan | null;
   isLoading: boolean;
   error: string | null;
 }
