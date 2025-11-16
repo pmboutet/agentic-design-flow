@@ -23,13 +23,12 @@ Tous les modes utilisent la fonction `executeAgent` de `src/lib/ai/service.ts` p
 
 ### Configuration de l'agent : `getAgentConfigForAsk`
 
-La fonction `getAgentConfigForAsk` dans `src/lib/ai/agent-config.ts` gère la résolution des prompts selon la priorité suivante :
+La fonction `getAgentConfigForAsk` dans `src/lib/ai/agent-config.ts` gère la sélection de l'agent selon la priorité suivante :
 
-1. **Priorité 1** : System prompt de la session ASK (`ask_sessions.system_prompt`)
-2. **Priorité 2** : Configuration agent personnalisée (`ai_config.agent_id` ou `ai_config.agent_slug`)
-3. **Priorité 3** : System prompt du projet (`projects.system_prompt`)
-4. **Priorité 4** : System prompt du challenge (`challenges.system_prompt`)
-5. **Priorité 5** : Agent par défaut (`ask-conversation-response`)
+1. **Priorité 1** : Configuration agent personnalisée (`ai_config.agent_id` ou `ai_config.agent_slug`)
+2. **Priorité 2** : Agent par défaut (`ask-conversation-response`)
+
+**Important** : Le `system_prompt` de l'ASK, du projet et du challenge **ne remplacent PAS** le prompt de l'agent. Ils sont fournis comme **variables** (`system_prompt_ask`, `system_prompt_project`, `system_prompt_challenge`) qui peuvent être utilisées dans les templates de l'agent via `{{system_prompt_ask}}`, `{{system_prompt_project}}`, `{{system_prompt_challenge}}`. L'agent est **toujours** utilisé, et les variables sont substituées dans ses prompts.
 
 ## Construction des variables
 
@@ -95,6 +94,294 @@ Résultat: "Question: Quelle est votre vision?\nDescription: Partagez vos idées
 3. `getAgentConfigForAsk` résout le system prompt selon la priorité (ask > challenge > project)
 4. `renderTemplate` substitue toutes les variables `{{variable_name}}` dans les prompts résolus
 
+## Initialisation automatique de la conversation
+
+### Vue d'ensemble
+
+L'agent conversation initie automatiquement la conversation lorsqu'il n'y a aucun message dans la session ASK. Cette fonctionnalité est disponible dans trois modes :
+
+1. **Mode texte - GET** : Lors du chargement initial de la session (`GET /api/ask/[key]`)
+2. **Mode texte - POST init** : Lorsque l'utilisateur donne le focus au textarea (`POST /api/ask/[key]/init`)
+3. **Mode voix** : Lors de l'initialisation de l'agent vocal (`POST /api/ask/[key]/voice-agent/init`)
+
+### Comportement
+
+#### Mode texte - GET (`GET /api/ask/[key]/route.ts`)
+
+Lors du chargement initial d'une session ASK :
+
+1. Le système récupère les messages existants pour le thread de conversation
+2. **Si aucun message n'existe** :
+   - Les variables sont construites via `buildChatAgentVariables` avec `messages_json: JSON.stringify([])` et `participants: ''`
+   - L'agent conversation est appelé avec `executeAgent`
+   - Un message initial de l'agent est généré et inséré dans la base de données
+   - Le message est associé au thread de conversation approprié (`conversation_thread_id`)
+   - Le message initial est inclus dans la réponse de l'API
+
+**Flux backend** (`/api/ask/[key]/route.ts`) :
+```typescript
+// Si aucun message n'existe, initier la conversation
+if (messages.length === 0) {
+  // Build variables for agent with empty messages array for initialization
+  const baseVariables = await buildChatAgentVariables(dataClient, askSessionId, {
+    // For initialization, provide empty messages array
+    messages_json: JSON.stringify([]),
+    participants: '', // No participants yet for initial message
+  });
+  
+  const agentResult = await executeAgent({
+    supabase: dataClient,
+    agentSlug: 'ask-conversation-response',
+    askSessionId: askSessionId,
+    interactionType: 'ask.chat.response',
+    variables: baseVariables,
+  });
+
+  if (typeof agentResult.content === 'string' && agentResult.content.trim().length > 0) {
+    // Insérer le message initial dans la base de données
+    const { data: insertedRows } = await dataClient
+      .from('messages')
+      .insert({
+        ask_session_id: askSessionId,
+        content: agentResult.content.trim(),
+        sender_type: 'ai',
+        message_type: 'text',
+        metadata: { senderName: 'Agent' },
+        conversation_thread_id: conversationThread?.id ?? null,
+      });
+    
+    // Ajouter le message à la liste retournée
+    messages.push(initialMessage);
+  }
+}
+```
+
+#### Mode texte - POST init (`POST /api/ask/[key]/init/route.ts`)
+
+Lorsque l'utilisateur donne le focus au textarea dans le composant `ChatComponent` :
+
+1. Le composant vérifie s'il y a des messages existants
+2. **Si aucun message n'existe** :
+   - Le frontend appelle l'endpoint `POST /api/ask/[key]/init`
+   - Le backend vérifie à nouveau s'il y a des messages dans le thread
+   - Si aucun message n'existe, l'agent conversation est appelé avec `executeAgent`
+   - Les variables sont construites via `buildChatAgentVariables`
+   - Un message initial de l'agent est généré et inséré dans la base de données
+   - Le message est associé au thread de conversation approprié (`conversation_thread_id`)
+   - Le message initial est retourné dans la réponse de l'API
+   - Le frontend ajoute le message au state local
+
+**Flux frontend** (`ChatComponent.tsx`) :
+```typescript
+<Textarea
+  onFocus={() => {
+    notifyTyping(true);
+    onReplyBoxFocusChange?.(true);
+    // Initiate conversation if no messages exist
+    if (messages.length === 0) {
+      onInitConversation?.();
+    }
+  }}
+/>
+```
+
+**Flux backend** (`/api/ask/[key]/init/route.ts`) :
+```typescript
+// Vérifier s'il y a des messages
+let hasMessages = false;
+if (conversationThread) {
+  const { messages: threadMessages } = await getMessagesForThread(
+    supabase,
+    conversationThread.id
+  );
+  hasMessages = (threadMessages ?? []).length > 0;
+} else {
+  // Vérifier les messages sans thread
+  const { data: messagesWithoutThread } = await supabase
+    .from('messages')
+    .select('id')
+    .eq('ask_session_id', askRow.id)
+    .is('conversation_thread_id', null)
+    .limit(1);
+  hasMessages = (messagesWithoutThread ?? []).length > 0;
+}
+
+// Si aucun message n'existe, initier la conversation
+if (!hasMessages) {
+  // Build variables for agent with empty messages array for initialization
+  const baseVariables = await buildChatAgentVariables(supabase, askRow.id, {
+    // For initialization, provide empty messages array
+    messages_json: JSON.stringify([]),
+    participants: '', // No participants yet for initial message
+  });
+  
+  const agentResult = await executeAgent({
+    supabase,
+    agentSlug: 'ask-conversation-response',
+    askSessionId: askRow.id,
+    interactionType: 'ask.chat.response',
+    variables: baseVariables,
+  });
+  // Insérer le message initial...
+}
+```
+
+#### Mode voix (`POST /api/ask/[key]/voice-agent/init/route.ts`)
+
+Lors de l'initialisation de l'agent vocal :
+
+1. Le système détermine le thread de conversation approprié
+2. Vérifie s'il existe des messages dans le thread (ou sans thread pour compatibilité)
+3. **Si aucun message n'existe** :
+   - Les variables sont construites via `buildChatAgentVariables` avec `messages_json: JSON.stringify([])` et `participants: ''`
+   - L'agent conversation est appelé avec `executeAgent`
+   - Un message initial de l'agent est généré et inséré dans la base de données
+   - Le message est associé au thread de conversation approprié
+   - L'initialisation de l'agent vocal continue normalement
+
+**Exemple de code** :
+```typescript
+// Vérifier s'il y a des messages
+let hasMessages = false;
+if (conversationThread) {
+  const { messages: threadMessages } = await getMessagesForThread(
+    supabase,
+    conversationThread.id
+  );
+  hasMessages = (threadMessages ?? []).length > 0;
+} else {
+  // Vérifier les messages sans thread
+  const { data: messagesWithoutThread } = await supabase
+    .from('messages')
+    .select('id')
+    .eq('ask_session_id', askRow.id)
+    .is('conversation_thread_id', null)
+    .limit(1);
+  hasMessages = (messagesWithoutThread ?? []).length > 0;
+}
+
+// Si aucun message n'existe, initier la conversation
+if (!hasMessages) {
+  // Build variables for agent with empty messages array for initialization
+  const baseVariables = await buildChatAgentVariables(supabase, askRow.id, {
+    // For initialization, provide empty messages array
+    messages_json: JSON.stringify([]),
+    participants: '', // No participants yet for initial message
+  });
+  
+  const agentResult = await executeAgent({
+    supabase,
+    agentSlug: 'ask-conversation-response',
+    askSessionId: askRow.id,
+    interactionType: 'ask.chat.response',
+    variables: baseVariables,
+  });
+  // Insérer le message initial...
+}
+```
+
+### Prompt de l'agent pour l'initialisation
+
+Le user prompt de l'agent `ask-conversation-response` a été mis à jour pour gérer le cas d'initialisation :
+
+```
+Si l'historique de conversation est vide (tableau JSON vide []), génère un message d'accueil qui :
+1. Introduit brièvement le sujet de la session (basé sur la question ASK)
+2. Invite les participants à partager leurs réflexions
+3. Reste concis (2-3 phrases maximum)
+
+Si l'historique contient des messages, fournis une réponse qui :
+1. Reconnaît le contenu du dernier message utilisateur
+2. Fait le lien avec les échanges précédents si pertinent
+3. Pose une question ou fait une observation qui fait avancer la discussion
+4. Reste concis (2-3 phrases maximum)
+
+Réponds maintenant :
+```
+
+**Points clés** :
+- Le prompt détecte automatiquement si `messages_json` est `[]` (initialisation) ou contient des messages
+- Pour l'initialisation, l'agent génère un message d'accueil basé sur la question ASK
+- Pour la conversation, l'agent répond en tenant compte de l'historique
+
+### Caractéristiques importantes
+
+- **Respect des threads** : Le message initial est créé dans le bon thread (partagé ou individuel)
+- **Gestion d'erreurs** : Les erreurs d'initialisation ne font pas échouer la requête principale
+- **Cohérence** : Même logique dans les trois modes (GET texte, POST init, POST voice-agent/init)
+- **Parité de prompt** : Les trois modes utilisent `buildConversationAgentVariables` (`src/lib/ai/conversation-agent.ts`) pour générer les mêmes variables que le flux conversationnel standard (`messages_json`, `participants`, `system_prompt_*`)
+- **Variables complètes** : `buildConversationAgentVariables` fournit `messages_json`, `participants` et délègue à `getAgentConfigForAsk` (via `executeAgent`) pour inclure tous les `system_prompt_*`
+- **Variables d'initialisation** : 
+  - `messages_json` est fourni comme tableau vide `[]`
+  - `participants` est fourni comme chaîne vide `''`
+  - Ces valeurs permettent à l'agent de détecter qu'il s'agit d'une initialisation
+- **Prompt adaptatif** : Le user prompt de l'agent détecte le tableau vide et génère un message d'accueil approprié
+- **Logs** : Des logs sont générés pour le débogage (`💬`, `✅`, `❌`, `⚠️`)
+
+### Cas d'usage
+
+Cette fonctionnalité est particulièrement utile pour :
+
+- **Nouvelles sessions** : Les participants voient immédiatement un message d'accueil de l'agent
+- **Expérience utilisateur** : Évite un écran vide et guide l'utilisateur vers la conversation
+- **Cohérence** : Garantit qu'il y a toujours au moins un message dans la conversation
+
+## Gestion du flag `voice` sur l'agent conversation
+
+L'agent `ask-conversation-response` est partagé par trois environnements :
+
+1. **Flux texte** (`/api/ask/[key]`, `/api/ask/[key]/respond`, `/api/ask/[key]/init`, `/api/ask/[key]/stream`)  
+2. **Flux voix** (`/api/ask/[key]/voice-agent/init`, `/api/ask/[key]/voice-agent/log`)  
+3. **Initialisation mixte** : génère d'abord un message texte, puis lance l'agent vocal
+
+### Signification du flag `voice`
+
+Le flag `ai_agents.voice = true` indique que **l'agent PEUT supporter le mode vocal** (il dispose d'une configuration voice-agent). Cependant :
+
+- **Le mode d'exécution (texte ou voix) est déterminé par `interactionType`, PAS par le flag `voice`**
+- Le flag `voice` est simplement une capacité, pas une obligation
+
+### Comment ça fonctionne dans `executeAgent`
+
+La fonction `executeAgent` (dans `src/lib/ai/service.ts`) décide d'utiliser le mode voix si et seulement si :
+
+```typescript
+const isVoiceAgent = options.interactionType?.includes('voice') ||
+                    options.agentSlug?.includes('voice') ||
+                    false;
+```
+
+**Règle** : Le mode voix est activé UNIQUEMENT si `interactionType` contient `'voice'`.
+
+### Types d'interaction (`interactionType`)
+
+| Endpoint | interactionType | Mode | Résultat |
+|----------|----------------|------|----------|
+| `/api/ask/[key]/init` | `'ask.chat.response'` | Texte | `AgentExecutionResult` avec `content: string` |
+| `/api/ask/[key]/stream` | `'ask.chat.response'` | Texte | Stream texte |
+| `/api/ask/[key]/respond` | `'ask.chat.response'` | Texte | `AgentExecutionResult` avec `content: string` |
+| `/api/ask/[key]/voice-agent/init` (message initial) | `'ask.chat.response'` | Texte | `AgentExecutionResult` avec `content: string` |
+| `/api/ask/[key]/voice-agent/init` (agent voix) | `'ask.chat.response.voice'` | Voix | `VoiceAgentExecutionResult` |
+| `/api/ask/[key]/voice-agent/log` | `'ask.chat.response.voice'` | Voix | `VoiceAgentExecutionResult` |
+
+### Configuration recommandée
+
+✅ **Configuration correcte** :
+- `ai_agents.voice = true` (l'agent supporte la voix)
+- `ai_model_configs.voice_agent_provider = 'speechmatics-voice-agent'` (provider voix configuré)
+- Les endpoints texte utilisent `interactionType: 'ask.chat.response'` → mode texte
+- Les endpoints voix utilisent `interactionType: 'ask.chat.response.voice'` → mode voix
+
+❌ **Ce qui NE fonctionne PAS** :
+- Forcer `voice = false` pour "désactiver" la voix → ça cache la capacité et empêche l'utilisation en voix
+- Utiliser `interactionType: 'ask.chat.response.voice'` depuis un endpoint texte → erreur car on attend du texte
+
+### Résumé
+
+- Le flag `voice = true` indique une **capacité**, pas un comportement forcé
+- L'`interactionType` détermine le **mode d'exécution réel**
+- Un même agent peut servir du texte ET de la voix selon le contexte d'appel
+
 ## Utilisation par mode
 
 ### 1. Mode texte (home) - `/api/ask/[key]/respond/route.ts`
@@ -126,6 +413,7 @@ const aiResult = await executeAgent({
 - ✅ Utilise `executeAgent` directement
 - ✅ Inclut toutes les variables `system_prompt_*`
 - ✅ `executeAgent` utilise `getAgentConfigForAsk` en interne pour `ask-conversation-response`
+- ✅ **Initialisation automatique** : Si aucun message n'existe, l'agent initie automatiquement la conversation lorsque l'utilisateur donne le focus au textarea (via `POST /api/ask/[key]/init`)
 
 ### 2. Mode streaming (texte) - `/api/ask/[key]/stream/route.ts`
 
@@ -187,6 +475,7 @@ const result = await executeAgent({
 - ✅ Utilise `buildChatAgentVariables` pour récupérer les variables de base
 - ✅ Inclut toutes les variables `system_prompt_*` depuis la base de données
 - ✅ `executeAgent` utilise `getAgentConfigForAsk` en interne
+- ✅ **Initialisation automatique** : Si aucun message n'existe lors de l'initialisation, l'agent initie automatiquement la conversation avant de retourner la réponse
 
 ### 4. Mode vocal (log) - `/api/ask/[key]/voice-agent/log/route.ts`
 
@@ -464,10 +753,37 @@ System prompt challenge :
 - ASK : `{ question: "Quelle est votre vision?", system_prompt: "Soyez créatif et innovant." }`
 - Projet : `{ system_prompt: "Vous travaillez sur un projet innovant." }`
 - Challenge : `{ system_prompt: null }`
+- Agent `ask-conversation-response` a un `system_prompt` qui inclut `{{system_prompt_ask}}`, `{{system_prompt_project}}`, etc.
 
-**Résultat** : Le system prompt de l'ASK est utilisé (priorité 1), les autres sont ignorés.
+**Résultat** : Le prompt de l'agent est utilisé, et les variables sont substituées.
 
-**System prompt final** : `"Soyez créatif et innovant."`
+**System prompt de l'agent** (avant substitution) :
+```
+Tu es un assistant IA spécialisé dans la facilitation de conversations.
+
+{{system_prompt_ask}}
+
+Contexte :
+- Question ASK : {{ask_question}}
+- Description : {{ask_description}}
+
+System prompt projet : {{system_prompt_project}}
+System prompt challenge : {{system_prompt_challenge}}
+```
+
+**System prompt final** (après substitution) :
+```
+Tu es un assistant IA spécialisé dans la facilitation de conversations.
+
+Soyez créatif et innovant.
+
+Contexte :
+- Question ASK : Quelle est votre vision?
+- Description : 
+
+System prompt projet : Vous travaillez sur un projet innovant.
+System prompt challenge : 
+```
 
 ## Garanties de cohérence
 
@@ -488,9 +804,11 @@ Tous les modes utilisent `executeAgent` ou `getAgentConfigForAsk` qui utilisent 
 - Le pattern `{{variable_name}}` est utilisé partout
 - Les variables `system_prompt_*` sont toujours substituées de la même manière
 
-### 4. Même priorité des system_prompt
+### 4. Utilisation cohérente de l'agent
 
-- La priorité (ask > challenge > project) est gérée par `getAgentConfigForAsk`
+- L'agent est **toujours** utilisé (agent configuré dans `ai_config` ou agent par défaut `ask-conversation-response`)
+- Les `system_prompt` de l'ASK, projet et challenge sont fournis comme **variables**, pas comme remplacements
+- La substitution des variables est gérée par `renderTemplate` de manière uniforme
 - Cette fonction est utilisée par `executeAgent` pour `ask-conversation-response`
 - Le mode streaming utilise directement `getAgentConfigForAsk`
 
@@ -525,14 +843,13 @@ Si une variable n'est pas trouvée dans la base de données :
 3. S'assurer que tous les modes incluent cette variable dans leurs appels
 4. Mettre à jour cette documentation
 
-### Modifier la priorité des system_prompt
+### Modifier la sélection de l'agent
 
 Modifier la fonction `getAgentConfigForAsk` dans `src/lib/ai/agent-config.ts`. L'ordre actuel est :
-1. Ask session
-2. Agent configuration
-3. Project
-4. Challenge
-5. Default agent
+1. Agent configuré dans `ai_config` (si présent)
+2. Agent par défaut `ask-conversation-response`
+
+**Note** : Les `system_prompt` de l'ASK, projet et challenge ne sont **pas** utilisés pour sélectionner l'agent. Ils sont fournis comme variables (`system_prompt_ask`, `system_prompt_project`, `system_prompt_challenge`) qui sont substituées dans les prompts de l'agent via `{{system_prompt_ask}}`, etc.
 
 ### Tester la cohérence
 
@@ -1013,10 +1330,14 @@ Pour vérifier pourquoi les anciens messages ne sont pas visibles :
 - `src/lib/ai/agent-config.ts` : Fonctions `getAgentConfigForAsk`, `buildChatAgentVariables`
 - `src/lib/ai/templates.ts` : Fonction `renderTemplate`
 - `src/app/api/ask/[key]/respond/route.ts` : Mode texte
+- `src/app/api/ask/[key]/route.ts` : Mode texte GET
+- `src/app/api/ask/[key]/init/route.ts` : Initialisation automatique de la conversation (mode texte)
 - `src/app/api/ask/[key]/stream/route.ts` : Mode streaming
-- `src/app/api/ask/[key]/voice-agent/init/route.ts` : Mode vocal init
+- `src/app/api/ask/[key]/voice-agent/init/route.ts` : Mode vocal init (avec initialisation automatique)
 - `src/app/api/ask/[key]/voice-agent/log/route.ts` : Mode vocal log
 - `src/app/api/admin/ai/agents/[id]/test/route.ts` : Mode test
+- `src/components/chat/ChatComponent.tsx` : Composant chat avec gestion du focus du textarea
+- `src/app/HomePage.tsx` : Page principale avec gestion de l'initialisation de la conversation
 
 
 
