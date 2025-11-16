@@ -10,6 +10,7 @@ import { executeAgent, fetchAgentBySlug, type AgentExecutionResult } from '@/lib
 import { INSIGHT_TYPES, mapInsightRowToInsight, type InsightRow } from '@/lib/insights';
 import { fetchInsightRowById, fetchInsightsForSession, fetchInsightTypeMap, fetchInsightTypesForPrompt } from '@/lib/insightQueries';
 import { detectStepCompletion, updatePlanStep, getConversationPlan, getCurrentStep } from '@/lib/ai/conversation-plan';
+import { buildConversationAgentVariables } from '@/lib/ai/conversation-agent';
 
 const CHAT_AGENT_SLUG = 'ask-conversation-response';
 const INSIGHT_AGENT_SLUG = 'ask-insight-detection';
@@ -1943,6 +1944,15 @@ export async function POST(
 
     const participantSummaries = participants.map(p => ({ name: p.name, role: p.role ?? null }));
 
+    // Load conversation plan if thread exists
+    let conversationPlan = null;
+    if (conversationThread) {
+      conversationPlan = await getConversationPlan(supabase, conversationThread.id);
+      if (conversationPlan) {
+        console.log('📋 POST /api/ask/[key]/respond: Loaded conversation plan with', conversationPlan.plan_data.steps.length, 'steps');
+      }
+    }
+
     const promptVariables = buildPromptVariables({
       ask: askRow,
       project: projectData,
@@ -2044,14 +2054,22 @@ export async function POST(
         }
       } else {
         // Regular text mode: call executeAgent
-        const promptVariables = buildPromptVariables({
+        // Use buildConversationAgentVariables for the agent call to include plan
+        const conversationMessages = messages.map(m => ({
+          id: m.id,
+          senderType: m.senderType,
+          senderName: m.senderName ?? 'Participant',
+          content: m.content,
+          timestamp: m.timestamp,
+        }));
+
+        const agentVariables = buildConversationAgentVariables({
           ask: askRow,
           project: projectData,
           challenge: challengeData,
-          messages,
+          messages: conversationMessages,
           participants: participantSummaries,
-          insights: existingInsights,
-          insightTypes,
+          conversationPlan,
         });
 
         const aiResult = await executeAgent({
@@ -2059,7 +2077,7 @@ export async function POST(
           agentSlug: CHAT_AGENT_SLUG,
           askSessionId: askRow.id,
           interactionType: CHAT_INTERACTION_TYPE,
-          variables: promptVariables,
+          variables: agentVariables,
         });
 
         if (typeof aiResult.content === 'string' && aiResult.content.trim().length > 0) {
