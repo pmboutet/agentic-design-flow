@@ -100,6 +100,22 @@ export const PROMPT_VARIABLES: PromptVariableDefinition[] = [
     type: "string",
     category: "conversation",
   },
+  {
+    key: "conversation_plan",
+    label: "Plan de conversation",
+    description: "Plan structuré de la conversation avec les étapes, leur statut et objectifs",
+    example: "Plan de conversation (5 étapes) :\n\n1. ▶️ Contexte et situation actuelle (step_1)\n   Objectif: Comprendre le contexte actuel...",
+    type: "string",
+    category: "conversation",
+  },
+  {
+    key: "current_step",
+    label: "Étape courante",
+    description: "Détails de l'étape active dans le plan de conversation",
+    example: "Étape courante: Contexte et situation actuelle (step_1)\nObjectif: Comprendre le contexte actuel\nStatut: active",
+    type: "string",
+    category: "conversation",
+  },
   
   // Participants
   {
