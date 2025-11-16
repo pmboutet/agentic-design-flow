@@ -9,6 +9,7 @@ import { normaliseMessageMetadata } from '@/lib/messages';
 import { executeAgent, fetchAgentBySlug, type AgentExecutionResult } from '@/lib/ai';
 import { INSIGHT_TYPES, mapInsightRowToInsight, type InsightRow } from '@/lib/insights';
 import { fetchInsightRowById, fetchInsightsForSession, fetchInsightTypeMap, fetchInsightTypesForPrompt } from '@/lib/insightQueries';
+import { detectStepCompletion, updatePlanStep, getConversationPlan, getCurrentStep } from '@/lib/ai/conversation-plan';
 
 const CHAT_AGENT_SLUG = 'ask-conversation-response';
 const INSIGHT_AGENT_SLUG = 'ask-insight-detection';
@@ -2108,6 +2109,41 @@ export async function POST(
 
         messages.push(message);
         detectionMessageId = message.id;
+
+        // Check for step completion markers
+        if (conversationThread) {
+          const completedStepId = detectStepCompletion(latestAiResponse);
+          if (completedStepId) {
+            console.log('🎯 Step completion detected:', completedStepId);
+            try {
+              const plan = await getConversationPlan(supabase, conversationThread.id);
+              if (plan) {
+                const currentStep = getCurrentStep(plan);
+                if (currentStep && currentStep.id === completedStepId) {
+                  // TODO: In the future, generate a summary of messages for this step
+                  const stepSummary = `Étape "${currentStep.title}" complétée`;
+                  
+                  await updatePlanStep(
+                    supabase,
+                    conversationThread.id,
+                    completedStepId,
+                    stepSummary
+                  );
+                  
+                  console.log('✅ Conversation plan updated - step completed:', completedStepId);
+                } else {
+                  console.warn('⚠️ Step completion marker does not match current step:', {
+                    detectedStep: completedStepId,
+                    currentStep: currentStep?.id,
+                  });
+                }
+              }
+            } catch (planError) {
+              console.error('⚠️ Failed to update conversation plan:', planError);
+              // Don't fail the request if plan update fails
+            }
+          }
+        }
         }
       }
     } else {

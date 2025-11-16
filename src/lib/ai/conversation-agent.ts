@@ -1,4 +1,5 @@
 import type { PromptVariables } from './agent-config';
+import type { ConversationPlan } from './conversation-plan';
 
 export interface ConversationParticipantSummary {
   name: string;
@@ -24,6 +25,7 @@ export interface ConversationAgentContext {
   challenge?: { system_prompt?: string | null } | null;
   messages: ConversationMessageSummary[];
   participants: ConversationParticipantSummary[];
+  conversationPlan?: ConversationPlan | null;
 }
 
 function buildParticipantsSummary(participants: ConversationParticipantSummary[]): string {
@@ -64,6 +66,23 @@ export function buildConversationAgentVariables(context: ConversationAgentContex
   console.log(`   👤 User in payload: ${payloadUserCount}`);
   console.log(`   🤖 AI in payload: ${payloadAiCount}`);
 
+  // Add conversation plan variables if plan is available
+  let conversationPlanFormatted = '';
+  let currentStepFormatted = '';
+  
+  if (context.conversationPlan) {
+    const { formatPlanForPrompt, formatCurrentStepForPrompt, getCurrentStep } = require('./conversation-plan');
+    conversationPlanFormatted = formatPlanForPrompt(context.conversationPlan);
+    const currentStep = getCurrentStep(context.conversationPlan);
+    currentStepFormatted = formatCurrentStepForPrompt(currentStep);
+    
+    console.log('📋 Conversation plan available:', {
+      planId: context.conversationPlan.id,
+      stepsCount: context.conversationPlan.plan_data.steps.length,
+      currentStepId: context.conversationPlan.current_step_id,
+    });
+  }
+
   return {
     ask_key: context.ask.ask_key,
     ask_question: context.ask.question,
@@ -77,6 +96,9 @@ export function buildConversationAgentVariables(context: ConversationAgentContex
     system_prompt_ask: context.ask.system_prompt ?? '',
     system_prompt_project: context.project?.system_prompt ?? '',
     system_prompt_challenge: context.challenge?.system_prompt ?? '',
+    // Conversation plan variables
+    conversation_plan: conversationPlanFormatted,
+    current_step: currentStepFormatted,
   };
 }
 

@@ -10,6 +10,7 @@ import { getAgentConfigForAsk, DEFAULT_CHAT_AGENT_SLUG, type AgentConfigResult }
 import type { AiAgentLog, Insight } from '@/types';
 import { createServerSupabaseClient } from '@/lib/supabaseServer';
 import { buildConversationAgentVariables } from '@/lib/ai/conversation-agent';
+import { detectStepCompletion, updatePlanStep, getConversationPlan, getCurrentStep } from '@/lib/ai/conversation-plan';
 
 interface InsightDetectionResponse {
   success: boolean;
@@ -726,6 +727,41 @@ export async function POST(
                       message: message
                     });
                     controller.enqueue(encoder.encode(`data: ${finalData}\n\n`));
+
+                    // Check for step completion markers
+                    if (conversationThread) {
+                      const completedStepId = detectStepCompletion(fullContent.trim());
+                      if (completedStepId) {
+                        console.log('🎯 Step completion detected in stream:', completedStepId);
+                        try {
+                          const plan = await getConversationPlan(dataClient, conversationThread.id);
+                          if (plan) {
+                            const currentStep = getCurrentStep(plan);
+                            if (currentStep && currentStep.id === completedStepId) {
+                              // TODO: In the future, generate a summary of messages for this step
+                              const stepSummary = `Étape "${currentStep.title}" complétée`;
+                              
+                              await updatePlanStep(
+                                dataClient,
+                                conversationThread.id,
+                                completedStepId,
+                                stepSummary
+                              );
+                              
+                              console.log('✅ Conversation plan updated in stream - step completed:', completedStepId);
+                            } else {
+                              console.warn('⚠️ Step completion marker does not match current step:', {
+                                detectedStep: completedStepId,
+                                currentStep: currentStep?.id,
+                              });
+                            }
+                          }
+                        } catch (planError) {
+                          console.error('⚠️ Failed to update conversation plan in stream:', planError);
+                          // Don't fail the stream if plan update fails
+                        }
+                      }
+                    }
                   }
                 }
               }

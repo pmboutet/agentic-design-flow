@@ -6,6 +6,7 @@ import { parseErrorMessage } from '@/lib/utils';
 import { normaliseMessageMetadata } from '@/lib/messages';
 import type { ApiResponse, Message } from '@/types';
 import { buildConversationAgentVariables } from '@/lib/ai/conversation-agent';
+import { generateConversationPlan, createConversationPlan, getConversationPlan } from '@/lib/ai/conversation-plan';
 
 interface AskSessionRow {
   id: string;
@@ -258,6 +259,49 @@ export async function POST(
       }
     }
 
+    // Generate conversation plan if it doesn't exist yet
+    let conversationPlan = null;
+    if (conversationThread) {
+      console.log('🎯 POST /api/ask/[key]/init: Checking for existing conversation plan');
+      conversationPlan = await getConversationPlan(supabase, conversationThread.id);
+      
+      if (!conversationPlan) {
+        console.log('📋 POST /api/ask/[key]/init: Generating new conversation plan');
+        try {
+          // Build variables for plan generation
+          const planGenerationVariables = {
+            ask_key: askRow.ask_key,
+            ask_question: askRow.question,
+            ask_description: askRow.description ?? '',
+            system_prompt_ask: askRow.system_prompt ?? '',
+            system_prompt_project: projectData?.system_prompt ?? '',
+            system_prompt_challenge: challengeData?.system_prompt ?? '',
+            participants: participantSummaries.map(p => p.name).join(', '),
+            participants_list: participantSummaries,
+          };
+
+          const planData = await generateConversationPlan(
+            supabase,
+            askRow.id,
+            planGenerationVariables
+          );
+
+          conversationPlan = await createConversationPlan(
+            supabase,
+            conversationThread.id,
+            planData
+          );
+
+          console.log('✅ POST /api/ask/[key]/init: Conversation plan created with', planData.steps.length, 'steps');
+        } catch (planError) {
+          console.error('⚠️ POST /api/ask/[key]/init: Failed to generate conversation plan, continuing without it:', planError);
+          // Continue without the plan - it's an enhancement, not a requirement
+        }
+      } else {
+        console.log('✅ POST /api/ask/[key]/init: Using existing conversation plan');
+      }
+    }
+
     // Build variables for agent with full prompt parity
     const agentVariables = buildConversationAgentVariables({
       ask: askRow,
@@ -265,6 +309,7 @@ export async function POST(
       challenge: challengeData,
       messages: [],
       participants: participantSummaries,
+      conversationPlan,
     });
     
     // Execute agent to get initial response
