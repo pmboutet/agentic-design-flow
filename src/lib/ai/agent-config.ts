@@ -161,7 +161,9 @@ export interface PromptVariables {
   system_prompt_ask?: string;
   system_prompt_project?: string;
   system_prompt_challenge?: string;
-  [key: string]: string | undefined;
+  participants?: string; // Legacy: comma-separated string
+  participants_list?: Array<{ name: string; role?: string | null }>; // Preferred: array for Handlebars
+  [key: string]: any; // Allow any type for Handlebars flexibility (arrays, objects, etc.)
 }
 
 interface AskSessionRow {
@@ -363,27 +365,7 @@ export async function getAgentConfigForAsk(
     throw new Error('ASK session not found');
   }
 
-  // Priority 1: Ask Session Override
-  if (askSession.system_prompt) {
-    const systemPrompt = substitutePromptVariables(askSession.system_prompt, variables || {});
-    const modelConfig = await getDefaultModelConfig(supabase);
-    const fallbackModelConfig = await getFallbackModelConfig(supabase);
-    
-    // Get default chat agent for userPrompt if not provided
-    const defaultAgent = await fetchAgentBySlug(supabase, DEFAULT_CHAT_AGENT_SLUG);
-    const userPrompt = defaultAgent?.userPrompt 
-      ? substitutePromptVariables(defaultAgent.userPrompt, variables || {})
-      : undefined;
-    
-    return {
-      systemPrompt,
-      userPrompt,
-      modelConfig,
-      fallbackModelConfig: fallbackModelConfig || undefined,
-    };
-  }
-
-  // Priority 2: Agent Configuration
+  // Priority 1: Agent Configuration (si configuré dans ai_config)
   let agent: AiAgentRecord | null = null;
   
   // Check if ai_config contains agent reference
@@ -425,46 +407,12 @@ export async function getAgentConfigForAsk(
     ? askSession.challenges[0] ?? null
     : askSession.challenges ?? null;
 
-  // Priority 3: Project Level
-  if (askSession.project_id && projectFromRelation?.system_prompt) {
-    const systemPrompt = substitutePromptVariables(projectFromRelation.system_prompt, variables || {});
-    const modelConfig = await getDefaultModelConfig(supabase);
-    const fallbackModelConfig = await getFallbackModelConfig(supabase);
-    
-    // Get default chat agent for userPrompt if not provided
-    const defaultAgent = await fetchAgentBySlug(supabase, DEFAULT_CHAT_AGENT_SLUG);
-    const userPrompt = defaultAgent?.userPrompt 
-      ? substitutePromptVariables(defaultAgent.userPrompt, variables || {})
-      : undefined;
-    
-    return {
-      systemPrompt,
-      userPrompt,
-      modelConfig,
-      fallbackModelConfig: fallbackModelConfig || undefined,
-    };
-  }
+  // NOTE: system_prompt de l'ASK, du projet et du challenge ne remplacent PAS le prompt de l'agent
+  // Ils sont fournis comme VARIABLES (system_prompt_ask, system_prompt_project, system_prompt_challenge)
+  // qui peuvent être utilisées dans les templates de l'agent via {{system_prompt_ask}}, etc.
+  // Ces variables sont déjà dans l'objet `variables` passé en paramètre.
+  // L'agent (ou l'agent par défaut) est TOUJOURS utilisé, et les variables sont substituées dans ses prompts.
 
-  // Priority 4: Challenge Level
-  if (askSession.challenge_id && challengeFromRelation?.system_prompt) {
-    const systemPrompt = substitutePromptVariables(challengeFromRelation.system_prompt, variables || {});
-    const modelConfig = await getDefaultModelConfig(supabase);
-    const fallbackModelConfig = await getFallbackModelConfig(supabase);
-    
-    // Get default chat agent for userPrompt if not provided
-    const defaultAgent = await fetchAgentBySlug(supabase, DEFAULT_CHAT_AGENT_SLUG);
-    const userPrompt = defaultAgent?.userPrompt 
-      ? substitutePromptVariables(defaultAgent.userPrompt, variables || {})
-      : undefined;
-    
-    return {
-      systemPrompt,
-      userPrompt,
-      modelConfig,
-      fallbackModelConfig: fallbackModelConfig || undefined,
-    };
-  }
-
-  // Priority 5: Default chat agent fallback
+  // Priority 2: Default chat agent fallback (toujours utilisé si aucun agent configuré)
   return getChatAgentConfig(supabase, variables || {});
 }

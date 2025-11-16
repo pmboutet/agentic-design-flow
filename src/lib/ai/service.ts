@@ -95,7 +95,8 @@ export async function executeAgent(options: ExecuteAgentOptions): Promise<AgentE
   await ensureAgentHasModel(agent);
 
   // For ask-conversation-response agent, use getAgentConfigForAsk to ensure
-  // proper system_prompt priority resolution (ask > challenge > project)
+  // proper agent selection and variable substitution
+  // system_prompt_ask, system_prompt_project, system_prompt_challenge are provided as variables
   // This ensures consistency with other modes (streaming, voice)
   let prompts: { system: string; user: string };
   if (options.agentSlug === 'ask-conversation-response' && options.askSessionId) {
@@ -160,37 +161,14 @@ export async function executeAgent(options: ExecuteAgentOptions): Promise<AgentE
     };
   }
 
-  // Payload optimisé pour le logging : on garde seulement les variables actives (available_variables)
-  // Les prompts sont déjà résolus avec toutes les variables, mais on garde les variables brutes
-  // pour référence/debug, en filtrant seulement celles qui sont déclarées comme disponibles
-  const availableVariables = agent.availableVariables ?? [];
-  const activeVariables: Record<string, string | undefined> = {};
-  
-  // Ajouter seulement les variables qui sont dans available_variables ET dans options.variables
-  // On inclut ask_key seulement s'il est dans available_variables
-  for (const varKey of availableVariables) {
-    if (varKey in options.variables) {
-      const value = options.variables[varKey];
-      activeVariables[varKey] = value ?? undefined;
-    }
-  }
-  
-  // Toujours ajouter ask_key pour référence si présent dans options.variables
-  // (même s'il n'est pas dans available_variables, c'est utile pour le debugging)
-  if (options.variables.ask_key && !('ask_key' in activeVariables)) {
-    activeVariables.ask_key = options.variables.ask_key ?? undefined;
-  }
-
+  // Vibe Coding: Les variables sont déjà compilées dans les prompts via Handlebars
+  // Le payload ne contient que les prompts finaux (system et user)
   const log = await createAgentLog(options.supabase, {
     agentId: agent.id,
     askSessionId: options.askSessionId ?? null,
     messageId: options.messageId ?? null,
     interactionType: options.interactionType,
-    requestPayload: {
-      ...buildRequestPayload(agent, prompts),
-      // Variables actives sélectionnées (seulement celles dans available_variables)
-      variables: activeVariables,
-    },
+    requestPayload: buildRequestPayload(agent, prompts),
   });
 
   const configs = pickModelConfigs(agent);
@@ -200,11 +178,12 @@ export async function executeAgent(options: ExecuteAgentOptions): Promise<AgentE
     throw new Error(`No model configuration available for agent ${agent.slug}`);
   }
 
-  // Check if this agent is a voice agent using the voice flag from the database
-  // This is the source of truth, not the model configuration
-  const isVoiceAgent = agent.voice ?? 
-                      (options.agentSlug?.includes('voice') || 
-                      options.interactionType?.includes('voice'));
+  // Determine if we should use voice mode based on the interaction type
+  // The agent.voice flag indicates the agent CAN support voice, but we only use it if explicitly requested
+  // Priority: interactionType (what the caller wants) > agent.voice (what the agent supports)
+  const isVoiceAgent = options.interactionType?.includes('voice') ||
+                      options.agentSlug?.includes('voice') ||
+                      false; // Never auto-enable voice based on agent.voice flag alone
 
   // Only check for voice agent provider if the agent itself is marked as a voice agent
   // This prevents text/JSON agents from using voice providers even if the model has one configured

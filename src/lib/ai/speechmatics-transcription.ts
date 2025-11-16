@@ -12,12 +12,11 @@ export class TranscriptionManager {
   private currentStreamingMessageId: string | null = null;
   private lastProcessedContent: string | null = null;
   private silenceTimeout: NodeJS.Timeout | null = null;
-  private pendingPunctuation: string | null = null; // Store punctuation that arrives before text
   private receivedEndOfUtterance: boolean = false; // Flag to track if EndOfUtterance was received
   private utteranceDebounceTimeout: NodeJS.Timeout | null = null;
   private lastPreviewContent: string | null = null;
-  private readonly SILENCE_DETECTION_TIMEOUT = 5000; // Fail-safe timeout (5s) if no partial arrives
-  private readonly UTTERANCE_FINALIZATION_DELAY = 800; // Wait 0.8s without new partial before finalising
+  private readonly SILENCE_DETECTION_TIMEOUT = 1500; // Fail-safe timeout (1.5s) if no partial arrives
+  private readonly UTTERANCE_FINALIZATION_DELAY = 600; // Wait 0.6s without new partial before finalising
   private readonly MIN_UTTERANCE_CHAR_LENGTH = 20;
   private readonly MIN_UTTERANCE_WORDS = 3;
   private readonly FRAGMENT_ENDINGS = new Set([
@@ -117,19 +116,17 @@ export class TranscriptionManager {
     
     // Process pending transcript if we have one
     if (this.pendingFinalTranscript && this.pendingFinalTranscript.trim()) {
-      // If we have pending punctuation, append it to the END of the final message
-      let finalMessage = this.pendingFinalTranscript.trim();
-      if (this.pendingPunctuation) {
-        finalMessage = finalMessage + this.pendingPunctuation;
-        this.pendingPunctuation = null; // Clear stored punctuation
-      }
-      finalMessage = this.cleanTranscript(finalMessage);
+      let finalMessage = this.cleanTranscript(this.pendingFinalTranscript.trim());
       
       if (!this.isUtteranceComplete(finalMessage, force)) {
         // Not enough content yet - keep waiting unless forced by failsafe
         this.pendingFinalTranscript = finalMessage;
         if (!force) {
-          this.scheduleUtteranceFinalization();
+          // DON'T reschedule utteranceDebounceTimeout here!
+          // It would create an infinite loop where utteranceDebounceTimeout (0.6s)
+          // keeps cancelling silenceTimeout (1.5s) before it can trigger.
+          // Just recreate the silence timeout and let IT handle finalization.
+          this.resetSilenceTimeout();
           return;
         }
       }
@@ -172,6 +169,15 @@ export class TranscriptionManager {
       // Example: previous="OK, je suis reparti de mon côté.", new="." -> skip
       if (this.lastProcessedContent && this.isOrphanPunctuation(finalMessage, this.lastProcessedContent)) {
         console.log('[Transcription] ⏸️ Skipping orphan chunk (repeated punctuation from previous message):', finalMessage);
+        this.pendingFinalTranscript = null;
+        this.lastPartialUserContent = null;
+        this.currentStreamingMessageId = null;
+        return;
+      }
+      
+      // Skip fuzzy duplicates at the end of previous message
+      if (this.lastProcessedContent && this.isFuzzyEndDuplicate(finalMessage, this.lastProcessedContent)) {
+        console.log('[Transcription] ⏸️ Skipping fuzzy duplicate at end:', finalMessage);
         this.pendingFinalTranscript = null;
         this.lastPartialUserContent = null;
         this.currentStreamingMessageId = null;
@@ -226,7 +232,6 @@ export class TranscriptionManager {
     if (!this.pendingFinalTranscript && this.lastProcessedContent) {
       this.lastProcessedContent = null;
       this.lastFinalUserContent = null;
-      this.pendingPunctuation = null;
       this.currentStreamingMessageId = null;
     }
     
@@ -399,6 +404,42 @@ export class TranscriptionManager {
   }
 
   /**
+   * Check if new message is a fuzzy duplicate of the end of previous message
+   * Uses similarity matching to catch variations like "fete" vs "fete."
+   * Example: previous="alle a la fete", new="fete." -> true (fuzzy match on last words)
+   */
+  private isFuzzyEndDuplicate(newMessage: string, previousMessage: string): boolean {
+    // Remove punctuation and normalize both messages
+    const newClean = newMessage.trim().toLowerCase().replace(/[.,!?;:…\-—–'"]+/g, '');
+    const prevClean = previousMessage.trim().toLowerCase().replace(/[.,!?;:…\-—–'"]+/g, '');
+    
+    if (!newClean || newClean.length < 2) return false;
+    
+    const newWords = newClean.split(/\s+/).filter(w => w.length > 0);
+    const prevWords = prevClean.split(/\s+/).filter(w => w.length > 0);
+    
+    // FIRST: Check for complete duplicate (all words match)
+    if (newWords.length === prevWords.length) {
+      const similarity = this.calculateSimilarity(newClean, prevClean);
+      if (similarity > 0.9) {
+        return true; // Complete duplicate
+      }
+    }
+    
+    // THEN: Check for short fragments (1-3 words) at the end
+    if (newWords.length > 3) return false;
+    if (prevWords.length < newWords.length) return false;
+    
+    const lastPrevWords = prevWords.slice(-newWords.length);
+    
+    // Calculate similarity between new words and last words of previous
+    const similarity = this.calculateSimilarity(newWords.join(' '), lastPrevWords.join(' '));
+    
+    // If similarity > 80%, consider it a duplicate
+    return similarity > 0.8;
+  }
+
+  /**
    * Handle final transcript from Speechmatics
    */
   handleFinalTranscript(transcript: string): void {
@@ -423,11 +464,10 @@ export class TranscriptionManager {
       // If we have a pending transcript, append the punctuation to the END of it
       if (this.pendingFinalTranscript) {
         this.pendingFinalTranscript = this.pendingFinalTranscript.trim() + trimmedTranscript;
-      } else {
-        // Store punctuation temporarily if it arrives before text
-        // It will be appended to the end when text arrives
-        this.pendingPunctuation = (this.pendingPunctuation || '') + trimmedTranscript;
       }
+      // DON'T store orphan punctuation in pendingPunctuation
+      // It causes punctuation to appear at the START of the next message
+      // Just ignore orphan punctuation completely
       return;
     }
     
@@ -438,14 +478,8 @@ export class TranscriptionManager {
       // Case 1: New transcript is a complete continuation (starts with pending)
       // Example: pending="partie 1", new="partie 1 partie 2"
       if (trimmedTranscript.startsWith(pendingTrimmed)) {
-        // If we have pending punctuation, append it to the END of the new transcript
-        let finalTranscript = trimmedTranscript;
-        if (this.pendingPunctuation) {
-          finalTranscript = trimmedTranscript.trim() + this.pendingPunctuation;
-          this.pendingPunctuation = null; // Clear stored punctuation
-        }
-        this.pendingFinalTranscript = finalTranscript;
-        this.lastFinalUserContent = finalTranscript;
+        this.pendingFinalTranscript = trimmedTranscript;
+        this.lastFinalUserContent = trimmedTranscript;
         this.resetSilenceTimeout();
         this.scheduleUtteranceFinalization(true);
         return;
@@ -473,14 +507,8 @@ export class TranscriptionManager {
       // Case 4: Check if new transcript contains the pending transcript
       // Example: pending="partie 1", new="avant partie 1 après"
       if (trimmedTranscript.includes(pendingTrimmed)) {
-        // If we have pending punctuation, append it to the END of the new transcript
-        let finalTranscript = trimmedTranscript;
-        if (this.pendingPunctuation) {
-          finalTranscript = trimmedTranscript.trim() + this.pendingPunctuation;
-          this.pendingPunctuation = null; // Clear stored punctuation
-        }
-        this.pendingFinalTranscript = finalTranscript;
-        this.lastFinalUserContent = finalTranscript;
+        this.pendingFinalTranscript = trimmedTranscript;
+        this.lastFinalUserContent = trimmedTranscript;
         this.resetSilenceTimeout();
         this.scheduleUtteranceFinalization(true);
         return;
@@ -500,14 +528,8 @@ export class TranscriptionManager {
       if (similarity > 0.8) {
         // Very similar - likely a correction or refinement
         if (trimmedTranscript.length > pendingTrimmed.length) {
-          // If we have pending punctuation, append it to the END of the new transcript
-          let finalTranscript = trimmedTranscript;
-          if (this.pendingPunctuation) {
-            finalTranscript = trimmedTranscript.trim() + this.pendingPunctuation;
-            this.pendingPunctuation = null; // Clear stored punctuation
-          }
-          this.pendingFinalTranscript = finalTranscript;
-          this.lastFinalUserContent = finalTranscript;
+          this.pendingFinalTranscript = trimmedTranscript;
+          this.lastFinalUserContent = trimmedTranscript;
         }
         this.resetSilenceTimeout();
         this.scheduleUtteranceFinalization(true);
@@ -516,29 +538,17 @@ export class TranscriptionManager {
       
       // Case 7: Completely different segments - append
       // Example: pending="partie 1", new="partie 2"
-      // If we have pending punctuation, append it to the END of the new segment
-      let newSegment = trimmedTranscript;
-      if (this.pendingPunctuation) {
-        newSegment = trimmedTranscript.trim() + this.pendingPunctuation;
-        this.pendingPunctuation = null; // Clear stored punctuation
-      }
-      this.pendingFinalTranscript = pendingTrimmed + ' ' + newSegment;
-      this.lastFinalUserContent = newSegment;
+      this.pendingFinalTranscript = pendingTrimmed + ' ' + trimmedTranscript;
+      this.lastFinalUserContent = trimmedTranscript;
       this.resetSilenceTimeout();
       this.scheduleUtteranceFinalization(true);
       return;
     } else {
       // Start a new pending transcript
       // This is a new message, so reset lastProcessedContent to allow new partials
-      // If we have pending punctuation, append it to the END of the text
-      let finalTranscript = trimmedTranscript;
-      if (this.pendingPunctuation) {
-        finalTranscript = trimmedTranscript.trim() + this.pendingPunctuation;
-        this.pendingPunctuation = null; // Clear stored punctuation
-      }
       this.lastProcessedContent = null;
-      this.pendingFinalTranscript = finalTranscript;
-      this.lastFinalUserContent = finalTranscript;
+      this.pendingFinalTranscript = trimmedTranscript;
+      this.lastFinalUserContent = trimmedTranscript;
       // Reuse existing messageId if available (continuing same stream)
       // Otherwise create a new one
       if (!this.currentStreamingMessageId) {
@@ -566,7 +576,6 @@ export class TranscriptionManager {
     this.lastFinalUserContent = null;
     this.lastProcessedContent = null;
     this.currentStreamingMessageId = null;
-    this.pendingPunctuation = null;
     this.lastPreviewContent = null;
   }
 
