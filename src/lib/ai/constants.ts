@@ -116,6 +116,14 @@ export const PROMPT_VARIABLES: PromptVariableDefinition[] = [
     type: "string",
     category: "conversation",
   },
+  {
+    key: "current_step_id",
+    label: "ID de l'étape courante",
+    description: "Identifiant unique de l'étape active dans le plan (utilisé pour marquer la fin d'étape avec #end_turn_step_<ID>)",
+    example: "step_1",
+    type: "string",
+    category: "conversation",
+  },
   
   // Participants
   {

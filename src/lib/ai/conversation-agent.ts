@@ -148,17 +148,19 @@ export function buildConversationAgentVariables(context: ConversationAgentContex
   // Add conversation plan variables if plan is available
   let conversationPlanFormatted = '';
   let currentStepFormatted = '';
+  let currentStepId = '';
   
   if (context.conversationPlan) {
     const { formatPlanForPrompt, formatCurrentStepForPrompt, getCurrentStep } = require('./conversation-plan');
     conversationPlanFormatted = formatPlanForPrompt(context.conversationPlan);
     const currentStep = getCurrentStep(context.conversationPlan);
     currentStepFormatted = formatCurrentStepForPrompt(currentStep);
+    currentStepId = context.conversationPlan.current_step_id;
     
     console.log('📋 Conversation plan available:', {
       planId: context.conversationPlan.id,
       stepsCount: context.conversationPlan.plan_data.steps.length,
-      currentStepId: context.conversationPlan.current_step_id,
+      currentStepId: currentStepId,
     });
   }
 
@@ -181,6 +183,7 @@ export function buildConversationAgentVariables(context: ConversationAgentContex
     // Conversation plan variables
     conversation_plan: conversationPlanFormatted,
     current_step: currentStepFormatted,
+    current_step_id: currentStepId,
   };
 
   // Add legacy message_history for backward compatibility

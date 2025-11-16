@@ -304,6 +304,7 @@ function getVariablesForAgent(
     "system_prompt_project",
     "conversation_plan",
     "current_step",
+    "current_step_id",
   ];
 
   // Variables pour agents challenge-builder et ask-generator
