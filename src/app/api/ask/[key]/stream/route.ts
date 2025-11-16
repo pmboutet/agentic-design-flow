@@ -507,6 +507,15 @@ export async function POST(
 
     const participantSummaries = participants.map(p => ({ name: p.name, role: p.role ?? null }));
 
+    // Load conversation plan if thread exists
+    let conversationPlan = null;
+    if (conversationThread) {
+      conversationPlan = await getConversationPlan(dataClient, conversationThread.id);
+      if (conversationPlan) {
+        console.log('📋 POST /api/ask/[key]/stream: Loaded conversation plan with', conversationPlan.plan_data.steps.length, 'steps');
+      }
+    }
+
     // Parse the request body to get the new user message
     let newUserMessage = '';
     try {
@@ -534,6 +543,7 @@ export async function POST(
       challenge: challengeData,
       messages,
       participants: participantSummaries,
+      conversationPlan,
     });
 
     // Override latest_user_message with the new message from the request
