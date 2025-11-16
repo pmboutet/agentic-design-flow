@@ -6,6 +6,7 @@ import { getAskSessionByKey } from '@/lib/asks';
 import { parseErrorMessage } from '@/lib/utils';
 import { normaliseMessageMetadata } from '@/lib/messages';
 import type { ApiResponse } from '@/types';
+import { buildConversationAgentVariables } from '@/lib/ai/conversation-agent';
 
 interface AskSessionRow {
   id: string;
@@ -43,51 +44,6 @@ interface UserRow {
   full_name?: string | null;
   first_name?: string | null;
   last_name?: string | null;
-}
-
-function formatMessageHistory(messages: any[]): string {
-  return messages
-    .map(message => {
-      const timestamp = (() => {
-        const date = new Date(message.timestamp);
-        if (Number.isNaN(date.getTime())) {
-          return '';
-        }
-        return date.toISOString();
-      })();
-
-      const sender = message.senderName ?? (message.senderType === 'ai' ? 'Agent IA' : 'Participant');
-      return `${timestamp ? `[${timestamp}] ` : ''}${sender}: ${message.content}`;
-    })
-    .join('\n');
-}
-
-function buildPromptVariables(options: {
-  ask: AskSessionRow;
-  project: ProjectRow | null;
-  challenge: ChallengeRow | null;
-  messages: any[];
-  participants: { name: string; role?: string | null }[];
-}): Record<string, string | null | undefined> {
-  const history = formatMessageHistory(options.messages);
-  const lastUserMessage = [...options.messages].reverse().find(message => message.senderType === 'user');
-
-  const participantsSummary = options.participants
-    .map(participant => participant.role ? `${participant.name} (${participant.role})` : participant.name)
-    .join(', ');
-
-  return {
-    ask_key: options.ask.ask_key,
-    ask_question: options.ask.question,
-    ask_description: options.ask.description ?? '',
-    system_prompt_project: options.project?.system_prompt ?? '',
-    system_prompt_challenge: options.challenge?.system_prompt ?? '',
-    system_prompt_ask: options.ask.system_prompt ?? '',
-    message_history: history,
-    latest_user_message: lastUserMessage?.content ?? '',
-    participant_name: lastUserMessage?.senderName ?? lastUserMessage?.metadata?.senderName ?? '',
-    participants: participantsSummary,
-  } satisfies Record<string, string | null | undefined>;
 }
 
 function buildParticipantDisplayName(participant: ParticipantRow, user: UserRow | null, index: number): string {
@@ -308,14 +264,6 @@ export async function POST(
 
     const participantSummaries = participants.map(p => ({ name: p.name, role: p.role ?? null }));
 
-    const promptVariables = buildPromptVariables({
-      ask: askRow,
-      project: projectData,
-      challenge: challengeData,
-      messages,
-      participants: participantSummaries,
-    });
-
     // Format messages as JSON (same as agent-config/route.ts)
     const conversationMessagesPayload = messages.map(message => ({
       id: message.id,
@@ -324,6 +272,14 @@ export async function POST(
       content: message.content,
       timestamp: message.timestamp,
     }));
+
+    const promptVariables = buildConversationAgentVariables({
+      ask: askRow,
+      project: projectData,
+      challenge: challengeData,
+      messages: conversationMessagesPayload,
+      participants: participantSummaries,
+    });
 
     // Build agent variables (same as agent-config/route.ts)
     // IMPORTANT: Include system_prompt_* variables so getAgentConfigForAsk can use them for variable substitution
