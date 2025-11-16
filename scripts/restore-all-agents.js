@@ -85,6 +85,7 @@ async function restoreAllAgents() {
         slug: 'ask-conversation-response',
         name: 'ASK Conversation Response Agent',
         description: 'Agent responsible for generating conversational responses in ASK sessions',
+        voice: true, // Agent supports voice mode (Speechmatics), but mode is determined by interactionType
         model_config_id: modelConfig.id,
         system_prompt: `Tu es un assistant IA spécialisé dans la facilitation de conversations et la génération d'insights à partir d'échanges de groupe.
 
@@ -97,8 +98,16 @@ Ton rôle est de :
 
 Contexte de la session :
 - Question ASK : {{ask_question}}
+{{#if ask_description}}
 - Description : {{ask_description}}
-- Participants : {{participants}}
+{{/if}}
+
+{{#if (notEmpty participants_list)}}
+Participants ({{length participants_list}}) :
+{{#each participants_list}}
+- {{name}}{{#if role}} ({{role}}){{/if}}
+{{/each}}
+{{/if}}
 
 Historique des messages (format JSON) :
 {{messages_json}}
@@ -117,7 +126,8 @@ Réponds maintenant :`,
           'ask_question',
           'ask_description',
           'messages_json',
-          'participants'
+          'participants',
+          'participants_list'
         ]
       }, { onConflict: 'slug' })
       .select()

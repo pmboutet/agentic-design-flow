@@ -66,6 +66,7 @@ async function checkAndCreateChatAgent() {
       slug: 'ask-conversation-response',
       name: 'Agent de Conversation ASK',
       description: 'Agent IA pour les conversations dans les sessions ASK',
+      voice: true, // Agent supports voice mode (Speechmatics), but mode is determined by interactionType
       model_config_id: defaultModelConfig.id,
       fallback_model_config_id: null,
       system_prompt: `Tu es un facilitateur de conversation expérimenté spécialisé dans l'exploration de défis organisationnels. Ton rôle est d'aider les participants à explorer leurs défis, partager leurs expériences et générer des insights collectifs.
