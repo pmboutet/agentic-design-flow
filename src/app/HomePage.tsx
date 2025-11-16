@@ -25,6 +25,7 @@ type TokenSessionPayload = {
   messages: Message[];
   insights: Insight[];
   challenges?: Challenge[];
+  conversationPlan?: import('@/types').ConversationPlan | null;
   viewer?: {
     participantId?: string | null;
     profileId?: string | null;
@@ -395,6 +396,7 @@ export default function HomePage() {
     messages: [],
     insights: [],
     challenges: [],
+    conversationPlan: null,
     isLoading: false,
     error: null
   });
