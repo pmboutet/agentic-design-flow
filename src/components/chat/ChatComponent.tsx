@@ -45,6 +45,7 @@ export function ChatComponent({
   onVoiceMessage,
   onReplyBoxFocusChange,
   onVoiceModeChange,
+  onInitConversation,
 }: ChatComponentProps) {
   const [inputValue, setInputValue] = useState("");
   const [selectedFiles, setSelectedFiles] = useState<FileUpload[]>([]);
@@ -430,6 +431,10 @@ export function ChatComponent({
                   onFocus={() => {
                     notifyTyping(true);
                     onReplyBoxFocusChange?.(true);
+                    // Initiate conversation if no messages exist
+                    if (messages.length === 0) {
+                      onInitConversation?.();
+                    }
                   }}
                   onBlur={() => {
                     notifyTyping(false);

@@ -64,6 +64,7 @@ interface MobileLayoutProps {
   setIsVoiceModeActive: (active: boolean) => void;
   isVoiceModeActive: boolean;
   reloadMessagesAfterVoiceMode: () => void;
+  onInitConversation: () => void;
   mobileActivePanel: 'chat' | 'insights';
   setMobileActivePanel: (panel: 'chat' | 'insights') => void;
   isMobileHeaderExpanded: boolean;
@@ -94,6 +95,7 @@ function MobileLayout({
   setIsVoiceModeActive,
   isVoiceModeActive,
   reloadMessagesAfterVoiceMode,
+  onInitConversation,
   mobileActivePanel,
   setMobileActivePanel,
   isMobileHeaderExpanded,
@@ -309,6 +311,7 @@ function MobileLayout({
                 voiceModeModelConfig={voiceModeModelConfig || undefined}
                 onVoiceMessage={onVoiceMessage}
                 onReplyBoxFocusChange={setIsReplyBoxFocused}
+                onInitConversation={onInitConversation}
                 onVoiceModeChange={(active) => {
                   const wasActive = isVoiceModeActive;
                   setIsVoiceModeActive(active);
@@ -954,6 +957,55 @@ export default function HomePage() {
     }
   };
 
+  // Handle initializing conversation when textarea gets focus and no messages exist
+  const handleInitConversation = async () => {
+    // Only initiate if there are no messages
+    if (sessionData.messages.length > 0) {
+      return;
+    }
+
+    if (!sessionData.askKey) {
+      return;
+    }
+
+    try {
+      console.log('💬 HomePage: Initiating conversation on textarea focus');
+      
+      const endpoint = `/api/ask/${sessionData.askKey}/init`;
+      
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+
+      if (sessionData.inviteToken) {
+        headers['X-Invite-Token'] = sessionData.inviteToken;
+      }
+
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers,
+      });
+
+      const data: ApiResponse<{ message: Message | null }> = await response.json();
+
+      if (!data.success) {
+        console.error('Failed to initiate conversation:', data.error);
+        return;
+      }
+
+      // If a message was created, add it to the state
+      if (data.data?.message) {
+        setSessionData(prev => ({
+          ...prev,
+          messages: [...prev.messages, data.data!.message!],
+        }));
+        console.log('✅ HomePage: Initial conversation message added:', data.data.message.id);
+      }
+    } catch (error) {
+      console.error('Error initiating conversation:', error);
+    }
+  };
+
   // Handle sending messages to database and schedule AI response
   const handleSendMessage = async (
     content: string,
@@ -1047,7 +1099,7 @@ export default function HomePage() {
       }
 
       setAwaitingAiResponse(true);
-      const insightsCapturedDuringStream = await handleStreamingResponse();
+      const insightsCapturedDuringStream = await handleStreamingResponse(content);
       
       // Programmer la détection d'insights seulement si aucune donnée n'a été envoyée pendant le streaming
       if (!insightsCapturedDuringStream) {
@@ -1462,16 +1514,47 @@ export default function HomePage() {
 
   // Load voice mode configuration
   const loadVoiceModeConfig = useCallback(async () => {
-    if (!sessionData.ask?.askSessionId) return;
+    console.log('[HomePage] 🎤 loadVoiceModeConfig called', {
+      askSessionId: sessionData.ask?.askSessionId,
+      askKey: sessionData.askKey,
+    });
+    
+    if (!sessionData.ask?.askSessionId) {
+      console.log('[HomePage] ⚠️ loadVoiceModeConfig: No askSessionId, skipping');
+      return;
+    }
 
     try {
-      const response = await fetch(`/api/ask/${sessionData.askKey}/agent-config`);
+      const apiUrl = `/api/ask/${sessionData.askKey}/agent-config`;
+      console.log('[HomePage] 🎤 Fetching voice config from:', apiUrl);
+      
+      const response = await fetch(apiUrl);
+      console.log('[HomePage] 🎤 Voice config response:', {
+        status: response.status,
+        ok: response.ok,
+      });
+      
       if (response.ok) {
         const data = await response.json();
+        console.log('[HomePage] 🎤 Voice config data received:', {
+          success: data.success,
+          hasSystemPrompt: !!data.data?.systemPrompt,
+          hasUserPrompt: !!data.data?.userPrompt,
+          hasModelConfig: !!data.data?.modelConfig,
+          systemPromptLength: data.data?.systemPrompt?.length || 0,
+          modelConfigProvider: data.data?.modelConfig?.provider,
+        });
+        
         if (data.success && data.data) {
+          console.log('[HomePage] 🎤 Setting voice mode prompts...', {
+            systemPrompt: data.data.systemPrompt ? `${data.data.systemPrompt.substring(0, 100)}...` : null,
+            userPrompt: data.data.userPrompt ? `${data.data.userPrompt.substring(0, 100)}...` : null,
+          });
+          
           setVoiceModeSystemPrompt(data.data.systemPrompt || null);
           setVoiceModeUserPrompt(data.data.userPrompt || null);
           setVoiceModePromptVariables(data.data.promptVariables || null);
+          
           // Extract voice agent config from model config if available
           // These fields are now stored directly in the database columns
           if (data.data.modelConfig) {
@@ -1500,7 +1583,10 @@ export default function HomePage() {
               elevenLabsModelId: modelConfig.elevenLabsModelId,
               promptVariables: voiceModePromptVariables || undefined, // Include prompt variables
             } as any);
+            
+            console.log('[HomePage] ✅ Voice mode configuration loaded successfully!');
           } else {
+            console.log('[HomePage] ⚠️ No model config in response, using defaults');
             // Use default config when no model config is available
             setVoiceModeModelConfig({
               deepgramSttModel: 'nova-3',
@@ -1509,10 +1595,16 @@ export default function HomePage() {
               deepgramLlmModel: undefined, // No fallback - must be configured in database
             });
           }
+        } else {
+          console.log('[HomePage] ⚠️ Voice config response not successful or missing data');
         }
+      } else {
+        console.error('[HomePage] ❌ Voice config request failed:', response.status, response.statusText);
+        const errorText = await response.text();
+        console.error('[HomePage] ❌ Error response:', errorText);
       }
     } catch (error) {
-      console.error('Error loading voice mode config:', error);
+      console.error('[HomePage] ❌ Error loading voice mode config:', error);
     }
   }, [sessionData.askKey, sessionData.ask?.askSessionId]);
 
@@ -1524,7 +1616,7 @@ export default function HomePage() {
   }, [sessionData.ask?.askSessionId, loadVoiceModeConfig]);
 
   // Handle streaming AI response
-  const handleStreamingResponse = async (): Promise<boolean> => {
+  const handleStreamingResponse = async (latestUserMessageContent?: string): Promise<boolean> => {
     if (!sessionData.askKey || awaitingAiResponse) return false;
 
     // Annuler la détection d'insights pendant le streaming
@@ -1543,11 +1635,17 @@ export default function HomePage() {
         streamHeaders['X-Invite-Token'] = sessionData.inviteToken;
       }
 
+      const lastMessageFromState = sessionData.messages[sessionData.messages.length - 1]?.content || '';
+      const bodyMessage =
+        latestUserMessageContent && latestUserMessageContent.trim().length > 0
+          ? latestUserMessageContent
+          : lastMessageFromState;
+
       const response = await fetch(`/api/ask/${currentAskKey}/stream`, {
         method: 'POST',
         headers: streamHeaders,
         body: JSON.stringify({
-          message: sessionData.messages[sessionData.messages.length - 1]?.content || '',
+          message: bodyMessage,
           model: 'anthropic', // Par défaut Anthropic, peut être changé
         }),
       });
@@ -2025,6 +2123,7 @@ export default function HomePage() {
           setIsVoiceModeActive={setIsVoiceModeActive}
           isVoiceModeActive={isVoiceModeActive}
           reloadMessagesAfterVoiceMode={reloadMessagesAfterVoiceMode}
+          onInitConversation={handleInitConversation}
           mobileActivePanel={mobileActivePanel}
           setMobileActivePanel={setMobileActivePanel}
           isMobileHeaderExpanded={isMobileHeaderExpanded}
@@ -2062,6 +2161,7 @@ export default function HomePage() {
                 voiceModeModelConfig={voiceModeModelConfig || undefined}
                 onVoiceMessage={handleVoiceMessage}
                 onReplyBoxFocusChange={setIsReplyBoxFocused}
+                onInitConversation={handleInitConversation}
                 onVoiceModeChange={(active) => {
                   const wasActive = isVoiceModeActive;
                   setIsVoiceModeActive(active);

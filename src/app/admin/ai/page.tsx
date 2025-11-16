@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
-import { Loader2, Network, Sparkles, ChevronDown, ChevronUp, TestTube2, Settings, Pencil, Trash2, Plus } from "lucide-react";
+import { Loader2, Network, Sparkles, ChevronDown, ChevronUp, TestTube2, Settings, Pencil, Trash2, Plus, Download } from "lucide-react";
 import type { AiAgentRecord, AiModelConfig, PromptVariableDefinition, ApiResponse, AskPromptTemplate } from "@/types";
 import { extractTemplateVariables } from "@/lib/ai/templates";
 import { AgentTestMode } from "@/components/admin/AgentTestMode";
@@ -88,6 +88,34 @@ function slugify(value: string): string {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 80);
+}
+
+function extractFilenameFromDisposition(disposition?: string | null): string | null {
+  if (!disposition) {
+    return null;
+  }
+
+  const extended = disposition.match(/filename\*=(?:UTF-8'')?([^;]+)/i);
+  if (extended?.[1]) {
+    const value = extended[1].trim().replace(/^"+|"+$/g, "");
+    try {
+      return decodeURIComponent(value);
+    } catch {
+      return value;
+    }
+  }
+
+  const basic = disposition.match(/filename="?([^\";]+)"?/i);
+  if (basic?.[1]) {
+    const value = basic[1].trim();
+    try {
+      return decodeURIComponent(value);
+    } catch {
+      return value;
+    }
+  }
+
+  return null;
 }
 
 // Auto-resize textarea component
@@ -407,6 +435,8 @@ export default function AiConfigurationPage() {
     successMessage: null,
   }));
   const [testModeAgentId, setTestModeAgentId] = useState<string | null>(null);
+  const [isExportingPrompts, setIsExportingPrompts] = useState(false);
+  const [exportStatus, setExportStatus] = useState<{ type: "success" | "error"; message: string } | null>(null);
   
   // Ask prompt templates state
   const [templates, setTemplates] = useState<AskPromptTemplate[]>([]);
@@ -624,6 +654,65 @@ export default function AiConfigurationPage() {
       }
       return next;
     });
+  };
+
+  const handleExportPrompts = async () => {
+    setIsExportingPrompts(true);
+    setExportStatus(null);
+    try {
+      const response = await fetch("/api/admin/ai/prompts/export", {
+        credentials: "include",
+      });
+
+      if (!response.ok) {
+        const errorBody = await response.text();
+        let message = "Impossible d'exporter les prompts.";
+
+        if (errorBody) {
+          try {
+            const parsed = JSON.parse(errorBody);
+            if (typeof parsed?.error === "string") {
+              message = parsed.error;
+            } else if (typeof parsed?.message === "string") {
+              message = parsed.message;
+            } else {
+              message = errorBody;
+            }
+          } catch {
+            message = errorBody;
+          }
+        }
+
+        throw new Error(message);
+      }
+
+      const blob = await response.blob();
+      const filename =
+        extractFilenameFromDisposition(response.headers.get("Content-Disposition")) ??
+        `ai-prompts-${new Date().toISOString().split("T")[0]}.md`;
+
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+
+      setExportStatus({
+        type: "success",
+        message: `Fichier "${filename}" téléchargé.`,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Erreur inattendue lors de l'export des prompts.";
+      setExportStatus({
+        type: "error",
+        message,
+      });
+    } finally {
+      setIsExportingPrompts(false);
+    }
   };
 
   const handleNewAgentNameChange = (value: string) => {
@@ -924,24 +1013,44 @@ export default function AiConfigurationPage() {
 
   return (
     <div className="space-y-8">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">Configuration des agents IA</h1>
-            <p className="text-muted-foreground">Gérez les prompts et l'association aux modèles.</p>
-          </div>
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Configuration des agents IA</h1>
+          <p className="text-muted-foreground">Gérez les prompts et l'association aux modèles.</p>
+        </div>
         <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={handleToggleCreateForm} disabled={newAgent.isSaving}>
+            {isCreating ? "Fermer" : "Nouvel agent"}
+          </Button>
           <Button
             variant="outline"
-            onClick={handleToggleCreateForm}
-            disabled={newAgent.isSaving}
+            className="gap-2"
+            onClick={handleExportPrompts}
+            disabled={isExportingPrompts}
           >
-            {isCreating ? "Fermer" : "Nouvel agent"}
+            {isExportingPrompts ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Export en cours...
+              </>
+            ) : (
+              <>
+                <Download className="h-4 w-4" />
+                Exporter les prompts
+              </>
+            )}
           </Button>
           <Button onClick={fetchConfiguration} disabled={isLoading}>
             Rafraîchir
           </Button>
         </div>
       </div>
+
+      {exportStatus && (
+        <p className={`text-sm ${exportStatus.type === "error" ? "text-destructive" : "text-emerald-600"}`}>
+          {exportStatus.message}
+        </p>
+      )}
 
       {error && (
         <Card className="border-destructive/40">
@@ -1071,26 +1180,33 @@ export default function AiConfigurationPage() {
             </div>
 
             <div className="space-y-3">
-              <Label>Variables actives</Label>
+              <Label>Variables détectées dans les prompts</Label>
+              <CardDescription className="text-xs mb-2">
+                Variables automatiquement détectées dans vos templates
+              </CardDescription>
               <div className="flex flex-wrap gap-2">
-                {sortedVariables.map(variable => {
-                  const isActive = newAgent.availableVariables.includes(variable.key);
-                  return (
-                    <button
-                      key={variable.key}
-                      type="button"
-                      onClick={() => handleNewAgentToggleVariable(variable.key)}
-                      className={`px-3 py-1 text-sm rounded-full border transition ${
-                        isActive
-                          ? "bg-primary text-primary-foreground border-primary"
-                          : "bg-muted border-muted-foreground/20"
-                      }`}
-                      disabled={newAgent.isSaving}
+                {(() => {
+                  const systemVars = extractTemplateVariables(newAgent.systemPrompt);
+                  const userVars = extractTemplateVariables(newAgent.userPrompt);
+                  const detectedVars = Array.from(new Set([...systemVars, ...userVars]));
+                  
+                  if (detectedVars.length === 0) {
+                    return (
+                      <p className="text-xs text-muted-foreground">
+                        Aucune variable détectée. Utilisez {"{{variable}}"} dans vos prompts.
+                      </p>
+                    );
+                  }
+                  
+                  return detectedVars.map(varKey => (
+                    <span
+                      key={varKey}
+                      className="px-3 py-1 text-xs rounded-full bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 border border-blue-300 dark:border-blue-700"
                     >
-                      {variable.key}
-                    </button>
-                  );
-                })}
+                      {varKey}
+                    </span>
+                  ));
+                })()}
               </div>
             </div>
 
@@ -2299,51 +2415,62 @@ export default function AiConfigurationPage() {
                           </div>
 
                           <div className="space-y-3">
-                            <Label>Variables actives</Label>
+                            <Label>Variables détectées dans les prompts</Label>
+                            <CardDescription className="text-xs mb-2">
+                              Variables automatiquement détectées dans vos templates system et user prompts
+                            </CardDescription>
                             <div className="flex flex-wrap gap-2">
                               {(() => {
-                                const agentVariables = getVariablesForAgent(agent.slug, sortedVariables);
-                                return agentVariables.map(variable => {
-                                  const isActive = agent.availableVariablesDraft.includes(variable.key);
+                                const systemVars = extractTemplateVariables(agent.systemPromptDraft);
+                                const userVars = extractTemplateVariables(agent.userPromptDraft);
+                                const detectedVars = Array.from(new Set([...systemVars, ...userVars]));
+                                
+                                if (detectedVars.length === 0) {
                                   return (
-                                    <button
-                                      key={variable.key}
-                                      type="button"
-                                      onClick={() => handleToggleVariable(agent.id, variable.key)}
-                                      className={`px-3 py-1 text-sm rounded-full border transition ${
-                                        isActive
-                                          ? "bg-primary text-primary-foreground border-primary"
-                                          : "bg-muted border-muted-foreground/20"
-                                      }`}
-                                    >
-                                      {variable.key}
-                                    </button>
+                                    <p className="text-xs text-muted-foreground">
+                                      Aucune variable détectée. Utilisez {"{{variable}}"} dans vos prompts.
+                                    </p>
                                   );
-                                });
-                              })()}
-                            </div>
-                          </div>
-
-                          <div className="space-y-3">
-                            <Label>Variables disponibles</Label>
-                            <CardDescription className="text-xs mb-2">
-                              Variables pertinentes pour cet agent. Insérez-les dans vos prompts via la syntaxe {"{{variable}}"}.
-                            </CardDescription>
-                            <div className="grid gap-3 md:grid-cols-2">
-                              {(() => {
-                                const agentVariables = getVariablesForAgent(agent.slug, sortedVariables);
-                                return agentVariables.map(variable => (
-                                  <div key={variable.key} className="rounded-lg border p-3 bg-muted/30">
-                                    <p className="font-semibold text-sm">{variable.key}</p>
-                                    <p className="text-xs text-muted-foreground mt-1">{variable.description}</p>
-                                    {variable.example && (
-                                      <p className="text-xs text-muted-foreground mt-1">Exemple : {variable.example}</p>
-                                    )}
-                                  </div>
+                                }
+                                
+                                return detectedVars.map(varKey => (
+                                  <span
+                                    key={varKey}
+                                    className="px-3 py-1 text-xs rounded-full bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 border border-blue-300 dark:border-blue-700"
+                                  >
+                                    {varKey}
+                                  </span>
                                 ));
                               })()}
                             </div>
                           </div>
+
+                          <details className="space-y-3">
+                            <summary className="cursor-pointer font-medium text-sm">
+                              Variables disponibles (toutes)
+                            </summary>
+                            <CardDescription className="text-xs mb-2">
+                              Toutes les variables disponibles dans le système. Insérez-les via {"{{variable}}"}.
+                            </CardDescription>
+                            <div className="grid gap-3 md:grid-cols-2">
+                              {sortedVariables.map(variable => (
+                                <div key={variable.key} className="rounded-lg border p-3 bg-muted/30">
+                                  <div className="flex items-start justify-between gap-2">
+                                    <p className="font-mono text-sm font-semibold">{variable.key}</p>
+                                    {variable.type && (
+                                      <span className="text-xs px-2 py-0.5 rounded bg-muted text-muted-foreground">
+                                        {variable.type}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <p className="text-xs text-muted-foreground mt-1">{variable.description}</p>
+                                  {variable.example && (
+                                    <p className="text-xs text-muted-foreground/70 mt-1 italic">Ex: {variable.example}</p>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </details>
 
                           {agent.saveError && (
                             <p className="text-sm text-destructive">{agent.saveError}</p>

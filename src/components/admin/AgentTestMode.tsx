@@ -15,7 +15,12 @@ interface AgentTestModeProps {
 interface TestResult {
   systemPrompt: string;
   userPrompt: string;
-  variables: Record<string, string>;
+  metadata?: {
+    messagesCount?: number;
+    participantsCount?: number;
+    hasProject?: boolean;
+    hasChallenge?: boolean;
+  };
 }
 
 interface AskSession {
@@ -34,15 +39,25 @@ interface Challenge {
   name: string;
 }
 
+interface Participant {
+  id: string;
+  user_id: string | null;
+  participant_name: string | null;
+  participant_email: string | null;
+}
+
 export function AgentTestMode({ agentId, agentSlug, onClose }: AgentTestModeProps) {
   const [askSessions, setAskSessions] = useState<AskSession[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [challenges, setChallenges] = useState<Challenge[]>([]);
+  const [participants, setParticipants] = useState<Participant[]>([]);
   const [selectedAskId, setSelectedAskId] = useState<string>("");
   const [selectedProjectId, setSelectedProjectId] = useState<string>("");
   const [selectedChallengeId, setSelectedChallengeId] = useState<string>("");
+  const [selectedParticipantUserId, setSelectedParticipantUserId] = useState<string>("");
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingData, setIsLoadingData] = useState(false);
+  const [isLoadingParticipants, setIsLoadingParticipants] = useState(false);
   const [testResult, setTestResult] = useState<TestResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -123,6 +138,47 @@ export function AgentTestMode({ agentId, agentSlug, onClose }: AgentTestModeProp
     loadChallenges();
   }, [selectedProjectId]);
 
+  // Load participants when ASK session is selected
+  useEffect(() => {
+    if (!selectedAskId || (!isAskAgent && !isInsightAgent)) {
+      setParticipants([]);
+      setSelectedParticipantUserId("");
+      return;
+    }
+
+    const loadParticipants = async () => {
+      setIsLoadingParticipants(true);
+      try {
+        const response = await fetch(`/api/admin/asks/${selectedAskId}/participants`, {
+          credentials: "include",
+        });
+        if (response.ok) {
+          const data = await response.json();
+          if (data.success && data.data) {
+            const participantsList = data.data.map((p: any) => ({
+              id: p.id,
+              user_id: p.userId || p.user_id || null,
+              participant_name: p.participantName || p.participant_name || null,
+              participant_email: p.participantEmail || p.participant_email || null,
+            }));
+            setParticipants(participantsList);
+            // Auto-select first participant with user_id
+            const firstWithUser = participantsList.find((p: Participant) => p.user_id);
+            if (firstWithUser) {
+              setSelectedParticipantUserId(firstWithUser.user_id);
+            }
+          }
+        }
+      } catch (err) {
+        console.error("Error loading participants:", err);
+      } finally {
+        setIsLoadingParticipants(false);
+      }
+    };
+
+    loadParticipants();
+  }, [selectedAskId, isAskAgent, isInsightAgent]);
+
   const handleTest = async () => {
     setIsLoading(true);
     setError(null);
@@ -136,7 +192,13 @@ export function AgentTestMode({ agentId, agentSlug, onClose }: AgentTestModeProp
           setIsLoading(false);
           return;
         }
+        if (!selectedParticipantUserId) {
+          setError("Veuillez sélectionner un participant (utilisateur) pour simuler");
+          setIsLoading(false);
+          return;
+        }
         body.askSessionId = selectedAskId;
+        body.userId = selectedParticipantUserId;
       } else if (isAskGenerator) {
         if (!selectedChallengeId) {
           setError("Veuillez sélectionner un challenge");
@@ -194,22 +256,57 @@ export function AgentTestMode({ agentId, agentSlug, onClose }: AgentTestModeProp
         {/* Context selectors */}
         <div className="space-y-4">
           {isAskAgent || isInsightAgent ? (
-            <div className="space-y-2">
-              <Label>Sélectionner une session ASK</Label>
-              <select
-                className="w-full rounded border border-input bg-background px-3 py-2 text-sm"
-                value={selectedAskId}
-                onChange={(e) => setSelectedAskId(e.target.value)}
-                disabled={isLoadingData}
-              >
-                <option value="">-- Sélectionner une ASK --</option>
-                {askSessions.map((ask) => (
-                  <option key={ask.id} value={ask.id}>
-                    {ask.ask_key} - {ask.question}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <>
+              <div className="space-y-2">
+                <Label>Sélectionner une session ASK</Label>
+                <select
+                  className="w-full rounded border border-input bg-background px-3 py-2 text-sm"
+                  value={selectedAskId}
+                  onChange={(e) => setSelectedAskId(e.target.value)}
+                  disabled={isLoadingData}
+                >
+                  <option value="">-- Sélectionner une ASK --</option>
+                  {askSessions.map((ask) => (
+                    <option key={ask.id} value={ask.id}>
+                      {ask.ask_key} - {ask.question}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {selectedAskId && (
+                <div className="space-y-2">
+                  <Label>Sélectionner un participant (pour simuler sa perspective)</Label>
+                  <select
+                    className="w-full rounded border border-input bg-background px-3 py-2 text-sm"
+                    value={selectedParticipantUserId}
+                    onChange={(e) => setSelectedParticipantUserId(e.target.value)}
+                    disabled={isLoadingParticipants || participants.length === 0}
+                  >
+                    <option value="">-- Sélectionner un participant --</option>
+                    {participants
+                      .filter(p => p.user_id) // Only show participants with user_id
+                      .map((participant) => (
+                        <option key={participant.id} value={participant.user_id!}>
+                          {participant.participant_name || participant.participant_email || participant.user_id}
+                        </option>
+                      ))}
+                  </select>
+                  {isLoadingParticipants && (
+                    <p className="text-xs text-muted-foreground">Chargement des participants...</p>
+                  )}
+                  {!isLoadingParticipants && participants.length === 0 && (
+                    <p className="text-xs text-amber-600 dark:text-amber-400">
+                      ⚠️ Aucun participant avec compte utilisateur trouvé pour cette session
+                    </p>
+                  )}
+                  {!isLoadingParticipants && participants.filter(p => p.user_id).length === 0 && participants.length > 0 && (
+                    <p className="text-xs text-amber-600 dark:text-amber-400">
+                      ⚠️ Aucun participant n'a de compte utilisateur lié (user_id)
+                    </p>
+                  )}
+                </div>
+              )}
+            </>
           ) : isAskGenerator ? (
             <>
               <div className="space-y-2">
@@ -305,28 +402,57 @@ export function AgentTestMode({ agentId, agentSlug, onClose }: AgentTestModeProp
 
         {testResult && (
           <div className="space-y-4 mt-4">
+            {/* Metadata Badge */}
+            {testResult.metadata && (
+              <div className="flex flex-wrap gap-2 p-3 bg-blue-50 dark:bg-blue-950/20 rounded-lg border border-blue-200 dark:border-blue-800">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-medium text-blue-700 dark:text-blue-300">📊 Données réelles :</span>
+                  {testResult.metadata.messagesCount !== undefined && (
+                    <span className="text-xs text-blue-600 dark:text-blue-400">
+                      {testResult.metadata.messagesCount} message{testResult.metadata.messagesCount !== 1 ? 's' : ''}
+                    </span>
+                  )}
+                  {testResult.metadata.participantsCount !== undefined && (
+                    <>
+                      <span className="text-blue-400 dark:text-blue-600">•</span>
+                      <span className="text-xs text-blue-600 dark:text-blue-400">
+                        {testResult.metadata.participantsCount} participant{testResult.metadata.participantsCount !== 1 ? 's' : ''}
+                      </span>
+                    </>
+                  )}
+                  {testResult.metadata.hasProject && (
+                    <>
+                      <span className="text-blue-400 dark:text-blue-600">•</span>
+                      <span className="text-xs text-green-600 dark:text-green-400">✓ Projet</span>
+                    </>
+                  )}
+                  {testResult.metadata.hasChallenge && (
+                    <>
+                      <span className="text-blue-400 dark:text-blue-600">•</span>
+                      <span className="text-xs text-green-600 dark:text-green-400">✓ Challenge</span>
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
+
             <div className="space-y-2">
-              <Label>System Prompt (fusionné)</Label>
-              <div className="rounded-lg border bg-muted/30 p-3 max-h-64 overflow-y-auto">
-                <pre className="text-xs whitespace-pre-wrap">{testResult.systemPrompt}</pre>
+              <Label>System Prompt (fusionné avec données réelles)</Label>
+              <div className="rounded-lg border bg-muted/30 p-3 max-h-64 overflow-y-auto overflow-x-hidden">
+                <pre className="text-xs whitespace-pre-wrap break-words">{testResult.systemPrompt}</pre>
               </div>
             </div>
             <div className="space-y-2">
-              <Label>User Prompt (fusionné)</Label>
-              <div className="rounded-lg border bg-muted/30 p-3 max-h-64 overflow-y-auto">
-                <pre className="text-xs whitespace-pre-wrap">{testResult.userPrompt}</pre>
+              <Label>User Prompt (fusionné avec données réelles)</Label>
+              <div className="rounded-lg border bg-muted/30 p-3 max-h-64 overflow-y-auto overflow-x-hidden">
+                <pre className="text-xs whitespace-pre-wrap break-words">{testResult.userPrompt}</pre>
               </div>
             </div>
-            <details className="space-y-2">
-              <summary className="cursor-pointer text-sm font-medium">Variables utilisées (cliquer pour voir)</summary>
-              <div className="rounded-lg border bg-muted/30 p-3 max-h-48 overflow-y-auto">
-                <pre className="text-xs">{JSON.stringify(testResult.variables, null, 2)}</pre>
-              </div>
-            </details>
           </div>
         )}
       </CardContent>
     </Card>
   );
 }
+
 
