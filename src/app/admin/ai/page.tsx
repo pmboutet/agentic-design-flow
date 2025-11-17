@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Loader2, Network, Sparkles, ChevronDown, ChevronUp, TestTube2, Settings, Pencil, Trash2, Plus, Download } from "lucide-react";
-import type { AiAgentRecord, AiModelConfig, PromptVariableDefinition, ApiResponse, AskPromptTemplate } from "@/types";
+import type { AiAgentRecord, AiModelConfig, PromptVariableDefinition, ApiResponse, AskPromptTemplate, AiAgentLog } from "@/types";
 import { extractTemplateVariables } from "@/lib/ai/templates";
 import { AgentTestMode } from "@/components/admin/AgentTestMode";
 
@@ -69,6 +69,8 @@ type NewModelDraft = {
   deepgramTtsModel: string;
   elevenLabsVoiceId: string;
   elevenLabsModelId: string;
+  enableThinking: boolean;
+  thinkingBudgetTokens?: number;
   isSaving: boolean;
   error: string | null;
   successMessage: string | null;
@@ -397,6 +399,8 @@ type ModelDraft = AiModelConfig & {
   speechmaticsApiKeyEnvVarDraft?: string;
   elevenLabsVoiceIdDraft?: string;
   elevenLabsModelIdDraft?: string;
+  enableThinkingDraft?: boolean;
+  thinkingBudgetTokensDraft?: number;
   isSaving?: boolean;
   saveError?: string | null;
   saveSuccess?: boolean;
@@ -433,6 +437,8 @@ export default function AiConfigurationPage() {
     deepgramTtsModel: '',
     elevenLabsVoiceId: '',
     elevenLabsModelId: '',
+    enableThinking: false,
+    thinkingBudgetTokens: 10000,
     isSaving: false,
     error: null,
     successMessage: null,
@@ -464,6 +470,14 @@ export default function AiConfigurationPage() {
   const [isBuildingGraph, setIsBuildingGraph] = useState(false);
   const [graphBuildResult, setGraphBuildResult] = useState<string | null>(null);
   const [graphBuildError, setGraphBuildError] = useState<string | null>(null);
+  
+  // AI Logs state
+  const [logs, setLogs] = useState<AiAgentLog[]>([]);
+  const [isLoadingLogs, setIsLoadingLogs] = useState(false);
+  const [logsError, setLogsError] = useState<string | null>(null);
+  const [logsPage, setLogsPage] = useState(1);
+  const [logsLimit, setLogsLimit] = useState(50);
+  const [logsTotal, setLogsTotal] = useState(0);
 
   const fetchConfiguration = async () => {
     setIsLoading(true);
@@ -512,6 +526,8 @@ export default function AiConfigurationPage() {
         speechmaticsApiKeyEnvVarDraft: model.speechmaticsApiKeyEnvVar,
         elevenLabsVoiceIdDraft: model.elevenLabsVoiceId,
         elevenLabsModelIdDraft: model.elevenLabsModelId,
+        enableThinkingDraft: model.enableThinking ?? false,
+        thinkingBudgetTokensDraft: model.thinkingBudgetTokens ?? undefined,
         isSaving: false,
         saveError: null,
         saveSuccess: false,
@@ -582,11 +598,43 @@ export default function AiConfigurationPage() {
     }
   };
 
+  const fetchLogs = async () => {
+    setIsLoadingLogs(true);
+    setLogsError(null);
+    try {
+      const offset = (logsPage - 1) * logsLimit;
+      const response = await fetch(
+        `/api/admin/ai/logs?limit=${logsLimit}&offset=${offset}`,
+        { credentials: "include" }
+      );
+      if (!response.ok) {
+        throw new Error("Impossible de charger les logs");
+      }
+      const data: ApiResponse<{ logs: AiAgentLog[]; total: number }> = await response.json();
+      if (!data.success || !data.data) {
+        throw new Error(data.error || "Impossible de charger les logs");
+      }
+      setLogs(data.data.logs);
+      setLogsTotal(data.data.total);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Erreur lors du chargement des logs";
+      setLogsError(message);
+      console.error("Error fetching logs:", err);
+    } finally {
+      setIsLoadingLogs(false);
+    }
+  };
+
   useEffect(() => {
     fetchConfiguration();
     loadGraphStats();
     fetchTemplates();
+    fetchLogs();
   }, []);
+
+  useEffect(() => {
+    fetchLogs();
+  }, [logsPage, logsLimit]);
 
   const loadGraphStats = async () => {
     setIsLoadingGraphStats(true);
@@ -1410,6 +1458,8 @@ export default function AiConfigurationPage() {
                       deepgramTtsModel: '',
                       elevenLabsVoiceId: '',
                       elevenLabsModelId: '',
+                      enableThinking: false,
+                      thinkingBudgetTokens: 10000,
                       isSaving: false,
                       error: null,
                       successMessage: null,
@@ -1517,6 +1567,56 @@ export default function AiConfigurationPage() {
                     <Label htmlFor="new-model-is-fallback" className="cursor-pointer">Modèle de secours</Label>
                   </div>
                 </div>
+                <div className="space-y-3 rounded-lg border p-4">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="new-model-enable-thinking"
+                      checked={newModel.enableThinking}
+                      onChange={(e) =>
+                        setNewModel(prev => ({
+                          ...prev,
+                          enableThinking: e.target.checked,
+                          thinkingBudgetTokens: e.target.checked
+                            ? prev.thinkingBudgetTokens ?? 10000
+                            : prev.thinkingBudgetTokens,
+                          error: null,
+                        }))
+                      }
+                      className="rounded border-gray-300"
+                    />
+                    <div>
+                      <Label htmlFor="new-model-enable-thinking" className="cursor-pointer">
+                        Activer Claude Extended Thinking
+                      </Label>
+                      <p className="text-xs text-muted-foreground">
+                        Autorise Claude à raisonner plus longtemps avant de répondre (min 1024 tokens dédiés).
+                      </p>
+                    </div>
+                  </div>
+                  <div className="space-y-2 md:w-1/2">
+                    <Label htmlFor="new-model-thinking-budget">Budget Thinking (tokens)</Label>
+                    <Input
+                      id="new-model-thinking-budget"
+                      type="number"
+                      min={1024}
+                      step={512}
+                      disabled={!newModel.enableThinking}
+                      value={newModel.thinkingBudgetTokens ?? 10000}
+                      onChange={(e) => {
+                        const parsed = e.target.value ? parseInt(e.target.value, 10) : undefined;
+                        setNewModel(prev => ({
+                          ...prev,
+                          thinkingBudgetTokens: Number.isFinite(parsed as number) ? parsed : undefined,
+                          error: null,
+                        }));
+                      }}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Budget disponible pour le raisonnement interne (par défaut 10k tokens).
+                    </p>
+                  </div>
+                </div>
                 {newModel.error && (
                   <p className="text-sm text-destructive">{newModel.error}</p>
                 )}
@@ -1553,6 +1653,10 @@ export default function AiConfigurationPage() {
                             deepgramTtsModel: newModel.deepgramTtsModel || null,
                             elevenLabsVoiceId: newModel.elevenLabsVoiceId || null,
                             elevenLabsModelId: newModel.elevenLabsModelId || null,
+                            enableThinking: newModel.enableThinking,
+                            thinkingBudgetTokens: newModel.enableThinking
+                              ? (newModel.thinkingBudgetTokens ?? 10000)
+                              : null,
                           }),
                         });
                         
@@ -1580,6 +1684,8 @@ export default function AiConfigurationPage() {
                           deepgramTtsModel: '',
                           elevenLabsVoiceId: '',
                           elevenLabsModelId: '',
+                          enableThinking: false,
+                          thinkingBudgetTokens: 10000,
                           isSaving: false,
                           error: null,
                           successMessage: `Modèle "${result.data?.name || newModel.name}" créé avec succès.`,
@@ -1614,6 +1720,8 @@ export default function AiConfigurationPage() {
                         deepgramTtsModel: '',
                         elevenLabsVoiceId: '',
                         elevenLabsModelId: '',
+                        enableThinking: false,
+                        thinkingBudgetTokens: 10000,
                         isSaving: false,
                         error: null,
                         successMessage: null,
@@ -1713,6 +1821,71 @@ export default function AiConfigurationPage() {
                             <div className="space-y-2">
                               <Label>Variable d'environnement API Key</Label>
                               <Input value={model.apiKeyEnvVar} disabled />
+                            </div>
+                          </div>
+
+                          {/* Claude Extended Thinking */}
+                          <div className="space-y-3 rounded-lg border p-4">
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="checkbox"
+                                id={`enable-thinking-${model.id}`}
+                                checked={model.enableThinkingDraft ?? false}
+                                onChange={(e) => {
+                                  const checked = e.target.checked;
+                                  setModels(prev => prev.map(m =>
+                                    m.id === model.id
+                                      ? {
+                                          ...m,
+                                          enableThinkingDraft: checked,
+                                          thinkingBudgetTokensDraft: checked
+                                            ? (m.thinkingBudgetTokensDraft ?? 10000)
+                                            : m.thinkingBudgetTokensDraft,
+                                          saveSuccess: false,
+                                        }
+                                      : m
+                                  ));
+                                }}
+                                className="rounded border-gray-300"
+                              />
+                              <div>
+                                <Label htmlFor={`enable-thinking-${model.id}`} className="cursor-pointer">
+                                  Activer Claude Extended Thinking
+                                </Label>
+                                <p className="text-xs text-muted-foreground">
+                                  Permet à Claude de raisonner plus longtemps avant de répondre.
+                                </p>
+                              </div>
+                            </div>
+                            <div className="space-y-2 md:w-1/2">
+                              <Label htmlFor={`thinking-budget-${model.id}`}>Budget Thinking (tokens)</Label>
+                              <Input
+                                id={`thinking-budget-${model.id}`}
+                                type="number"
+                                min={1024}
+                                step={512}
+                                disabled={!model.enableThinkingDraft}
+                                value={
+                                  model.enableThinkingDraft
+                                    ? (model.thinkingBudgetTokensDraft ?? 10000)
+                                    : (model.thinkingBudgetTokensDraft ?? 10000)
+                                }
+                                onChange={(e) => {
+                                  const parsed = e.target.value ? parseInt(e.target.value, 10) : undefined;
+                                  setModels(prev => prev.map(m =>
+                                    m.id === model.id
+                                      ? {
+                                          ...m,
+                                          thinkingBudgetTokensDraft: Number.isFinite(parsed as number) ? parsed : undefined,
+                                          saveSuccess: false,
+                                        }
+                                      : m
+                                  ));
+                                }}
+                              />
+                              <p className="text-xs text-muted-foreground">
+                                Minimum 1024 tokens, valeur recommandée : 10k.
+                              </p>
                             </div>
                           </div>
                           
@@ -2224,6 +2397,10 @@ export default function AiConfigurationPage() {
                                 speechmaticsApiKeyEnvVar: model.speechmaticsApiKeyEnvVarDraft || null,
                                 elevenLabsVoiceId: ttsProvider.get(model.id) === "elevenlabs" ? (model.elevenLabsVoiceIdDraft || null) : null,
                                 elevenLabsModelId: ttsProvider.get(model.id) === "elevenlabs" ? (model.elevenLabsModelIdDraft || null) : null,
+                                enableThinking: model.enableThinkingDraft ?? false,
+                                thinkingBudgetTokens: model.enableThinkingDraft
+                                  ? (model.thinkingBudgetTokensDraft ?? 10000)
+                                  : null,
                               }),
                             });
 
@@ -2252,6 +2429,8 @@ export default function AiConfigurationPage() {
                                     speechmaticsApiKeyEnvVar: m.speechmaticsApiKeyEnvVarDraft,
                                     elevenLabsVoiceId: m.elevenLabsVoiceIdDraft,
                                     elevenLabsModelId: m.elevenLabsModelIdDraft,
+                                    enableThinking: m.enableThinkingDraft,
+                                    thinkingBudgetTokens: m.enableThinkingDraft ? m.thinkingBudgetTokensDraft : undefined,
                                     isSaving: false,
                                     saveSuccess: true,
                                     saveError: null,

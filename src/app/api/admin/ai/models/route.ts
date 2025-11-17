@@ -55,6 +55,9 @@ export async function POST(request: NextRequest) {
       elevenlabs_voice_id: typeof body.elevenLabsVoiceId === 'string' ? body.elevenLabsVoiceId.trim() : null,
       elevenlabs_model_id: typeof body.elevenLabsModelId === 'string' ? body.elevenLabsModelId.trim() : null,
       elevenlabs_api_key_env_var: typeof body.elevenLabsApiKeyEnvVar === 'string' ? body.elevenLabsApiKeyEnvVar.trim() : null,
+      // Claude thinking mode
+      enable_thinking: typeof body.enableThinking === 'boolean' ? body.enableThinking : false,
+      thinking_budget_tokens: typeof body.thinkingBudgetTokens === 'number' ? body.thinkingBudgetTokens : null,
     };
 
     if (!payload.code || !payload.name || !payload.provider || !payload.model || !payload.api_key_env_var) {

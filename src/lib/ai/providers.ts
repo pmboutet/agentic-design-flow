@@ -78,6 +78,26 @@ function normaliseBaseUrl(config: AiModelConfig, fallback: string): string {
   return fallback;
 }
 
+function resolveAnthropicTokenSettings(
+  config: AiModelConfig,
+  requestedMaxTokens?: number,
+): { maxTokens: number; thinkingBudget?: number } {
+  let maxTokens = requestedMaxTokens ?? DEFAULT_MAX_OUTPUT_TOKENS;
+  let thinkingBudget: number | undefined;
+
+  if (config.enableThinking) {
+    const desiredBudget = Math.max(1024, config.thinkingBudgetTokens ?? 10000);
+    thinkingBudget = desiredBudget;
+
+    if (maxTokens <= desiredBudget) {
+      // Ensure Anthropic max_tokens is always greater than the thinking budget
+      maxTokens = desiredBudget + 1024;
+    }
+  }
+
+  return { maxTokens, thinkingBudget };
+}
+
 async function callAnthropic(
   config: AiModelConfig,
   request: AiProviderRequest,
@@ -87,9 +107,11 @@ async function callAnthropic(
   const baseUrl = normaliseBaseUrl(config, "https://api.anthropic.com/v1");
   const url = `${baseUrl}/messages`;
 
+  const { maxTokens, thinkingBudget } = resolveAnthropicTokenSettings(config, request.maxOutputTokens);
+
   const body: Record<string, unknown> = {
     model: config.model,
-    max_tokens: request.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS,
+    max_tokens: maxTokens,
     system: request.systemPrompt,
     messages: [
       {
@@ -113,11 +135,10 @@ async function callAnthropic(
   }
 
   // Add thinking mode if enabled
-  if (config.enableThinking) {
-    const budgetTokens = config.thinkingBudgetTokens ?? 10000;
+  if (thinkingBudget) {
     body.thinking = {
       type: "enabled",
-      budget_tokens: Math.max(1024, budgetTokens), // Ensure minimum 1024 tokens
+      budget_tokens: thinkingBudget,
     };
   }
 
@@ -868,9 +889,11 @@ async function* callAnthropicStream(
   const baseUrl = normaliseBaseUrl(config, "https://api.anthropic.com/v1");
   const url = `${baseUrl}/messages`;
 
+  const { maxTokens, thinkingBudget } = resolveAnthropicTokenSettings(config, request.maxOutputTokens);
+
   const body: Record<string, unknown> = {
     model: config.model,
-    max_tokens: request.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS,
+    max_tokens: maxTokens,
     system: request.systemPrompt,
     messages: [
       {
@@ -887,11 +910,10 @@ async function* callAnthropicStream(
   };
 
   // Add thinking mode if enabled
-  if (config.enableThinking) {
-    const budgetTokens = config.thinkingBudgetTokens ?? 10000;
+  if (thinkingBudget) {
     body.thinking = {
       type: "enabled",
-      budget_tokens: Math.max(1024, budgetTokens), // Ensure minimum 1024 tokens
+      budget_tokens: thinkingBudget,
     };
   }
 

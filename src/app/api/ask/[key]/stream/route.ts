@@ -10,7 +10,7 @@ import { getAgentConfigForAsk, DEFAULT_CHAT_AGENT_SLUG, type AgentConfigResult }
 import type { AiAgentLog, Insight } from '@/types';
 import { createServerSupabaseClient } from '@/lib/supabaseServer';
 import { buildConversationAgentVariables } from '@/lib/ai/conversation-agent';
-import { detectStepCompletion, completeStep, generateStepSummary, getConversationPlanWithSteps, getPlanStep, getActiveStep, getCurrentStep } from '@/lib/ai/conversation-plan';
+import { detectStepCompletion, completeStep, getConversationPlanWithSteps, getActiveStep, getCurrentStep } from '@/lib/ai/conversation-plan';
 
 interface InsightDetectionResponse {
   success: boolean;
@@ -772,36 +772,15 @@ export async function POST(
                               : currentStep?.id;
 
                             if (currentStep && currentStepIdentifier === completedStepId) {
-                              // Get the actual step record from normalized table
-                              const stepRecord = await getPlanStep(dataClient, plan.id, completedStepId);
-
-                              // Generate AI summary for the completed step
-                              let stepSummary: string | null = null;
-                              if (stepRecord) {
-                                console.log('📝 Generating AI summary for completed step in stream...');
-                                stepSummary = await generateStepSummary(
-                                  dataClient,
-                                  stepRecord.id,
-                                  askRow.id
-                                );
-
-                                if (stepSummary) {
-                                  console.log('✅ AI summary generated in stream:', stepSummary.substring(0, 100) + '...');
-                                } else {
-                                  console.warn('⚠️ Failed to generate AI summary in stream, using fallback');
-                                  stepSummary = `Étape "${currentStep.title}" complétée`;
-                                }
-                              } else {
-                                stepSummary = `Étape "${currentStep.title}" complétée`;
-                              }
-
-                              // Complete the step with the summary (use admin client for RLS bypass)
+                              // Complete the step (summary will be generated asynchronously)
+                              // Use admin client for RLS bypass
                               const adminForStepUpdate = await getAdminClient();
                               await completeStep(
                                 adminForStepUpdate,
                                 conversationThread.id,
                                 completedStepId,
-                                stepSummary
+                                undefined, // No pre-generated summary - let the async agent generate it
+                                askRow.id // Pass askSessionId to trigger async summary generation
                               );
 
                               console.log('✅ Conversation plan updated in stream - step completed:', completedStepId);

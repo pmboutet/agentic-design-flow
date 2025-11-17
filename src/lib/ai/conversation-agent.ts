@@ -149,7 +149,8 @@ export function buildConversationAgentVariables(context: ConversationAgentContex
   let conversationPlanFormatted = '';
   let currentStepFormatted = '';
   let currentStepId = '';
-  let completedStepsSummaryFormatted = '';
+  // Default value: always provide a message, even if no plan exists
+  let completedStepsSummaryFormatted = 'Aucune étape complétée pour le moment';
   let planProgressFormatted = '';
 
   if (context.conversationPlan) {
@@ -165,6 +166,7 @@ export function buildConversationAgentVariables(context: ConversationAgentContex
     const currentStep = getCurrentStep(context.conversationPlan);
     currentStepFormatted = formatCurrentStepForPrompt(currentStep);
     currentStepId = context.conversationPlan.current_step_id || '';
+    // This will always return a non-empty string (either "Aucune étape complétée pour le moment" or the formatted list)
     completedStepsSummaryFormatted = formatCompletedStepsForPrompt(context.conversationPlan);
     planProgressFormatted = formatPlanProgress(context.conversationPlan);
 
@@ -179,7 +181,10 @@ export function buildConversationAgentVariables(context: ConversationAgentContex
       currentStepId,
       completedSteps: context.conversationPlan.completed_steps,
       totalSteps: context.conversationPlan.total_steps,
+      completedStepsSummaryLength: completedStepsSummaryFormatted.length,
     });
+  } else {
+    console.log('📋 No conversation plan available - using default completed_steps_summary');
   }
 
   // Build base variables

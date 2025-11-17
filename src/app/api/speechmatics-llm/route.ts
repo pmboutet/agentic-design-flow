@@ -40,19 +40,29 @@ export async function POST(request: Request) {
     const conversationMessages = messages.filter((m: any) => m.role !== 'system');
 
     if (provider === 'anthropic') {
+      let maxTokens = 1024;
+      let thinkingBudget: number | undefined;
+
+      if (enableThinking) {
+        const desiredBudget = Math.max(1024, thinkingBudgetTokens ?? 10000);
+        thinkingBudget = desiredBudget;
+        if (maxTokens <= desiredBudget) {
+          maxTokens = desiredBudget + 1024;
+        }
+      }
+
       const anthropicBody: Record<string, unknown> = {
         model,
-        max_tokens: 1024,
+        max_tokens: maxTokens,
         system: systemPrompt || '',
         messages: conversationMessages,
       };
 
       // Add thinking mode if enabled
-      if (enableThinking) {
-        const budgetTokens = thinkingBudgetTokens ?? 10000;
+      if (thinkingBudget) {
         anthropicBody.thinking = {
           type: "enabled",
-          budget_tokens: Math.max(1024, budgetTokens), // Ensure minimum 1024 tokens
+          budget_tokens: thinkingBudget,
         };
       }
 
@@ -114,4 +124,3 @@ export async function POST(request: Request) {
     );
   }
 }
-

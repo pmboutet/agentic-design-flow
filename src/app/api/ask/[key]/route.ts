@@ -9,7 +9,7 @@ import { getAskSessionByKey, getOrCreateConversationThread, getMessagesForThread
 import { createServerSupabaseClient } from '@/lib/supabaseServer';
 import { executeAgent } from '@/lib/ai/service';
 import { buildConversationAgentVariables } from '@/lib/ai/conversation-agent';
-import { getConversationPlan, type ConversationPlan } from '@/lib/ai/conversation-plan';
+import { getConversationPlanWithSteps, type ConversationPlan } from '@/lib/ai/conversation-plan';
 
 interface AskSessionRow {
   id: string;
@@ -549,7 +549,7 @@ export async function GET(
     // Get conversation plan if thread exists (do this BEFORE initializing messages)
     let conversationPlan: ConversationPlan | null = null;
     if (conversationThread) {
-      conversationPlan = await getConversationPlan(dataClient, conversationThread.id);
+      conversationPlan = await getConversationPlanWithSteps(dataClient, conversationThread.id);
       if (conversationPlan && conversationPlan.plan_data) {
         console.log('📋 GET /api/ask/[key]: Loaded existing conversation plan with', conversationPlan.plan_data.steps.length, 'steps');
       }

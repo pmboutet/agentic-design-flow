@@ -94,6 +94,13 @@ export async function PUT(
         payload.elevenlabs_model_id = body.elevenLabsModelId.trim() || null;
       }
     }
+    // Claude thinking mode
+    if (typeof body.enableThinking === 'boolean') {
+      payload.enable_thinking = body.enableThinking;
+    }
+    if (typeof body.thinkingBudgetTokens === 'number' || body.thinkingBudgetTokens === null) {
+      payload.thinking_budget_tokens = body.thinkingBudgetTokens ?? null;
+    }
 
     if (Object.keys(payload).length === 0) {
       return NextResponse.json({

@@ -40,6 +40,9 @@ const PLANNING_INTERACTION_TYPE = "project_challenge_planning";
 const UPDATE_INTERACTION_TYPE = "project_challenge_update_detailed";
 const CREATION_INTERACTION_TYPE = "project_challenge_creation_detailed";
 
+// Maximum tokens for complex responses (Claude 3.5+ supports up to 16384)
+const MAX_OUTPUT_TOKENS = 16384;
+
 // Validation schemas
 const requestSchema = z
   .object({
@@ -1060,7 +1063,7 @@ export async function POST(
         graph_syntheses_json: graphRAGData ? JSON.stringify(graphRAGData.syntheses) : "[]",
         dominant_concepts: graphRAGData ? graphRAGData.dominantConcepts.map(c => `${c.concept} (${c.insightCount} insights)`).join(", ") : "",
       },
-      maxOutputTokens: options.maxOutputTokens,
+      maxOutputTokens: options.maxOutputTokens ?? MAX_OUTPUT_TOKENS,
       temperature: options.temperature,
     });
 
@@ -1150,7 +1153,7 @@ export async function POST(
             // Provide planner-related insight IDs explicitly for agent fallback
             related_insight_ids: JSON.stringify(updateItem.relatedInsightIds),
           },
-          maxOutputTokens: options.maxOutputTokens,
+          maxOutputTokens: options.maxOutputTokens ?? MAX_OUTPUT_TOKENS,
           temperature: options.temperature,
         });
 
@@ -1204,7 +1207,7 @@ export async function POST(
             project_context_json: JSON.stringify(globalContext),
             available_owner_options_json: availableOwnerOptionsJson,
           },
-          maxOutputTokens: options.maxOutputTokens,
+          maxOutputTokens: options.maxOutputTokens ?? MAX_OUTPUT_TOKENS,
           temperature: options.temperature,
         });
 

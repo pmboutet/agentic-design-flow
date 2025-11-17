@@ -9,7 +9,7 @@ import { normaliseMessageMetadata } from '@/lib/messages';
 import { executeAgent, fetchAgentBySlug, type AgentExecutionResult } from '@/lib/ai';
 import { INSIGHT_TYPES, mapInsightRowToInsight, type InsightRow } from '@/lib/insights';
 import { fetchInsightRowById, fetchInsightsForSession, fetchInsightTypeMap, fetchInsightTypesForPrompt } from '@/lib/insightQueries';
-import { detectStepCompletion, completeStep, generateStepSummary, getConversationPlanWithSteps, getPlanStep, getActiveStep, getCurrentStep } from '@/lib/ai/conversation-plan';
+import { detectStepCompletion, completeStep, getConversationPlanWithSteps, getActiveStep, getCurrentStep } from '@/lib/ai/conversation-plan';
 import { buildConversationAgentVariables } from '@/lib/ai/conversation-agent';
 
 const CHAT_AGENT_SLUG = 'ask-conversation-response';
@@ -748,6 +748,9 @@ async function persistInsights(
   insightRows: InsightRow[],
   currentUserId?: string | null,
   conversationThreadId?: string | null,
+  planStepId?: string | null,
+  fallbackChallengeId?: string | null,
+  fallbackMessageId?: string | null,
 ) {
   if (incomingInsights.length === 0) {
     return;
@@ -858,16 +861,18 @@ async function persistInsights(
 
       const updatePayload = {
         ask_session_id: targetRow.ask_session_id,
+        user_id: currentUserId ?? targetRow.user_id ?? null,
         content: incoming.content ?? targetRow.content ?? '',
         summary: mergedNote,
         insight_type_id: targetRow.insight_type_id,
         category: incoming.category ?? targetRow.category ?? null,
         status: 'archived' as Insight['status'],
         priority: incoming.priority ?? targetRow.priority ?? null,
-        challenge_id: incoming.challengeId ?? targetRow.challenge_id ?? null,
+        challenge_id: incoming.challengeId ?? targetRow.challenge_id ?? fallbackChallengeId ?? null,
         related_challenge_ids: incoming.relatedChallengeIds ?? targetRow.related_challenge_ids ?? [],
-        source_message_id: incoming.sourceMessageId ?? targetRow.source_message_id ?? null,
+        source_message_id: incoming.sourceMessageId ?? targetRow.source_message_id ?? fallbackMessageId ?? null,
         conversation_thread_id: conversationThreadId ?? targetRow.conversation_thread_id ?? null,
+        plan_step_id: planStepId ?? targetRow.plan_step_id ?? null,
         updated_at: nowIso,
       } satisfies Record<string, unknown>;
 
@@ -901,16 +906,18 @@ async function persistInsights(
 
       const updatePayload = {
         ask_session_id: existing.ask_session_id,
+        user_id: currentUserId ?? existing.user_id ?? null,
         content: incoming.content ?? existing.content ?? '',
         summary: incoming.summary ?? existing.summary ?? null,
         insight_type_id: desiredTypeId,
         category: incoming.category ?? existing.category ?? null,
         status: (incoming.status as Insight['status']) ?? (existing.status as Insight['status']) ?? 'new',
         priority: incoming.priority ?? existing.priority ?? null,
-        challenge_id: incoming.challengeId ?? existing.challenge_id ?? null,
+        challenge_id: incoming.challengeId ?? existing.challenge_id ?? fallbackChallengeId ?? null,
         related_challenge_ids: incoming.relatedChallengeIds ?? existing.related_challenge_ids ?? [],
-        source_message_id: incoming.sourceMessageId ?? existing.source_message_id ?? null,
+        source_message_id: incoming.sourceMessageId ?? existing.source_message_id ?? fallbackMessageId ?? null,
         conversation_thread_id: conversationThreadId ?? existing.conversation_thread_id ?? null,
+        plan_step_id: planStepId ?? existing.plan_step_id ?? null,
         updated_at: nowIso,
       };
 
@@ -957,16 +964,18 @@ async function persistInsights(
       const insertPayload = {
         id: desiredId,
         ask_session_id: askSessionId,
+        user_id: currentUserId ?? null,
         content: incoming.content ?? '',
         summary: incoming.summary ?? null,
         insight_type_id: desiredTypeId,
         category: incoming.category ?? null,
         status: (incoming.status as Insight['status']) ?? 'new',
         priority: incoming.priority ?? null,
-        challenge_id: incoming.challengeId ?? null,
+        challenge_id: incoming.challengeId ?? fallbackChallengeId ?? null,
         related_challenge_ids: incoming.relatedChallengeIds ?? [],
-        source_message_id: incoming.sourceMessageId ?? null,
+        source_message_id: incoming.sourceMessageId ?? fallbackMessageId ?? null,
         conversation_thread_id: conversationThreadId ?? null,
+        plan_step_id: planStepId ?? null,
         created_at: nowIso,
         updated_at: nowIso,
       };
@@ -1200,6 +1209,7 @@ async function triggerInsightDetection(
     messageId?: string | null;
     variables: Record<string, string | null | undefined>;
     conversationThreadId?: string | null;
+    challengeId?: string | null;
   },
   existingInsights: InsightRow[],
   currentUserId?: string | null,
@@ -1424,12 +1434,30 @@ async function triggerInsightDetection(
       });
     } else {
       // Only persist insights if parsing succeeded
+      // Get the currently active plan step to link insights
+      let planStepId: string | null = null;
+      if (options.conversationThreadId) {
+        try {
+          const plan = await getConversationPlanWithSteps(supabase, options.conversationThreadId);
+          if (plan) {
+            const activeStep = await getActiveStep(supabase, plan.id);
+            if (activeStep) {
+              planStepId = activeStep.id;
+            }
+          }
+        } catch (error) {
+          console.warn('⚠️ Failed to get active step for insight linking:', error);
+          // Continue without linking to step
+        }
+      }
+
       console.log('💾 Persisting insights:', {
         count: incoming.items.length,
         askSessionId: options.askSessionId,
         conversationThreadId: options.conversationThreadId,
+        planStepId,
       });
-      await persistInsights(supabase, options.askSessionId, incoming.items, existingInsights, currentUserId, options.conversationThreadId);
+      await persistInsights(supabase, options.askSessionId, incoming.items, existingInsights, currentUserId, options.conversationThreadId, planStepId, options.challengeId ?? null, options.messageId ?? null);
       await completeInsightJob(supabase, job.id, { modelConfigId: result.modelConfig.id });
       console.log('✅ Insights persisted successfully');
     }
@@ -1869,6 +1897,7 @@ export async function POST(
             messageId: lastAiMessage?.id ?? null,
             variables: detectionVariables,
             conversationThreadId: conversationThread?.id ?? null,
+            challengeId: askRow.challenge_id ?? null,
           },
           insightRows,
           currentUserId,
@@ -2046,36 +2075,15 @@ export async function POST(
                   : currentStep?.id;
 
                 if (currentStep && currentStepIdentifier === completedStepId) {
-                  // Get the actual step record from normalized table
-                  const stepRecord = await getPlanStep(supabase, plan.id, completedStepId);
-
-                  // Generate AI summary for the completed step
-                  let stepSummary: string | null = null;
-                  if (stepRecord) {
-                    console.log('📝 Generating AI summary for completed step...');
-                    stepSummary = await generateStepSummary(
-                      supabase,
-                      stepRecord.id,
-                      askRow.id
-                    );
-
-                    if (stepSummary) {
-                      console.log('✅ AI summary generated:', stepSummary.substring(0, 100) + '...');
-                    } else {
-                      console.warn('⚠️ Failed to generate AI summary, using fallback');
-                      stepSummary = `Étape "${currentStep.title}" complétée`;
-                    }
-                  } else {
-                    stepSummary = `Étape "${currentStep.title}" complétée`;
-                  }
-
-                  // Complete the step with the summary (use admin client for RLS bypass)
+                  // Complete the step (summary will be generated asynchronously)
+                  // Use admin client for RLS bypass
                   const adminSupabase = getAdminSupabaseClient();
                   await completeStep(
                     adminSupabase,
                     conversationThread.id,
                     completedStepId,
-                    stepSummary
+                    undefined, // No pre-generated summary - let the async agent generate it
+                    askRow.id // Pass askSessionId to trigger async summary generation
                   );
 
                   console.log('✅ Conversation plan updated - step completed:', completedStepId);
@@ -2135,6 +2143,7 @@ export async function POST(
             messageId: detectionMessageId,
             variables: detectionVariables,
             conversationThreadId: conversationThread?.id ?? null,
+            challengeId: askRow.challenge_id ?? null,
           },
           insightRows,
           currentUserId,

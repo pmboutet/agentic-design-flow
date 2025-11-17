@@ -257,8 +257,25 @@ export async function getConversationPlanWithSteps(
     return null;
   }
 
+  // Ensure the legacy plan_data structure stays in sync with normalized steps
+  const legacySteps: LegacyConversationPlanStep[] = (steps || []).map((step) => ({
+    id: step.step_identifier,
+    title: step.title,
+    objective: step.objective,
+    status: step.status,
+    summary: step.summary,
+    created_at: step.created_at,
+    completed_at: step.completed_at,
+  }));
+
+  const planDataWithSyncedSteps: LegacyConversationPlanData = {
+    ...(plan.plan_data ?? { steps: [] }),
+    steps: legacySteps,
+  };
+
   return {
     ...plan,
+    plan_data: planDataWithSyncedSteps,
     steps: (steps || []) as ConversationPlanStep[],
   } as ConversationPlanWithSteps;
 }
@@ -313,12 +330,14 @@ export async function getActiveStep(
 /**
  * Complete a step and activate the next one
  * This updates both the normalized steps table and the plan's current_step_id
+ * If askSessionId is provided, triggers async summary generation after completion
  */
 export async function completeStep(
   supabase: SupabaseClient,
   conversationThreadId: string,
   completedStepIdentifier: string,
-  stepSummary?: string
+  stepSummary?: string,
+  askSessionId?: string
 ): Promise<ConversationPlan | null> {
   console.log('🔄 Completing step:', { conversationThreadId, completedStepIdentifier, stepSummary });
 
@@ -403,6 +422,73 @@ export async function completeStep(
     'next step:',
     nextStepIdentifier || 'none (plan complete)'
   );
+
+  // Trigger async summary generation if askSessionId is provided
+  if (askSessionId) {
+    // Execute summary generation via a dedicated API endpoint
+    // This ensures execution even if the current request context ends
+    const stepIdToSummarize = completedStep.id;
+    
+    const triggerSummaryGeneration = async () => {
+      try {
+        // Get the ask_session_id from the conversation thread
+        const { data: thread } = await supabase
+          .from('conversation_threads')
+          .select('ask_session_id')
+          .eq('id', conversationThreadId)
+          .single();
+        
+        if (!thread?.ask_session_id) {
+          console.warn('⚠️ [ASYNC] Could not find ask_session_id for thread:', conversationThreadId);
+          return;
+        }
+
+        // Get the ask_key from the ask_session
+        const { data: askSession } = await supabase
+          .from('ask_sessions')
+          .select('ask_key')
+          .eq('id', thread.ask_session_id)
+          .single();
+        
+        if (!askSession?.ask_key) {
+          console.warn('⚠️ [ASYNC] Could not find ask_key for session:', thread.ask_session_id);
+          return;
+        }
+
+        // Build absolute URL for the endpoint
+        const baseUrl = process.env.NEXT_PUBLIC_APP_URL 
+          || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null)
+          || 'http://localhost:3000';
+        const endpoint = `${baseUrl}/api/ask/${askSession.ask_key}/step-summary`;
+        
+        console.log('📝 [ASYNC] Triggering summary generation via API:', endpoint, 'stepId:', stepIdToSummarize);
+        
+        // Call the endpoint without waiting for response (fire and forget)
+        fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            stepId: stepIdToSummarize,
+            askSessionId: askSessionId,
+          }),
+        }).catch((error) => {
+          console.error('❌ [ASYNC] Failed to trigger summary generation endpoint:', error);
+        });
+      } catch (error) {
+        console.error('❌ [ASYNC] Error setting up summary generation:', error);
+      }
+    };
+
+    // Execute in background without blocking
+    Promise.resolve().then(triggerSummaryGeneration).catch((error) => {
+      console.error('❌ [ASYNC] Unhandled error triggering summary generation:', error);
+    });
+    
+    console.log('📝 [ASYNC] Summary generation task queued for step:', stepIdToSummarize);
+  }
+
   return updatedPlan as ConversationPlan;
 }
 
@@ -685,4 +771,3 @@ export function detectStepCompletion(content: string): string | null {
   const match = content.match(/STEP_COMPLETE:(\w+)/);
   return match ? match[1] : null;
 }
-

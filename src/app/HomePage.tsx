@@ -313,7 +313,7 @@ function MobileLayout({
                   isLoading={sessionData.isLoading}
                   currentParticipantName={currentParticipantName}
                   isMultiUser={Boolean(sessionData.ask && sessionData.ask.participants.length > 1)}
-                  showAgentTyping={awaitingAiResponse}
+                  showAgentTyping={awaitingAiResponse && !isDetectingInsights}
                   voiceModeEnabled={!!voiceModeSystemPrompt}
                   voiceModeSystemPrompt={voiceModeSystemPrompt || undefined}
                   voiceModeUserPrompt={voiceModeUserPrompt || undefined}
@@ -405,6 +405,7 @@ export default function HomePage() {
   const insightDetectionTimerRef = useRef<NodeJS.Timeout | null>(null);
   const hasPostedMessageSinceRefreshRef = useRef(false);
   const [awaitingAiResponse, setAwaitingAiResponse] = useState(false);
+  const activeAiResponsesRef = useRef(0);
   const [isDetectingInsights, setIsDetectingInsights] = useState(false);
   const participantFromUrl = searchParams.get('participant') || searchParams.get('participantName');
   const derivedParticipantName = participantFromUrl?.trim() ? participantFromUrl.trim() : null;
@@ -446,6 +447,16 @@ export default function HomePage() {
   // Store logId for voice agent exchanges (user message -> agent response)
   const voiceAgentLogIdRef = useRef<string | null>(null);
   const inviteTokenRef = useRef<string | null>(null);
+
+  const startAwaitingAiResponse = useCallback(() => {
+    activeAiResponsesRef.current += 1;
+    setAwaitingAiResponse(true);
+  }, [setAwaitingAiResponse]);
+
+  const stopAwaitingAiResponse = useCallback(() => {
+    activeAiResponsesRef.current = Math.max(0, activeAiResponsesRef.current - 1);
+    setAwaitingAiResponse(activeAiResponsesRef.current > 0);
+  }, [setAwaitingAiResponse]);
   
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
@@ -518,6 +529,8 @@ export default function HomePage() {
     }
 
     try {
+      cancelInsightDetectionTimer();
+      setIsDetectingInsights(true);
       setSessionData(prev => ({
         ...prev,
         isLoading: true,
@@ -605,8 +618,10 @@ export default function HomePage() {
         isLoading: false,
         error: parseErrorMessage(error)
       }));
+    } finally {
+      setIsDetectingInsights(false);
     }
-  }, [cancelResponseTimer, sessionData.ask?.askSessionId, sessionData.askKey, sessionData.inviteToken, isTestMode]);
+  }, [cancelInsightDetectionTimer, cancelResponseTimer, sessionData.ask?.askSessionId, sessionData.askKey, sessionData.inviteToken, isTestMode]);
 
   const scheduleResponseTimer = useCallback(() => {
     cancelResponseTimer();
@@ -671,8 +686,8 @@ export default function HomePage() {
     }
 
     cancelInsightDetectionTimer();
-    setIsDetectingInsights(true);
     insightDetectionTimerRef.current = setTimeout(() => {
+      setIsDetectingInsights(true);
       triggerInsightDetection();
     }, 2500); // 2.5 secondes après le dernier message
   }, [
@@ -1038,12 +1053,6 @@ export default function HomePage() {
       console.log('[handleSendMessage] ❌ No askKey, aborting');
       return;
     }
-    
-    if (awaitingAiResponse) {
-      console.log('[handleSendMessage] ⏸️ Already awaiting AI response, aborting');
-      return;
-    }
-    
     if (sessionData.isLoading) {
       console.log('[handleSendMessage] ⏸️ Already loading, aborting');
       return;
@@ -1129,12 +1138,12 @@ export default function HomePage() {
 
       // Now trigger the streaming AI response
       if (isTestMode) {
-        setAwaitingAiResponse(false);
+        stopAwaitingAiResponse();
         return;
       }
 
       console.log('[handleSendMessage] 🎬 Starting streaming response...');
-      setAwaitingAiResponse(true);
+      startAwaitingAiResponse();
       const insightsCapturedDuringStream = await handleStreamingResponse(content);
       console.log('[handleSendMessage] ✅ Streaming complete, insights captured:', insightsCapturedDuringStream);
       
@@ -1145,7 +1154,7 @@ export default function HomePage() {
 
     } catch (error) {
       console.error('Error sending message:', error);
-      setAwaitingAiResponse(false);
+      stopAwaitingAiResponse();
       setSessionData(prev => ({
         ...prev,
         isLoading: false,
@@ -1654,7 +1663,7 @@ export default function HomePage() {
 
   // Handle streaming AI response
   const handleStreamingResponse = async (latestUserMessageContent?: string): Promise<boolean> => {
-    if (!sessionData.askKey || awaitingAiResponse) return false;
+    if (!sessionData.askKey) return false;
 
     // Annuler la détection d'insights pendant le streaming
     cancelInsightDetectionTimer();
@@ -1770,8 +1779,8 @@ export default function HomePage() {
                     insights,
                   }));
                 } else if (parsed.type === 'done') {
-                  console.log('[handleStreamingResponse] ✅ Stream done, setting awaitingAiResponse to false');
-                  setAwaitingAiResponse(false);
+                  console.log('[handleStreamingResponse] ✅ Stream done, updating awaitingAiResponse state');
+                  stopAwaitingAiResponse();
                   // Recharger les messages pour afficher le message persisté
                   if (sessionData.inviteToken) {
                     await loadSessionDataByToken(sessionData.inviteToken);
@@ -1785,7 +1794,7 @@ export default function HomePage() {
                   return insightsUpdatedDuringStream;
                 } else if (parsed.type === 'error') {
                   console.error('Streaming error:', parsed.error);
-                  setAwaitingAiResponse(false);
+                  stopAwaitingAiResponse();
                   return false;
                 }
               } catch (error) {
@@ -1799,7 +1808,7 @@ export default function HomePage() {
       return insightsUpdatedDuringStream;
     } catch (error) {
       console.error('Streaming error:', error);
-      setAwaitingAiResponse(false);
+      stopAwaitingAiResponse();
       return false;
     }
   };
@@ -2067,7 +2076,7 @@ export default function HomePage() {
                   isLoading={sessionData.isLoading}
                   currentParticipantName={currentParticipantName}
                   isMultiUser={Boolean(sessionData.ask && sessionData.ask.participants.length > 1)}
-                  showAgentTyping={awaitingAiResponse}
+                  showAgentTyping={awaitingAiResponse && !isDetectingInsights}
                   voiceModeEnabled={!!voiceModeSystemPrompt}
                   voiceModeSystemPrompt={voiceModeSystemPrompt || undefined}
                   voiceModeUserPrompt={voiceModeUserPrompt || undefined}
