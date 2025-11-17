@@ -14,6 +14,8 @@ interface AiModelConfigRow {
   is_fallback?: boolean | null;
   created_at?: string | null;
   updated_at?: string | null;
+  enable_thinking?: boolean | null;
+  thinking_budget_tokens?: number | null;
   // Voice agent provider selector
   voice_agent_provider?: string | null;
   // Deepgram-specific columns
@@ -49,6 +51,8 @@ export function mapModelRow(row: AiModelConfigRow): AiModelConfig {
     isFallback: Boolean(row.is_fallback),
     createdAt: row.created_at ?? undefined,
     updatedAt: row.updated_at ?? undefined,
+    enableThinking: row.enable_thinking ?? undefined,
+    thinkingBudgetTokens: row.thinking_budget_tokens ?? undefined,
     // Map voice agent provider selector
     voiceAgentProvider: (row.voice_agent_provider as "deepgram-voice-agent" | "speechmatics-voice-agent" | undefined) ?? undefined,
     // Map Deepgram columns from database

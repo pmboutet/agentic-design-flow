@@ -112,6 +112,15 @@ async function callAnthropic(
     body.tools = request.tools;
   }
 
+  // Add thinking mode if enabled
+  if (config.enableThinking) {
+    const budgetTokens = config.thinkingBudgetTokens ?? 10000;
+    body.thinking = {
+      type: "enabled",
+      budget_tokens: Math.max(1024, budgetTokens), // Ensure minimum 1024 tokens
+    };
+  }
+
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     "x-api-key": apiKey,
@@ -736,6 +745,8 @@ async function callSpeechmaticsVoiceAgent(
     sttEnablePartials: config.speechmaticsSttEnablePartials !== false, // Default to true
     llmProvider: config.speechmaticsLlmProvider || "anthropic",
     llmModel: config.speechmaticsLlmModel,
+    enableThinking: config.enableThinking ?? false,
+    thinkingBudgetTokens: config.thinkingBudgetTokens,
     // API keys will be fetched client-side via /api/speechmatics-token, /api/elevenlabs-token and /api/llm-token
     elevenLabsApiKey: undefined, // Will be fetched client-side
     llmApiKey: undefined, // Will be fetched client-side
@@ -857,7 +868,7 @@ async function* callAnthropicStream(
   const baseUrl = normaliseBaseUrl(config, "https://api.anthropic.com/v1");
   const url = `${baseUrl}/messages`;
 
-  const body = {
+  const body: Record<string, unknown> = {
     model: config.model,
     max_tokens: request.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS,
     system: request.systemPrompt,
@@ -873,7 +884,16 @@ async function* callAnthropicStream(
       },
     ],
     stream: true,
-  } satisfies Record<string, unknown>;
+  };
+
+  // Add thinking mode if enabled
+  if (config.enableThinking) {
+    const budgetTokens = config.thinkingBudgetTokens ?? 10000;
+    body.thinking = {
+      type: "enabled",
+      budget_tokens: Math.max(1024, budgetTokens), // Ensure minimum 1024 tokens
+    };
+  }
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",

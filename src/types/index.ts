@@ -256,6 +256,9 @@ export interface AiModelConfig {
   elevenLabsModelId?: string; // ElevenLabs TTS model ID (e.g., "eleven_turbo_v2_5")
   elevenLabsApiKeyEnvVar?: string; // Environment variable name for ElevenLabs API key
   disableElevenLabsTTS?: boolean; // If true, disable ElevenLabs TTS for Speechmatics (only STT will work)
+  // Claude extended thinking mode
+  enableThinking?: boolean; // Enable Claude extended thinking mode
+  thinkingBudgetTokens?: number; // Maximum tokens for Claude internal reasoning (min: 1024, default: 10000)
 }
 
 export interface AiAgentRecord {

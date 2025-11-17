@@ -7,7 +7,7 @@ import { NextResponse } from 'next/server';
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { provider, model, messages, systemPrompt } = body;
+    const { provider, model, messages, systemPrompt, enableThinking, thinkingBudgetTokens } = body;
 
     if (!provider || !model || !messages) {
       return NextResponse.json(
@@ -40,6 +40,22 @@ export async function POST(request: Request) {
     const conversationMessages = messages.filter((m: any) => m.role !== 'system');
 
     if (provider === 'anthropic') {
+      const anthropicBody: Record<string, unknown> = {
+        model,
+        max_tokens: 1024,
+        system: systemPrompt || '',
+        messages: conversationMessages,
+      };
+
+      // Add thinking mode if enabled
+      if (enableThinking) {
+        const budgetTokens = thinkingBudgetTokens ?? 10000;
+        anthropicBody.thinking = {
+          type: "enabled",
+          budget_tokens: Math.max(1024, budgetTokens), // Ensure minimum 1024 tokens
+        };
+      }
+
       const response = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: {
@@ -47,12 +63,7 @@ export async function POST(request: Request) {
           'x-api-key': apiKey,
           'anthropic-version': '2023-06-01',
         },
-        body: JSON.stringify({
-          model,
-          max_tokens: 1024,
-          system: systemPrompt || '',
-          messages: conversationMessages,
-        }),
+        body: JSON.stringify(anthropicBody),
       });
 
       if (!response.ok) {

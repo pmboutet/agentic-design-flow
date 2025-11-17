@@ -297,7 +297,16 @@ export class SpeechmaticsVoiceAgent {
       ];
 
       // Call LLM
-      const llmResponse = await this.llm.callLLM(llmProvider, llmApiKey, llmModel, messages);
+      const llmResponse = await this.llm.callLLM(
+        llmProvider,
+        llmApiKey,
+        llmModel,
+        messages,
+        {
+          enableThinking: this.config?.enableThinking,
+          thinkingBudgetTokens: this.config?.thinkingBudgetTokens,
+        }
+      );
 
       // Add to conversation history
       this.conversationHistory.push({ role: 'agent', content: llmResponse });

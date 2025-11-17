@@ -20,6 +20,8 @@ export interface SpeechmaticsConfig {
   llmProvider?: "anthropic" | "openai";
   llmModel?: string;
   llmApiKey?: string;
+  enableThinking?: boolean;
+  thinkingBudgetTokens?: number;
   // ElevenLabs TTS config
   elevenLabsApiKey?: string; // Optional - will be fetched automatically if not provided
   elevenLabsVoiceId?: string;
@@ -39,4 +41,3 @@ export type SpeechmaticsMessageCallback = (message: SpeechmaticsMessageEvent) =>
 export type SpeechmaticsErrorCallback = (error: Error) => void;
 export type SpeechmaticsConnectionCallback = (connected: boolean) => void;
 export type SpeechmaticsAudioCallback = (audio: Uint8Array) => void;
-
