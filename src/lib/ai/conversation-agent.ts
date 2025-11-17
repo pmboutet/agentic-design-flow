@@ -149,18 +149,36 @@ export function buildConversationAgentVariables(context: ConversationAgentContex
   let conversationPlanFormatted = '';
   let currentStepFormatted = '';
   let currentStepId = '';
-  
+  let completedStepsSummaryFormatted = '';
+  let planProgressFormatted = '';
+
   if (context.conversationPlan) {
-    const { formatPlanForPrompt, formatCurrentStepForPrompt, getCurrentStep } = require('./conversation-plan');
+    const {
+      formatPlanForPrompt,
+      formatCurrentStepForPrompt,
+      formatCompletedStepsForPrompt,
+      formatPlanProgress,
+      getCurrentStep
+    } = require('./conversation-plan');
+
     conversationPlanFormatted = formatPlanForPrompt(context.conversationPlan);
     const currentStep = getCurrentStep(context.conversationPlan);
     currentStepFormatted = formatCurrentStepForPrompt(currentStep);
-    currentStepId = context.conversationPlan.current_step_id;
-    
+    currentStepId = context.conversationPlan.current_step_id || '';
+    completedStepsSummaryFormatted = formatCompletedStepsForPrompt(context.conversationPlan);
+    planProgressFormatted = formatPlanProgress(context.conversationPlan);
+
+    // Handle both normalized and legacy structures
+    const stepsCount = 'steps' in context.conversationPlan && Array.isArray(context.conversationPlan.steps)
+      ? context.conversationPlan.steps.length
+      : context.conversationPlan.plan_data?.steps.length || 0;
+
     console.log('📋 Conversation plan available:', {
       planId: context.conversationPlan.id,
-      stepsCount: context.conversationPlan.plan_data.steps.length,
-      currentStepId: currentStepId,
+      stepsCount,
+      currentStepId,
+      completedSteps: context.conversationPlan.completed_steps,
+      totalSteps: context.conversationPlan.total_steps,
     });
   }
 
@@ -184,6 +202,8 @@ export function buildConversationAgentVariables(context: ConversationAgentContex
     conversation_plan: conversationPlanFormatted,
     current_step: currentStepFormatted,
     current_step_id: currentStepId,
+    completed_steps_summary: completedStepsSummaryFormatted,
+    plan_progress: planProgressFormatted,
   };
 
   // Add legacy message_history for backward compatibility

@@ -49,7 +49,7 @@ Le système de **plan de conversation guidé** a été implémenté avec succès
 - `getCurrentStep()` : Obtient l'étape active
 - `formatPlanForPrompt()` : Formate le plan pour les prompts IA
 - `formatCurrentStepForPrompt()` : Formate l'étape courante pour les prompts
-- `detectStepCompletion()` : Détecte le marqueur `#end_turn_step_<ID>`
+- `detectStepCompletion()` : Détecte le marqueur `STEP_COMPLETE:<ID>`
 
 **Types TypeScript** :
 - `ConversationPlanStep`
@@ -105,7 +105,7 @@ Le système de **plan de conversation guidé** a été implémenté avec succès
 
 **Flux ajouté** :
 1. Après stockage de la réponse IA
-2. Détection du marqueur `#end_turn_step_<ID>` dans le contenu
+2. Détection du marqueur `STEP_COMPLETE:<ID>` dans le contenu
 3. Si détecté :
    - Vérification que l'ID correspond à l'étape courante
    - Génération d'un résumé (actuellement basique)
@@ -185,11 +185,11 @@ Le système de **plan de conversation guidé** a été implémenté avec succès
 ```
 1. Agent détecte objectif de l'étape atteint
    ↓
-2. Agent inclut #end_turn_step_step_1 dans sa réponse
+2. Agent inclut STEP_COMPLETE:step_1 dans sa réponse
    ↓
 3. Réponse stockée dans messages
    ↓
-4. Détection du marqueur #end_turn_step_step_1
+4. Détection du marqueur STEP_COMPLETE:step_1
    ↓
 5. Vérification : step_1 = current_step_id ?
    ↓ Oui

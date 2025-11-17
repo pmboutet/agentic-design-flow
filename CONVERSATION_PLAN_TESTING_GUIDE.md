@@ -70,12 +70,12 @@ WHERE ct.ask_session_id = '<votre_ask_session_id>';
 
 ### Test 3 : Transition d'étape avec marqueur
 
-**Objectif** : Vérifier que le système détecte le marqueur `#end_turn_step_<ID>` et met à jour le plan.
+**Objectif** : Vérifier que le système détecte le marqueur `STEP_COMPLETE:<ID>` et met à jour le plan.
 
 **Configuration** :
 - Modifier temporairement le `user_prompt` de l'agent `ask-conversation-response` pour inclure :
   ```
-  Si tu estimes que l'objectif de l'étape courante est atteint, termine ta réponse par #end_turn_step_<step_id>
+  Si tu estimes que l'objectif de l'étape courante est atteint, termine ta réponse par STEP_COMPLETE:<step_id>
   ```
 
 **Étapes** :
@@ -84,7 +84,7 @@ WHERE ct.ask_session_id = '<votre_ask_session_id>';
 3. Observer la réponse de l'IA
 
 **Résultats attendus** :
-- La réponse de l'IA contient `#end_turn_step_step_1`
+- La réponse de l'IA contient `STEP_COMPLETE:step_1`
 - Logs montrant : `🎯 Step completion detected: step_1`
 - Logs montrant : `✅ Conversation plan updated - step completed: step_1`
 - La base de données montre :
@@ -108,7 +108,7 @@ WHERE ct.ask_session_id = '<votre_ask_session_id>';
 
 **Étapes** :
 1. Utiliser le mode streaming pour poster un message
-2. L'IA répond avec un marqueur `#end_turn_step_step_X`
+2. L'IA répond avec un marqueur `STEP_COMPLETE:step_X`
 3. Observer les logs
 
 **Résultats attendus** :
@@ -231,7 +231,7 @@ Tester la génération de plan pour :
 ### Les étapes ne se mettent pas à jour
 
 **Vérifications** :
-1. Le marqueur `#end_turn_step_<ID>` est-il présent dans la réponse ?
+1. Le marqueur `STEP_COMPLETE:<ID>` est-il présent dans la réponse ?
 2. L'ID de l'étape correspond-il à `current_step_id` du plan ?
 3. Le `conversation_thread_id` est-il correct ?
 

@@ -119,12 +119,28 @@ export const PROMPT_VARIABLES: PromptVariableDefinition[] = [
   {
     key: "current_step_id",
     label: "ID de l'étape courante",
-    description: "Identifiant unique de l'étape active dans le plan (utilisé pour marquer la fin d'étape avec #end_turn_step_<ID>)",
+    description: "Identifiant unique de l'étape active dans le plan (utilisé pour marquer la fin d'étape avec STEP_COMPLETE:<ID>)",
     example: "step_1",
     type: "string",
     category: "conversation",
   },
-  
+  {
+    key: "completed_steps_summary",
+    label: "Résumés des étapes complétées",
+    description: "Liste des étapes complétées avec leurs résumés générés par IA",
+    example: "Étapes complétées (2/5) :\n\n1. ✅ Contexte (step_1)\n   Résumé: L'équipe a partagé le contexte du projet...\n\n2. ✅ Défis (step_2)\n   Résumé: 3 défis majeurs identifiés...",
+    type: "string",
+    category: "conversation",
+  },
+  {
+    key: "plan_progress",
+    label: "Progression du plan",
+    description: "Progression du plan en pourcentage et nombre d'étapes",
+    example: "Progression du plan: 2/5 étapes (40%)",
+    type: "string",
+    category: "conversation",
+  },
+
   // Participants
   {
     key: "participant_name",

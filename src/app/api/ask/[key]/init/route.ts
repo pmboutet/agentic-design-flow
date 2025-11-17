@@ -6,7 +6,7 @@ import { parseErrorMessage } from '@/lib/utils';
 import { normaliseMessageMetadata } from '@/lib/messages';
 import type { ApiResponse, Message } from '@/types';
 import { buildConversationAgentVariables } from '@/lib/ai/conversation-agent';
-import { generateConversationPlan, createConversationPlan, getConversationPlan } from '@/lib/ai/conversation-plan';
+import { generateConversationPlan, createConversationPlan, getConversationPlanWithSteps } from '@/lib/ai/conversation-plan';
 
 interface AskSessionRow {
   id: string;
@@ -263,7 +263,7 @@ export async function POST(
     let conversationPlan = null;
     if (conversationThread) {
       console.log('🎯 POST /api/ask/[key]/init: Checking for existing conversation plan');
-      conversationPlan = await getConversationPlan(supabase, conversationThread.id);
+      conversationPlan = await getConversationPlanWithSteps(supabase, conversationThread.id);
       
       if (!conversationPlan) {
         console.log('📋 POST /api/ask/[key]/init: Generating new conversation plan');
