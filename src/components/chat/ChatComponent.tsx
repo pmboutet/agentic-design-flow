@@ -6,7 +6,7 @@ import { Send, Paperclip, Mic, Image, FileText, X, Radio } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ChatComponentProps, Message, FileUpload } from "@/types";
+import { ChatComponentProps, Message, FileUpload, ConversationPlan } from "@/types";
 import {
   cn,
   validateFileType,
@@ -31,6 +31,7 @@ export function ChatComponent({
   askKey,
   ask,
   messages,
+  conversationPlan,
   onSendMessage,
   isLoading,
   onHumanTyping,
@@ -58,6 +59,11 @@ export function ChatComponent({
   const audioChunksRef = useRef<Blob[]>([]);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const previousVoiceModeRef = useRef(false);
+
+  // Check if all steps are completed
+  const allStepsCompleted = conversationPlan && conversationPlan.plan_data.steps.length > 0 
+    ? conversationPlan.plan_data.steps.every(step => step.status === 'completed')
+    : false;
 
   // Auto-scroll to bottom when new messages arrive (smooth for normal chat)
   useEffect(() => {
@@ -361,11 +367,107 @@ export function ChatComponent({
                   message={{ ...message, senderName: effectiveSenderName }}
                   showSender={showSenderName}
                   senderLabel={effectiveSenderName}
+                  conversationPlan={conversationPlan}
                 />
               );
             })}
             
           </AnimatePresence>
+          
+          {/* Interview completion celebration */}
+          {allStepsCompleted && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.8, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              transition={{ duration: 0.7, type: "spring", bounce: 0.4 }}
+              className="mx-auto my-6 max-w-md"
+            >
+              <div className="relative overflow-hidden rounded-2xl border-2 border-emerald-500/30 bg-gradient-to-br from-emerald-50 via-white to-teal-50 p-6 shadow-xl">
+                {/* Confetti animation background */}
+                <div className="absolute inset-0 opacity-20">
+                  {[...Array(15)].map((_, i) => (
+                    <motion.div
+                      key={i}
+                      className="absolute h-2 w-2 rounded-full bg-gradient-to-br from-emerald-400 to-teal-500"
+                      initial={{ 
+                        x: Math.random() * 100 + '%',
+                        y: -20,
+                        rotate: 0,
+                        scale: 0
+                      }}
+                      animate={{ 
+                        y: '120%',
+                        rotate: Math.random() * 360,
+                        scale: [0, 1, 1, 0.8]
+                      }}
+                      transition={{
+                        duration: 2 + Math.random() * 2,
+                        delay: i * 0.1,
+                        repeat: Infinity,
+                        repeatDelay: 3
+                      }}
+                    />
+                  ))}
+                </div>
+                
+                <div className="relative z-10 text-center">
+                  <motion.div
+                    animate={{ 
+                      rotate: [0, 10, -10, 10, 0],
+                      scale: [1, 1.1, 1]
+                    }}
+                    transition={{
+                      duration: 1.5,
+                      repeat: Infinity,
+                      repeatDelay: 2
+                    }}
+                    className="mb-4 text-6xl"
+                  >
+                    🎉
+                  </motion.div>
+                  
+                  <h3 className="mb-2 text-2xl font-bold text-emerald-800">
+                    Entretien terminé !
+                  </h3>
+                  
+                  <p className="mb-4 text-sm text-emerald-700">
+                    Merci pour votre participation et vos réponses détaillées.
+                    Toutes les étapes ont été complétées avec succès !
+                  </p>
+                  
+                  <motion.div
+                    animate={{
+                      boxShadow: [
+                        '0 0 0 0 rgba(16, 185, 129, 0.4)',
+                        '0 0 0 10px rgba(16, 185, 129, 0)',
+                      ]
+                    }}
+                    transition={{
+                      duration: 1.5,
+                      repeat: Infinity,
+                    }}
+                    className="inline-flex items-center gap-2 rounded-full bg-emerald-500 px-6 py-2.5 text-sm font-semibold text-white shadow-lg"
+                  >
+                    <svg 
+                      className="h-5 w-5" 
+                      fill="none" 
+                      viewBox="0 0 24 24" 
+                      stroke="currentColor"
+                    >
+                      <path 
+                        strokeLinecap="round" 
+                        strokeLinejoin="round" 
+                        strokeWidth={2.5} 
+                        d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" 
+                      />
+                    </svg>
+                    <span>Toutes les étapes complétées</span>
+                  </motion.div>
+                </div>
+              </div>
+            </motion.div>
+          )}
+          
           <div ref={messagesEndRef} />
         </div>
 
@@ -528,10 +630,12 @@ function MessageBubble({
   message,
   showSender,
   senderLabel,
+  conversationPlan,
 }: {
   message: Message;
   showSender: boolean;
   senderLabel?: string | null;
+  conversationPlan?: ConversationPlan | null;
 }) {
   const isUser = message.senderType === 'user';
   const isSystem = message.senderType === 'system';
@@ -543,6 +647,24 @@ function MessageBubble({
 
   // Check if this is an interim message (streaming update)
   const isInterim = message.metadata?.isInterim === true;
+  
+  // Detect and extract step completion marker
+  const stepCompleteMatch = message.content.match(/STEP_COMPLETE:(\w+)/);
+  const hasStepComplete = stepCompleteMatch !== null;
+  const completedStepId = stepCompleteMatch?.[1];
+
+  // Find the completed step in conversation plan
+  const completedStep = hasStepComplete && conversationPlan
+    ? conversationPlan.plan_data.steps.find(step => step.id === completedStepId)
+    : undefined;
+
+  // Find step number (1-based index)
+  const stepNumber = completedStep
+    ? conversationPlan?.plan_data.steps.findIndex(step => step.id === completedStepId)! + 1
+    : undefined;
+
+  // Remove the marker from display
+  const cleanContent = message.content.replace(/STEP_COMPLETE:\w+/g, '').trim();
   
   return (
     <motion.div
@@ -576,7 +698,7 @@ function MessageBubble({
               isUser && "[&>*]:text-white [&_p]:text-white [&_li]:text-white [&_strong]:text-white [&_em]:text-white"
             )}>
               <TypewriterText 
-                content={message.content}
+                content={cleanContent}
                 isInterim={message.metadata?.isInterim === true}
               />
             </div>
@@ -608,6 +730,74 @@ function MessageBubble({
             {new Date(message.timestamp).toLocaleTimeString()}
           </div>
         </div>
+        
+        {/* Step completion indicator */}
+        {hasStepComplete && !isUser && completedStep && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9, y: -10 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            transition={{ duration: 0.5, delay: 0.3 }}
+            className="mt-3 rounded-lg border border-emerald-500/30 bg-gradient-to-r from-emerald-50/80 to-teal-50/80 px-4 py-3 shadow-sm"
+          >
+            <div className="flex items-start gap-3">
+              <motion.div
+                initial={{ rotate: 0, scale: 0 }}
+                animate={{ rotate: 360, scale: 1 }}
+                transition={{ duration: 0.6, delay: 0.4 }}
+                className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-emerald-500/20 mt-0.5"
+              >
+                <svg
+                  className="h-4 w-4 text-emerald-600"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2.5}
+                    d="M5 13l4 4L19 7"
+                  />
+                </svg>
+              </motion.div>
+
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-sm font-semibold text-emerald-700">
+                    Étape {stepNumber} complétée ! 🎯
+                  </span>
+                </div>
+                <p className="text-sm font-medium text-emerald-800 mb-1">
+                  {completedStep.title}
+                </p>
+                <p className="text-xs text-emerald-700/80 leading-relaxed">
+                  {completedStep.objective}
+                </p>
+              </div>
+
+              <motion.div
+                animate={{
+                  scale: [1, 1.2, 1],
+                  opacity: [0.5, 1, 0.5]
+                }}
+                transition={{
+                  duration: 2,
+                  repeat: Infinity,
+                  ease: "easeInOut"
+                }}
+                className="flex gap-0.5 flex-shrink-0 mt-1"
+              >
+                {[0, 1, 2].map((i) => (
+                  <div
+                    key={i}
+                    className="h-1.5 w-1.5 rounded-full bg-emerald-500"
+                    style={{ animationDelay: `${i * 0.2}s` }}
+                  />
+                ))}
+              </motion.div>
+            </div>
+          </motion.div>
+        )}
       </div>
     </motion.div>
   );

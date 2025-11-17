@@ -324,6 +324,7 @@ export interface ChatComponentProps {
   askKey: string;
   ask: Ask | null;
   messages: Message[];
+  conversationPlan?: ConversationPlan | null;
   onSendMessage: (content: string, type?: Message['type'], metadata?: Message['metadata']) => void;
   isLoading: boolean;
   onHumanTyping?: (isTyping: boolean) => void;

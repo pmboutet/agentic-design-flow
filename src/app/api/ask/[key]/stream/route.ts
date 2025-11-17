@@ -10,7 +10,7 @@ import { getAgentConfigForAsk, DEFAULT_CHAT_AGENT_SLUG, type AgentConfigResult }
 import type { AiAgentLog, Insight } from '@/types';
 import { createServerSupabaseClient } from '@/lib/supabaseServer';
 import { buildConversationAgentVariables } from '@/lib/ai/conversation-agent';
-import { detectStepCompletion, updatePlanStep, getConversationPlan, getCurrentStep } from '@/lib/ai/conversation-plan';
+import { detectStepCompletion, completeStep, generateStepSummary, getConversationPlanWithSteps, getPlanStep, getActiveStep, getCurrentStep } from '@/lib/ai/conversation-plan';
 
 interface InsightDetectionResponse {
   success: boolean;
@@ -510,8 +510,8 @@ export async function POST(
     // Load conversation plan if thread exists
     let conversationPlan = null;
     if (conversationThread) {
-      conversationPlan = await getConversationPlan(dataClient, conversationThread.id);
-      if (conversationPlan) {
+      conversationPlan = await getConversationPlanWithSteps(dataClient, conversationThread.id);
+      if (conversationPlan && conversationPlan.plan_data) {
         console.log('📋 POST /api/ask/[key]/stream: Loaded conversation plan with', conversationPlan.plan_data.steps.length, 'steps');
       }
     }
@@ -695,6 +695,23 @@ export async function POST(
                 const lastUserMessage = (recentMessages ?? []).find(msg => msg.sender_type === 'user');
                 const parentMessageId = lastUserMessage?.id ?? null;
 
+                // Get the currently active plan step to link this message
+                let planStepId: string | null = null;
+                if (conversationThread) {
+                  try {
+                    const plan = await getConversationPlanWithSteps(dataClient, conversationThread.id);
+                    if (plan) {
+                      const activeStep = await getActiveStep(dataClient, plan.id);
+                      if (activeStep) {
+                        planStepId = activeStep.id;
+                      }
+                    }
+                  } catch (error) {
+                    console.warn('⚠️ Failed to get active step for message linking in stream:', error);
+                    // Continue without linking to step
+                  }
+                }
+
                 const { data: insertedRows, error: insertError } = await dataClient
                   .from('messages')
                   .insert({
@@ -705,6 +722,7 @@ export async function POST(
                     metadata: aiMetadata,
                     parent_message_id: parentMessageId,
                     conversation_thread_id: conversationThread?.id ?? null,
+                    plan_step_id: planStepId,
                   })
                   .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at')
                   .limit(1);
@@ -744,25 +762,52 @@ export async function POST(
                       if (completedStepId) {
                         console.log('🎯 Step completion detected in stream:', completedStepId);
                         try {
-                          const plan = await getConversationPlan(dataClient, conversationThread.id);
+                          const plan = await getConversationPlanWithSteps(dataClient, conversationThread.id);
                           if (plan) {
                             const currentStep = getCurrentStep(plan);
-                            if (currentStep && currentStep.id === completedStepId) {
-                              // TODO: In the future, generate a summary of messages for this step
-                              const stepSummary = `Étape "${currentStep.title}" complétée`;
-                              
-                              await updatePlanStep(
+
+                            // Support both normalized and legacy step structures
+                            const currentStepIdentifier = currentStep && 'step_identifier' in currentStep
+                              ? currentStep.step_identifier
+                              : currentStep?.id;
+
+                            if (currentStep && currentStepIdentifier === completedStepId) {
+                              // Get the actual step record from normalized table
+                              const stepRecord = await getPlanStep(dataClient, plan.id, completedStepId);
+
+                              // Generate AI summary for the completed step
+                              let stepSummary: string | null = null;
+                              if (stepRecord) {
+                                console.log('📝 Generating AI summary for completed step in stream...');
+                                stepSummary = await generateStepSummary(
+                                  dataClient,
+                                  stepRecord.id,
+                                  askRow.id
+                                );
+
+                                if (stepSummary) {
+                                  console.log('✅ AI summary generated in stream:', stepSummary.substring(0, 100) + '...');
+                                } else {
+                                  console.warn('⚠️ Failed to generate AI summary in stream, using fallback');
+                                  stepSummary = `Étape "${currentStep.title}" complétée`;
+                                }
+                              } else {
+                                stepSummary = `Étape "${currentStep.title}" complétée`;
+                              }
+
+                              // Complete the step with the summary
+                              await completeStep(
                                 dataClient,
                                 conversationThread.id,
                                 completedStepId,
                                 stepSummary
                               );
-                              
+
                               console.log('✅ Conversation plan updated in stream - step completed:', completedStepId);
                             } else {
                               console.warn('⚠️ Step completion marker does not match current step:', {
                                 detectedStep: completedStepId,
-                                currentStep: currentStep?.id,
+                                currentStep: currentStepIdentifier,
                               });
                             }
                           }

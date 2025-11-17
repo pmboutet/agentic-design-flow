@@ -8,7 +8,7 @@ import { ChatComponent } from "@/components/chat/ChatComponent";
 import { InsightPanel } from "@/components/insight/InsightPanel";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { SessionData, Ask, Message, Insight, Challenge, ApiResponse } from "@/types";
+import { SessionData, Ask, Message, Insight, Challenge, ApiResponse, ConversationPlan } from "@/types";
 import { ConversationProgressBar } from "@/components/conversation/ConversationProgressBar";
 import {
   validateAskKey,
@@ -308,6 +308,7 @@ function MobileLayout({
                   askKey={sessionDataAskKey}
                   ask={sessionData.ask}
                   messages={sessionData.messages}
+                  conversationPlan={sessionData.conversationPlan}
                   onSendMessage={onSendMessage}
                   isLoading={sessionData.isLoading}
                   currentParticipantName={currentParticipantName}
@@ -893,6 +894,7 @@ export default function HomePage() {
         messages: Message[];
         insights?: Insight[];
         challenges?: any[];
+        conversationPlan?: ConversationPlan | null;
       }> = await response.json();
 
       if (!data.success) {
@@ -1025,7 +1027,27 @@ export default function HomePage() {
     type: Message['type'] = 'text',
     metadata?: Message['metadata']
   ) => {
-    if (!sessionData.askKey) return;
+    console.log('[handleSendMessage] 🚀 Attempting to send message:', {
+      hasAskKey: !!sessionData.askKey,
+      awaitingAiResponse,
+      isDetectingInsights,
+      isLoading: sessionData.isLoading
+    });
+    
+    if (!sessionData.askKey) {
+      console.log('[handleSendMessage] ❌ No askKey, aborting');
+      return;
+    }
+    
+    if (awaitingAiResponse) {
+      console.log('[handleSendMessage] ⏸️ Already awaiting AI response, aborting');
+      return;
+    }
+    
+    if (sessionData.isLoading) {
+      console.log('[handleSendMessage] ⏸️ Already loading, aborting');
+      return;
+    }
 
     const timestamp = new Date().toISOString();
     const optimisticId = `temp-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
@@ -1111,8 +1133,10 @@ export default function HomePage() {
         return;
       }
 
+      console.log('[handleSendMessage] 🎬 Starting streaming response...');
       setAwaitingAiResponse(true);
       const insightsCapturedDuringStream = await handleStreamingResponse(content);
+      console.log('[handleSendMessage] ✅ Streaming complete, insights captured:', insightsCapturedDuringStream);
       
       // Programmer la détection d'insights seulement si aucune donnée n'a été envoyée pendant le streaming
       if (!insightsCapturedDuringStream) {
@@ -1746,6 +1770,7 @@ export default function HomePage() {
                     insights,
                   }));
                 } else if (parsed.type === 'done') {
+                  console.log('[handleStreamingResponse] ✅ Stream done, setting awaitingAiResponse to false');
                   setAwaitingAiResponse(false);
                   // Recharger les messages pour afficher le message persisté
                   if (sessionData.inviteToken) {
@@ -1984,138 +2009,6 @@ export default function HomePage() {
               <UserProfileMenu />
             </div>
           </div>
-          {askDetails && !isMobile && (
-            <motion.div
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ 
-                opacity: 1, 
-                y: 0
-              }}
-              className="w-full rounded-xl border border-white/50 bg-white/80 backdrop-blur px-4 shadow-sm transition-all duration-300"
-              style={{ 
-                paddingTop: (isReplyBoxFocused || isVoiceModeActive) ? "0.75rem" : "1rem",
-                paddingBottom: (isReplyBoxFocused || isVoiceModeActive) ? "0.75rem" : "1rem"
-              }}
-            >
-              <div className="flex flex-col" style={{ gap: (isReplyBoxFocused || isVoiceModeActive) ? "0.5rem" : "0.75rem" }}>
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                  <div className="space-y-1 sm:pr-4">
-                    <h3 className="font-semibold tracking-tight text-xs sm:text-sm leading-snug text-foreground">
-                      {askDetails.question}
-                    </h3>
-                    {askDetails.description && !isDetailsCollapsed && !isReplyBoxFocused && !isVoiceModeActive && (
-                      <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed">
-                        {askDetails.description}
-                      </p>
-                    )}
-                  </div>
-                  {!isReplyBoxFocused && !isVoiceModeActive && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setIsDetailsCollapsed(prev => !prev)}
-                      className="inline-flex items-center gap-1.5 whitespace-nowrap self-start sm:self-start"
-                      aria-expanded={!isDetailsCollapsed}
-                    >
-                      {isDetailsCollapsed ? (
-                        <>
-                          <ChevronDown className="h-4 w-4" />
-                          Infos
-                        </>
-                      ) : (
-                        <>
-                          <ChevronUp className="h-4 w-4" />
-                          Masquer
-                        </>
-                      )}
-                    </Button>
-                  )}
-                </div>
-
-                <AnimatePresence initial={false}>
-                  {!isDetailsCollapsed && !isReplyBoxFocused && !isVoiceModeActive && (
-                    <motion.div
-                      key="ask-details"
-                      initial={{ height: 0, opacity: 0 }}
-                      animate={{ height: "auto", opacity: 1 }}
-                      exit={{ height: 0, opacity: 0 }}
-                      className="mt-3 overflow-hidden"
-                    >
-                      <div className="grid gap-3 sm:gap-4 text-sm text-muted-foreground sm:grid-cols-3">
-                        <div className="space-y-1.5">
-                          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground/80">Session</p>
-                          <div className="flex flex-wrap items-center gap-2">
-                            {sessionData.askKey && (
-                              <span className="inline-flex items-center rounded-full bg-white/80 px-3 py-1 text-xs font-medium text-foreground shadow-sm">
-                                Session:
-                                <span className="font-mono text-foreground ml-1">{sessionData.askKey}</span>
-                              </span>
-                            )}
-                            {sessionData.ask && (
-                              <span className={sessionData.ask.isActive ? 'session-active' : 'session-closed'}>
-                                {sessionData.ask.isActive ? 'Active' : 'Closed'}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="space-y-1.5">
-                          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground/80">Statut</p>
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="inline-flex items-center rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
-                              {statusLabel}
-                            </span>
-                            {timelineLabel && <span>{timelineLabel}</span>}
-                            {timeRemaining && (
-                              <span className="inline-flex items-center gap-1 text-primary">
-                                <Clock className="h-3.5 w-3.5" />
-                                <span>{timeRemaining}</span>
-                              </span>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="space-y-1.5">
-                          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground/80">Cadre</p>
-                          <div className="space-y-1 text-foreground">
-                            <p className="font-medium">
-                              {getDeliveryModeLabel(askDetails.deliveryMode)}
-                            </p>
-                            <p className="text-muted-foreground">
-                              {getAudienceDescription(askDetails.audienceScope, askDetails.responseMode)}
-                            </p>
-                          </div>
-                        </div>
-
-                        <div className="space-y-1.5">
-                          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground/80">
-                            Participants ({participants.length})
-                          </p>
-                          <div className="flex flex-wrap gap-2">
-                            {participants.length > 0 ? (
-                              participants.map(participant => (
-                                <span
-                                  key={participant.id}
-                                  className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-3 py-1 text-xs text-primary"
-                                >
-                                  <span className="font-medium text-primary/90">{participant.name}</span>
-                                  {participant.isSpokesperson && (
-                                    <span className="text-[10px] uppercase tracking-wide text-primary/70">porte-parole</span>
-                                  )}
-                                </span>
-                              ))
-                            ) : (
-                              <span className="text-muted-foreground">Aucun participant pour le moment</span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
-            </motion.div>
-          )}
         </div>
       </motion.header>
 
@@ -2169,6 +2062,7 @@ export default function HomePage() {
                   askKey={sessionData.askKey}
                   ask={sessionData.ask}
                   messages={sessionData.messages}
+                  conversationPlan={sessionData.conversationPlan}
                   onSendMessage={handleSendMessage}
                   isLoading={sessionData.isLoading}
                   currentParticipantName={currentParticipantName}
@@ -2210,12 +2104,146 @@ export default function HomePage() {
             transition={{ duration: 0.6, delay: 0.2 }}
             className="flex-1"
           >
-            <div className="h-full flex flex-col overflow-hidden">
-              <InsightPanel
-                insights={sessionData.insights}
-                askKey={sessionData.askKey}
-                isDetectingInsights={isDetectingInsights}
-              />
+            <div className="h-full flex flex-col overflow-hidden gap-4">
+              {/* Ask Details Card */}
+              {askDetails && (
+                <motion.div
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ 
+                    opacity: 1, 
+                    y: 0
+                  }}
+                  className="rounded-xl border border-white/50 bg-white/80 backdrop-blur px-4 shadow-sm transition-all duration-300"
+                  style={{ 
+                    paddingTop: "0.75rem",
+                    paddingBottom: "0.75rem"
+                  }}
+                >
+                  <div className="flex flex-col gap-3">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="space-y-1 sm:pr-4">
+                        <h3 className="font-semibold tracking-tight text-xs sm:text-sm leading-snug text-foreground">
+                          {askDetails.question}
+                        </h3>
+                        {askDetails.description && !isDetailsCollapsed && (
+                          <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed">
+                            {askDetails.description}
+                          </p>
+                        )}
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setIsDetailsCollapsed(prev => !prev)}
+                        className="inline-flex items-center gap-1.5 whitespace-nowrap self-start sm:self-start"
+                        aria-expanded={!isDetailsCollapsed}
+                      >
+                        {isDetailsCollapsed ? (
+                          <>
+                            <ChevronDown className="h-4 w-4" />
+                            Infos
+                          </>
+                        ) : (
+                          <>
+                            <ChevronUp className="h-4 w-4" />
+                            Masquer
+                          </>
+                        )}
+                      </Button>
+                    </div>
+
+                    <AnimatePresence initial={false}>
+                      {!isDetailsCollapsed && (
+                        <motion.div
+                          key="ask-details"
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: "auto", opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          className="overflow-hidden"
+                        >
+                          <div className="grid gap-2 text-xs text-muted-foreground sm:grid-cols-3">
+                            <div className="space-y-1">
+                              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/80">Session</p>
+                              <div className="flex flex-wrap items-center gap-1">
+                                {sessionData.askKey && (
+                                  <span className="inline-flex items-center rounded-full bg-white/80 px-2 py-0.5 text-[10px] font-medium text-foreground shadow-sm">
+                                    Session:
+                                    <span className="font-mono text-foreground ml-1">{sessionData.askKey}</span>
+                                  </span>
+                                )}
+                                {sessionData.ask && (
+                                  <span className={sessionData.ask.isActive ? 'session-active' : 'session-closed'}>
+                                    {sessionData.ask.isActive ? 'Active' : 'Closed'}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+
+                            <div className="space-y-1">
+                              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/80">Statut</p>
+                              <div className="flex flex-wrap items-center gap-1">
+                                <span className="inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
+                                  {statusLabel}
+                                </span>
+                                {timeRemaining && (
+                                  <span className="inline-flex items-center gap-1 text-primary text-[10px]">
+                                    <Clock className="h-3 w-3" />
+                                    <span>{timeRemaining}</span>
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+
+                            <div className="space-y-1">
+                              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/80">Cadre</p>
+                              <div className="space-y-0.5 text-foreground">
+                                <p className="font-medium text-[10px]">
+                                  {getDeliveryModeLabel(askDetails.deliveryMode)}
+                                </p>
+                                <p className="text-muted-foreground text-[10px]">
+                                  {getAudienceDescription(askDetails.audienceScope, askDetails.responseMode)}
+                                </p>
+                              </div>
+                            </div>
+
+                            <div className="space-y-1 sm:col-span-3">
+                              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/80">
+                                Participants ({participants.length})
+                              </p>
+                              <div className="flex flex-wrap gap-1">
+                                {participants.length > 0 ? (
+                                  participants.map(participant => (
+                                    <span
+                                      key={participant.id}
+                                      className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] text-primary"
+                                    >
+                                      <span className="font-medium text-primary/90">{participant.name}</span>
+                                      {participant.isSpokesperson && (
+                                        <span className="text-[9px] uppercase tracking-wide text-primary/70">porte-parole</span>
+                                      )}
+                                    </span>
+                                  ))
+                                ) : (
+                                  <span className="text-muted-foreground text-[10px]">Aucun participant pour le moment</span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                </motion.div>
+              )}
+
+              {/* Insights Panel - with reduced height */}
+              <div className="flex-1 min-h-0 overflow-hidden">
+                <InsightPanel
+                  insights={sessionData.insights}
+                  askKey={sessionData.askKey}
+                  isDetectingInsights={isDetectingInsights}
+                />
+              </div>
             </div>
           </motion.div>
         </main>

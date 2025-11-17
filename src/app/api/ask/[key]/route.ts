@@ -550,7 +550,7 @@ export async function GET(
     let conversationPlan: ConversationPlan | null = null;
     if (conversationThread) {
       conversationPlan = await getConversationPlan(dataClient, conversationThread.id);
-      if (conversationPlan) {
+      if (conversationPlan && conversationPlan.plan_data) {
         console.log('📋 GET /api/ask/[key]: Loaded existing conversation plan with', conversationPlan.plan_data.steps.length, 'steps');
       }
     }
@@ -618,8 +618,10 @@ export async function GET(
               planGenerationVariables
             );
 
+            // Use admin client for creating plan steps (bypass RLS)
+            const adminForPlan = await getAdminClient();
             conversationPlan = await createConversationPlan(
-              dataClient,
+              adminForPlan,
               conversationThread.id,
               planData
             );

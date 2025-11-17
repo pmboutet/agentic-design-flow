@@ -9,7 +9,7 @@ import { normaliseMessageMetadata } from '@/lib/messages';
 import { executeAgent, fetchAgentBySlug, type AgentExecutionResult } from '@/lib/ai';
 import { INSIGHT_TYPES, mapInsightRowToInsight, type InsightRow } from '@/lib/insights';
 import { fetchInsightRowById, fetchInsightsForSession, fetchInsightTypeMap, fetchInsightTypesForPrompt } from '@/lib/insightQueries';
-import { detectStepCompletion, updatePlanStep, getConversationPlan, getCurrentStep } from '@/lib/ai/conversation-plan';
+import { detectStepCompletion, completeStep, generateStepSummary, getConversationPlanWithSteps, getPlanStep, getActiveStep, getCurrentStep } from '@/lib/ai/conversation-plan';
 import { buildConversationAgentVariables } from '@/lib/ai/conversation-agent';
 
 const CHAT_AGENT_SLUG = 'ask-conversation-response';
@@ -1832,8 +1832,8 @@ export async function POST(
     // Load conversation plan if thread exists
     let conversationPlan = null;
     if (conversationThread) {
-      conversationPlan = await getConversationPlan(supabase, conversationThread.id);
-      if (conversationPlan) {
+      conversationPlan = await getConversationPlanWithSteps(supabase, conversationThread.id);
+      if (conversationPlan && conversationPlan.plan_data) {
         console.log('📋 POST /api/ask/[key]/respond: Loaded conversation plan with', conversationPlan.plan_data.steps.length, 'steps');
       }
     }
@@ -1972,6 +1972,23 @@ export async function POST(
         const lastUserMessage = [...messages].reverse().find(msg => msg.senderType === 'user');
         const parentMessageId = lastUserMessage?.id ?? null;
 
+        // Get the currently active plan step to link this message
+        let planStepId: string | null = null;
+        if (conversationThread) {
+          try {
+            const plan = await getConversationPlanWithSteps(supabase, conversationThread.id);
+            if (plan) {
+              const activeStep = await getActiveStep(supabase, plan.id);
+              if (activeStep) {
+                planStepId = activeStep.id;
+              }
+            }
+          } catch (error) {
+            console.warn('⚠️ Failed to get active step for message linking:', error);
+            // Continue without linking to step
+          }
+        }
+
         const { data: insertedRows, error: insertError } = await supabase
           .from('messages')
           .insert({
@@ -1982,6 +1999,7 @@ export async function POST(
             metadata: aiMetadata,
             parent_message_id: parentMessageId,
             conversation_thread_id: conversationThread?.id ?? null,
+            plan_step_id: planStepId,
           })
           .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at')
           .limit(1);
@@ -2018,25 +2036,52 @@ export async function POST(
           if (completedStepId) {
             console.log('🎯 Step completion detected:', completedStepId);
             try {
-              const plan = await getConversationPlan(supabase, conversationThread.id);
+              const plan = await getConversationPlanWithSteps(supabase, conversationThread.id);
               if (plan) {
                 const currentStep = getCurrentStep(plan);
-                if (currentStep && currentStep.id === completedStepId) {
-                  // TODO: In the future, generate a summary of messages for this step
-                  const stepSummary = `Étape "${currentStep.title}" complétée`;
-                  
-                  await updatePlanStep(
+
+                // Support both normalized and legacy step structures
+                const currentStepIdentifier = currentStep && 'step_identifier' in currentStep
+                  ? currentStep.step_identifier
+                  : currentStep?.id;
+
+                if (currentStep && currentStepIdentifier === completedStepId) {
+                  // Get the actual step record from normalized table
+                  const stepRecord = await getPlanStep(supabase, plan.id, completedStepId);
+
+                  // Generate AI summary for the completed step
+                  let stepSummary: string | null = null;
+                  if (stepRecord) {
+                    console.log('📝 Generating AI summary for completed step...');
+                    stepSummary = await generateStepSummary(
+                      supabase,
+                      stepRecord.id,
+                      askRow.id
+                    );
+
+                    if (stepSummary) {
+                      console.log('✅ AI summary generated:', stepSummary.substring(0, 100) + '...');
+                    } else {
+                      console.warn('⚠️ Failed to generate AI summary, using fallback');
+                      stepSummary = `Étape "${currentStep.title}" complétée`;
+                    }
+                  } else {
+                    stepSummary = `Étape "${currentStep.title}" complétée`;
+                  }
+
+                  // Complete the step with the summary
+                  await completeStep(
                     supabase,
                     conversationThread.id,
                     completedStepId,
                     stepSummary
                   );
-                  
+
                   console.log('✅ Conversation plan updated - step completed:', completedStepId);
                 } else {
                   console.warn('⚠️ Step completion marker does not match current step:', {
                     detectedStep: completedStepId,
-                    currentStep: currentStep?.id,
+                    currentStep: currentStepIdentifier,
                   });
                 }
               }
