@@ -795,9 +795,10 @@ export async function POST(
                                 stepSummary = `Étape "${currentStep.title}" complétée`;
                               }
 
-                              // Complete the step with the summary
+                              // Complete the step with the summary (use admin client for RLS bypass)
+                              const adminForStepUpdate = await getAdminClient();
                               await completeStep(
-                                dataClient,
+                                adminForStepUpdate,
                                 conversationThread.id,
                                 completedStepId,
                                 stepSummary

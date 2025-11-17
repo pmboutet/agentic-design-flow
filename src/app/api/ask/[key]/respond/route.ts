@@ -2069,9 +2069,10 @@ export async function POST(
                     stepSummary = `Étape "${currentStep.title}" complétée`;
                   }
 
-                  // Complete the step with the summary
+                  // Complete the step with the summary (use admin client for RLS bypass)
+                  const adminSupabase = getAdminSupabaseClient();
                   await completeStep(
-                    supabase,
+                    adminSupabase,
                     conversationThread.id,
                     completedStepId,
                     stepSummary
