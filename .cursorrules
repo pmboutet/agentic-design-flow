@@ -1,0 +1,334 @@
+# Agentic Design Flow - Cursor Rules
+
+## Project Overview
+
+This is a Next.js latest TypeScript project for collective idea emergence and specification with AI-driven chat and challenge management. The system uses Supabase for database and authentication, multiple AI providers (Anthropic, OpenAI), and supports voice interactions via Deepgram/Speechmatics/ElevenLabs.
+
+## Architecture & Tech Stack
+
+### Core Technologies
+- **Framework**: Next.js latest (App Router)
+- **Language**: TypeScript (strict mode)
+- **Database**: Supabase (PostgreSQL with RLS)
+- **Authentication**: Supabase Auth with OAuth support
+- **AI Providers**: Anthropic Claude, OpenAI, Mistral
+- **Voice**: Deepgram, Speechmatics, ElevenLabs
+- **UI**: React 18, Tailwind CSS, Radix UI, React Aria Components
+- **Forms**: React Hook Form with Zod validation
+- **Templating**: Handlebars for prompt variable substitution
+
+### Key Directories
+- `src/app/` - Next.js App Router pages and API routes
+- `src/components/` - React components (ui/, admin/, chat/, etc.)
+- `src/lib/` - Core utilities and business logic
+- `src/types/` - TypeScript type definitions
+- `migrations/` - SQL migration files (sequential numbering)
+- `scripts/` - Node.js utility scripts
+- `docs/` - Project documentation
+
+## Code Style & Best Practices
+
+### TypeScript
+- Always use TypeScript strict mode
+- Prefer interfaces over types for object shapes
+- Use `type` for unions, intersections, and primitives
+- Export types/interfaces explicitly
+- Use path aliases (`@/lib`, `@/components`, etc.) instead of relative imports
+- Avoid `any` - use `unknown` and type guards instead
+- Use Zod schemas for runtime validation
+
+### React Components
+- Use functional components with hooks
+- Prefer named exports for components
+- Use `React.FC` sparingly (prefer explicit return types)
+- Keep components small and focused (single responsibility)
+- Extract complex logic into custom hooks
+- Use `useMemo` and `useCallback` appropriately (don't over-optimize)
+- Prefer composition over prop drilling
+
+### API Routes (Next.js App Router)
+- Use `NextRequest` and `NextResponse` from `next/server`
+- Handle async `params` properly: `const resolvedParams = await params`
+- Always validate input with Zod schemas
+- Return consistent `ApiResponse<T>` format: `{ success: boolean, data?: T, error?: string }`
+- Use proper HTTP status codes (400 for validation, 403 for auth, 500 for server errors)
+- Log errors but don't expose sensitive details to clients
+- Use `getAdminSupabaseClient()` for admin operations, `createServerSupabaseClient()` for user operations
+
+### Database & Supabase
+- **Always use RLS (Row Level Security)** - never bypass unless absolutely necessary
+- Use `getAdminSupabaseClient()` only for admin operations
+- Use `createServerSupabaseClient()` for user-scoped operations
+- Never expose service role key to client-side code
+- Use transactions for multi-step operations
+- Always handle database errors gracefully
+- Use migrations for schema changes (never modify existing migrations)
+- Migration files: `NNN_description.sql` (sequential numbering)
+
+### AI Agents & Prompts
+- Agent configuration stored in `ai_agents` table
+- Use Handlebars templates for prompt variables: `{{variable_name}}`
+- Always validate agent responses with Zod schemas
+- Log all AI interactions in `ai_agent_logs` table
+- Use `executeAgent()` from `src/lib/ai/service.ts` for agent execution
+- Support fallback models for reliability
+- Handle rate limits and retries gracefully
+
+### Error Handling
+- Use `parseErrorMessage()` utility for consistent error messages
+- Log errors with context (user ID, request ID, etc.)
+- Never expose stack traces to clients in production
+- Use try-catch blocks for async operations
+- Return user-friendly error messages
+
+### Security
+- **Never commit secrets** - use environment variables
+- Validate all user input (Zod schemas)
+- Use RLS policies for database access control
+- Sanitize user-generated content before storing
+- Use HTTPS in production
+- Validate file uploads (type, size, content)
+- Rate limit API endpoints where appropriate
+
+### Environment Variables
+- Use `.env.local` for local development (gitignored)
+- Prefix public vars with `NEXT_PUBLIC_`
+- Document required vars in README
+- Never expose service role keys or JWT secrets
+- Use Vercel environment variables for production
+
+## File Naming Conventions
+
+### Components
+- PascalCase: `ChatComponent.tsx`, `AdminDashboard.tsx`
+- Co-locate related files: `Component.tsx`, `Component.test.tsx`, `Component.stories.tsx`
+
+### Utilities & Libs
+- camelCase: `agent-config.ts`, `supabaseAdmin.ts`
+- Group related utilities in directories: `lib/ai/`, `lib/auth/`
+
+### API Routes
+- Follow Next.js App Router conventions: `route.ts` for handlers
+- Use dynamic segments: `[id]/route.ts`, `[key]/respond/route.ts`
+
+### Migrations
+- Sequential numbering: `001_initial_schema.sql`, `062_add_ai_challenge_builder_results.sql`
+- Descriptive names in snake_case
+- Include `BEGIN;` and `COMMIT;` for transactions
+- Add `-- //@UNDO` section for rollback support
+
+## Important Patterns
+
+### Supabase Client Usage
+```typescript
+// Admin operations (bypasses RLS)
+import { getAdminSupabaseClient } from '@/lib/supabaseAdmin';
+const supabase = getAdminSupabaseClient();
+
+// User operations (respects RLS)
+import { createServerSupabaseClient } from '@/lib/supabaseServer';
+const supabase = await createServerSupabaseClient();
+```
+
+### API Route Pattern
+```typescript
+import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
+import { createServerSupabaseClient } from '@/lib/supabaseServer';
+import { parseErrorMessage } from '@/lib/utils';
+import { type ApiResponse } from '@/types';
+
+const requestSchema = z.object({ /* ... */ });
+
+export async function POST(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const resolvedParams = await params;
+    const body = requestSchema.parse(await request.json());
+    const supabase = await createServerSupabaseClient();
+    
+    // ... business logic ...
+    
+    return NextResponse.json<ApiResponse<Data>>({
+      success: true,
+      data: result,
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return NextResponse.json<ApiResponse>({
+        success: false,
+        error: error.errors[0]?.message || 'Invalid request',
+      }, { status: 400 });
+    }
+    
+    return NextResponse.json<ApiResponse>({
+      success: false,
+      error: parseErrorMessage(error),
+    }, { status: 500 });
+  }
+}
+```
+
+### Agent Execution Pattern
+```typescript
+import { executeAgent } from '@/lib/ai/service';
+import { getAgentConfigForAsk } from '@/lib/ai/agent-config';
+
+const result = await executeAgent({
+  agentSlug: 'ask-conversation-response',
+  variables: {
+    ask_question: '...',
+    conversation_history: '...',
+  },
+  modelConfig: { /* ... */ },
+});
+```
+
+### Database Migration Pattern
+```sql
+BEGIN;
+
+-- Migration description
+ALTER TABLE public.table_name
+  ADD COLUMN IF NOT EXISTS new_column TYPE;
+
+-- Add indexes
+CREATE INDEX IF NOT EXISTS idx_name ON public.table_name (column);
+
+-- Add comments
+COMMENT ON COLUMN public.table_name.new_column IS 'Description';
+
+COMMIT;
+
+-- //@UNDO
+BEGIN;
+ALTER TABLE public.table_name DROP COLUMN IF EXISTS new_column;
+DROP INDEX IF EXISTS idx_name;
+COMMIT;
+```
+
+## Common Pitfalls to Avoid
+
+1. **Don't bypass RLS** - Always use appropriate Supabase client
+2. **Don't modify existing migrations** - Create new ones instead
+3. **Don't expose service role keys** - Never in client-side code
+4. **Don't use `any` type** - Use proper TypeScript types
+5. **Don't forget error handling** - Always wrap async operations
+6. **Don't skip input validation** - Always validate with Zod
+7. **Don't commit secrets** - Use environment variables
+8. **Don't ignore RLS policies** - Test with proper user context
+9. **Don't hardcode prompts** - Use agent configuration system
+10. **Don't skip logging** - Log AI interactions for debugging
+
+## Testing Guidelines
+
+- Test API routes with proper authentication
+- Test RLS policies with different user roles
+- Test error cases (invalid input, missing data, etc.)
+- Test migrations before applying to production
+- Use `npm run migrate:status` to check migration state
+- Test agent responses with various inputs
+
+## Documentation
+
+- Keep `docs/` directory up to date
+- Document API endpoints with examples
+- Document database schema changes in migrations
+- Update README when adding new features
+- Document environment variables required
+
+## Git Workflow
+
+- Use descriptive commit messages
+- Create feature branches for new work
+- Test migrations locally before committing
+- Never force push to main branch
+- Review database migrations carefully
+
+## Performance Considerations
+
+- Use database indexes for frequently queried columns
+- Implement pagination for large datasets
+- Cache expensive operations when appropriate
+- Use `useMemo`/`useCallback` for expensive computations
+- Optimize images and assets
+- Monitor API response times
+
+## Accessibility
+
+- Use semantic HTML elements
+- Provide ARIA labels where needed
+- Ensure keyboard navigation works
+- Test with screen readers
+- Use React Aria Components for complex UI
+
+## Voice Integration Notes
+
+- Deepgram: Real-time transcription, WebSocket-based
+- Speechmatics: Real-time transcription with deduplication
+- ElevenLabs: Text-to-speech synthesis
+- Always handle connection errors gracefully
+- Implement reconnection logic for WebSocket connections
+- Handle audio chunk deduplication for Speechmatics
+
+## AI Agent Configuration
+
+- Agents stored in `ai_agents` table
+- Prompts support Handlebars template variables
+- Variable substitution via `renderTemplate()` function
+- Model configuration in `ai_model_configs` table
+- Logging in `ai_agent_logs` for debugging
+- Support for fallback models
+
+## Migration Management
+
+- Use `npm run migrate` to apply migrations
+- Use `npm run migrate:status` to check status
+- Never modify applied migrations
+- Test migrations locally first
+- Migrations run automatically on main branch via GitHub Actions
+
+## Important Notes
+
+- **RLS is critical** - Always test with proper user context
+- **GRANTT** - Grant is also critical
+- **Service role key** - Only use server-side, never expose
+- **Migrations are immutable** - Create new ones, don't edit old
+- **Agent prompts** - Use Handlebars templates, not string concatenation
+- **Error messages** - User-friendly, no stack traces in production
+- **Type safety** - Prefer TypeScript types over runtime checks
+- **Database transactions** - Use for multi-step operations
+- **API consistency** - Always return `ApiResponse<T>` format
+
+
+# === VIBE CODING RULES — Prompt Engineering & Handlebar Templates ===
+
+## General Rules
+- Never delete, rewrite, or reformat any existing prompt unless explicitly asked.
+- Never simplify, rephrase, or "improve" a prompt autonomously.
+- Always preserve the exact structure, indentation, and formatting of prompts.
+
+## Handlebars Rules
+- Always embed variables directly with Handlebars syntax: {{variable}}.
+- Never escape Handlebars syntax (no backslashes, no HTML escaping).
+- Never transform Handlebars blocks: keep {{#each items}} and {{/each}} exactly intact.
+- Never convert Handlebars templates to string concatenations.
+
+## JSON / External Variable Passing
+- Never create additional JSON fields like "variables", "input", "context" unless explicitly instructed.
+- All variables must be fused directly inside the systemPrompt or userPrompt using Handlebars.
+
+## Agent Configuration Rules
+- Never modify agent identity, mission, tone, or structure unless the user asks.
+- Never remove rule sections such as IDENTITY, MISSION, ABSOLUTE RULES.
+- Always treat prompts as immutable definitions unless asked otherwise.
+- When editing agent prompts, only change the sections explicitly mentioned by the user.
+
+## Safety & Structural Consistency
+- Never infer missing variables or invent placeholders.
+- Never reorder sections inside a prompt specification.
+- Maintain the format and headings of agent templates exactly.
+
+
