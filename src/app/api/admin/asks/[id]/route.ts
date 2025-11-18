@@ -27,7 +27,7 @@ const updateSchema = z.object({
   responseMode: z.enum(responseModes).optional(),
   participantIds: z.array(z.string().uuid()).optional(),
   spokespersonId: z.string().uuid().optional().or(z.literal("")),
-  systemPrompt: z.string().trim().optional().or(z.literal(""))
+  systemPrompt: z.union([z.string().trim(), z.literal(""), z.null()]).optional()
 });
 
 /**

@@ -432,6 +432,13 @@ export interface ProjectRecord {
   updatedAt: string;
   systemPrompt?: string | null;
   graphRagScope?: "project" | "client";
+  aiChallengeBuilderResults?: {
+    suggestions: AiChallengeUpdateSuggestion[];
+    newChallenges: AiNewChallengeSuggestion[];
+    errors: Array<{ challengeId: string | null; message: string }> | null;
+    lastRunAt: string;
+    projectId: string;
+  } | null;
 }
 
 export interface ChallengeRecord {

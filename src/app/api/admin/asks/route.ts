@@ -35,7 +35,7 @@ const askSchema = z.object({
   participantEmails: z.array(z.string().email()).default([]),
   spokespersonId: z.string().uuid().optional().or(z.literal("")),
   spokespersonEmail: z.string().email().optional().or(z.literal("")),
-  systemPrompt: z.string().trim().optional().or(z.literal(""))
+  systemPrompt: z.union([z.string().trim(), z.literal(""), z.null()]).optional()
 });
 
 function mapAsk(row: any): AskSessionRecord {
@@ -261,12 +261,30 @@ export async function POST(request: NextRequest) {
     }, { status: 201 });
   } catch (error) {
     let status = 500;
-    if (error instanceof z.ZodError) status = 400;
-    else if (error instanceof Error && error.message.includes('required')) status = 403;
+    let errorMessage = "An unexpected error occurred";
+    
+    if (error instanceof z.ZodError) {
+      status = 400;
+      // Provide detailed validation error messages
+      const errors = error.errors.map(err => {
+        const path = err.path.join('.');
+        return path ? `${path}: ${err.message}` : err.message;
+      });
+      errorMessage = errors.length > 0 
+        ? `Validation error: ${errors.join('; ')}`
+        : "Invalid input";
+      console.error('❌ ASK creation validation error:', error.errors);
+    } else if (error instanceof Error && error.message.includes('required')) {
+      status = 403;
+      errorMessage = parseErrorMessage(error);
+    } else {
+      errorMessage = parseErrorMessage(error);
+      console.error('❌ ASK creation error:', error);
+    }
     
     return NextResponse.json<ApiResponse>({
       success: false,
-      error: error instanceof z.ZodError ? error.errors[0]?.message || "Invalid payload" : parseErrorMessage(error)
+      error: errorMessage
     }, { status });
   }
 }

@@ -873,7 +873,9 @@ function mapDetailedUpdate(
         description: updates.description ?? null,
         status: normaliseStatus(updates.status),
         impact: normaliseImpact(updates.impact),
-        owners: normaliseOwnerSuggestions(updates.owners ?? undefined) ?? undefined,
+        owners: updates.owners === null || updates.owners === undefined 
+          ? undefined 
+          : normaliseOwnerSuggestions(updates.owners) ?? undefined,
       }
     : null;
 
@@ -920,7 +922,9 @@ function mapDetailedUpdate(
           description: item.description ?? null,
           status: normaliseStatus(item.status),
           impact: normaliseImpact(item.impact),
-          owners: normaliseOwnerSuggestions(item.owners ?? undefined),
+          owners: item.owners === null || item.owners === undefined 
+            ? undefined 
+            : normaliseOwnerSuggestions(item.owners) ?? undefined,
           summary: item.summary ?? null,
         }))
       : undefined,
@@ -943,7 +947,9 @@ function mapDetailedCreation(
     description: item.description ?? null,
     status: normaliseStatus(item.status),
     impact: normaliseImpact(item.impact) ?? planItem.estimatedImpact,
-    owners: normaliseOwnerSuggestions(item.owners ?? undefined),
+    owners: item.owners === null || item.owners === undefined 
+      ? undefined 
+      : normaliseOwnerSuggestions(item.owners) ?? undefined,
     summary: item.summary ?? creationData.summary ?? planItem.reason,
     foundationInsights: item.foundationInsights?.map(insight => ({
       insightId: insight.insightId,
@@ -1248,6 +1254,46 @@ export async function POST(
       newChallengeSuggestions,
       errors: errors.length ? errors : undefined,
     };
+
+    // Save results to database for persistence
+    try {
+      // Normalize data: convert null owners to undefined to match schema
+      const normalizedSuggestions = challengeSuggestions.map(suggestion => {
+        if (suggestion.updates && suggestion.updates.owners === null) {
+          return {
+            ...suggestion,
+            updates: {
+              ...suggestion.updates,
+              owners: undefined,
+            },
+          };
+        }
+        return suggestion;
+      });
+
+      const persistedResults = {
+        suggestions: normalizedSuggestions,
+        newChallenges: newChallengeSuggestions,
+        errors: errors.length ? errors : null,
+      };
+
+      const { error: saveError } = await supabase
+        .from("projects")
+        .update({ ai_challenge_builder_results: {
+          ...persistedResults,
+          lastRunAt: new Date().toISOString(),
+          projectId,
+        } })
+        .eq("id", projectId);
+
+      if (saveError) {
+        console.error("Failed to persist challenge builder results:", saveError);
+        // Don't fail the request if persistence fails, just log it
+      }
+    } catch (persistError) {
+      console.error("Error persisting challenge builder results:", persistError);
+      // Don't fail the request if persistence fails
+    }
 
     return NextResponse.json<ApiResponse<AiChallengeBuilderResponse>>({
       success: true,

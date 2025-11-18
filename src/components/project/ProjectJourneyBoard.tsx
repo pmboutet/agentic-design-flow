@@ -49,7 +49,7 @@ import {
   type ProjectParticipantInsight,
   type ProjectParticipantSummary,
 } from "@/types";
-import { AiChallengeBuilderPanel } from "@/components/project/AiChallengeBuilderPanel";
+import { AiChallengeBuilderModal } from "@/components/project/AiChallengeBuilderModal";
 import { AiAskGeneratorPanel } from "@/components/project/AiAskGeneratorPanel";
 import { AskPromptTemplateSelector } from "@/components/admin/AskPromptTemplateSelector";
 import { GraphRAGPanel } from "@/components/admin/GraphRAGPanel";
@@ -687,56 +687,22 @@ export function ProjectJourneyBoard({ projectId, hideHeader = false }: ProjectJo
   );
 
   const handleLaunchAiChallengeBuilder = useCallback(async () => {
-    if (isAiBuilderRunning) {
-      return;
-    }
-
+    // Open the modal
     setIsAiPanelOpen(true);
-    setAiBuilderFeedback(null);
-    setAiBuilderErrors(null);
-    setAiSuggestions([]);
-    setAiNewChallenges([]);
-    setIsAiBuilderRunning(true);
 
-    try {
-      const response = await fetch(`/api/admin/projects/${projectId}/ai/challenge-builder`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-      });
-      const payload = await response.json();
-
-      if (!response.ok || !payload.success) {
-        throw new Error(payload.error || "Unable to run AI challenge builder.");
-      }
-
-      const data = payload.data as AiChallengeBuilderResponse | undefined;
-
-      setAiSuggestions(data?.challengeSuggestions ?? []);
-      setAiNewChallenges(data?.newChallengeSuggestions ?? []);
-      setAiBuilderErrors(data?.errors ?? null);
-
-      const totalSuggestions = (data?.challengeSuggestions?.length ?? 0) + (data?.newChallengeSuggestions?.length ?? 0);
-      if (totalSuggestions === 0) {
-        setAiBuilderFeedback({
-          type: "error",
-          message: "L'agent n'a proposé aucune modification pour ce projet.",
-        });
-      } else {
-        setAiBuilderFeedback({
-          type: "success",
-          message: "Analyse terminée. Passez en revue les recommandations de l'IA.",
-        });
-      }
-    } catch (error) {
+    // Fire-and-forget: launch the builder without waiting
+    // The modal will poll for results
+    fetch(`/api/admin/projects/${projectId}/ai/challenge-builder`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    }).catch((error) => {
+      console.error("Failed to start challenge builder:", error);
       setAiBuilderFeedback({
         type: "error",
-        message: error instanceof Error ? error.message : "Erreur inattendue lors de l'analyse IA.",
+        message: error instanceof Error ? error.message : "Erreur inattendue lors du lancement de l'analyse IA.",
       });
-      setAiBuilderErrors([{ challengeId: null, message: error instanceof Error ? error.message : String(error) }]);
-    } finally {
-      setIsAiBuilderRunning(false);
-    }
-  }, [isAiBuilderRunning, projectId]);
+    });
+  }, [projectId]);
 
   const handleLaunchAskAiGenerator = useCallback(async () => {
     if (isAskAiRunning) {
@@ -2481,11 +2447,49 @@ export function ProjectJourneyBoard({ projectId, hideHeader = false }: ProjectJo
       return;
     }
 
+    // Validate UUID format for challengeId
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (challengeId && !uuidRegex.test(challengeId)) {
+      setAskFeedback({ type: "error", message: "Invalid challenge ID format." });
+      return;
+    }
+
+    // Validate dates
+    const startDateObj = new Date(startDate);
+    const endDateObj = new Date(endDate);
+    if (isNaN(startDateObj.getTime())) {
+      setAskFeedback({ type: "error", message: "Invalid start date format." });
+      return;
+    }
+    if (isNaN(endDateObj.getTime())) {
+      setAskFeedback({ type: "error", message: "Invalid end date format." });
+      return;
+    }
+    if (endDateObj <= startDateObj) {
+      setAskFeedback({ type: "error", message: "End date must be after start date." });
+      return;
+    }
+
     const participantIds = askFormValues.participantIds;
+    
+    // Validate participantIds are valid UUIDs
+    for (const id of participantIds) {
+      if (id && !uuidRegex.test(id)) {
+        setAskFeedback({ type: "error", message: `Invalid participant ID format: ${id}` });
+        return;
+      }
+    }
+    
     const spokespersonId =
       askFormValues.spokespersonId && participantIds.includes(askFormValues.spokespersonId)
         ? askFormValues.spokespersonId
         : "";
+    
+    // Validate spokespersonId is a valid UUID if provided
+    if (spokespersonId && !uuidRegex.test(spokespersonId)) {
+      setAskFeedback({ type: "error", message: "Invalid spokesperson ID format." });
+      return;
+    }
 
     const basePayload = {
       name: trimmedName,
@@ -2529,7 +2533,34 @@ export function ProjectJourneyBoard({ projectId, hideHeader = false }: ProjectJo
         setHasManualAskKey(false);
         setAskFormValues(createEmptyAskForm(getDefaultChallengeId()));
       } else {
-        const askKey = (askFormValues.askKey || "").trim() || generateAskKey(trimmedName || "ask");
+        // Validate projectId UUID format
+        if (!uuidRegex.test(boardData.projectId)) {
+          setAskFeedback({ type: "error", message: "Invalid project ID format." });
+          setIsSavingAsk(false);
+          return;
+        }
+
+        let askKey = (askFormValues.askKey || "").trim() || generateAskKey(trimmedName || "ask");
+        
+        // Validate askKey format: must match /^[a-zA-Z0-9._-]+$/
+        const askKeyRegex = /^[a-zA-Z0-9._-]+$/;
+        if (!askKeyRegex.test(askKey)) {
+          // Regenerate if invalid
+          askKey = generateAskKey(trimmedName || "ask");
+          if (!askKeyRegex.test(askKey)) {
+            setAskFeedback({ type: "error", message: "Unable to generate a valid ASK key. Please provide a valid key (letters, numbers, dots, underscores, and hyphens only)." });
+            setIsSavingAsk(false);
+            return;
+          }
+        }
+
+        // Validate askKey length
+        if (askKey.length < 3 || askKey.length > 255) {
+          setAskFeedback({ type: "error", message: "ASK key must be between 3 and 255 characters." });
+          setIsSavingAsk(false);
+          return;
+        }
+
         const payload = { ...basePayload, askKey, projectId: boardData.projectId };
         
         console.log('🔧 Frontend: Creating ASK with payload:', payload);
@@ -2544,7 +2575,10 @@ export function ProjectJourneyBoard({ projectId, hideHeader = false }: ProjectJo
         console.log('📡 Frontend: ASK creation response:', { status: response.status, result });
         
         if (!response.ok || !result.success) {
-          throw new Error(result.error || "Unable to create ASK");
+          // Display more detailed error message
+          const errorMsg = result.error || "Unable to create ASK";
+          console.error('❌ ASK creation failed:', errorMsg);
+          throw new Error(errorMsg);
         }
         
         const record = result.data as AskSessionRecord;
@@ -2791,29 +2825,12 @@ export function ProjectJourneyBoard({ projectId, hideHeader = false }: ProjectJo
   return (
     <>
       {boardData ? (
-        <AiChallengeBuilderPanel
+        <AiChallengeBuilderModal
           open={isAiPanelOpen}
           onOpenChange={setIsAiPanelOpen}
+          projectId={projectId}
           projectName={boardData.projectName}
-          isRunning={isAiBuilderRunning}
-          onRunAgain={handleLaunchAiChallengeBuilder}
-          suggestions={aiSuggestions}
-          newChallenges={aiNewChallenges}
-          errors={aiBuilderErrors}
-          challengeLookup={challengeById}
-          onApplyChallengeUpdates={handleApplyChallengeUpdate}
-          onDismissChallengeUpdates={handleDismissChallengeUpdate}
-          onDismissSuggestion={handleDismissChallengeSuggestion}
-          applyingChallengeUpdateIds={applyingChallengeUpdateIds}
-          onApplySubChallengeUpdate={handleApplySubChallengeUpdate}
-          onDismissSubChallengeUpdate={handleDismissSubChallengeUpdate}
-          applyingSubChallengeUpdateIds={applyingSubChallengeUpdateIds}
-          onApplySuggestedNewSubChallenge={handleApplySuggestedNewSubChallenge}
-          onDismissSuggestedNewSubChallenge={handleDismissSuggestedNewSubChallenge}
-          applyingNewSubChallengeKeys={applyingNewSubChallengeKeys}
-          onApplyNewChallenge={handleApplyNewChallengeSuggestion}
-          onDismissNewChallenge={handleDismissNewChallengeSuggestion}
-          applyingNewChallengeIndices={applyingNewChallengeIndices}
+          boardData={boardData}
         />
       ) : null}
 
