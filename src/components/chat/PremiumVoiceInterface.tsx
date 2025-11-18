@@ -28,6 +28,7 @@ import { SpeechmaticsVoiceAgent, SpeechmaticsMessageEvent } from '@/lib/ai/speec
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/components/auth/AuthProvider';
 import type { ConversationPlan, ConversationPlanStep } from '@/types';
+import type { SemanticTurnTelemetryEvent } from '@/lib/ai/turn-detection';
 
 /**
  * Props du composant PremiumVoiceInterface
@@ -107,7 +108,7 @@ type VoiceMessage = {
  * - Contrôles de microphone et paramètres
  * - Nettoyage propre des ressources lors de la déconnexion
  */
-export function PremiumVoiceInterface({
+export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
   askKey,
   askSessionId,
   systemPrompt,
@@ -141,6 +142,7 @@ export function PremiumVoiceInterface({
   // Buffers locaux pour le streaming en cours (pattern OpenAI)
   const [interimUser, setInterimUser] = useState<VoiceMessage | null>(null);
   const [interimAssistant, setInterimAssistant] = useState<VoiceMessage | null>(null);
+  const [semanticTelemetry, setSemanticTelemetry] = useState<SemanticTurnTelemetryEvent | null>(null);
 
   const conversationSteps = conversationPlan?.plan_data.steps ?? [];
   const currentConversationStepId = conversationPlan?.current_step_id;
@@ -177,6 +179,8 @@ export function PremiumVoiceInterface({
   const isDisconnectingRef = useRef<boolean>(false);
   // Flag pour empêcher les connexions multiples simultanées
   const isConnectingRef = useRef<boolean>(false);
+  // Flag pour empêcher les nettoyages audio multiples
+  const isCleaningUpAudioRef = useRef<boolean>(false);
   // Référence au conteneur des messages (pour le scroll)
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   // Référence à l'élément invisible en bas de la liste des messages (pour auto-scroll)
@@ -534,8 +538,18 @@ export function PremiumVoiceInterface({
    *                           Si false, garde l'AudioContext ouvert (mute, pour TTS)
    */
   const cleanupAudioAnalysis = useCallback((closeAudioContext: boolean = false) => {
+    // Éviter les nettoyages multiples simultanés
+    if (isCleaningUpAudioRef.current && closeAudioContext) {
+      console.log('[PremiumVoiceInterface] ⚠️ Audio cleanup already in progress, skipping duplicate call');
+      return;
+    }
+
+    if (closeAudioContext) {
+      isCleaningUpAudioRef.current = true;
+    }
+
     console.log('[PremiumVoiceInterface] 🧹 Cleaning up audio analysis...', { closeAudioContext });
-    
+
     // Étape 1: Arrêter la boucle d'animation pour éviter les mises à jour après cleanup
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current);
@@ -604,6 +618,11 @@ export function PremiumVoiceInterface({
     
     // Réinitialiser le niveau audio à 0
     setAudioLevel(0);
+
+    if (closeAudioContext) {
+      isCleaningUpAudioRef.current = false;
+    }
+
     console.log('[PremiumVoiceInterface] ✅ Audio analysis cleanup complete');
   }, []);
 
@@ -643,6 +662,9 @@ export function PremiumVoiceInterface({
       speakingTimeoutRef.current = setTimeout(() => {
         setIsSpeaking(false);
       }, 2000);
+      if (isInterim) {
+        setSemanticTelemetry(null);
+      }
     }
 
     // Cas INTERIM → mise à jour du buffer local uniquement
@@ -692,21 +714,49 @@ export function PremiumVoiceInterface({
 
   /**
    * Handler appelé lors des changements d'état de connexion
-   * 
+   *
    * Gère la mise à jour de l'état de connexion et nettoie les ressources
    * si la connexion est fermée.
-   * 
+   *
+   * IMPORTANT: Ne nettoie PAS l'audio si une déconnexion est déjà en cours,
+   * car disconnect() gère déjà le nettoyage complet.
+   *
    * @param connected - État de connexion (true = connecté, false = déconnecté)
    */
   const handleConnectionChange = useCallback((connected: boolean) => {
+    console.log('[PremiumVoiceInterface] 🔌 handleConnectionChange:', {
+      connected,
+      hasAgent: !!agentRef.current,
+      isDisconnecting: isDisconnectingRef.current,
+      willCleanup: !connected && agentRef.current && !isDisconnectingRef.current
+    });
+
+    // IMPORTANT: Ignorer les callbacks de connexion si l'agent n'existe plus
+    // Cela arrive quand l'agent se connecte en arrière-plan après un unmount
+    if (connected && !agentRef.current) {
+      console.log('[PremiumVoiceInterface] ⚠️ Received connection callback but agent is null - ignoring (likely from unmounted component)');
+      return;
+    }
+
     setIsConnected(connected);
     // Si déconnecté, nettoyer toutes les ressources
-    if (!connected && agentRef.current) {
+    // MAIS seulement si on n'est pas déjà en train de se déconnecter
+    // (pour éviter le double nettoyage)
+    if (!connected && agentRef.current && !isDisconnectingRef.current) {
       setIsMicrophoneActive(false);
       setIsSpeaking(false);
+      setSemanticTelemetry(null);
       cleanupAudioAnalysis(true); // Fermer l'AudioContext lors de la déconnexion
     }
   }, [cleanupAudioAnalysis]);
+
+  const handleSemanticTelemetry = useCallback((event: SemanticTurnTelemetryEvent) => {
+    if (event.decision === 'skipped') {
+      setSemanticTelemetry(null);
+      return;
+    }
+    setSemanticTelemetry(event);
+  }, []);
 
   // ===== GESTION DE LA CONNEXION =====
   /**
@@ -765,6 +815,7 @@ export function PremiumVoiceInterface({
         // Agent Hybrid : Deepgram STT + LLM (Anthropic/OpenAI) + ElevenLabs TTS
         const agent = new HybridVoiceAgent();
         agentRef.current = agent;
+        console.log('[PremiumVoiceInterface] ✅ HybridVoiceAgent created and stored in agentRef');
 
         // Configuration des callbacks pour recevoir les événements
         agent.setCallbacks({
@@ -794,12 +845,14 @@ export function PremiumVoiceInterface({
         // Agent Speechmatics : Speechmatics STT + LLM (Anthropic/OpenAI) + ElevenLabs TTS
         const agent = new SpeechmaticsVoiceAgent();
         agentRef.current = agent;
+        console.log('[PremiumVoiceInterface] ✅ SpeechmaticsVoiceAgent created and stored in agentRef');
 
         // Configuration des callbacks
         agent.setCallbacks({
           onMessage: handleMessage,
           onError: handleError,
           onConnection: handleConnectionChange,
+          onSemanticTurn: handleSemanticTelemetry,
         });
 
         // Configuration de l'agent Speechmatics (plus de paramètres que Hybrid)
@@ -831,6 +884,7 @@ export function PremiumVoiceInterface({
         // Agent Deepgram par défaut : Deepgram STT + LLM + Deepgram TTS (tout-en-un)
         const agent = new DeepgramVoiceAgent();
         agentRef.current = agent;
+        console.log('[PremiumVoiceInterface] ✅ DeepgramVoiceAgent created and stored in agentRef');
 
         // Configuration des callbacks
         agent.setCallbacks({
@@ -938,8 +992,9 @@ export function PremiumVoiceInterface({
           console.warn('[PremiumVoiceInterface] Error disconnecting agent:', error);
         }
         agentRef.current = null;
+        console.log('[PremiumVoiceInterface] 🗑️ agentRef.current set to null');
       }
-      
+
       // Étape 4: Délai supplémentaire pour que le navigateur libère toutes les ressources microphone
       // Cela aide à éviter que l'indicateur rouge du microphone reste actif
       await new Promise(resolve => setTimeout(resolve, 200));
@@ -986,8 +1041,16 @@ export function PremiumVoiceInterface({
   }, [disconnect, onClose, reloadPage]);
 
   const toggleMute = useCallback(async () => {
+    console.log('[PremiumVoiceInterface] 🎤 toggleMute called', {
+      isMuted,
+      isConnected,
+      isMicrophoneActive,
+      hasAgent: !!agentRef.current
+    });
+
     const agent = agentRef.current;
     if (!agent) {
+      console.log('[PremiumVoiceInterface] ⚠️ No agent available, cannot toggle mute');
       return;
     }
 
@@ -1082,7 +1145,7 @@ export function PremiumVoiceInterface({
         console.error('[PremiumVoiceInterface] ❌ Error muting microphone:', error);
       }
     }
-  }, [isMuted, isHybridAgent, isSpeechmaticsAgent, systemPrompt, modelConfig, cleanupAudioAnalysis, startAudioVisualization, handleError]);
+  }, [isMuted, isConnected, isMicrophoneActive, isHybridAgent, isSpeechmaticsAgent, systemPrompt, modelConfig, selectedMicrophoneId, voiceIsolationEnabled, cleanupAudioAnalysis, startAudioVisualization, handleError]);
 
   const connectRef = useRef(connect);
   useEffect(() => {
@@ -1123,24 +1186,61 @@ export function PremiumVoiceInterface({
 
   // Auto-connect on mount
   useEffect(() => {
-    let isUnmounting = false;
+    console.log('[PremiumVoiceInterface] 🚀 Component mounted, auto-connecting...', {
+      hasAgent: !!agentRef.current,
+      isConnected,
+      isConnecting: isConnectingRef.current,
+      isDisconnecting: isDisconnectingRef.current
+    });
+
+    // Flag pour détecter si le composant se démonte pendant l'opération async
+    let isMounted = true;
 
     const doConnect = async () => {
-      if (isUnmounting) {
+      if (!isMounted) {
+        console.log('[PremiumVoiceInterface] ⚠️ Component unmounted before connect started, aborting');
         return;
       }
+
+      // Si une connexion/déconnexion est en cours, attendre qu'elle se termine puis réessayer
       if (isConnectingRef.current || isDisconnectingRef.current) {
-        console.log('[PremiumVoiceInterface] ⚠️ Connection or disconnect in progress, skipping duplicate call');
-        return;
+        console.log('[PremiumVoiceInterface] ⏱️ Connection or disconnect in progress, waiting 1s then retrying...');
+        await new Promise(resolve => setTimeout(resolve, 1000));
+
+        if (!isMounted) {
+          console.log('[PremiumVoiceInterface] ⚠️ Component unmounted while waiting, aborting');
+          return;
+        }
+
+        // Réessayer après avoir attendu
+        return doConnect();
       }
+
+      console.log('[PremiumVoiceInterface] ⏱️ Starting connection immediately...');
       await connectRef.current?.();
+
+      if (!isMounted) {
+        console.log('[PremiumVoiceInterface] ⚠️ Component unmounted during connect, cleaning up orphaned agent');
+        // Si le composant s'est démonté pendant connect, nettoyer l'agent orphelin
+        if (agentRef.current) {
+          try {
+            await agentRef.current.disconnect();
+            agentRef.current = null;
+          } catch (err) {
+            console.error('[PremiumVoiceInterface] Error cleaning up orphaned agent:', err);
+          }
+        }
+      }
     };
-    
+
     doConnect();
-    
+
     return () => {
-      isUnmounting = true;
-      console.log('[PremiumVoiceInterface] 🧹 Component unmounting, cleaning up all streams...');
+      isMounted = false;
+      console.log('[PremiumVoiceInterface] 🧹 Component unmounting, cleaning up all streams...', {
+        hadAgent: !!agentRef.current,
+        wasConnected: isConnected
+      });
       void disconnectRef.current?.();
       cleanupAudioAnalysisRef.current?.(true); // Close audio context on unmount
       if (speakingTimeoutRef.current) {
@@ -1197,6 +1297,34 @@ export function PremiumVoiceInterface({
       return timeA - timeB;
     });
   }, [messages, interimAssistant, interimUser]);
+
+  const semanticStatusText = useMemo(() => {
+    if (!semanticTelemetry) {
+      return null;
+    }
+    const probability =
+      typeof semanticTelemetry.probability === 'number'
+        ? `${(semanticTelemetry.probability * 100).toFixed(1)}%`
+        : '—';
+    const threshold =
+      typeof semanticTelemetry.threshold === 'number'
+        ? `${(semanticTelemetry.threshold * 100).toFixed(1)}%`
+        : null;
+    const reason = semanticTelemetry.reason ? semanticTelemetry.reason.replace(/-/g, ' ') : null;
+
+    switch (semanticTelemetry.decision) {
+      case 'hold':
+        return `Semantic hold ${probability}${threshold ? ` < ${threshold}` : ''}${
+          reason ? ` – ${reason}` : ''
+        }`;
+      case 'dispatch':
+        return `Semantic release ${probability}`;
+      case 'fallback':
+        return `Semantic fallback${reason ? ` – ${reason}` : ''}`;
+      default:
+        return null;
+    }
+  }, [semanticTelemetry]);
 
   // Auto-scroll when new messages arrive
   const previousLengthRef = useRef(0);
@@ -1543,6 +1671,11 @@ export function PremiumVoiceInterface({
               {isMuted && "Microphone muted"}
               {error && <span className="text-red-300">{error}</span>}
             </p>
+            {semanticStatusText && (
+              <p className="text-white/60 text-xs mt-1">
+                {semanticStatusText}
+              </p>
+            )}
           </div>
 
           {/* Microphone settings - compact dropdown */}
@@ -1639,7 +1772,39 @@ export function PremiumVoiceInterface({
       </div>
     </div>
   );
-}
+}, (prevProps, nextProps) => {
+  // Custom comparison function pour React.memo
+  // Return true si les props sont égales (pas de re-render)
+  // Return false si les props ont changé (re-render)
+
+  const propsToCompare: (keyof PremiumVoiceInterfaceProps)[] = [
+    'askKey',
+    'askSessionId',
+    'systemPrompt',
+    'userPrompt',
+    'modelConfig',
+    'conversationPlan',
+  ];
+
+  for (const key of propsToCompare) {
+    if (prevProps[key] !== nextProps[key]) {
+      console.log(`[PremiumVoiceInterface] 🔄 Prop changed: ${key}`, {
+        prev: typeof prevProps[key] === 'object' ? JSON.stringify(prevProps[key]).slice(0, 100) : prevProps[key],
+        next: typeof nextProps[key] === 'object' ? JSON.stringify(nextProps[key]).slice(0, 100) : nextProps[key]
+      });
+      return false; // Props changed, re-render
+    }
+  }
+
+  // Messages comparison - shallow compare the array
+  if (prevProps.messages?.length !== nextProps.messages?.length) {
+    console.log(`[PremiumVoiceInterface] 🔄 Messages length changed: ${prevProps.messages?.length} -> ${nextProps.messages?.length}`);
+    return false;
+  }
+
+  console.log('[PremiumVoiceInterface] ✅ Props are equal, skipping re-render');
+  return true; // Props are equal, skip re-render
+});
 
 interface VoiceModeStepsBarProps {
   steps: ConversationPlanStep[];

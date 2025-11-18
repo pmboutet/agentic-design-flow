@@ -38,27 +38,29 @@ interface MobileLayoutProps {
   sessionData: SessionData;
   currentParticipantName: string | null;
   awaitingAiResponse: boolean;
-  voiceModeSystemPrompt: string | null;
-  voiceModeUserPrompt: string | null;
-  voiceModePromptVariables: Record<string, string | null | undefined> | null;
-  voiceModeModelConfig: {
-    provider?: "deepgram-voice-agent" | "hybrid-voice-agent" | "speechmatics-voice-agent";
-    voiceAgentProvider?: "deepgram-voice-agent" | "speechmatics-voice-agent";
-    deepgramSttModel?: string;
-    deepgramTtsModel?: string;
-    deepgramLlmProvider?: "anthropic" | "openai";
-    deepgramLlmModel?: string;
-    speechmaticsSttLanguage?: string;
-    speechmaticsSttOperatingPoint?: "enhanced" | "standard";
-    speechmaticsSttMaxDelay?: number;
-    speechmaticsSttEnablePartials?: boolean;
-    speechmaticsLlmProvider?: "anthropic" | "openai";
-    speechmaticsLlmModel?: string;
-    speechmaticsApiKeyEnvVar?: string;
-    elevenLabsVoiceId?: string;
-    elevenLabsModelId?: string;
-    promptVariables?: Record<string, string | null | undefined>; // Variables for userPrompt template rendering
-  } | null;
+  voiceModeConfig: {
+    systemPrompt: string | null;
+    userPrompt: string | null;
+    promptVariables: Record<string, string | null | undefined> | null;
+    modelConfig: {
+      provider?: "deepgram-voice-agent" | "hybrid-voice-agent" | "speechmatics-voice-agent";
+      voiceAgentProvider?: "deepgram-voice-agent" | "speechmatics-voice-agent";
+      deepgramSttModel?: string;
+      deepgramTtsModel?: string;
+      deepgramLlmProvider?: "anthropic" | "openai";
+      deepgramLlmModel?: string;
+      speechmaticsSttLanguage?: string;
+      speechmaticsSttOperatingPoint?: "enhanced" | "standard";
+      speechmaticsSttMaxDelay?: number;
+      speechmaticsSttEnablePartials?: boolean;
+      speechmaticsLlmProvider?: "anthropic" | "openai";
+      speechmaticsLlmModel?: string;
+      speechmaticsApiKeyEnvVar?: string;
+      elevenLabsVoiceId?: string;
+      elevenLabsModelId?: string;
+      promptVariables?: Record<string, string | null | undefined>; // Variables for userPrompt template rendering
+    } | null;
+  };
   isDetectingInsights: boolean;
   onSendMessage: (content: string, type?: Message['type'], metadata?: Message['metadata']) => void;
   onVoiceMessage: (role: 'user' | 'agent', content: string, metadata?: { isInterim?: boolean; messageId?: string; timestamp?: string }) => void;
@@ -86,10 +88,7 @@ function MobileLayout({
   sessionData,
   currentParticipantName,
   awaitingAiResponse,
-  voiceModeSystemPrompt,
-  voiceModeUserPrompt,
-  voiceModePromptVariables,
-  voiceModeModelConfig,
+  voiceModeConfig,
   isDetectingInsights,
   onSendMessage,
   onVoiceMessage,
@@ -305,32 +304,25 @@ function MobileLayout({
               )}
               <div className="flex-1 p-2 md:p-4 overflow-y-auto">
                 <ChatComponent
+                  key={`chat-${sessionDataAskKey}`}
                   askKey={sessionDataAskKey}
                   ask={sessionData.ask}
                   messages={sessionData.messages}
                   conversationPlan={sessionData.conversationPlan}
-                  onSendMessage={onSendMessage}
+                  onSendMessage={handleSendMessage}
                   isLoading={sessionData.isLoading}
                   currentParticipantName={currentParticipantName}
                   isMultiUser={Boolean(sessionData.ask && sessionData.ask.participants.length > 1)}
                   showAgentTyping={awaitingAiResponse && !isDetectingInsights}
-                  voiceModeEnabled={!!voiceModeSystemPrompt}
-                  voiceModeSystemPrompt={voiceModeSystemPrompt || undefined}
-                  voiceModeUserPrompt={voiceModeUserPrompt || undefined}
-                  voiceModePromptVariables={voiceModePromptVariables || undefined}
-                  voiceModeModelConfig={voiceModeModelConfig || undefined}
-                  onVoiceMessage={onVoiceMessage}
+                  voiceModeEnabled={!!voiceModeConfig?.systemPrompt}
+                  voiceModeSystemPrompt={voiceModeConfig?.systemPrompt || undefined}
+                  voiceModeUserPrompt={voiceModeConfig?.userPrompt || undefined}
+                  voiceModePromptVariables={voiceModeConfig?.promptVariables || undefined}
+                  voiceModeModelConfig={voiceModeConfig?.modelConfig || undefined}
+                  onVoiceMessage={handleVoiceMessage}
                   onReplyBoxFocusChange={setIsReplyBoxFocused}
-                  onInitConversation={onInitConversation}
-                  onVoiceModeChange={(active) => {
-                    const wasActive = isVoiceModeActive;
-                    setIsVoiceModeActive(active);
-                    if (wasActive && !active) {
-                      setTimeout(() => {
-                        reloadMessagesAfterVoiceMode();
-                      }, 1000);
-                    }
-                  }}
+                  onInitConversation={handleInitConversation}
+                  onVoiceModeChange={handleVoiceModeChange}
                 />
               </div>
             </div>
@@ -423,27 +415,35 @@ export default function HomePage() {
   // DEBUG: Afficher auth ID temporairement
   const [debugAuthId, setDebugAuthId] = useState<string | null>(null);
   // Voice mode configuration
-  const [voiceModeSystemPrompt, setVoiceModeSystemPrompt] = useState<string | null>(null);
-  const [voiceModeUserPrompt, setVoiceModeUserPrompt] = useState<string | null>(null);
-  const [voiceModePromptVariables, setVoiceModePromptVariables] = useState<Record<string, string | null | undefined> | null>(null);
-  const [voiceModeModelConfig, setVoiceModeModelConfig] = useState<{
-    provider?: "deepgram-voice-agent" | "hybrid-voice-agent" | "speechmatics-voice-agent";
-    voiceAgentProvider?: "deepgram-voice-agent" | "speechmatics-voice-agent";
-    deepgramSttModel?: string;
-    deepgramTtsModel?: string;
-    deepgramLlmProvider?: "anthropic" | "openai";
-    deepgramLlmModel?: string;
-    speechmaticsSttLanguage?: string;
-    speechmaticsSttOperatingPoint?: "enhanced" | "standard";
-    speechmaticsSttMaxDelay?: number;
-    speechmaticsSttEnablePartials?: boolean;
-    speechmaticsLlmProvider?: "anthropic" | "openai";
-    speechmaticsLlmModel?: string;
-    speechmaticsApiKeyEnvVar?: string;
-    elevenLabsVoiceId?: string;
-    elevenLabsModelId?: string;
-    promptVariables?: Record<string, string | null | undefined>; // Variables for userPrompt template rendering
-  } | null>(null);
+  // Voice mode configuration - combined into a single state to avoid multiple re-renders
+  const [voiceModeConfig, setVoiceModeConfig] = useState<{
+    systemPrompt: string | null;
+    userPrompt: string | null;
+    promptVariables: Record<string, string | null | undefined> | null;
+    modelConfig: {
+      provider?: "deepgram-voice-agent" | "hybrid-voice-agent" | "speechmatics-voice-agent";
+      voiceAgentProvider?: "deepgram-voice-agent" | "speechmatics-voice-agent";
+      deepgramSttModel?: string;
+      deepgramTtsModel?: string;
+      deepgramLlmProvider?: "anthropic" | "openai";
+      deepgramLlmModel?: string;
+      speechmaticsSttLanguage?: string;
+      speechmaticsSttOperatingPoint?: "enhanced" | "standard";
+      speechmaticsSttMaxDelay?: number;
+      speechmaticsSttEnablePartials?: boolean;
+      speechmaticsLlmProvider?: "anthropic" | "openai";
+      speechmaticsLlmModel?: string;
+      speechmaticsApiKeyEnvVar?: string;
+      elevenLabsVoiceId?: string;
+      elevenLabsModelId?: string;
+      promptVariables?: Record<string, string | null | undefined>; // Variables for userPrompt template rendering
+    } | null;
+  }>({
+    systemPrompt: null,
+    userPrompt: null,
+    promptVariables: null,
+    modelConfig: null,
+  });
   // Store logId for voice agent exchanges (user message -> agent response)
   const voiceAgentLogIdRef = useRef<string | null>(null);
   const inviteTokenRef = useRef<string | null>(null);
@@ -988,7 +988,7 @@ export default function HomePage() {
   };
 
   // Handle initializing conversation when textarea gets focus and no messages exist
-  const handleInitConversation = async () => {
+  const handleInitConversation = useCallback(async () => {
     // Only initiate if there are no messages
     if (sessionData.messages.length > 0) {
       return;
@@ -1000,9 +1000,9 @@ export default function HomePage() {
 
     try {
       console.log('💬 HomePage: Initiating conversation on textarea focus');
-      
+
       const endpoint = `/api/ask/${sessionData.askKey}/init`;
-      
+
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',
       };
@@ -1034,135 +1034,8 @@ export default function HomePage() {
     } catch (error) {
       console.error('Error initiating conversation:', error);
     }
-  };
+  }, [sessionData.messages.length, sessionData.askKey, sessionData.inviteToken]);
 
-  // Handle sending messages to database and schedule AI response
-  const handleSendMessage = async (
-    content: string,
-    type: Message['type'] = 'text',
-    metadata?: Message['metadata']
-  ) => {
-    console.log('[handleSendMessage] 🚀 Attempting to send message:', {
-      hasAskKey: !!sessionData.askKey,
-      awaitingAiResponse,
-      isDetectingInsights,
-      isLoading: sessionData.isLoading
-    });
-    
-    if (!sessionData.askKey) {
-      console.log('[handleSendMessage] ❌ No askKey, aborting');
-      return;
-    }
-    if (sessionData.isLoading) {
-      console.log('[handleSendMessage] ⏸️ Already loading, aborting');
-      return;
-    }
-
-    const timestamp = new Date().toISOString();
-    const optimisticId = `temp-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
-    const senderName = currentParticipantName || 'Vous';
-    const optimisticMetadata = {
-      ...(metadata ?? {}),
-      senderName,
-    } as Message['metadata'];
-
-    const optimisticMessage: Message = {
-      clientId: optimisticId,
-      id: optimisticId,
-      askKey: sessionData.askKey,
-      askSessionId: sessionData.ask?.askSessionId,
-      content,
-      type,
-      senderType: 'user',
-      senderId: null,
-      senderName,
-      timestamp,
-      metadata: optimisticMetadata,
-    };
-
-    setSessionData(prev => ({
-      ...prev,
-      messages: [...prev.messages, optimisticMessage],
-      isLoading: true,
-    }));
-
-    try {
-      // First, save the user message
-      const endpoint = isTestMode ? `/api/test/${sessionData.askKey}` : `/api/ask/${sessionData.askKey}`;
-
-      // Include invite token in headers if available (for anonymous/invite-based access)
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-      };
-
-      if (sessionData.inviteToken) {
-        headers['X-Invite-Token'] = sessionData.inviteToken;
-      }
-
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          content,
-          type,
-          metadata,
-          senderName,
-          timestamp,
-        })
-      });
-
-      const data: ApiResponse<{ message: Message }> = await response.json();
-
-      if (!data.success) {
-        throw new Error(data.error || 'Failed to send message');
-      }
-
-      // Update the optimistic message with the real one
-      if (data.data?.message) {
-        markMessagePosted();
-        setSessionData(prev => ({
-          ...prev,
-          messages: prev.messages.map(message =>
-            message.clientId === optimisticId
-              ? { ...data.data!.message, clientId: message.clientId ?? optimisticId }
-              : message
-          ),
-          isLoading: false,
-        }));
-      } else {
-        setSessionData(prev => ({
-          ...prev,
-          isLoading: false,
-        }));
-      }
-
-      // Now trigger the streaming AI response
-      if (isTestMode) {
-        stopAwaitingAiResponse();
-        return;
-      }
-
-      console.log('[handleSendMessage] 🎬 Starting streaming response...');
-      startAwaitingAiResponse();
-      const insightsCapturedDuringStream = await handleStreamingResponse(content);
-      console.log('[handleSendMessage] ✅ Streaming complete, insights captured:', insightsCapturedDuringStream);
-      
-      // Programmer la détection d'insights seulement si aucune donnée n'a été envoyée pendant le streaming
-      if (!insightsCapturedDuringStream) {
-        scheduleInsightDetection();
-      }
-
-    } catch (error) {
-      console.error('Error sending message:', error);
-      stopAwaitingAiResponse();
-      setSessionData(prev => ({
-        ...prev,
-        isLoading: false,
-        messages: prev.messages.filter(message => message.clientId !== optimisticId),
-        error: parseErrorMessage(error)
-      }));
-    }
-  };
 
   // Handle voice mode messages
   // Track current streaming message ID to update the same message
@@ -1558,6 +1431,7 @@ export default function HomePage() {
     }
   }, [sessionData.askKey, sessionData.ask?.askSessionId, sessionData.inviteToken, markMessagePosted, currentParticipantName, isTestMode]);
 
+
   // Load voice mode configuration
   const loadVoiceModeConfig = useCallback(async () => {
     console.log('[HomePage] 🎤 loadVoiceModeConfig called', {
@@ -1596,49 +1470,55 @@ export default function HomePage() {
             systemPrompt: data.data.systemPrompt ? `${data.data.systemPrompt.substring(0, 100)}...` : null,
             userPrompt: data.data.userPrompt ? `${data.data.userPrompt.substring(0, 100)}...` : null,
           });
-          
-          setVoiceModeSystemPrompt(data.data.systemPrompt || null);
-          setVoiceModeUserPrompt(data.data.userPrompt || null);
-          setVoiceModePromptVariables(data.data.promptVariables || null);
-          
-          // Extract voice agent config from model config if available
-          // These fields are now stored directly in the database columns
-          if (data.data.modelConfig) {
-            const modelConfig = data.data.modelConfig;
+
+          // CRITICAL: Set all voice config in ONE setState to avoid multiple re-renders
+          const modelConfig = data.data.modelConfig;
+          if (modelConfig) {
             console.log('[HomePage] 🎤 Loading voice mode config:', {
               provider: modelConfig.provider,
               voiceAgentProvider: modelConfig.voiceAgentProvider,
               speechmaticsLlmModel: modelConfig.speechmaticsLlmModel,
               speechmaticsLlmProvider: modelConfig.speechmaticsLlmProvider,
             });
-            setVoiceModeModelConfig({
-              provider: modelConfig.provider,
-              voiceAgentProvider: modelConfig.voiceAgentProvider,
-              deepgramSttModel: modelConfig.deepgramSttModel,
-              deepgramTtsModel: modelConfig.deepgramTtsModel,
-              deepgramLlmProvider: modelConfig.deepgramLlmProvider,
-              deepgramLlmModel: modelConfig.deepgramLlmModel,
-              speechmaticsSttLanguage: modelConfig.speechmaticsSttLanguage,
-              speechmaticsSttOperatingPoint: modelConfig.speechmaticsSttOperatingPoint,
-              speechmaticsSttMaxDelay: modelConfig.speechmaticsSttMaxDelay,
-              speechmaticsSttEnablePartials: modelConfig.speechmaticsSttEnablePartials,
-              speechmaticsLlmProvider: modelConfig.speechmaticsLlmProvider,
-              speechmaticsLlmModel: modelConfig.speechmaticsLlmModel,
-              speechmaticsApiKeyEnvVar: modelConfig.speechmaticsApiKeyEnvVar,
-              elevenLabsVoiceId: modelConfig.elevenLabsVoiceId,
-              elevenLabsModelId: modelConfig.elevenLabsModelId,
-              promptVariables: voiceModePromptVariables || undefined, // Include prompt variables
-            } as any);
-            
+
+            setVoiceModeConfig({
+              systemPrompt: data.data.systemPrompt || null,
+              userPrompt: data.data.userPrompt || null,
+              promptVariables: data.data.promptVariables || null,
+              modelConfig: {
+                provider: modelConfig.provider,
+                voiceAgentProvider: modelConfig.voiceAgentProvider,
+                deepgramSttModel: modelConfig.deepgramSttModel,
+                deepgramTtsModel: modelConfig.deepgramTtsModel,
+                deepgramLlmProvider: modelConfig.deepgramLlmProvider,
+                deepgramLlmModel: modelConfig.deepgramLlmModel,
+                speechmaticsSttLanguage: modelConfig.speechmaticsSttLanguage,
+                speechmaticsSttOperatingPoint: modelConfig.speechmaticsSttOperatingPoint,
+                speechmaticsSttMaxDelay: modelConfig.speechmaticsSttMaxDelay,
+                speechmaticsSttEnablePartials: modelConfig.speechmaticsSttEnablePartials,
+                speechmaticsLlmProvider: modelConfig.speechmaticsLlmProvider,
+                speechmaticsLlmModel: modelConfig.speechmaticsLlmModel,
+                speechmaticsApiKeyEnvVar: modelConfig.speechmaticsApiKeyEnvVar,
+                elevenLabsVoiceId: modelConfig.elevenLabsVoiceId,
+                elevenLabsModelId: modelConfig.elevenLabsModelId,
+                promptVariables: data.data.promptVariables || undefined,
+              } as any,
+            });
+
             console.log('[HomePage] ✅ Voice mode configuration loaded successfully!');
           } else {
             console.log('[HomePage] ⚠️ No model config in response, using defaults');
             // Use default config when no model config is available
-            setVoiceModeModelConfig({
-              deepgramSttModel: 'nova-3',
-              deepgramTtsModel: 'aura-2-thalia-en',
-              deepgramLlmProvider: 'anthropic',
-              deepgramLlmModel: undefined, // No fallback - must be configured in database
+            setVoiceModeConfig({
+              systemPrompt: data.data.systemPrompt || null,
+              userPrompt: data.data.userPrompt || null,
+              promptVariables: data.data.promptVariables || null,
+              modelConfig: {
+                deepgramSttModel: 'nova-3',
+                deepgramTtsModel: 'aura-2-thalia-en',
+                deepgramLlmProvider: 'anthropic',
+                deepgramLlmModel: undefined,
+              },
             });
           }
         } else {
@@ -1662,7 +1542,7 @@ export default function HomePage() {
   }, [sessionData.ask?.askSessionId, loadVoiceModeConfig]);
 
   // Handle streaming AI response
-  const handleStreamingResponse = async (latestUserMessageContent?: string): Promise<boolean> => {
+  const handleStreamingResponse = useCallback(async (latestUserMessageContent?: string): Promise<boolean> => {
     if (!sessionData.askKey) return false;
 
     // Annuler la détection d'insights pendant le streaming
@@ -1681,11 +1561,22 @@ export default function HomePage() {
         streamHeaders['X-Invite-Token'] = sessionData.inviteToken;
       }
 
-      const lastMessageFromState = sessionData.messages[sessionData.messages.length - 1]?.content || '';
-      const bodyMessage =
-        latestUserMessageContent && latestUserMessageContent.trim().length > 0
-          ? latestUserMessageContent
-          : lastMessageFromState;
+      // Use functional form to get latest messages without adding to dependencies
+      let bodyMessage = latestUserMessageContent && latestUserMessageContent.trim().length > 0
+        ? latestUserMessageContent
+        : '';
+
+      if (!bodyMessage) {
+        // Get last message from state using functional update
+        const lastMessage = await new Promise<string>((resolve) => {
+          setSessionData(prev => {
+            const lastMsg = prev.messages[prev.messages.length - 1]?.content || '';
+            resolve(lastMsg);
+            return prev; // Don't modify state
+          });
+        });
+        bodyMessage = lastMessage;
+      }
 
       const response = await fetch(`/api/ask/${currentAskKey}/stream`, {
         method: 'POST',
@@ -1747,13 +1638,13 @@ export default function HomePage() {
             if (data.trim()) {
               try {
                 const parsed = JSON.parse(data);
-                
+
                 if (parsed.type === 'chunk' && parsed.content) {
                   streamingMessage += parsed.content;
                   setSessionData(prev => ({
                     ...prev,
                     messages: prev.messages.map(msg =>
-                      msg.clientId === streamingId 
+                      msg.clientId === streamingId
                         ? { ...msg, content: streamingMessage }
                         : msg
                     ),
@@ -1811,7 +1702,158 @@ export default function HomePage() {
       stopAwaitingAiResponse();
       return false;
     }
-  };
+  }, [
+    sessionData.askKey,
+    sessionData.ask?.askSessionId,
+    sessionData.inviteToken,
+    cancelInsightDetectionTimer,
+    markMessagePosted,
+    stopAwaitingAiResponse,
+    loadSessionDataByToken,
+    loadSessionData,
+  ]);
+
+  // Handle sending messages to database and schedule AI response
+  const handleSendMessage = useCallback(async (
+    content: string,
+    type: Message['type'] = 'text',
+    metadata?: Message['metadata']
+  ) => {
+    console.log('[handleSendMessage] 🚀 Attempting to send message:', {
+      hasAskKey: !!sessionData.askKey,
+      awaitingAiResponse,
+      isDetectingInsights,
+      isLoading: sessionData.isLoading
+    });
+
+    if (!sessionData.askKey) {
+      console.log('[handleSendMessage] ❌ No askKey, aborting');
+      return;
+    }
+    if (sessionData.isLoading) {
+      console.log('[handleSendMessage] ⏸️ Already loading, aborting');
+      return;
+    }
+
+    const timestamp = new Date().toISOString();
+    const optimisticId = `temp-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+    const senderName = currentParticipantName || 'Vous';
+    const optimisticMetadata = {
+      ...(metadata ?? {}),
+      senderName,
+    } as Message['metadata'];
+
+    const optimisticMessage: Message = {
+      clientId: optimisticId,
+      id: optimisticId,
+      askKey: sessionData.askKey,
+      askSessionId: sessionData.ask?.askSessionId,
+      content,
+      type,
+      senderType: 'user',
+      senderId: null,
+      senderName,
+      timestamp,
+      metadata: optimisticMetadata,
+    };
+
+    setSessionData(prev => ({
+      ...prev,
+      messages: [...prev.messages, optimisticMessage],
+      isLoading: true,
+    }));
+
+    try {
+      // First, save the user message
+      const endpoint = isTestMode ? `/api/test/${sessionData.askKey}` : `/api/ask/${sessionData.askKey}`;
+
+      // Include invite token in headers if available (for anonymous/invite-based access)
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+
+      if (sessionData.inviteToken) {
+        headers['X-Invite-Token'] = sessionData.inviteToken;
+      }
+
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          content,
+          type,
+          metadata,
+          senderName,
+          timestamp,
+        })
+      });
+
+      const data: ApiResponse<{ message: Message }> = await response.json();
+
+      if (!data.success) {
+        throw new Error(data.error || 'Failed to send message');
+      }
+
+      // Update the optimistic message with the real one
+      if (data.data?.message) {
+        markMessagePosted();
+        setSessionData(prev => ({
+          ...prev,
+          messages: prev.messages.map(message =>
+            message.clientId === optimisticId
+              ? { ...data.data!.message, clientId: message.clientId ?? optimisticId }
+              : message
+          ),
+          isLoading: false,
+        }));
+      } else {
+        setSessionData(prev => ({
+          ...prev,
+          isLoading: false,
+        }));
+      }
+
+      // Now trigger the streaming AI response
+      if (isTestMode) {
+        stopAwaitingAiResponse();
+        return;
+      }
+
+      console.log('[handleSendMessage] 🎬 Starting streaming response...');
+      startAwaitingAiResponse();
+      const insightsCapturedDuringStream = await handleStreamingResponse(content);
+      console.log('[handleSendMessage] ✅ Streaming complete, insights captured:', insightsCapturedDuringStream);
+
+      // Programmer la détection d'insights seulement si aucune donnée n'a été envoyée pendant le streaming
+      if (!insightsCapturedDuringStream) {
+        scheduleInsightDetection();
+      }
+
+    } catch (error) {
+      console.error('Error sending message:', error);
+      stopAwaitingAiResponse();
+      setSessionData(prev => ({
+        ...prev,
+        isLoading: false,
+        messages: prev.messages.filter(message => message.clientId !== optimisticId),
+        error: parseErrorMessage(error)
+      }));
+    }
+  }, [
+    sessionData.askKey,
+    sessionData.isLoading,
+    sessionData.ask?.askSessionId,
+    sessionData.inviteToken,
+    awaitingAiResponse,
+    isDetectingInsights,
+    isTestMode,
+    currentParticipantName,
+    markMessagePosted,
+    stopAwaitingAiResponse,
+    startAwaitingAiResponse,
+    handleStreamingResponse,
+    scheduleInsightDetection,
+  ]);
 
   // Retry loading session data
   const retryLoad = () => {
@@ -1848,6 +1890,21 @@ export default function HomePage() {
       return prev; // Don't modify state, just trigger reload
     });
   }, [loadSessionDataByToken, loadSessionData]);
+
+  // Handle voice mode toggle (mémorisé pour éviter les re-renders de ChatComponent)
+  const handleVoiceModeChange = useCallback((active: boolean) => {
+    const wasActive = isVoiceModeActive;
+    setIsVoiceModeActive(active);
+    // Reload messages when voice mode is closed to ensure voice messages appear in text mode
+    if (wasActive && !active) {
+      console.log('[HomePage] 🎤 Voice mode closed, will reload messages in 1 second...', {
+        currentMessageCount: sessionData.messages.length
+      });
+      setTimeout(() => {
+        reloadMessagesAfterVoiceMode();
+      }, 1000);
+    }
+  }, [isVoiceModeActive, sessionData.messages.length, reloadMessagesAfterVoiceMode]);
 
   // Clear error
   const clearError = () => {
@@ -2027,10 +2084,7 @@ export default function HomePage() {
           sessionData={sessionData}
           currentParticipantName={currentParticipantName}
           awaitingAiResponse={awaitingAiResponse}
-          voiceModeSystemPrompt={voiceModeSystemPrompt}
-          voiceModeUserPrompt={voiceModeUserPrompt}
-          voiceModePromptVariables={voiceModePromptVariables}
-          voiceModeModelConfig={voiceModeModelConfig}
+          voiceModeConfig={voiceModeConfig}
           isDetectingInsights={isDetectingInsights}
           onSendMessage={handleSendMessage}
           onVoiceMessage={handleVoiceMessage}
@@ -2068,6 +2122,7 @@ export default function HomePage() {
               )}
               <div className="flex-1 overflow-hidden">
                 <ChatComponent
+                  key={`chat-mobile-${sessionData.askKey}`}
                   askKey={sessionData.askKey}
                   ask={sessionData.ask}
                   messages={sessionData.messages}
@@ -2077,30 +2132,15 @@ export default function HomePage() {
                   currentParticipantName={currentParticipantName}
                   isMultiUser={Boolean(sessionData.ask && sessionData.ask.participants.length > 1)}
                   showAgentTyping={awaitingAiResponse && !isDetectingInsights}
-                  voiceModeEnabled={!!voiceModeSystemPrompt}
-                  voiceModeSystemPrompt={voiceModeSystemPrompt || undefined}
-                  voiceModeUserPrompt={voiceModeUserPrompt || undefined}
-                  voiceModePromptVariables={voiceModePromptVariables || undefined}
-                  voiceModeModelConfig={voiceModeModelConfig || undefined}
+                  voiceModeEnabled={!!voiceModeConfig?.systemPrompt}
+                  voiceModeSystemPrompt={voiceModeConfig?.systemPrompt || undefined}
+                  voiceModeUserPrompt={voiceModeConfig?.userPrompt || undefined}
+                  voiceModePromptVariables={voiceModeConfig?.promptVariables || undefined}
+                  voiceModeModelConfig={voiceModeConfig?.modelConfig || undefined}
                   onVoiceMessage={handleVoiceMessage}
                   onReplyBoxFocusChange={setIsReplyBoxFocused}
                   onInitConversation={handleInitConversation}
-                  onVoiceModeChange={(active) => {
-                    const wasActive = isVoiceModeActive;
-                    setIsVoiceModeActive(active);
-                    // Reload messages when voice mode is closed to ensure voice messages appear in text mode
-                    if (wasActive && !active) {
-                      console.log('[HomePage] 🎤 Voice mode closed, will reload messages in 1 second...', {
-                        currentMessageCount: sessionData.messages.length,
-                        hasInviteToken: !!sessionData.inviteToken,
-                        hasAskKey: !!sessionData.askKey
-                      });
-                      // Longer delay to ensure voice messages are fully persisted
-                      setTimeout(() => {
-                        reloadMessagesAfterVoiceMode();
-                      }, 1000);
-                    }
-                  }}
+                  onVoiceModeChange={handleVoiceModeChange}
                 />
               </div>
             </div>

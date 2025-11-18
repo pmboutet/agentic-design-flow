@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Send, Paperclip, Mic, Image, FileText, X, Radio } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -47,6 +47,14 @@ export function ChatComponent({
   onVoiceModeChange,
   onInitConversation,
 }: ChatComponentProps) {
+  // Temporarily disabled to reduce log spam
+  // console.log('[ChatComponent] 🔄 Rendering', {
+  //   voiceModeEnabled,
+  //   hasSystemPrompt: !!voiceModeSystemPrompt,
+  //   hasUserPrompt: !!voiceModeUserPrompt,
+  //   hasModelConfig: !!voiceModeModelConfig
+  // });
+
   const [inputValue, setInputValue] = useState("");
   const [selectedFiles, setSelectedFiles] = useState<FileUpload[]>([]);
   const [isRecording, setIsRecording] = useState(false);
@@ -240,8 +248,8 @@ export function ChatComponent({
     }
   };
 
-  // Handle voice mode messages
-  const handleVoiceMessage = (message: DeepgramMessageEvent | HybridVoiceAgentMessage | SpeechmaticsMessageEvent) => {
+  // Handle voice mode messages (mémorisé pour éviter les remounts)
+  const handleVoiceMessage = useCallback((message: DeepgramMessageEvent | HybridVoiceAgentMessage | SpeechmaticsMessageEvent) => {
     if (onVoiceMessage) {
       // Pass the full message object to allow parent to handle messageId and isInterim
       onVoiceMessage(message.role, message.content, {
@@ -250,12 +258,40 @@ export function ChatComponent({
         timestamp: message.timestamp,
       });
     }
-  };
+  }, [onVoiceMessage]);
 
-  const handleVoiceError = (error: Error) => {
+  const handleVoiceError = useCallback((error: Error) => {
     console.error('Voice mode error:', error);
     // Optionally show error to user
-  };
+  }, []);
+
+  // Préparer les données pour le mode vocal (TOUJOURS appelé, même si pas en mode vocal)
+  // Ceci respecte les règles des hooks React qui doivent être appelés inconditionnellement
+  const voiceMessages = useMemo(() => {
+    return messages
+      .filter(msg => msg.senderType === 'user' || msg.senderType === 'ai')
+      .map(msg => {
+        // Extract messageId from metadata if available (for voice messages)
+        const metadataMessageId = (msg.metadata as any)?.messageId;
+        return {
+          role: msg.senderType === 'user' ? 'user' as const : 'assistant' as const,
+          content: msg.content,
+          timestamp: msg.timestamp,
+          messageId: metadataMessageId || undefined, // Preserve messageId for deduplication
+          metadata: msg.metadata, // Preserve metadata to access messageId later
+        };
+      });
+  }, [messages]);
+
+  const memoizedModelConfig = useMemo(() => ({
+    ...(voiceModeModelConfig || {}),
+    promptVariables: voiceModePromptVariables,
+  } as any), [voiceModeModelConfig, voiceModePromptVariables]);
+
+  const handleVoiceClose = useCallback(() => {
+    setIsVoiceMode(false);
+    onVoiceModeChange?.(false);
+  }, [onVoiceModeChange]);
 
   // Check if ASK is closed
   const isAskClosed = ask && !ask.isActive;
@@ -285,38 +321,25 @@ export function ChatComponent({
 
   // Show premium voice interface when voice mode is active
   if (isVoiceMode && voiceModeEnabled && voiceModeSystemPrompt) {
-    // Convert messages to voice interface format
-    // Preserve messageId from metadata for proper deduplication
-    const voiceMessages = messages
-      .filter(msg => msg.senderType === 'user' || msg.senderType === 'ai')
-      .map(msg => {
-        // Extract messageId from metadata if available (for voice messages)
-        const metadataMessageId = (msg.metadata as any)?.messageId;
-        return {
-          role: msg.senderType === 'user' ? 'user' as const : 'assistant' as const,
-          content: msg.content,
-          timestamp: msg.timestamp,
-          messageId: metadataMessageId || undefined, // Preserve messageId for deduplication
-          metadata: msg.metadata, // Preserve metadata to access messageId later
-        };
-      });
+    console.log('[ChatComponent] 🎙️ Rendering PremiumVoiceInterface', {
+      isVoiceMode,
+      voiceModeEnabled,
+      hasSystemPrompt: !!voiceModeSystemPrompt,
+      askKey,
+      messagesLength: voiceMessages.length
+    });
 
     return (
       <PremiumVoiceInterface
+        key={`voice-${askKey}`}
         askKey={askKey}
         askSessionId={ask?.askSessionId}
         systemPrompt={voiceModeSystemPrompt}
         userPrompt={voiceModeUserPrompt}
-        modelConfig={{
-          ...(voiceModeModelConfig || {}),
-          promptVariables: voiceModePromptVariables,
-        } as any}
+        modelConfig={memoizedModelConfig}
         onMessage={handleVoiceMessage}
         onError={handleVoiceError}
-        onClose={() => {
-          setIsVoiceMode(false);
-          onVoiceModeChange?.(false);
-        }}
+        onClose={handleVoiceClose}
         messages={voiceMessages}
         conversationPlan={conversationPlan}
       />
