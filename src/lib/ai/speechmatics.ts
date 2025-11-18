@@ -27,6 +27,12 @@ import { TranscriptionManager } from './speechmatics-transcription';
 import { SpeechmaticsWebSocket } from './speechmatics-websocket';
 import { SpeechmaticsAudio } from './speechmatics-audio';
 import { SpeechmaticsLLM } from './speechmatics-llm';
+import {
+  createSemanticTurnDetector,
+  type SemanticTurnDetector,
+  type SemanticTurnTelemetryEvent,
+} from './turn-detection';
+import { resolveSemanticTurnDetectorConfig } from './turn-detection-config';
 
 // Import and re-export types for backward compatibility
 import type {
@@ -87,6 +93,10 @@ export class SpeechmaticsVoiceAgent {
   private isDisconnected: boolean = false;
   // Promise de déconnexion en cours (pour éviter les déconnexions multiples)
   private disconnectPromise: Promise<void> | null = null;
+  // Semantic turn detection configuration
+  private semanticTurnConfig = resolveSemanticTurnDetectorConfig();
+  private semanticTurnDetector: SemanticTurnDetector | null =
+    createSemanticTurnDetector(this.semanticTurnConfig);
 
   // ===== CALLBACKS =====
   // Callback appelé lorsqu'un message est reçu (user ou agent, interim ou final)
@@ -97,6 +107,8 @@ export class SpeechmaticsVoiceAgent {
   private onConnectionCallback: SpeechmaticsConnectionCallback | null = null;
   // Callback appelé lorsqu'un chunk audio TTS est reçu (pour l'analyse si nécessaire)
   private onAudioCallback: SpeechmaticsAudioCallback | null = null;
+  // Callback pour les événements de détection sémantique
+  private onSemanticTurnCallback: ((event: SemanticTurnTelemetryEvent) => void) | null = null;
 
   /**
    * Constructeur - Initialise les modules core
@@ -117,11 +129,13 @@ export class SpeechmaticsVoiceAgent {
     onError?: SpeechmaticsErrorCallback;
     onConnection?: SpeechmaticsConnectionCallback;
     onAudio?: SpeechmaticsAudioCallback;
+    onSemanticTurn?: (event: SemanticTurnTelemetryEvent) => void;
   }) {
     this.onMessageCallback = callbacks.onMessage || null;
     this.onErrorCallback = callbacks.onError || null;
     this.onConnectionCallback = callbacks.onConnection || null;
     this.onAudioCallback = callbacks.onAudio || null;
+    this.onSemanticTurnCallback = callbacks.onSemanticTurn || null;
   }
 
   /**
@@ -142,6 +156,17 @@ export class SpeechmaticsVoiceAgent {
     this.isDisconnected = false;
     console.log('[Speechmatics] 🔌 connect() called, isDisconnected reset to false');
     this.config = config;
+    // Refresh semantic detector on each connection to pick up env changes
+    this.semanticTurnConfig = resolveSemanticTurnDetectorConfig();
+    this.semanticTurnDetector = createSemanticTurnDetector(this.semanticTurnConfig);
+
+    if (this.semanticTurnConfig.enabled) {
+      console.log('[Speechmatics] ✅ Semantic turn detector enabled:', {
+        provider: this.semanticTurnConfig.provider,
+        model: this.semanticTurnConfig.model,
+        threshold: this.semanticTurnConfig.probabilityThreshold,
+      });
+    }
 
     // ===== INITIALISATION D'ELEVENLABS TTS =====
     // Initialiser ElevenLabs seulement si TTS n'est pas désactivé
@@ -176,7 +201,18 @@ export class SpeechmaticsVoiceAgent {
       this.onMessageCallback,
       (transcript: string) => this.processUserMessage(transcript),
       this.conversationHistory,
-      config.sttEnablePartials !== false
+      config.sttEnablePartials !== false,
+      this.semanticTurnDetector && this.semanticTurnConfig.enabled
+        ? {
+            detector: this.semanticTurnDetector,
+            threshold: this.semanticTurnConfig.probabilityThreshold,
+            gracePeriodMs: this.semanticTurnConfig.gracePeriodMs,
+            maxHoldMs: this.semanticTurnConfig.maxHoldMs,
+            fallbackMode: this.semanticTurnConfig.fallbackMode,
+            maxContextMessages: this.semanticTurnConfig.contextMessages,
+            telemetry: (event) => this.onSemanticTurnCallback?.(event),
+          }
+        : undefined
     );
 
     // Initialize WebSocket manager

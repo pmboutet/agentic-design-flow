@@ -16,6 +16,17 @@
  */
 
 import type { SpeechmaticsMessageCallback } from './speechmatics-types';
+import type {
+  SemanticTurnDecision,
+  SemanticTurnDecisionOptions,
+  SemanticTurnMessage,
+  SemanticTurnTelemetryEvent,
+  SemanticTurnTrigger,
+} from './turn-detection';
+
+type SemanticSupportOptions = SemanticTurnDecisionOptions & {
+  telemetry?: (event: SemanticTurnTelemetryEvent) => void;
+};
 
 /**
  * Classe principale pour la gestion des transcriptions
@@ -44,6 +55,11 @@ export class TranscriptionManager {
   private utteranceDebounceTimeout: NodeJS.Timeout | null = null;
   // Dernier contenu de prévisualisation envoyé (pour éviter les doublons dans les callbacks)
   private lastPreviewContent: string | null = null;
+  // Gestion de la détection sémantique des fins de tour
+  private semanticHoldTimeout: NodeJS.Timeout | null = null;
+  private semanticHoldStartedAt: number | null = null;
+  private semanticEvaluationInFlight: boolean = false;
+  private pendingSemanticTrigger: SemanticTurnTrigger | null = null;
   
   // ===== CONSTANTES DE CONFIGURATION =====
   // Timeout de détection de silence (2.5s) - fail-safe si aucune transcription partielle n'arrive
@@ -73,7 +89,8 @@ export class TranscriptionManager {
     private onMessageCallback: SpeechmaticsMessageCallback | null,
     private processUserMessage: (transcript: string) => Promise<void>,
     private conversationHistory: Array<{ role: 'user' | 'agent'; content: string }>,
-    private enablePartials: boolean = true
+    private enablePartials: boolean = true,
+    private semanticOptions?: SemanticSupportOptions
   ) {}
 
   // ===== FONCTIONS UTILITAIRES =====
@@ -109,6 +126,18 @@ export class TranscriptionManager {
     return commonWords / allWords.size;
   }
 
+  private handleSilenceTimeout(): void {
+    if (this.silenceTimeout) {
+      clearTimeout(this.silenceTimeout);
+      this.silenceTimeout = null;
+    }
+    if (this.semanticOptions?.detector) {
+      this.triggerSemanticEvaluation('silence_timeout');
+    } else {
+      void this.processPendingTranscript(true);
+    }
+  }
+
   /**
    * Reset silence timeout
    * This is called every time we receive a new transcript chunk
@@ -131,7 +160,7 @@ export class TranscriptionManager {
       // This ensures we respect the full silence period before responding
       this.silenceTimeout = setTimeout(() => {
         console.log('[Transcription] ⏰ Silence timeout - processing message');
-        this.processPendingTranscript(true);
+        this.handleSilenceTimeout();
       }, timeoutDuration);
     }
   }
@@ -142,6 +171,10 @@ export class TranscriptionManager {
    */
   markEndOfUtterance(): void {
     this.receivedEndOfUtterance = true;
+    if (this.semanticOptions?.detector) {
+      this.triggerSemanticEvaluation('end_of_utterance');
+      return;
+    }
     const shouldForce = this.enablePartials;
     // When partials are disabled we keep the normal debounce to let the final chunk arrive
     this.scheduleUtteranceFinalization(shouldForce);
@@ -180,6 +213,7 @@ export class TranscriptionManager {
       clearTimeout(this.utteranceDebounceTimeout);
       this.utteranceDebounceTimeout = null;
     }
+    this.clearSemanticHold();
     
     // Reset EndOfUtterance flag after processing
     this.receivedEndOfUtterance = false;
@@ -283,6 +317,7 @@ export class TranscriptionManager {
     if (!transcript || !transcript.trim()) return;
 
     const trimmedTranscript = transcript.trim();
+    this.clearSemanticHold();
 
     // Log minimal pour debug
     console.log('[📥 PARTIAL]', trimmedTranscript.slice(0, 80) + (trimmedTranscript.length > 80 ? '...' : ''));
@@ -365,6 +400,196 @@ export class TranscriptionManager {
       isInterim: true,
       messageId,
     });
+  }
+
+  /**
+   * ====== SEMANTIC TURN DETECTION SUPPORT ======
+   */
+  private triggerSemanticEvaluation(trigger: SemanticTurnTrigger): void {
+    if (!this.semanticOptions?.detector) {
+      this.emitSemanticTelemetry('skipped', trigger, null, 'detector-disabled');
+      const shouldForce = this.enablePartials;
+      this.scheduleUtteranceFinalization(shouldForce);
+      return;
+    }
+
+    if (this.semanticEvaluationInFlight) {
+      this.pendingSemanticTrigger = trigger;
+      return;
+    }
+
+    this.semanticEvaluationInFlight = true;
+    void this.runSemanticEvaluation(trigger);
+  }
+
+  private async runSemanticEvaluation(trigger: SemanticTurnTrigger): Promise<void> {
+    try {
+      const options = this.semanticOptions;
+      if (!options?.detector) {
+        return;
+      }
+
+      const pendingContent = this.getPendingTranscriptForSemantics();
+      if (!pendingContent) {
+        this.emitSemanticTelemetry('fallback', trigger, null, 'no-pending-transcript');
+        this.scheduleUtteranceFinalization(this.enablePartials);
+        return;
+      }
+
+      const messages = this.buildSemanticMessages(options.maxContextMessages);
+      if (!messages.length) {
+        this.emitSemanticTelemetry('fallback', trigger, null, 'no-context');
+        this.scheduleUtteranceFinalization(this.enablePartials);
+        return;
+      }
+
+      const probability = await options.detector.getSemanticEotProb(messages);
+      console.log('[Transcription] 🎯 Semantic evaluation result', {
+        trigger,
+        probability,
+        threshold: options.threshold,
+        graceMs: options.gracePeriodMs,
+        maxHoldMs: options.maxHoldMs,
+      });
+
+      if (typeof probability === 'number' && probability >= options.threshold) {
+        this.emitSemanticTelemetry('dispatch', trigger, probability);
+        this.clearSemanticHold();
+        this.scheduleUtteranceFinalization(true);
+        return;
+      }
+
+      if (probability === null) {
+        this.emitSemanticTelemetry('fallback', trigger, probability, 'detector-null');
+        this.clearSemanticHold();
+        this.scheduleUtteranceFinalization(true);
+        return;
+      }
+
+      if (this.extendSemanticHold(trigger, probability)) {
+        this.emitSemanticTelemetry('hold', trigger, probability, 'probability-below-threshold');
+        return;
+      }
+
+      this.emitSemanticTelemetry('fallback', trigger, probability, 'max-hold-exceeded');
+      this.clearSemanticHold();
+      this.scheduleUtteranceFinalization(true);
+    } catch (error) {
+      console.error('[Transcription] ❌ Semantic detector error', error);
+      this.emitSemanticTelemetry('fallback', trigger, null, 'detector-error');
+      this.clearSemanticHold();
+      this.scheduleUtteranceFinalization(true);
+    } finally {
+      this.semanticEvaluationInFlight = false;
+      if (this.pendingSemanticTrigger) {
+        const nextTrigger = this.pendingSemanticTrigger;
+        this.pendingSemanticTrigger = null;
+        this.triggerSemanticEvaluation(nextTrigger);
+      }
+    }
+  }
+
+  private extendSemanticHold(trigger: SemanticTurnTrigger, probability: number | null): boolean {
+    const options = this.semanticOptions;
+    if (!options || typeof probability !== 'number') {
+      return false;
+    }
+
+    const now = Date.now();
+    if (!this.semanticHoldStartedAt) {
+      this.semanticHoldStartedAt = now;
+    }
+
+    const elapsed = now - this.semanticHoldStartedAt;
+    if (elapsed >= options.maxHoldMs) {
+      return false;
+    }
+
+    this.cancelUtteranceDebounce();
+    if (this.semanticHoldTimeout) {
+      clearTimeout(this.semanticHoldTimeout);
+    }
+
+    this.semanticHoldTimeout = setTimeout(() => {
+      this.semanticHoldTimeout = null;
+      this.triggerSemanticEvaluation('semantic_grace');
+    }, options.gracePeriodMs);
+
+    console.log('[Transcription] ⏳ Semantic hold active', {
+      trigger,
+      probability,
+      threshold: options.threshold,
+      holdMs: elapsed,
+    });
+
+    return true;
+  }
+
+  private clearSemanticHold(): void {
+    if (this.semanticHoldTimeout) {
+      clearTimeout(this.semanticHoldTimeout);
+      this.semanticHoldTimeout = null;
+    }
+    this.semanticHoldStartedAt = null;
+    this.pendingSemanticTrigger = null;
+  }
+
+  private emitSemanticTelemetry(
+    decision: SemanticTurnDecision,
+    trigger: SemanticTurnTrigger,
+    probability: number | null,
+    reason?: string
+  ): void {
+    if (!this.semanticOptions?.telemetry) {
+      return;
+    }
+    const pending = this.getPendingTranscriptForSemantics() || '';
+    const words = pending ? pending.split(/\s+/).filter(Boolean).length : 0;
+    this.semanticOptions.telemetry({
+      trigger,
+      probability,
+      decision,
+      reason,
+      threshold: this.semanticOptions.threshold,
+      pendingChars: pending.length,
+      pendingWords: words,
+      holdMs: this.getSemanticHoldDuration(),
+      timestamp: new Date().toISOString(),
+    });
+  }
+
+  private getPendingTranscriptForSemantics(): string | null {
+    const source = this.pendingFinalTranscript || this.lastPartialUserContent;
+    if (!source || !source.trim()) {
+      return null;
+    }
+    return this.cleanTranscript(source.trim());
+  }
+
+  private buildSemanticMessages(limit: number): SemanticTurnMessage[] {
+    const recentHistory: SemanticTurnMessage[] = this.conversationHistory.slice(-limit).map(entry => ({
+      role: (entry.role === 'agent' ? 'assistant' : 'user') as 'user' | 'assistant',
+      content: entry.content,
+    }));
+    const pending = this.getPendingTranscriptForSemantics();
+    if (pending) {
+      recentHistory.push({ role: 'user', content: pending });
+    }
+    return recentHistory.slice(-limit);
+  }
+
+  private getSemanticHoldDuration(): number {
+    if (!this.semanticHoldStartedAt) {
+      return 0;
+    }
+    return Date.now() - this.semanticHoldStartedAt;
+  }
+
+  private cancelUtteranceDebounce(): void {
+    if (this.utteranceDebounceTimeout) {
+      clearTimeout(this.utteranceDebounceTimeout);
+      this.utteranceDebounceTimeout = null;
+    }
   }
 
   /**
@@ -454,6 +679,7 @@ export class TranscriptionManager {
     if (!transcript || !transcript.trim()) return;
 
     const trimmedTranscript = transcript.trim();
+    this.clearSemanticHold();
 
     // Log minimal pour debug
     console.log('[📥 FINAL]', trimmedTranscript.slice(0, 80) + (trimmedTranscript.length > 80 ? '...' : ''));

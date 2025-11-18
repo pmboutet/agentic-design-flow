@@ -5,3 +5,5 @@ export * from "./logs";
 export * from "./providers";
 export * from "./service";
 export * from "./templates";
+export * from "./turn-detection";
+export * from "./turn-detection-config";

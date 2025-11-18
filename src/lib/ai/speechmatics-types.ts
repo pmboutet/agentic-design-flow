@@ -12,6 +12,7 @@ export interface SpeechmaticsConfig {
   sttOperatingPoint?: "enhanced" | "standard";
   sttMaxDelay?: number; // Max delay between segments (default: 1.0 in low latency mode, 3.0 otherwise)
   sttEnablePartials?: boolean; // Enable partial transcription results
+  sttEndOfUtteranceSilenceTrigger?: number; // Seconds of silence (0-2) before EndOfUtterance is emitted
   lowLatencyMode?: boolean; // Enable low latency mode (default: true) - uses max_delay: 1.0 and operating_point: "standard"
   // Microphone sensitivity config
   microphoneSensitivity?: number; // VAD threshold multiplier (0.5 = more sensitive, 2.0 = less sensitive, default: 1.0)

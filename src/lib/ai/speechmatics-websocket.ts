@@ -133,6 +133,13 @@ export class SpeechmaticsWebSocket {
             console.log('[Speechmatics] ℹ️ Language set to:', transcriptionLanguage);
           }
           
+          const endOfUtteranceSilenceTrigger = (() => {
+            if (typeof config.sttEndOfUtteranceSilenceTrigger === 'number' && !Number.isNaN(config.sttEndOfUtteranceSilenceTrigger)) {
+              return Math.min(2, Math.max(0, config.sttEndOfUtteranceSilenceTrigger));
+            }
+            return 0.7; // Default recommended range for voice AI use cases (0.5 - 0.8s)
+          })();
+
           const settings: any = {
             message: "StartRecognition",
             audio_format: {
@@ -149,6 +156,9 @@ export class SpeechmaticsWebSocket {
               // Use "standard" operating point for lower latency (was "enhanced")
               // "enhanced" provides better accuracy but higher latency
               operating_point: config.sttOperatingPoint || (config.lowLatencyMode !== false ? "standard" : "enhanced"),
+              conversation_config: {
+                end_of_utterance_silence_trigger: endOfUtteranceSilenceTrigger,
+              },
             },
           };
 
@@ -159,6 +169,7 @@ export class SpeechmaticsWebSocket {
             max_delay: config.sttMaxDelay ?? (config.lowLatencyMode !== false ? 1.0 : 3.0),
             operating_point: config.sttOperatingPoint || (config.lowLatencyMode !== false ? "standard" : "enhanced"),
             lowLatencyMode: config.lowLatencyMode !== false,
+            end_of_utterance_silence_trigger: endOfUtteranceSilenceTrigger,
           });
 
           ws.send(JSON.stringify(settings));

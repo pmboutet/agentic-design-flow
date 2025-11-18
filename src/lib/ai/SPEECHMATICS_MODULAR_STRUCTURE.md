@@ -103,7 +103,20 @@ Pour refactoriser complètement, il faudrait :
 
 Souhaitez-vous que je continue avec le refactoring complet ?
 
+## 🎯 Détection Sémantique de Fin de Tour
 
+Le pipeline Speechmatics inclut désormais un détecteur d'arrêt sémantique optionnel.
 
+- **Helper dédié** : `src/lib/ai/turn-detection.ts` formate les derniers tours en ChatML, appelle un SLM léger (HTTP/OpenAI compatible) et calcule la probabilité combinée des tokens `<|im_end|>` / ponctuation forte.
+- **Configuration** : tirée directement de la configuration modèle enregistrée en base (`ai_model_configs`). Par défaut on cible le slug `mistral-small` (provider **Mistral**, base URL `https://api.mistral.ai/v1`, variable API `MISTRAL_API_KEY`). Les autres paramètres (`SEMANTIC_TURN_PROB_THRESHOLD`, `SEMANTIC_TURN_GRACE_MS`, `SEMANTIC_TURN_MAX_HOLD_MS`, `SEMANTIC_TURN_FALLBACK`) restent ajustables via `turn-detection-config.ts`.
+- **Intégration pipeline** :
+  - `TranscriptionManager` déclenche la requête sémantique lors d'un silence VAD ou du signal Speechmatics `EndOfUtterance`.
+  - Si la probabilité est inférieure au seuil, un délai configurable (grace period) maintient l'écoute avant de relancer une requête.
+  - Quand la probabilité dépasse le seuil, la finalisation est forcée et la réponse agent est déclenchée immédiatement.
+- **UI & télémétrie** :
+  - `SpeechmaticsVoiceAgent` propage les événements (`hold`, `dispatch`, `fallback`) via un callback `onSemanticTurn`.
+  - `PremiumVoiceInterface` affiche l'état courant (hold/dispatch/fallback) sous l'indicateur de statut vocal.
+
+Des tests unitaires couvrent le helper SLM et un scénario bout-en-bout VAD+détection pour sécuriser la logique.
 
 
