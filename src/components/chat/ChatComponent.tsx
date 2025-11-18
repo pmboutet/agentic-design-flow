@@ -16,7 +16,6 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import "highlight.js/styles/github-dark.css";
-import { VoiceMode } from "./VoiceMode";
 import { PremiumVoiceInterface } from "./PremiumVoiceInterface";
 import { DeepgramMessageEvent } from "@/lib/ai/deepgram";
 import { HybridVoiceAgentMessage } from "@/lib/ai/hybrid-voice-agent";
@@ -319,6 +318,7 @@ export function ChatComponent({
           onVoiceModeChange?.(false);
         }}
         messages={voiceMessages}
+        conversationPlan={conversationPlan}
       />
     );
   }

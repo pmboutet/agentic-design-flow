@@ -10,12 +10,17 @@ export interface SpeechmaticsConfig {
   // Speechmatics STT config
   sttLanguage?: string; // e.g., "fr", "en", "multi", "fr,en"
   sttOperatingPoint?: "enhanced" | "standard";
-  sttMaxDelay?: number; // Max delay between segments (default: 2.0)
+  sttMaxDelay?: number; // Max delay between segments (default: 1.0 in low latency mode, 3.0 otherwise)
   sttEnablePartials?: boolean; // Enable partial transcription results
+  lowLatencyMode?: boolean; // Enable low latency mode (default: true) - uses max_delay: 1.0 and operating_point: "standard"
   // Microphone sensitivity config
   microphoneSensitivity?: number; // VAD threshold multiplier (0.5 = more sensitive, 2.0 = less sensitive, default: 1.0)
   microphoneDeviceId?: string; // Device ID for specific microphone selection
   voiceIsolation?: boolean; // Enable voice isolation (noise suppression, echo cancellation)
+  // Audio processing enhancements
+  enableAdaptiveSensitivity?: boolean; // Enable adaptive VAD threshold based on noise floor (default: true)
+  enableAdaptiveNoiseGate?: boolean; // Enable adaptive noise gate (default: true)
+  enableWorkletAGC?: boolean; // Enable AGC (Automatic Gain Control) in AudioWorklet (default: true)
   // LLM config
   llmProvider?: "anthropic" | "openai";
   llmModel?: string;

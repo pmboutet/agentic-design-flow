@@ -1,49 +1,110 @@
 /**
- * Transcription management for Speechmatics Voice Agent
- * Handles partial and final transcripts, deduplication, and message processing
+ * TranscriptionManager - Gestionnaire de transcription pour Speechmatics Voice Agent
+ * 
+ * Ce module gère toute la logique de traitement des transcriptions :
+ * - Réception et fusion des transcriptions partielles (partial) et finales
+ * - Déduplication intelligente pour éviter les doublons
+ * - Détection de silence pour finaliser les messages utilisateur
+ * - Nettoyage et normalisation du texte transcrit
+ * - Gestion des messages intermédiaires (interim) pour l'affichage en temps réel
+ * 
+ * Architecture :
+ * - Utilise un système de timeout pour détecter la fin de la parole
+ * - Fusionne les segments de transcription qui se chevauchent
+ * - Filtre les fragments incomplets et les doublons
+ * - Gère les signaux EndOfUtterance de Speechmatics
  */
 
 import type { SpeechmaticsMessageCallback } from './speechmatics-types';
 
+/**
+ * Classe principale pour la gestion des transcriptions
+ * 
+ * Coordonne la réception des transcriptions partielles et finales,
+ * détecte la fin de la parole de l'utilisateur, et déclenche le traitement
+ * des messages une fois qu'ils sont complets.
+ */
 export class TranscriptionManager {
+  // ===== ÉTATS DE SUIVI DES TRANSCRIPTIONS =====
+  // Dernier contenu partiel reçu (pour détecter les doublons)
   private lastPartialUserContent: string | null = null;
+  // Dernier contenu final reçu (pour détecter les doublons)
   private lastFinalUserContent: string | null = null;
+  // Transcription finale en attente de traitement (accumulée depuis les partials et finals)
   private pendingFinalTranscript: string | null = null;
+  // ID du message en cours de streaming (pour l'affichage optimiste)
   private currentStreamingMessageId: string | null = null;
+  // Dernier contenu traité (pour éviter les doublons lors du traitement)
   private lastProcessedContent: string | null = null;
+  // Timeout pour détecter le silence (finalise le message après X ms sans nouvelles transcriptions)
   private silenceTimeout: NodeJS.Timeout | null = null;
-  private receivedEndOfUtterance: boolean = false; // Flag to track if EndOfUtterance was received
+  // Flag indiquant si EndOfUtterance a été reçu de Speechmatics
+  private receivedEndOfUtterance: boolean = false;
+  // Timeout de debounce pour la finalisation de l'énoncé (évite les fragments multiples)
   private utteranceDebounceTimeout: NodeJS.Timeout | null = null;
+  // Dernier contenu de prévisualisation envoyé (pour éviter les doublons dans les callbacks)
   private lastPreviewContent: string | null = null;
-  private readonly SILENCE_DETECTION_TIMEOUT = 1500; // Fail-safe timeout (1.5s) if no partial arrives
-  private readonly UTTERANCE_FINALIZATION_DELAY = 600; // Wait 0.6s without new partial before finalising
+  
+  // ===== CONSTANTES DE CONFIGURATION =====
+  // Timeout de détection de silence (2.5s) - fail-safe si aucune transcription partielle n'arrive
+  private readonly SILENCE_DETECTION_TIMEOUT = 2500;
+  // Timeout plus rapide (1s) quand les partials sont désactivés
+  private readonly SILENCE_DETECTION_TIMEOUT_NO_PARTIALS = 1000;
+  // Délai de finalisation de l'énoncé (1s) - attend sans nouvelle transcription partielle avant de finaliser
+  private readonly UTTERANCE_FINALIZATION_DELAY = 1000;
+  // Longueur minimale d'un énoncé en caractères (pour éviter les fragments trop courts)
   private readonly MIN_UTTERANCE_CHAR_LENGTH = 20;
+  // Nombre minimal de mots dans un énoncé (pour éviter les fragments trop courts)
   private readonly MIN_UTTERANCE_WORDS = 3;
+  // Mots français qui indiquent qu'un fragment n'est pas complet (conjonctions, prépositions, etc.)
   private readonly FRAGMENT_ENDINGS = new Set([
     'et','de','des','du','d\'','si','que','qu','le','la','les','nous','vous','je','tu','il','elle','on','mais','ou','donc','or','ni','car','à','en','pour','sur','avec'
   ]);
 
+  /**
+   * Constructeur du TranscriptionManager
+   * 
+   * @param onMessageCallback - Callback appelé pour envoyer les messages (interim et final) à l'interface
+   * @param processUserMessage - Fonction appelée pour traiter un message utilisateur finalisé (déclenche LLM + TTS)
+   * @param conversationHistory - Historique de conversation (pour le nettoyage et la déduplication)
+   * @param enablePartials - Active l'envoi des transcriptions partielles pour l'affichage en temps réel
+   */
   constructor(
     private onMessageCallback: SpeechmaticsMessageCallback | null,
     private processUserMessage: (transcript: string) => Promise<void>,
-    private conversationHistory: Array<{ role: 'user' | 'agent'; content: string }>
+    private conversationHistory: Array<{ role: 'user' | 'agent'; content: string }>,
+    private enablePartials: boolean = true
   ) {}
 
+  // ===== FONCTIONS UTILITAIRES =====
   /**
-   * Calculate similarity between two strings
+   * Calcule la similarité entre deux chaînes de caractères
+   * 
+   * Utilise une mesure basée sur les mots communs (Jaccard-like).
+   * Retourne un score entre 0 (pas de similarité) et 1 (identique).
+   * 
+   * Utilisé pour détecter les doublons et les variations de transcription.
+   * 
+   * @param str1 - Première chaîne à comparer
+   * @param str2 - Deuxième chaîne à comparer
+   * @returns Score de similarité entre 0 et 1
    */
   private calculateSimilarity(str1: string, str2: string): number {
+    // Extraire les mots (normalisés en minuscules)
     const words1 = str1.toLowerCase().split(/\s+/);
     const words2 = str2.toLowerCase().split(/\s+/);
+    // Créer un ensemble de tous les mots uniques
     const allWords = new Set([...words1, ...words2]);
     let commonWords = 0;
     
+    // Compter les mots communs
     for (const word of allWords) {
       if (words1.includes(word) && words2.includes(word)) {
         commonWords++;
       }
     }
     
+    // Retourner le ratio de mots communs sur le total de mots uniques
     if (allWords.size === 0) return 0;
     return commonWords / allWords.size;
   }
@@ -63,12 +124,15 @@ export class TranscriptionManager {
     // Only set timeout if we have a pending transcript
     // This ensures we wait for all chunks before processing
     if (this.pendingFinalTranscript && this.pendingFinalTranscript.trim()) {
+      const timeoutDuration = this.enablePartials
+        ? this.SILENCE_DETECTION_TIMEOUT
+        : this.SILENCE_DETECTION_TIMEOUT_NO_PARTIALS;
       // Always set timeout - even if EndOfUtterance was received
       // This ensures we respect the full silence period before responding
       this.silenceTimeout = setTimeout(() => {
         console.log('[Transcription] ⏰ Silence timeout - processing message');
         this.processPendingTranscript(true);
-      }, this.SILENCE_DETECTION_TIMEOUT);
+      }, timeoutDuration);
     }
   }
 
@@ -78,8 +142,9 @@ export class TranscriptionManager {
    */
   markEndOfUtterance(): void {
     this.receivedEndOfUtterance = true;
-    // Force a quick finalisation attempt - but still let buffer validation run
-    this.scheduleUtteranceFinalization(true);
+    const shouldForce = this.enablePartials;
+    // When partials are disabled we keep the normal debounce to let the final chunk arrive
+    this.scheduleUtteranceFinalization(shouldForce);
   }
 
   /**
@@ -91,7 +156,12 @@ export class TranscriptionManager {
       clearTimeout(this.utteranceDebounceTimeout);
       this.utteranceDebounceTimeout = null;
     }
-    const delay = force ? Math.min(200, this.UTTERANCE_FINALIZATION_DELAY) : this.UTTERANCE_FINALIZATION_DELAY;
+    const defaultDelay = this.enablePartials
+      ? this.UTTERANCE_FINALIZATION_DELAY
+      : this.SILENCE_DETECTION_TIMEOUT_NO_PARTIALS;
+    const delay = force && this.enablePartials
+      ? Math.min(200, defaultDelay)
+      : defaultDelay;
     this.utteranceDebounceTimeout = setTimeout(() => {
       this.processPendingTranscript(force);
     }, delay);
@@ -117,26 +187,25 @@ export class TranscriptionManager {
     // Process pending transcript if we have one
     if (this.pendingFinalTranscript && this.pendingFinalTranscript.trim()) {
       let finalMessage = this.cleanTranscript(this.pendingFinalTranscript.trim());
-      
+
+      // Trim overlap with the previous user message to avoid duplicated openings
+      finalMessage = this.removeOverlapWithPreviousMessage(finalMessage);
+
       if (!this.isUtteranceComplete(finalMessage, force)) {
         // Not enough content yet - keep waiting unless forced by failsafe
         this.pendingFinalTranscript = finalMessage;
         if (!force) {
           // DON'T reschedule utteranceDebounceTimeout here!
-          // It would create an infinite loop where utteranceDebounceTimeout (0.6s)
-          // keeps cancelling silenceTimeout (1.5s) before it can trigger.
+          // It would create an infinite loop where utteranceDebounceTimeout
+          // keeps cancelling silenceTimeout before it can trigger.
           // Just recreate the silence timeout and let IT handle finalization.
+          console.log('[Transcription] ⏳ Waiting for complete utterance, resetting silence timeout');
           this.resetSilenceTimeout();
           return;
+        } else {
+          // Force mode (failsafe timeout) - but still log warning
+          console.warn('[Transcription] ⚠️ FAILSAFE: Forcing incomplete utterance send:', finalMessage);
         }
-      }
-      
-      // Skip if message is only punctuation (should have been handled in handleFinalTranscript)
-      if (this.isOnlyPunctuation(finalMessage)) {
-        this.pendingFinalTranscript = null;
-        this.lastPartialUserContent = null;
-        this.currentStreamingMessageId = null;
-        return;
       }
       
       // Skip if this is the same as the last processed message (duplicate)
@@ -165,16 +234,6 @@ export class TranscriptionManager {
         return;
       }
       
-      // Skip orphan chunks that are just punctuation already present at the end of previous message
-      // Example: previous="OK, je suis reparti de mon côté.", new="." -> skip
-      if (this.lastProcessedContent && this.isOrphanPunctuation(finalMessage, this.lastProcessedContent)) {
-        console.log('[Transcription] ⏸️ Skipping orphan chunk (repeated punctuation from previous message):', finalMessage);
-        this.pendingFinalTranscript = null;
-        this.lastPartialUserContent = null;
-        this.currentStreamingMessageId = null;
-        return;
-      }
-      
       // Skip fuzzy duplicates at the end of previous message
       if (this.lastProcessedContent && this.isFuzzyEndDuplicate(finalMessage, this.lastProcessedContent)) {
         console.log('[Transcription] ⏸️ Skipping fuzzy duplicate at end:', finalMessage);
@@ -182,10 +241,6 @@ export class TranscriptionManager {
         this.lastPartialUserContent = null;
         this.currentStreamingMessageId = null;
         return;
-      }
-      
-      if (!/[.!?…]$/.test(finalMessage)) {
-        finalMessage = `${finalMessage}.`;
       }
       
       // Store values before clearing
@@ -201,10 +256,11 @@ export class TranscriptionManager {
       this.lastPreviewContent = null;
       
       console.log('[Transcription] ✅ FINAL:', fullContent);
-      
+      console.log('[📤 SEND FINAL]', fullContent.slice(0, 80) + (fullContent.length > 80 ? '...' : ''));
+
       // Add to conversation history
       this.conversationHistory.push({ role: 'user', content: fullContent });
-      
+
       // Notify callback with final message (use fullContent to ensure we send everything)
       this.onMessageCallback?.({
         role: 'user',
@@ -227,6 +283,9 @@ export class TranscriptionManager {
     if (!transcript || !transcript.trim()) return;
 
     const trimmedTranscript = transcript.trim();
+
+    // Log minimal pour debug
+    console.log('[📥 PARTIAL]', trimmedTranscript.slice(0, 80) + (trimmedTranscript.length > 80 ? '...' : ''));
     
     // Detect start of a brand new user turn (previous turn was already processed)
     if (!this.pendingFinalTranscript && this.lastProcessedContent) {
@@ -290,8 +349,15 @@ export class TranscriptionManager {
     }
     this.lastPreviewContent = previewContent;
 
+    // Respect config flag to disable partial streaming
+    if (!this.enablePartials) {
+      return;
+    }
+
     const messageId = this.currentStreamingMessageId || undefined;
-    
+
+    console.log('[📤 SEND INTERIM]', previewContent.slice(0, 60) + (previewContent.length > 60 ? '...' : ''));
+
     this.onMessageCallback?.({
       role: 'user',
       content: previewContent,
@@ -299,20 +365,6 @@ export class TranscriptionManager {
       isInterim: true,
       messageId,
     });
-  }
-
-  /**
-   * Check if a transcript is only punctuation
-   */
-  private isOnlyPunctuation(text: string): boolean {
-    // Remove whitespace and check if only punctuation remains
-    const cleaned = text.trim().replace(/\s+/g, '');
-    if (cleaned.length === 0) return true;
-    
-    // Check if all characters are punctuation (common punctuation marks)
-    // Allow up to 10 characters to catch cases like "...." or "???"
-    const punctuationRegex = /^[.,!?;:…\-—–'"]+$/;
-    return punctuationRegex.test(cleaned) && cleaned.length <= 10;
   }
 
   /**
@@ -354,50 +406,6 @@ export class TranscriptionManager {
       if (matchesEnd) {
         return true;
       }
-    }
-    
-    return false;
-  }
-
-  /**
-   * Check if a new message is just punctuation that's already present at the end of previous message
-   * Example: previous="OK, je suis reparti de mon côté.", new="." -> true
-   * Example: previous="OK, je suis reparti de mon côté.", new="..." -> false (different punctuation)
-   */
-  private isOrphanPunctuation(newMessage: string, previousMessage: string): boolean {
-    const newTrimmed = newMessage.trim();
-    const prevTrimmed = previousMessage.trim();
-    
-    // If new message is empty, it's not punctuation
-    if (!newTrimmed) {
-      return false;
-    }
-    
-    // Check if new message is only punctuation (or punctuation + whitespace)
-    const newClean = newTrimmed.replace(/\s+/g, '');
-    if (!newClean) {
-      return false;
-    }
-    
-    const punctuationRegex = /^[.,!?;:…\-—–'"]+$/;
-    if (!punctuationRegex.test(newClean)) {
-      return false; // Not just punctuation
-    }
-    
-    // Extract punctuation from the end of previous message
-    const prevPunctuationMatch = prevTrimmed.match(/[.,!?;:…\-—–'"]+$/);
-    if (!prevPunctuationMatch) {
-      return false; // Previous message has no punctuation at the end
-    }
-    
-    const prevEndPunctuation = prevPunctuationMatch[0];
-    
-    // Check if new punctuation matches or is contained in previous punctuation
-    // Example: prev=".", new="." -> true
-    // Example: prev="...", new="." -> true (new is subset)
-    // Example: prev=".", new="..." -> false (new is different)
-    if (prevEndPunctuation.includes(newClean) || newClean === prevEndPunctuation) {
-      return true;
     }
     
     return false;
@@ -446,6 +454,9 @@ export class TranscriptionManager {
     if (!transcript || !transcript.trim()) return;
 
     const trimmedTranscript = transcript.trim();
+
+    // Log minimal pour debug
+    console.log('[📥 FINAL]', trimmedTranscript.slice(0, 80) + (trimmedTranscript.length > 80 ? '...' : ''));
     
     // Seed pending transcript with the latest partial (usually the full text) if missing
     if (!this.pendingFinalTranscript) {
@@ -455,19 +466,6 @@ export class TranscriptionManager {
     // Skip if exactly the same as last final transcript (exact duplicate)
     // But only if we don't have a pending transcript (to allow accumulation)
     if (!this.pendingFinalTranscript && trimmedTranscript === this.lastFinalUserContent) {
-      return;
-    }
-    
-    // Skip messages that are only punctuation (like ".", "?", "!")
-    // These are often sent as separate final messages but should be ignored
-    if (this.isOnlyPunctuation(trimmedTranscript)) {
-      // If we have a pending transcript, append the punctuation to the END of it
-      if (this.pendingFinalTranscript) {
-        this.pendingFinalTranscript = this.pendingFinalTranscript.trim() + trimmedTranscript;
-      }
-      // DON'T store orphan punctuation in pendingPunctuation
-      // It causes punctuation to appear at the START of the next message
-      // Just ignore orphan punctuation completely
       return;
     }
     
@@ -481,7 +479,7 @@ export class TranscriptionManager {
         this.pendingFinalTranscript = trimmedTranscript;
         this.lastFinalUserContent = trimmedTranscript;
         this.resetSilenceTimeout();
-        this.scheduleUtteranceFinalization(true);
+        this.scheduleUtteranceFinalization();
         return;
       }
       
@@ -491,7 +489,7 @@ export class TranscriptionManager {
       if (pendingTrimmed.startsWith(trimmedTranscript)) {
         // Don't update lastFinalUserContent to avoid triggering duplicate check
         this.resetSilenceTimeout();
-        this.scheduleUtteranceFinalization(true);
+        this.scheduleUtteranceFinalization();
         return;
       }
       
@@ -500,7 +498,7 @@ export class TranscriptionManager {
       // Keep the longer version (pending)
       if (pendingTrimmed.endsWith(trimmedTranscript)) {
         this.resetSilenceTimeout();
-        this.scheduleUtteranceFinalization(true);
+        this.scheduleUtteranceFinalization();
         return;
       }
       
@@ -510,7 +508,7 @@ export class TranscriptionManager {
         this.pendingFinalTranscript = trimmedTranscript;
         this.lastFinalUserContent = trimmedTranscript;
         this.resetSilenceTimeout();
-        this.scheduleUtteranceFinalization(true);
+        this.scheduleUtteranceFinalization();
         return;
       }
       
@@ -519,7 +517,7 @@ export class TranscriptionManager {
       // Keep the longer version (pending)
       if (pendingTrimmed.includes(trimmedTranscript)) {
         this.resetSilenceTimeout();
-        this.scheduleUtteranceFinalization(true);
+        this.scheduleUtteranceFinalization();
         return;
       }
       
@@ -532,16 +530,16 @@ export class TranscriptionManager {
           this.lastFinalUserContent = trimmedTranscript;
         }
         this.resetSilenceTimeout();
-        this.scheduleUtteranceFinalization(true);
+        this.scheduleUtteranceFinalization();
         return;
       }
       
       // Case 7: Completely different segments - append
       // Example: pending="partie 1", new="partie 2"
-      this.pendingFinalTranscript = pendingTrimmed + ' ' + trimmedTranscript;
+      this.pendingFinalTranscript = this.mergeTranscriptSegments(pendingTrimmed, trimmedTranscript);
       this.lastFinalUserContent = trimmedTranscript;
       this.resetSilenceTimeout();
-      this.scheduleUtteranceFinalization(true);
+      this.scheduleUtteranceFinalization();
       return;
     } else {
       // Start a new pending transcript
@@ -555,7 +553,7 @@ export class TranscriptionManager {
         this.currentStreamingMessageId = `stream-${Date.now()}`;
       }
       this.resetSilenceTimeout();
-      this.scheduleUtteranceFinalization(true);
+      this.scheduleUtteranceFinalization();
     }
   }
 
@@ -624,13 +622,16 @@ export class TranscriptionManager {
   private removeConsecutiveWordDuplicates(text: string): string {
     const tokens = text.split(/\s+/);
     const deduped: string[] = [];
+    const normalizedHistory: string[] = [];
     for (const token of tokens) {
-      const normalized = token.toLowerCase();
-      const prev = deduped[deduped.length - 1];
-      if (prev && prev.toLowerCase() === normalized) {
+      if (!token) continue;
+      const normalized = this.normalizeToken(token);
+      const prevNormalized = normalizedHistory[normalizedHistory.length - 1];
+      if (normalized && prevNormalized && prevNormalized === normalized) {
         continue;
       }
       deduped.push(token);
+      normalizedHistory.push(normalized);
     }
     return deduped.join(' ');
   }
@@ -638,17 +639,23 @@ export class TranscriptionManager {
   private removeConsecutivePhraseDuplicates(text: string): string {
     const tokens = text.split(/\s+/);
     const result: string[] = [];
+    const normalizedResult: string[] = [];
     for (const token of tokens) {
       result.push(token);
+      normalizedResult.push(this.normalizeToken(token));
       const len = result.length;
       const maxWindow = Math.min(6, Math.floor(len / 2));
       for (let window = maxWindow; window >= 2; window--) {
         const start = len - window * 2;
         if (start < 0) continue;
-        const first = result.slice(start, start + window).join(' ').toLowerCase();
-        const second = result.slice(start + window, start + window * 2).join(' ').toLowerCase();
-        if (first === second) {
+        const firstNormalized = normalizedResult.slice(start, start + window).join(' ');
+        const secondNormalized = normalizedResult.slice(start + window, start + window * 2).join(' ');
+        if (!firstNormalized.trim() || !secondNormalized.trim()) {
+          continue;
+        }
+        if (firstNormalized === secondNormalized) {
           result.splice(start + window, window);
+          normalizedResult.splice(start + window, window);
           break;
         }
       }
@@ -656,18 +663,112 @@ export class TranscriptionManager {
     return result.join(' ');
   }
 
+  private normalizeToken(token: string): string {
+    return token
+      .toLowerCase()
+      .replace(/^[\s.,!?;:…'"()\-]+/g, '')
+      .replace(/[\s.,!?;:…'"()\-]+$/g, '');
+  }
+
+  /**
+   * Remove duplicated openings that repeat the end of the previous user message.
+   * Speechmatics sometimes echoes the last few words when a new utterance starts.
+   */
+  private removeOverlapWithPreviousMessage(message: string): string {
+    if (!message || !message.trim()) {
+      return message;
+    }
+
+    const previousIndex = this.findLastUserMessageIndex();
+    if (previousIndex === -1) {
+      return message;
+    }
+
+    const previousMessage = this.conversationHistory[previousIndex]?.content || '';
+    if (!previousMessage || !previousMessage.trim()) {
+      return message;
+    }
+
+    const previousWords = previousMessage.trim().split(/\s+/).filter(Boolean);
+    const newWords = message.trim().split(/\s+/).filter(Boolean);
+    if (previousWords.length === 0 || newWords.length === 0) {
+      return message;
+    }
+
+    const maxOverlap = Math.min(previousWords.length, newWords.length - 1, 12);
+    if (maxOverlap < 2) {
+      return message;
+    }
+
+    for (let size = maxOverlap; size >= 2; size--) {
+      const prevSlice = previousWords.slice(-size).map(word => this.normalizeToken(word)).join(' ');
+      const newSlice = newWords.slice(0, size).map(word => this.normalizeToken(word)).join(' ');
+      if (prevSlice && prevSlice.length > 0 && prevSlice === newSlice) {
+        const trimmed = newWords.slice(size).join(' ').trim();
+        if (trimmed.length > 0) {
+          console.log('[Transcription] ✂️ Trimmed overlap with previous message', {
+            overlapWords: size,
+            overlap: newWords.slice(0, size).join(' '),
+          });
+          return trimmed;
+        }
+      }
+    }
+
+    return message;
+  }
+
   private isUtteranceComplete(text: string, force: boolean): boolean {
     if (!text) return false;
     const cleaned = text.trim();
-    const words = cleaned.split(/\s+/).filter(Boolean);
-    if (!force) {
-      if (cleaned.length < this.MIN_UTTERANCE_CHAR_LENGTH) return false;
-      if (words.length < this.MIN_UTTERANCE_WORDS) return false;
-      const lastWord = words[words.length - 1]?.toLowerCase() || '';
-      if (this.FRAGMENT_ENDINGS.has(lastWord)) return false;
-      if (!/[.!?…]$/.test(cleaned)) return false;
+    if (!cleaned) return false;
+
+    if (force) {
+      return true;
     }
+
+    const words = cleaned.split(/\s+/).filter(Boolean);
+    const relaxedMode = !this.enablePartials;
+
+    const minChars = relaxedMode
+      ? Math.max(6, Math.floor(this.MIN_UTTERANCE_CHAR_LENGTH / 2))
+      : this.MIN_UTTERANCE_CHAR_LENGTH;
+    const minWords = relaxedMode
+      ? Math.max(1, this.MIN_UTTERANCE_WORDS - 1)
+      : this.MIN_UTTERANCE_WORDS;
+
+    if (cleaned.length < minChars) return false;
+    if (words.length < minWords) return false;
+
+    const lastWord = words[words.length - 1]?.toLowerCase().replace(/[.,!?;:…\-—–'"]+$/g, '');
+
+    // CRITIQUE : Vérifier si le dernier mot (sans ponctuation) est un mot de fragment
+    // Cela empêche l'envoi prématuré de "si je ne me" (se termine par "me")
+    if (this.FRAGMENT_ENDINGS.has(lastWord)) {
+      console.log('[Transcription] ⏸️ Utterance incomplete - ends with fragment word:', lastWord);
+      return false;
+    }
+
+    if (relaxedMode) {
+      // In total transcription mode we can accept shorter chunks,
+      // but still avoid finalizing on obvious connector words.
+      if (words.length <= 2 && this.FRAGMENT_ENDINGS.has(lastWord)) {
+        return false;
+      }
+    }
+
     return true;
   }
-}
 
+  /**
+   * Find the index of the last user message in the conversation history.
+   */
+  private findLastUserMessageIndex(): number {
+    for (let i = this.conversationHistory.length - 1; i >= 0; i--) {
+      if (this.conversationHistory[i]?.role === 'user') {
+        return i;
+      }
+    }
+    return -1;
+  }
+}

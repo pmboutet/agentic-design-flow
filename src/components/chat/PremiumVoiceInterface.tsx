@@ -1,15 +1,48 @@
+/**
+ * PremiumVoiceInterface - Interface vocale premium avec support multi-providers
+ * 
+ * Ce composant fournit une interface vocale complète avec :
+ * - Support de plusieurs providers (Deepgram, Hybrid, Speechmatics)
+ * - Gestion streaming temps réel (buffers interim type OpenAI)
+ * - Visualisation audio avec analyseur de fréquence
+ * - Contrôles de microphone (sélection, sensibilité, isolation vocale)
+ * - Gestion de la déduplication des messages
+ * - Animations fluides avec Framer Motion
+ * 
+ * Architecture :
+ * - Utilise deux buffers interim (user/assistant) pour afficher les messages en cours
+ * - Fusionne ces buffers avec les messages finaux provenant des props
+ * - Gère la déconnexion propre des ressources audio et WebSocket
+ */
+
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, MicOff, Volume2, VolumeX, Pencil, Settings } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { DeepgramVoiceAgent, DeepgramMessageEvent } from '@/lib/ai/deepgram';
 import { HybridVoiceAgent, HybridVoiceAgentMessage } from '@/lib/ai/hybrid-voice-agent';
 import { SpeechmaticsVoiceAgent, SpeechmaticsMessageEvent } from '@/lib/ai/speechmatics';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/components/auth/AuthProvider';
+import type { ConversationPlan, ConversationPlanStep } from '@/types';
 
+/**
+ * Props du composant PremiumVoiceInterface
+ * 
+ * @property askKey - Clé unique de l'ask (question) pour identifier la session
+ * @property askSessionId - ID optionnel de la session
+ * @property systemPrompt - Prompt système pour l'agent vocal
+ * @property userPrompt - Template de prompt utilisateur (optionnel, même format que le mode texte)
+ * @property modelConfig - Configuration du modèle (provider, modèles STT/TTS, LLM, etc.)
+ * @property onMessage - Callback appelé lorsqu'un message est reçu (user ou assistant)
+ * @property onError - Callback appelé en cas d'erreur
+ * @property onClose - Callback appelé lors de la fermeture de l'interface
+ * @property onEdit - Callback optionnel appelé lors du clic sur le bouton d'édition
+ * @property messages - Liste des messages finaux (source de vérité depuis les props)
+ */
 interface PremiumVoiceInterfaceProps {
   askKey: string;
   askSessionId?: string;
@@ -44,8 +77,18 @@ interface PremiumVoiceInterfaceProps {
     messageId?: string; // Added to support stable keys throughout lifecycle
     metadata?: Record<string, unknown>; // Preserve metadata to access messageId
   }>;
+  conversationPlan?: ConversationPlan | null;
 }
 
+/**
+ * Type représentant un message vocal dans l'interface
+ * 
+ * @property role - Rôle de l'émetteur (user ou assistant)
+ * @property content - Contenu textuel du message
+ * @property timestamp - Horodatage ISO du message
+ * @property messageId - ID unique du message (pour la déduplication et le suivi)
+ * @property isInterim - Indique si le message est intermédiaire (en cours de transcription) ou final
+ */
 type VoiceMessage = {
   role: 'user' | 'assistant';
   content: string;
@@ -54,6 +97,16 @@ type VoiceMessage = {
   isInterim?: boolean;
 };
 
+/**
+ * Composant principal PremiumVoiceInterface
+ * 
+ * Gère toute la logique de l'interface vocale :
+ * - Connexion aux agents vocaux (Deepgram, Hybrid, Speechmatics)
+ * - Gestion des messages streaming (buffers interim) pour l'affichage en temps réel
+ * - Visualisation audio avec analyseur de fréquence
+ * - Contrôles de microphone et paramètres
+ * - Nettoyage propre des ressources lors de la déconnexion
+ */
 export function PremiumVoiceInterface({
   askKey,
   askSessionId,
@@ -65,48 +118,85 @@ export function PremiumVoiceInterface({
   onClose,
   onEdit,
   messages = [],
+  conversationPlan,
 }: PremiumVoiceInterfaceProps) {
+  // Récupération de l'utilisateur connecté pour l'affichage du profil
   const { user } = useAuth();
+  
+  // ===== ÉTATS DE CONNEXION ET MICROPHONE =====
+  // État de connexion au service vocal (WebSocket établi)
   const [isConnected, setIsConnected] = useState(false);
+  // État d'activation du microphone (permission accordée et stream actif)
   const [isMicrophoneActive, setIsMicrophoneActive] = useState(false);
+  // État de mute du microphone (microphone désactivé mais WebSocket toujours ouvert pour recevoir les réponses)
   const [isMuted, setIsMuted] = useState(false);
+  // Message d'erreur à afficher à l'utilisateur
   const [error, setError] = useState<string | null>(null);
+  // État de connexion en cours (pendant l'établissement de la connexion)
   const [isConnecting, setIsConnecting] = useState(false);
+  // État indiquant si l'utilisateur est en train de parler (détecté via les messages user)
   const [isSpeaking, setIsSpeaking] = useState(false);
+  // Niveau audio actuel (0-1) pour la visualisation du waveform
   const [audioLevel, setAudioLevel] = useState(0);
+  // Buffers locaux pour le streaming en cours (pattern OpenAI)
+  const [interimUser, setInterimUser] = useState<VoiceMessage | null>(null);
+  const [interimAssistant, setInterimAssistant] = useState<VoiceMessage | null>(null);
 
-  // Microphone controls state
+  const conversationSteps = conversationPlan?.plan_data.steps ?? [];
+  const currentConversationStepId = conversationPlan?.current_step_id;
+  const hasConversationSteps = conversationSteps.length > 0;
+
+  // ===== ÉTATS DES CONTRÔLES MICROPHONE =====
+  // ID du microphone sélectionné (null = microphone par défaut)
   const [selectedMicrophoneId, setSelectedMicrophoneId] = useState<string | null>(null);
+  // Sensibilité du microphone (1.5 = moins sensible, filtre les conversations de fond)
   const [microphoneSensitivity, setMicrophoneSensitivity] = useState<number>(1.5);
+  // Activation de l'isolation vocale (filtre le bruit de fond)
   const [voiceIsolationEnabled, setVoiceIsolationEnabled] = useState<boolean>(true);
+  // Liste des microphones disponibles sur le système
   const [availableMicrophones, setAvailableMicrophones] = useState<MediaDeviceInfo[]>([]);
+  // Affichage du panneau de paramètres du microphone
   const [showMicrophoneSettings, setShowMicrophoneSettings] = useState<boolean>(false);
 
-  // NEW: Optimistic message cache for real-time updates
-  // This replaces the complex voiceMessages state system
-  const [optimisticCache, setOptimisticCache] = useState<Map<string, VoiceMessage>>(new Map());
-
+  // ===== RÉFÉRENCES POUR LA GESTION DES RESSOURCES =====
+  // Référence à l'agent vocal actuel (peut être Deepgram, Hybrid ou Speechmatics)
   const agentRef = useRef<DeepgramVoiceAgent | HybridVoiceAgent | SpeechmaticsVoiceAgent | null>(null);
+  // Timeout pour réinitialiser l'état "isSpeaking" après que l'utilisateur arrête de parler
   const speakingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  // Contexte audio Web Audio API pour l'analyse du signal audio
   const audioContextRef = useRef<AudioContext | null>(null);
+  // Nœud analyseur pour extraire les données de fréquence audio (waveform)
   const analyserRef = useRef<AnalyserNode | null>(null);
+  // Nœud source audio depuis le stream du microphone
   const microphoneNodeRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  // ID de la frame d'animation pour la visualisation audio (à annuler lors du cleanup)
   const animationFrameRef = useRef<number | null>(null);
+  // Référence au stream média du microphone (pour le nettoyage propre)
   const streamRef = useRef<MediaStream | null>(null);
+  // Flag pour empêcher les déconnexions multiples simultanées
   const isDisconnectingRef = useRef<boolean>(false);
+  // Flag pour empêcher les connexions multiples simultanées
   const isConnectingRef = useRef<boolean>(false);
+  // Référence au conteneur des messages (pour le scroll)
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
+  // Référence à l'élément invisible en bas de la liste des messages (pour auto-scroll)
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
-  const previousOptimisticCountRef = useRef<number>(0);
-  const previousPropsCountRef = useRef<number>(0);
+  // Flag pour éviter les rechargements multiples de la page
+  const reloadRequestedRef = useRef(false);
+  
+  // ===== DÉTECTION DU TYPE D'AGENT =====
+  // Détection si l'agent est de type Hybrid (Deepgram STT + LLM + ElevenLabs TTS)
   const isHybridAgent = modelConfig?.provider === "hybrid-voice-agent";
-  // Use voiceAgentProvider if available, otherwise fallback to provider
-  // But warn if provider is not a voice agent (e.g., "anthropic", "openai")
+  // Détermination du provider vocal effectif (priorité à voiceAgentProvider, sinon provider)
+  // Avertit si le provider n'est pas un agent vocal valide
   const voiceAgentProvider = modelConfig?.voiceAgentProvider || modelConfig?.provider;
+  // Détection si l'agent est Speechmatics (Speechmatics STT + LLM + ElevenLabs TTS)
   const isSpeechmaticsAgent = voiceAgentProvider === "speechmatics-voice-agent";
   
-  // Warn if we're using a non-voice-agent provider as fallback
+  // ===== VALIDATION DE LA CONFIGURATION =====
+  // Liste des agents vocaux valides
   const validVoiceAgents = ["deepgram-voice-agent", "hybrid-voice-agent", "speechmatics-voice-agent"];
+  // Avertissement si on utilise un provider non-vocal comme fallback (probable erreur de config)
   if (!modelConfig?.voiceAgentProvider && modelConfig?.provider && 
       !validVoiceAgents.includes(modelConfig.provider)) {
     console.warn('[PremiumVoiceInterface] ⚠️ Using non-voice-agent provider as fallback:', {
@@ -115,8 +205,12 @@ export function PremiumVoiceInterface({
       message: 'This is likely a configuration error. voice_agent_provider should be set in the database.',
     });
   }
+  // Référence mutable pour l'état mute (utilisée dans les callbacks audio pour éviter les stale closures)
   const isMutedRef = useRef(isMuted);
 
+  // ===== DONNÉES DE LOGGING POUR LE DEBUG =====
+  // Mémorisation des données de configuration pour le logging (évite les recalculs inutiles)
+  // Utilisé pour logger la sélection de l'agent vocal et détecter les changements de config
   const voiceAgentLogData = useMemo(() => {
     const promptVariables = (modelConfig as any)?.promptVariables;
     const promptVariableKeys = promptVariables ? Object.keys(promptVariables).sort() : null;
@@ -135,17 +229,21 @@ export function PremiumVoiceInterface({
     
     return {
       payload,
-      signature: JSON.stringify(payload),
+      signature: JSON.stringify(payload), // Signature pour détecter les changements
     };
   }, [modelConfig, voiceAgentProvider, isSpeechmaticsAgent, isHybridAgent]);
 
-  // Message registry for deduplication at source
-  const messageRegistry = useRef<Map<string, { content: string; status: 'interim' | 'final'; timestamp: number }>>(new Map());
+  // ===== REGISTRE DES MESSAGES POUR DÉDUPLICATION =====
+  // Registre interne pour suivre les messages et éviter les doublons
+  // Clé: messageId, Valeur: { content, status: 'interim' | 'final', timestamp }
+  // Utilisé pour déterminer si un message doit être mis à jour ou ignoré
   
-  // Debug log
+  // ===== EFFETS DE DEBUG ET SYNCHRONISATION =====
+  // Log de la sélection de l'agent vocal lors des changements de configuration
   useEffect(() => {
     console.log('[PremiumVoiceInterface] 🎤 Voice Agent Selection:', voiceAgentLogData.payload);
     
+    // Avertissement si Speechmatics n'est pas sélectionné (pour debug)
     if (!isSpeechmaticsAgent) {
       console.warn('[PremiumVoiceInterface] ⚠️ Speechmatics not selected!', {
         voiceAgentProvider,
@@ -156,110 +254,51 @@ export function PremiumVoiceInterface({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [voiceAgentLogData.signature]);
 
+  // Synchronisation de la référence mutable avec l'état mute
+  // Permet aux callbacks audio d'accéder à la valeur actuelle sans stale closure
   useEffect(() => {
     isMutedRef.current = isMuted;
   }, [isMuted]);
 
+  // ===== FONCTIONS DE FUSION ET GESTION DES MESSAGES =====
   /**
-   * NEW SIMPLIFIED MESSAGE SYSTEM
-   * Updates optimistic cache with deduplication at source
+   * Fusionne le contenu de streaming pour éviter les doublons et les fragments
+   * 
+   * Cette fonction gère plusieurs cas :
+   * - Contenu identique : retourne l'existant
+   * - Nouveau contenu contient l'ancien : retourne le nouveau (extension)
+   * - Ancien contenu contient le nouveau : retourne l'ancien (le nouveau est un fragment)
+   * - Contenu partiellement chevauchant : fusionne intelligemment
+   * 
+   * @param previous - Contenu précédent (peut être undefined pour le premier message)
+   * @param incoming - Nouveau contenu reçu
+   * @returns Contenu fusionné sans doublons
    */
   const mergeStreamingContent = useCallback((previous: string | undefined, incoming: string): string => {
+    // Cas 1: Pas de contenu précédent, retourner le nouveau
     if (!previous) return incoming;
+    // Cas 2: Pas de nouveau contenu, retourner l'ancien
     if (!incoming) return previous;
+    // Cas 3: Contenu identique, pas de changement
     if (incoming === previous) return previous;
+    // Cas 4: Le nouveau contenu étend l'ancien (ex: "Bonjour" -> "Bonjour comment")
     if (incoming.startsWith(previous)) return incoming;
+    // Cas 5: L'ancien contenu contient le nouveau (le nouveau est un fragment)
     if (previous.startsWith(incoming)) return previous;
+    // Cas 6: Le nouveau contient l'ancien quelque part (correction/refinement)
     if (incoming.includes(previous)) return incoming;
+    // Cas 7: L'ancien contient le nouveau quelque part
     if (previous.includes(incoming)) return previous;
+    // Cas 8: Contenu complètement différent, fusionner avec espace
     return `${previous} ${incoming}`.replace(/\s+/g, ' ').trim();
   }, []);
 
-  const updateOptimisticMessage = useCallback((message: SpeechmaticsMessageEvent) => {
-    if (!message.messageId) {
-      console.log('[PremiumVoice] ⚠️ Message without messageId, skipping:', {
-        role: message.role,
-        content: message.content.substring(0, 30) + '...',
-        isInterim: message.isInterim,
-      });
-      return;
-    }
-
-    const id = message.messageId;
-    const existing = messageRegistry.current.get(id);
-    const now = Date.now();
-
-    // If we receive a final message, it should replace any interim message with the same ID
-    if (!message.isInterim) {
-      
-      // Final message - always update/replace
-      messageRegistry.current.set(id, {
-        content: message.content, // Store complete content
-        status: 'final',
-        timestamp: now,
-      });
-
-      // Update optimistic cache - this replaces the interim message
-      setOptimisticCache(prev => {
-        const next = new Map(prev);
-        const hadInterim = prev.has(id);
-        const oldContent = prev.get(id)?.content;
-        next.set(id, {
-          role: message.role === 'agent' ? 'assistant' : message.role,
-          content: message.content, // Use complete content from message
-          timestamp: message.timestamp || new Date().toISOString(),
-          messageId: id,
-          isInterim: false,
-        });
-        return next;
-      });
-      return;
-    }
-
-    // For interim messages:
-    // Skip if we already have final version (final takes precedence)
-    if (existing?.status === 'final') {
-      return; // Don't overwrite final with interim
-    }
-
-    // Skip if interim and content unchanged
-    if (existing?.content === message.content) {
-      return; // No change, skip
-    }
-
-    // Update registry for interim message
-    messageRegistry.current.set(id, {
-      content: message.content,
-      status: 'interim',
-      timestamp: now,
-    });
-
-    // Clean up old entries (> 30 seconds)
-    const cutoff = now - 30000;
-    for (const [key, value] of messageRegistry.current) {
-      if (value.timestamp < cutoff) {
-        messageRegistry.current.delete(key);
-      }
-    }
-
-    // Update optimistic cache
-    setOptimisticCache(prev => {
-      const next = new Map(prev);
-      const previousMessage = next.get(id);
-      const previousContent = previousMessage?.content || existing?.content;
-      const mergedContent = mergeStreamingContent(previousContent, message.content);
-      next.set(id, {
-        role: message.role === 'agent' ? 'assistant' : message.role,
-        content: mergedContent,
-        timestamp: message.timestamp || previousMessage?.timestamp || new Date().toISOString(),
-        messageId: id,
-        isInterim: true,
-      });
-      return next;
-    });
-  }, [mergeStreamingContent]);
-
-  // Get user name for greeting
+  // ===== FONCTIONS UTILITAIRES POUR L'INTERFACE =====
+  /**
+   * Récupère le prénom de l'utilisateur pour le message de bienvenue
+   * 
+   * @returns Le prénom de l'utilisateur ou "there" par défaut
+   */
   const getUserName = () => {
     if (user?.fullName) {
       const firstName = user.fullName.split(' ')[0];
@@ -268,7 +307,11 @@ export function PremiumVoiceInterface({
     return 'there';
   };
 
-  // Get greeting based on time of day
+  /**
+   * Récupère le message de salutation selon l'heure de la journée
+   * 
+   * @returns "Good Morning" (< 12h), "Good Afternoon" (12h-18h), "Good Evening" (>= 18h)
+   */
   const getGreeting = () => {
     const hour = new Date().getHours();
     if (hour < 12) return 'Good Morning';
@@ -276,11 +319,24 @@ export function PremiumVoiceInterface({
     return 'Good Evening';
   };
 
-  // Setup audio analysis
+  // ===== CONFIGURATION DE L'ANALYSE AUDIO =====
+  /**
+   * Configure l'analyse audio pour la visualisation du waveform
+   * 
+   * Crée un AudioContext, un AnalyserNode et connecte le stream du microphone
+   * pour extraire les données de fréquence en temps réel.
+   * 
+   * Le niveau audio est calculé toutes les frames d'animation et mis à jour
+   * seulement si le changement est significatif (> 0.01) pour réduire les re-renders.
+   * 
+   * @param stream - Stream média du microphone à analyser
+   */
   const setupAudioAnalysis = useCallback(async (stream: MediaStream) => {
     try {
+      // Vérifier si le microphone est muet avant de configurer l'analyse
       if (isMutedRef.current) {
         console.log('[PremiumVoiceInterface] 🔇 Skipping audio analysis setup because microphone is muted');
+        // Arrêter tous les tracks du stream pour libérer les ressources
         stream.getTracks().forEach(track => {
           if (track.readyState === 'live') {
             track.stop();
@@ -289,24 +345,37 @@ export function PremiumVoiceInterface({
         return;
       }
 
+      // Créer le contexte audio Web Audio API
       const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+      // Créer un analyseur pour extraire les données de fréquence
       const analyser = audioContext.createAnalyser();
+      // Créer une source audio depuis le stream du microphone
       const microphone = audioContext.createMediaStreamSource(stream);
       
+      // Configuration de l'analyseur :
+      // - fftSize: 256 = résolution de l'analyse (plus petit = plus rapide mais moins précis)
+      // - smoothingTimeConstant: 0.8 = lissage des données (0-1, plus élevé = plus lisse)
       analyser.fftSize = 256;
       analyser.smoothingTimeConstant = 0.8;
+      // Connecter le microphone à l'analyseur
       microphone.connect(analyser);
       
+      // Stocker les références pour le cleanup
       audioContextRef.current = audioContext;
       analyserRef.current = analyser;
       microphoneNodeRef.current = microphone;
       streamRef.current = stream;
 
+      // Tableau pour stocker les données de fréquence (taille = frequencyBinCount)
       const dataArray = new Uint8Array(analyser.frequencyBinCount);
-      let lastLevel = 0;
+      let lastLevel = 0; // Dernier niveau pour détecter les changements significatifs
 
+      /**
+       * Fonction récursive pour mettre à jour le niveau audio à chaque frame
+       * Utilise requestAnimationFrame pour une mise à jour fluide (~60fps)
+       */
       const updateAudioLevel = () => {
-        // Stop if analyser was cleaned up (component unmounted or muted)
+        // Arrêter si l'analyseur a été nettoyé (composant démonté ou muet)
         if (!analyserRef.current) {
           if (animationFrameRef.current) {
             cancelAnimationFrame(animationFrameRef.current);
@@ -315,29 +384,47 @@ export function PremiumVoiceInterface({
           return;
         }
 
+        // Extraire les données de fréquence dans le tableau
         analyserRef.current.getByteFrequencyData(dataArray);
+        // Calculer la moyenne des fréquences pour obtenir le niveau global
         const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
+        // Normaliser entre 0 et 1 (128 = valeur médiane pour Uint8)
         const normalizedLevel = Math.min(average / 128, 1);
 
-        // Only update if level changed significantly (reduce re-renders)
+        // Mettre à jour seulement si le changement est significatif (> 0.01)
+        // Cela réduit les re-renders inutiles et améliore les performances
         if (Math.abs(normalizedLevel - lastLevel) > 0.01) {
           lastLevel = normalizedLevel;
           setAudioLevel(normalizedLevel);
         }
 
+        // Programmer la prochaine mise à jour
         animationFrameRef.current = requestAnimationFrame(updateAudioLevel);
       };
 
+      // Démarrer la boucle d'animation
       updateAudioLevel();
     } catch (err) {
       console.error('Error setting up audio analysis:', err);
     }
   }, []);
 
+  /**
+   * Démarre la visualisation audio en demandant l'accès au microphone
+   * 
+   * Cette fonction crée un stream séparé pour la visualisation (indépendant
+   * du stream utilisé par l'agent vocal). Cela permet de continuer la visualisation
+   * même si l'agent vocal gère son propre stream.
+   * 
+   * Le stream est automatiquement arrêté si le microphone est muet.
+   */
   const startAudioVisualization = useCallback(() => {
+    // Demander l'accès au microphone pour la visualisation
     navigator.mediaDevices.getUserMedia({ audio: true })
       .then(stream => {
+        // Vérifier si le microphone est muet avant de configurer l'analyse
         if (isMutedRef.current) {
+          // Arrêter tous les tracks pour libérer les ressources
           stream.getTracks().forEach(track => {
             if (track.readyState === 'live') {
               track.stop();
@@ -345,35 +432,56 @@ export function PremiumVoiceInterface({
           });
           return;
         }
+        // Configurer l'analyse audio avec le stream
         return setupAudioAnalysis(stream);
       })
       .catch(err => {
+        // Erreur non bloquante - la visualisation est optionnelle
         console.warn('[PremiumVoiceInterface] Could not setup audio analysis:', err);
       });
   }, [setupAudioAnalysis]);
 
-  // Load available microphone devices
+  // ===== GESTION DES MICROPHONES =====
+  /**
+   * Charge la liste des microphones disponibles et restaure les préférences sauvegardées
+   * 
+   * Cette fonction :
+   * 1. Demande la permission d'accès au microphone (nécessaire pour obtenir les labels)
+   * 2. Énumère tous les périphériques audio
+   * 3. Filtre pour ne garder que les microphones (audioinput)
+   * 4. Restaure les préférences depuis localStorage (deviceId, sensibilité, isolation)
+   * 
+   * Les préférences sont sauvegardées automatiquement lors des changements.
+   */
   const loadMicrophoneDevices = useCallback(async () => {
     try {
-      // Request permission first to get device labels
+      // Demander la permission d'abord pour obtenir les labels des périphériques
+      // Sans permission, les labels sont vides (ex: "Microphone 1" au lieu du vrai nom)
       await navigator.mediaDevices.getUserMedia({ audio: true });
       
+      // Énumérer tous les périphériques média disponibles
       const devices = await navigator.mediaDevices.enumerateDevices();
+      // Filtrer pour ne garder que les microphones (entrées audio)
       const microphones = devices.filter(device => device.kind === 'audioinput');
       
+      // Mettre à jour la liste des microphones disponibles
       setAvailableMicrophones(microphones);
       
-      // Load saved preferences from localStorage
+      // ===== RESTAURATION DES PRÉFÉRENCES DEPUIS LOCALSTORAGE =====
+      // Récupérer les préférences sauvegardées
       const savedDeviceId = localStorage.getItem('voiceAgent_microphoneDeviceId');
       const savedSensitivity = localStorage.getItem('voiceAgent_microphoneSensitivity');
       const savedIsolation = localStorage.getItem('voiceAgent_voiceIsolation');
       
+      // Restaurer le microphone sélectionné (si toujours disponible)
       if (savedDeviceId && microphones.some(m => m.deviceId === savedDeviceId)) {
         setSelectedMicrophoneId(savedDeviceId);
       } else if (microphones.length > 0) {
+        // Sinon, utiliser le premier microphone disponible
         setSelectedMicrophoneId(microphones[0].deviceId);
       }
       
+      // Restaurer la sensibilité (valeur entre 0.5 et 3.0)
       if (savedSensitivity) {
         const sensitivity = parseFloat(savedSensitivity);
         if (!isNaN(sensitivity) && sensitivity >= 0.5 && sensitivity <= 3.0) {
@@ -381,6 +489,7 @@ export function PremiumVoiceInterface({
         }
       }
       
+      // Restaurer l'état de l'isolation vocale
       if (savedIsolation !== null) {
         setVoiceIsolationEnabled(savedIsolation === 'true');
       }
@@ -389,7 +498,16 @@ export function PremiumVoiceInterface({
     }
   }, []);
 
-  // Save preferences to localStorage
+  /**
+   * Sauvegarde les préférences du microphone dans localStorage
+   * 
+   * Les préférences sauvegardées sont :
+   * - ID du microphone sélectionné
+   * - Sensibilité du microphone (0.5 - 3.0)
+   * - État de l'isolation vocale (true/false)
+   * 
+   * Ces préférences sont restaurées automatiquement au chargement du composant.
+   */
   const savePreferences = useCallback(() => {
     if (selectedMicrophoneId) {
       localStorage.setItem('voiceAgent_microphoneDeviceId', selectedMicrophoneId);
@@ -398,22 +516,36 @@ export function PremiumVoiceInterface({
     localStorage.setItem('voiceAgent_voiceIsolation', voiceIsolationEnabled.toString());
   }, [selectedMicrophoneId, microphoneSensitivity, voiceIsolationEnabled]);
 
-  // Cleanup audio analysis
-  // When muting, we keep the audio context open for TTS playback
-  // When disconnecting, we close everything including the audio context
+  // ===== NETTOYAGE DES RESSOURCES AUDIO =====
+  /**
+   * Nettoie les ressources d'analyse audio
+   * 
+   * Cette fonction gère deux cas :
+   * 1. Mute : garde l'AudioContext ouvert pour la lecture TTS (closeAudioContext = false)
+   * 2. Déconnexion : ferme tout y compris l'AudioContext (closeAudioContext = true)
+   * 
+   * IMPORTANT : L'ordre de nettoyage est critique :
+   * 1. Arrêter l'animation frame
+   * 2. Déconnecter tous les AudioNodes (microphone, analyser)
+   * 3. Arrêter tous les tracks du MediaStream
+   * 4. Fermer l'AudioContext (seulement si closeAudioContext = true)
+   * 
+   * @param closeAudioContext - Si true, ferme l'AudioContext complètement (déconnexion)
+   *                           Si false, garde l'AudioContext ouvert (mute, pour TTS)
+   */
   const cleanupAudioAnalysis = useCallback((closeAudioContext: boolean = false) => {
     console.log('[PremiumVoiceInterface] 🧹 Cleaning up audio analysis...', { closeAudioContext });
     
-    // Stop animation frame
+    // Étape 1: Arrêter la boucle d'animation pour éviter les mises à jour après cleanup
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current);
       animationFrameRef.current = null;
     }
     
-    // CRITICAL: Disconnect ALL AudioNodes before closing AudioContext
-    // This ensures no audio graph connections remain active
+    // CRITIQUE: Déconnecter TOUS les AudioNodes avant de fermer l'AudioContext
+    // Cela garantit qu'aucune connexion du graphe audio ne reste active
     
-    // Disconnect microphone node (MediaStreamAudioSourceNode)
+    // Étape 2: Déconnecter le nœud microphone (MediaStreamAudioSourceNode)
     if (microphoneNodeRef.current) {
       try {
         microphoneNodeRef.current.disconnect();
@@ -424,7 +556,7 @@ export function PremiumVoiceInterface({
       }
     }
     
-    // Disconnect analyser node
+    // Étape 3: Déconnecter le nœud analyseur
     if (analyserRef.current) {
       try {
         analyserRef.current.disconnect();
@@ -435,8 +567,8 @@ export function PremiumVoiceInterface({
       }
     }
     
-    // Stop all media stream tracks (microphone input)
-    // CRITICAL: Stop ALL tracks (audio + video if present) to fully release the microphone
+    // Étape 4: Arrêter tous les tracks du MediaStream (entrée microphone)
+    // CRITIQUE: Arrêter TOUS les tracks (audio + vidéo si présent) pour libérer complètement le microphone
     if (streamRef.current) {
       try {
         streamRef.current.getTracks().forEach(track => {
@@ -452,11 +584,12 @@ export function PremiumVoiceInterface({
       }
     }
     
-    // Only close audio context if explicitly requested (full disconnect)
-    // When muting, we keep it open for TTS playback
-    // CRITICAL: Close AudioContext AFTER all nodes are disconnected
+    // Étape 5: Fermer l'AudioContext seulement si explicitement demandé (déconnexion complète)
+    // Lors du mute, on le garde ouvert pour la lecture TTS
+    // CRITIQUE: Fermer l'AudioContext APRÈS que tous les nœuds soient déconnectés
     if (closeAudioContext && audioContextRef.current) {
       try {
+        // Vérifier que le contexte n'est pas déjà fermé
         if (audioContextRef.current.state !== 'closed') {
           audioContextRef.current.close();
         }
@@ -469,16 +602,40 @@ export function PremiumVoiceInterface({
       console.log('[PremiumVoiceInterface] ℹ️ Audio context kept open for TTS playback');
     }
     
+    // Réinitialiser le niveau audio à 0
     setAudioLevel(0);
     console.log('[PremiumVoiceInterface] ✅ Audio analysis cleanup complete');
   }, []);
 
-  const handleMessage = useCallback((message: DeepgramMessageEvent | HybridVoiceAgentMessage | SpeechmaticsMessageEvent) => {
-    const isInterim = Boolean(message.isInterim);
-    const messageId = (message as SpeechmaticsMessageEvent).messageId;
+  // ===== HANDLERS DES ÉVÉNEMENTS DE L'AGENT =====
+  /**
+   * Handler appelé lorsqu'un message est reçu de l'agent vocal
+   * 
+   * Cette fonction :
+   * 1. Détecte quand l'utilisateur parle (pour l'animation visuelle)
+   * 2. Met à jour les buffers interim locaux (un par rôle) pour l'affichage streaming
+   * 3. Transmet seulement les messages finaux au parent via onMessage (pour persistance)
+   * 
+   * @param message - Message reçu (peut être interim ou final, user ou assistant)
+   */
+  const handleMessage = useCallback((
+    rawMessage: DeepgramMessageEvent | HybridVoiceAgentMessage | SpeechmaticsMessageEvent
+  ) => {
+    const isInterim = Boolean((rawMessage as any).isInterim);
+    const messageId = (rawMessage as SpeechmaticsMessageEvent).messageId;
+    const role: 'user' | 'assistant' =
+      rawMessage.role === 'agent' ? 'assistant' : (rawMessage.role as 'user' | 'assistant');
 
-    // Detect when user is speaking
-    if (message.role === 'user') {
+    const baseMessage: VoiceMessage = {
+      role,
+      content: rawMessage.content,
+      timestamp: rawMessage.timestamp || new Date().toISOString(),
+      messageId,
+      isInterim,
+    };
+
+    // Détecter quand l'utilisateur parle pour l'animation visuelle
+    if (role === 'user') {
       setIsSpeaking(true);
       if (speakingTimeoutRef.current) {
         clearTimeout(speakingTimeoutRef.current);
@@ -487,52 +644,96 @@ export function PremiumVoiceInterface({
         setIsSpeaking(false);
       }, 2000);
     }
-    
-    // Update optimistic cache for real-time display
-    // This handles interim messages and their transition to final
-    if (messageId) {
-      updateOptimisticMessage({
-        ...(message as SpeechmaticsMessageEvent),
-        isInterim,
-        messageId,
-      });
+
+    // Cas INTERIM → mise à jour du buffer local uniquement
+    if (isInterim) {
+      if (role === 'assistant') {
+        setInterimAssistant(prev => ({
+          ...(prev || baseMessage),
+          content: mergeStreamingContent(prev?.content, baseMessage.content),
+          isInterim: true,
+        }));
+      } else {
+        setInterimUser(prev => ({
+          ...(prev || baseMessage),
+          content: mergeStreamingContent(prev?.content, baseMessage.content),
+          isInterim: true,
+        }));
+      }
+      return;
     }
 
-    // Always call parent callback with preserved messageId
-    // This ensures the message is persisted and appears in props.messages
-    const finalMessageId = messageId || `msg-${Date.now()}`;
-    
-    onMessage({
-      ...message,
-      messageId: finalMessageId, // Ensure stable ID
-    });
-  }, [onMessage, updateOptimisticMessage]);
+    // Cas FINAL → flush des buffers locaux
+    if (role === 'assistant') {
+      setInterimAssistant(null);
+    } else {
+      setInterimUser(null);
+    }
 
+    const finalMessageId = messageId || `msg-${Date.now()}`;
+    onMessage({
+      ...rawMessage,
+      messageId: finalMessageId,
+      isInterim: false,
+    });
+  }, [mergeStreamingContent, onMessage]);
+
+  /**
+   * Handler appelé en cas d'erreur de l'agent vocal
+   * 
+   * Affiche l'erreur dans l'interface et la transmet au parent.
+   * 
+   * @param error - Erreur à gérer
+   */
   const handleError = useCallback((error: Error) => {
     setError(error.message);
     onError(error);
   }, [onError]);
 
+  /**
+   * Handler appelé lors des changements d'état de connexion
+   * 
+   * Gère la mise à jour de l'état de connexion et nettoie les ressources
+   * si la connexion est fermée.
+   * 
+   * @param connected - État de connexion (true = connecté, false = déconnecté)
+   */
   const handleConnectionChange = useCallback((connected: boolean) => {
     setIsConnected(connected);
+    // Si déconnecté, nettoyer toutes les ressources
     if (!connected && agentRef.current) {
       setIsMicrophoneActive(false);
       setIsSpeaking(false);
-      cleanupAudioAnalysis(true); // Close audio context on disconnect
+      cleanupAudioAnalysis(true); // Fermer l'AudioContext lors de la déconnexion
     }
   }, [cleanupAudioAnalysis]);
 
+  // ===== GESTION DE LA CONNEXION =====
+  /**
+   * Établit la connexion à l'agent vocal
+   * 
+   * Cette fonction :
+   * 1. Empêche les connexions multiples simultanées
+   * 2. Attend la fin d'une déconnexion en cours si nécessaire
+   * 3. Crée l'agent approprié selon la configuration (Hybrid, Speechmatics, ou Deepgram)
+   * 4. Configure les callbacks et établit la connexion WebSocket
+   * 5. Démarre le microphone avec les paramètres sélectionnés
+   * 6. Configure la visualisation audio
+   * 
+   * CRITIQUE : L'ordre des opérations est important pour éviter les conditions de course.
+   */
   const connect = useCallback(async () => {
-    // CRITICAL: Prevent multiple simultaneous connections
+    // CRITIQUE: Empêcher les connexions multiples simultanées
     if (isConnectingRef.current) {
       console.warn('[PremiumVoiceInterface] ⚠️ Connection already in progress, ignoring duplicate call');
       return;
     }
 
-    // CRITICAL: Wait for any ongoing disconnect to complete before connecting
+    // CRITIQUE: Attendre la fin d'une déconnexion en cours avant de connecter
+    // Cela évite les conflits de ressources (microphone, WebSocket)
     if (isDisconnectingRef.current) {
       console.log('[PremiumVoiceInterface] ⏳ Waiting for previous disconnect to complete...');
-      // Wait up to 5 seconds for disconnect to complete
+      // Attendre jusqu'à 5 secondes pour que la déconnexion se termine
       let waitCount = 0;
       while (isDisconnectingRef.current && waitCount < 50) {
         await new Promise(resolve => setTimeout(resolve, 100));
@@ -545,7 +746,7 @@ export function PremiumVoiceInterface({
       }
     }
 
-    // Check if already connected
+    // Vérifier si déjà connecté (évite les connexions inutiles)
     if (agentRef.current && isConnected) {
       console.log('[PremiumVoiceInterface] ℹ️ Already connected, skipping new connection');
       return;
@@ -557,16 +758,22 @@ export function PremiumVoiceInterface({
       setError(null);
       setIsConnecting(true);
 
+      // ===== CRÉATION ET CONFIGURATION DE L'AGENT VOCAL =====
+      // Sélection de l'agent selon la configuration
+      
       if (isHybridAgent) {
+        // Agent Hybrid : Deepgram STT + LLM (Anthropic/OpenAI) + ElevenLabs TTS
         const agent = new HybridVoiceAgent();
         agentRef.current = agent;
 
+        // Configuration des callbacks pour recevoir les événements
         agent.setCallbacks({
           onMessage: handleMessage,
           onError: handleError,
           onConnection: handleConnectionChange,
         });
 
+        // Configuration de l'agent Hybrid
         const config: any = {
           systemPrompt,
           sttModel: modelConfig?.deepgramSttModel || "nova-3",
@@ -576,26 +783,30 @@ export function PremiumVoiceInterface({
           elevenLabsModelId: modelConfig?.elevenLabsModelId || "eleven_turbo_v2_5",
         };
 
+        // Établir la connexion WebSocket et démarrer le microphone
         await agent.connect(config);
         await agent.startMicrophone(selectedMicrophoneId || undefined, voiceIsolationEnabled);
         
-        // Setup audio analysis after microphone is started
-        // We'll create a separate stream for visualization
+        // Configurer la visualisation audio après le démarrage du microphone
+        // On crée un stream séparé pour la visualisation (indépendant de l'agent)
         startAudioVisualization();
       } else if (isSpeechmaticsAgent) {
+        // Agent Speechmatics : Speechmatics STT + LLM (Anthropic/OpenAI) + ElevenLabs TTS
         const agent = new SpeechmaticsVoiceAgent();
         agentRef.current = agent;
 
+        // Configuration des callbacks
         agent.setCallbacks({
           onMessage: handleMessage,
           onError: handleError,
           onConnection: handleConnectionChange,
         });
 
+        // Configuration de l'agent Speechmatics (plus de paramètres que Hybrid)
         const config: any = {
           systemPrompt,
-          userPrompt,
-          promptVariables: (modelConfig as any)?.promptVariables, // Pass prompt variables for template rendering
+          userPrompt, // Template de prompt utilisateur (optionnel)
+          promptVariables: (modelConfig as any)?.promptVariables, // Variables pour le rendu du template
           sttLanguage: modelConfig?.speechmaticsSttLanguage || "fr",
           sttOperatingPoint: modelConfig?.speechmaticsSttOperatingPoint || "enhanced",
           sttMaxDelay: modelConfig?.speechmaticsSttMaxDelay || 2.0,
@@ -605,27 +816,30 @@ export function PremiumVoiceInterface({
           elevenLabsVoiceId: modelConfig?.elevenLabsVoiceId,
           elevenLabsModelId: modelConfig?.elevenLabsModelId || "eleven_turbo_v2_5",
           disableElevenLabsTTS: modelConfig?.disableElevenLabsTTS || false,
-          microphoneSensitivity,
+          microphoneSensitivity, // Sensibilité du microphone (1.5 par défaut)
           microphoneDeviceId: selectedMicrophoneId || undefined,
           voiceIsolation: voiceIsolationEnabled,
         };
 
+        // Établir la connexion WebSocket et démarrer le microphone
         await agent.connect(config);
         await agent.startMicrophone(selectedMicrophoneId || undefined, voiceIsolationEnabled);
         
-        // Setup audio analysis after microphone is started
-        // We'll create a separate stream for visualization
+        // Configurer la visualisation audio
         startAudioVisualization();
       } else {
+        // Agent Deepgram par défaut : Deepgram STT + LLM + Deepgram TTS (tout-en-un)
         const agent = new DeepgramVoiceAgent();
         agentRef.current = agent;
 
+        // Configuration des callbacks
         agent.setCallbacks({
           onMessage: handleMessage,
           onError: handleError,
           onConnection: handleConnectionChange,
         });
 
+        // Configuration de l'agent Deepgram
         const config: any = {
           systemPrompt,
           sttModel: modelConfig?.deepgramSttModel || "nova-3",
@@ -634,11 +848,11 @@ export function PremiumVoiceInterface({
           llmModel: modelConfig?.deepgramLlmModel,
         };
 
+        // Établir la connexion WebSocket et démarrer le microphone
         await agent.connect(config);
         await agent.startMicrophone(selectedMicrophoneId || undefined, voiceIsolationEnabled);
         
-        // Setup audio analysis after microphone is started
-        // We'll create a separate stream for visualization
+        // Configurer la visualisation audio
         startAudioVisualization();
       }
 
@@ -656,8 +870,39 @@ export function PremiumVoiceInterface({
     }
   }, [systemPrompt, modelConfig, isHybridAgent, isSpeechmaticsAgent, isConnected, handleMessage, handleError, handleConnectionChange, setupAudioAnalysis, cleanupAudioAnalysis, startAudioVisualization]);
 
+  /**
+   * Recharge la page après une déconnexion complète
+   * 
+   * Utilisé pour forcer le navigateur à libérer toutes les ressources
+   * (microphone, WebSocket, AudioContext) qui pourraient rester "fantômes".
+   * 
+   * Le flag reloadRequestedRef empêche les rechargements multiples.
+   */
+  const reloadPage = useCallback(() => {
+    if (typeof window === 'undefined' || reloadRequestedRef.current) {
+      return;
+    }
+    reloadRequestedRef.current = true;
+    console.log('[PremiumVoiceInterface] 🔁 Reloading page after full disconnect');
+    window.location.reload();
+  }, []);
+
+  // ===== GESTION DE LA DÉCONNEXION =====
+  /**
+   * Déconnecte complètement l'agent vocal et nettoie toutes les ressources
+   * 
+   * Cette fonction effectue un nettoyage complet dans l'ordre suivant :
+   * 1. Arrête le timeout de détection de parole
+   * 2. Nettoie l'analyse audio (ferme l'AudioContext)
+   * 3. Déconnecte l'agent (arrête le microphone et ferme le WebSocket)
+   * 4. Attend un délai pour que le navigateur libère les ressources
+   * 5. Réinitialise tous les états
+   * 6. Vide les buffers de streaming interim
+   * 
+   * CRITIQUE : L'ordre des opérations est important pour éviter les fuites de ressources.
+   */
   const disconnect = useCallback(async () => {
-    // CRITICAL: Prevent multiple simultaneous disconnects
+    // CRITIQUE: Empêcher les déconnexions multiples simultanées
     if (isDisconnectingRef.current) {
       console.warn('[PremiumVoiceInterface] ⚠️ Disconnect already in progress, ignoring duplicate call');
       return;
@@ -667,26 +912,26 @@ export function PremiumVoiceInterface({
     console.log('[PremiumVoiceInterface] 🔌 Disconnecting completely...');
     
     try {
-      // Clear timeout first
+      // Étape 1: Arrêter le timeout de détection de parole
       if (speakingTimeoutRef.current) {
         clearTimeout(speakingTimeoutRef.current);
         speakingTimeoutRef.current = null;
       }
       
-      // Cleanup audio analysis FIRST (stops the separate stream for visualization)
-      // This ensures the visualization stream is stopped before the agent stream
-      cleanupAudioAnalysis(true); // Close audio context on disconnect
+      // Étape 2: Nettoyer l'analyse audio EN PREMIER (arrête le stream séparé de visualisation)
+      // Cela garantit que le stream de visualisation est arrêté avant le stream de l'agent
+      cleanupAudioAnalysis(true); // Fermer l'AudioContext lors de la déconnexion
       
-      // Disconnect agent (this will stop the agent's microphone stream AND websocket)
-      // CRITICAL: Wait for agent disconnect to complete to ensure all resources are released
+      // Étape 3: Déconnecter l'agent (arrête le stream microphone de l'agent ET le WebSocket)
+      // CRITIQUE: Attendre que la déconnexion de l'agent soit terminée pour garantir la libération des ressources
       if (agentRef.current) {
         try {
-          // This will:
-          // - Stop microphone
-          // - Disconnect websocket
-          // - Clear all queues
-          // - Stop audio playback
-          // - Call enumerateDevices() to force browser cleanup
+          // La déconnexion de l'agent va :
+          // - Arrêter le microphone
+          // - Fermer le WebSocket
+          // - Vider toutes les queues
+          // - Arrêter la lecture audio
+          // - Appeler enumerateDevices() pour forcer le nettoyage du navigateur
           await agentRef.current.disconnect();
           console.log('[PremiumVoiceInterface] ✅ Agent disconnected (microphone + websocket)');
         } catch (error) {
@@ -695,27 +940,50 @@ export function PremiumVoiceInterface({
         agentRef.current = null;
       }
       
-      // CRITICAL: Additional delay to ensure browser has time to release all microphone resources
-      // This helps prevent the red microphone indicator from staying active
+      // Étape 4: Délai supplémentaire pour que le navigateur libère toutes les ressources microphone
+      // Cela aide à éviter que l'indicateur rouge du microphone reste actif
       await new Promise(resolve => setTimeout(resolve, 200));
       
-      // Reset all state
+      // Étape 5: Réinitialiser tous les états
       setIsConnected(false);
       setIsMicrophoneActive(false);
       setIsMuted(false);
       setIsSpeaking(false);
       setError(null);
 
-      // Clear optimistic cache and message registry
-      setOptimisticCache(new Map());
-      messageRegistry.current.clear();
+      // Étape 6: Réinitialiser les buffers de streaming
+      setInterimUser(null);
+      setInterimAssistant(null);
       
       console.log('[PremiumVoiceInterface] ✅ Complete disconnection finished - websocket and microphone are OFF');
     } finally {
-      // Always reset the disconnecting flag, even if there was an error
+      // Toujours réinitialiser le flag de déconnexion, même en cas d'erreur
       isDisconnectingRef.current = false;
     }
   }, [cleanupAudioAnalysis]);
+
+  const handleEditClick = useCallback(async () => {
+    console.log('[PremiumVoiceInterface] ✏️ Edit button clicked - disconnecting everything');
+    try {
+      await disconnect();
+    } catch (error) {
+      console.warn('[PremiumVoiceInterface] ⚠️ Edit disconnect failed, continuing with close anyway:', error);
+    }
+    onEdit?.();
+    onClose();
+    reloadPage();
+  }, [disconnect, onEdit, onClose, reloadPage]);
+
+  const handleCloseClick = useCallback(async () => {
+    console.log('[PremiumVoiceInterface] ❌ Close button clicked - disconnecting everything');
+    try {
+      await disconnect();
+    } catch (error) {
+      console.warn('[PremiumVoiceInterface] ⚠️ Close disconnect failed, forcing close anyway:', error);
+    }
+    onClose();
+    reloadPage();
+  }, [disconnect, onClose, reloadPage]);
 
   const toggleMute = useCallback(async () => {
     const agent = agentRef.current;
@@ -890,125 +1158,58 @@ export function PremiumVoiceInterface({
   }, []);
 
   /**
-   * NEW SIMPLIFIED MESSAGE MERGING
-   * Merge props.messages (source of truth) with optimisticCache (temporary interim messages)
+   * Affichage des messages : timeline finale + bulle de streaming
+   * - props.messages = source de vérité (messages finaux)
+   * - interimAssistant (et optionnellement interimUser) = bulle en cours
+   * - Tous les messages sont triés par timestamp pour garantir l'ordre chronologique
    */
-  const previousMessagesRef = useRef<Set<string>>(new Set());
-  const isInitialMountRef = useRef(true);
+  const displayMessages: VoiceMessage[] = useMemo(() => {
+    const base: VoiceMessage[] = (messages || []).map(msg => ({
+      role: msg.role,
+      content: msg.content,
+      timestamp: msg.timestamp || new Date().toISOString(),
+      messageId: msg.messageId,
+      isInterim: false,
+    }));
 
-  const allMessages = useMemo(() => {
-    type DisplayMessage = VoiceMessage & { stableKey: string; isNew: boolean };
-    const finalMap = new Map<string, DisplayMessage>();
-    const currentKeys = new Set<string>();
-
-    previousOptimisticCountRef.current = optimisticCache.size;
-    previousPropsCountRef.current = messages.length;
-
-    // Step 1: Add messages from optimistic cache first (interim messages)
-    // These will be replaced by final messages if they have the same messageId
-    for (const [id, cachedMsg] of optimisticCache) {
-      currentKeys.add(id);
-      const isNew = !previousMessagesRef.current.has(id);
-
-      finalMap.set(id, {
-        ...cachedMsg,
-        stableKey: id,
-        isNew,
+    if (interimUser) {
+      base.push({
+        ...interimUser,
+        timestamp: interimUser.timestamp || new Date().toISOString(),
+        messageId: interimUser.messageId || `interim-user-${Date.now()}`,
+        isInterim: true,
       });
     }
 
-    // Step 2: Add/Replace with messages from props (these are the source of truth - final messages)
-    // If a message has the same messageId, it replaces the interim one
-    messages.forEach(msg => {
-      // Extract messageId from metadata if available (for voice messages)
-      // This ensures we match the messageId used in optimistic cache
-      const metadataMessageId = (msg.metadata as any)?.messageId;
-      const messageId = metadataMessageId || msg.messageId;
-      
-      // Use messageId if available, otherwise fallback to content-based key
-      const key = messageId || `${msg.role}-${msg.content.substring(0, 100)}`;
-      currentKeys.add(key);
-      const isNew = !previousMessagesRef.current.has(key);
-      const existingInMap = finalMap.get(key);
-      const hadInterim = existingInMap?.isInterim;
-
-      // Always replace with final message (props.messages are final)
-      finalMap.set(key, {
-        role: msg.role,
-        content: msg.content,
-        timestamp: msg.timestamp || new Date().toISOString(),
-        messageId: messageId || undefined, // Use extracted messageId
-        isInterim: false, // Messages from props are always final
-        stableKey: key,
-        isNew,
+    if (interimAssistant) {
+      base.push({
+        ...interimAssistant,
+        timestamp: interimAssistant.timestamp || new Date().toISOString(),
+        messageId: interimAssistant.messageId || `interim-assistant-${Date.now()}`,
+        isInterim: true,
       });
-    });
+    }
 
-    // Step 3: Sort by timestamp
-    const sorted = Array.from(finalMap.values()).sort((a, b) => {
+    // Tri par timestamp pour garantir l'ordre chronologique
+    return base.sort((a, b) => {
       const timeA = new Date(a.timestamp).getTime();
       const timeB = new Date(b.timestamp).getTime();
       return timeA - timeB;
     });
-
-    // Update tracking
-    previousMessagesRef.current = currentKeys;
-    isInitialMountRef.current = false;
-
-    return sorted;
-  }, [messages, optimisticCache]);
-
-  // Clean up optimistic cache when messages arrive in props
-  // This removes interim messages that have been finalized
-  useEffect(() => {
-    if (messages.length === 0) return;
-
-    const propsMessageIds = new Set(
-      messages.map(m => m.messageId).filter((id): id is string => Boolean(id))
-    );
-
-    setOptimisticCache(prev => {
-      const next = new Map(prev);
-      let hasChanges = false;
-      const removedIds: string[] = [];
-
-      // Remove any interim messages that now have a final version in props
-      for (const id of propsMessageIds) {
-        if (next.has(id)) {
-          next.delete(id);
-          removedIds.push(id);
-          hasChanges = true;
-        }
-      }
-
-      // Also remove any interim messages that are older than 5 seconds
-      // This prevents stale interim messages from lingering
-      const now = Date.now();
-      for (const [id, cachedMsg] of next) {
-        const msgTime = new Date(cachedMsg.timestamp).getTime();
-        if (cachedMsg.isInterim && (now - msgTime > 5000)) {
-          next.delete(id);
-          removedIds.push(id);
-          hasChanges = true;
-        }
-      }
-
-      return hasChanges ? next : prev;
-    });
-  }, [messages, optimisticCache]);
+  }, [messages, interimAssistant, interimUser]);
 
   // Auto-scroll when new messages arrive
   const previousLengthRef = useRef(0);
   useEffect(() => {
-    const hasNewMessages = allMessages.length > previousLengthRef.current;
-    previousLengthRef.current = allMessages.length;
+    const hasNewMessages = displayMessages.length > previousLengthRef.current;
+    previousLengthRef.current = displayMessages.length;
 
     if (hasNewMessages) {
       requestAnimationFrame(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
       });
     }
-  }, [allMessages]);
+  }, [displayMessages]);
 
   /**
    * NEW PURE REACT TEXT COMPONENT
@@ -1029,7 +1230,7 @@ export function PremiumVoiceInterface({
         transition={{ duration: 0.15, ease: "easeOut" }}
         className={cn(
           "text-sm leading-relaxed whitespace-pre-wrap font-normal tracking-wide",
-          isInterim && "opacity-80"
+          isInterim && "opacity-70 italic text-white/60"
         )}
         style={{ minHeight: "1em" }}
       >
@@ -1107,12 +1308,7 @@ export function PremiumVoiceInterface({
             <Button
               variant="ghost"
               size="icon"
-              onClick={() => {
-                console.log('[PremiumVoiceInterface] ✏️ Edit button clicked - disconnecting everything');
-                disconnect();
-                onEdit?.();
-                onClose();
-              }}
+              onClick={handleEditClick}
               className="h-10 w-10 text-white hover:bg-white/20 rounded-full"
               title="Éditer"
             >
@@ -1121,11 +1317,7 @@ export function PremiumVoiceInterface({
             <Button
               variant="ghost"
               size="icon"
-              onClick={() => {
-                console.log('[PremiumVoiceInterface] ❌ Close button clicked - disconnecting everything');
-                disconnect();
-                onClose();
-              }}
+              onClick={handleCloseClick}
               className="h-10 w-10 text-white hover:bg-white/20 rounded-full"
               title="Fermer"
             >
@@ -1134,12 +1326,21 @@ export function PremiumVoiceInterface({
           </div>
         </div>
 
+        {hasConversationSteps && (
+          <div className="px-4 pb-2">
+            <VoiceModeStepsBar
+              steps={conversationSteps}
+              currentStepId={currentConversationStepId}
+            />
+          </div>
+        )}
+
         {/* Messages area with floating bubbles */}
         <div 
           ref={messagesContainerRef}
           className="flex-1 overflow-y-auto px-4 py-6 space-y-4"
         >
-          {allMessages.length === 0 && (
+          {displayMessages.length === 0 && (
             <div className="flex flex-col items-center justify-center h-full space-y-4">
               <p className="text-white/60 text-sm mb-4">Try asking...</p>
               <motion.div
@@ -1170,15 +1371,15 @@ export function PremiumVoiceInterface({
             </div>
           )}
           <AnimatePresence mode="popLayout" initial={false}>
-            {allMessages.map((message) => {
-              const messageKey = message.stableKey;
-              const isNewMessage = message.isNew;
+            {displayMessages.map((message, idx) => {
+              const messageKey = message.messageId || `${message.role}-${idx}-${message.timestamp}`;
+              const isStreamingAssistant = message.isInterim && message.role === "assistant";
 
               return (
                 <motion.div
                   key={messageKey}
                   layout
-                  initial={isNewMessage ? { opacity: 0, y: 8 } : false}
+                  initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, scale: 0.95 }}
                   transition={{
@@ -1207,6 +1408,11 @@ export function PremiumVoiceInterface({
                       content={message.content}
                       isInterim={message.isInterim}
                     />
+                    {isStreamingAssistant && (
+                      <span className="inline-block mt-1 text-xs text-white/60">
+                        …
+                      </span>
+                    )}
                   </div>
                 </motion.div>
               );
@@ -1243,13 +1449,13 @@ export function PremiumVoiceInterface({
             {/* Main voice circle */}
             <motion.button
               onClick={toggleMute}
-              disabled={!isConnected}
+              disabled={!isConnected && !isMuted}
               className={cn(
                 "relative w-24 h-24 rounded-full flex items-center justify-center",
                 "bg-white/20 backdrop-blur-xl border-2 border-white/30",
                 "shadow-2xl transition-all duration-300",
                 isMuted && "opacity-50",
-                !isConnected && "opacity-30 cursor-not-allowed"
+                !isConnected && !isMuted && "opacity-30 cursor-not-allowed"
               )}
               style={{
                 boxShadow: '0 8px 32px 0 rgba(0, 0, 0, 0.3), inset 0 0 20px rgba(255, 255, 255, 0.1)',
@@ -1334,7 +1540,7 @@ export function PremiumVoiceInterface({
               {isConnecting && "Connecting..."}
               {isConnected && !isMuted && !isSpeaking && "Listening... Speak naturally"}
               {isConnected && !isMuted && isSpeaking && "🎤 You're speaking..."}
-              {isConnected && isMuted && "Microphone muted"}
+              {isMuted && "Microphone muted"}
               {error && <span className="text-red-300">{error}</span>}
             </p>
           </div>
@@ -1435,5 +1641,122 @@ export function PremiumVoiceInterface({
   );
 }
 
+interface VoiceModeStepsBarProps {
+  steps: ConversationPlanStep[];
+  currentStepId?: string;
+}
 
+function VoiceModeStepsBar({ steps, currentStepId }: VoiceModeStepsBarProps) {
+  const [hoveredStep, setHoveredStep] = useState<string | null>(null);
 
+  if (!steps.length) {
+    return null;
+  }
+
+  const activeStepIndex = steps.findIndex(
+    (step) => step.id === currentStepId || step.status === 'active'
+  );
+
+  const getStepClasses = (step: ConversationPlanStep) => {
+    return cn(
+      "flex-1 h-2 rounded-full cursor-pointer transition-all duration-300 border border-white/10 bg-white/10",
+      step.status === 'completed' && "bg-emerald-400/80 border-emerald-300/60 shadow-[0_0_18px_rgba(16,185,129,0.45)]",
+      (step.status === 'active' || step.id === currentStepId) && "bg-sky-400/90 border-sky-300/60 shadow-[0_0_18px_rgba(14,165,233,0.45)]",
+      step.status === 'skipped' && "bg-white/5 border-white/5 opacity-40",
+      step.status === 'pending' && "bg-white/15 border-white/5 opacity-60"
+    );
+  };
+
+  return (
+    <div className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 backdrop-blur-xl shadow-[0_8px_32px_rgba(0,0,0,0.35)]">
+      <div className="flex items-center justify-between text-[11px] uppercase tracking-[0.2em] text-white/60 mb-3">
+        <span>Plan d'étapes</span>
+        {activeStepIndex >= 0 ? (
+          <span className="text-white/80 tracking-normal">
+            Étape {activeStepIndex + 1}/{steps.length}
+          </span>
+        ) : (
+          <span className="text-white/50 tracking-normal">
+            {steps.length} étapes
+          </span>
+        )}
+      </div>
+      <div className="flex items-center gap-2">
+        {steps.map((step, index) => {
+          const isActive = step.id === currentStepId || step.status === 'active';
+          const isCompleted = step.status === 'completed';
+          const isPending = step.status === 'pending';
+
+          return (
+            <React.Fragment key={step.id}>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <motion.div
+                    className={getStepClasses(step)}
+                    whileHover={{ height: 12, opacity: 1 }}
+                    animate={{
+                      height: hoveredStep === step.id ? 12 : 8,
+                    }}
+                    onHoverStart={() => setHoveredStep(step.id)}
+                    onHoverEnd={() => setHoveredStep(null)}
+                  />
+                </PopoverTrigger>
+                <PopoverContent
+                  side="bottom"
+                  align="center"
+                  sideOffset={10}
+                  className="w-80 bg-[#080b18]/95 text-white border border-white/10 shadow-[0_25px_60px_rgba(0,0,0,0.55)] backdrop-blur-2xl p-4"
+                >
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 text-xs text-white/70">
+                      <div className="w-2 h-2 rounded-full bg-white/50" />
+                      <span className="font-semibold tracking-wide">
+                        Étape {index + 1}/{steps.length}
+                      </span>
+                      {isActive && (
+                        <span className="ml-auto text-[10px] px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-100">
+                          En cours
+                        </span>
+                      )}
+                      {isCompleted && (
+                        <span className="ml-auto text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-100">
+                          Terminée
+                        </span>
+                      )}
+                      {isPending && (
+                        <span className="ml-auto text-[10px] px-2 py-0.5 rounded-full bg-white/10 text-white/70">
+                          À venir
+                        </span>
+                      )}
+                      {step.status === 'skipped' && (
+                        <span className="ml-auto text-[10px] px-2 py-0.5 rounded-full bg-white/5 text-white/60">
+                          Sautée
+                        </span>
+                      )}
+                    </div>
+                    <h4 className="text-sm font-semibold text-white">
+                      {step.title}
+                    </h4>
+                    <p className="text-xs text-white/70 leading-relaxed">
+                      {step.objective}
+                    </p>
+                    {step.summary && (
+                      <div className="pt-2 border-t border-white/10 mt-2">
+                        <p className="text-xs text-white/60 italic">
+                          {step.summary}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </PopoverContent>
+              </Popover>
+              {index < steps.length - 1 && (
+                <div className="w-1" />
+              )}
+            </React.Fragment>
+          );
+        })}
+      </div>
+    </div>
+  );
+}

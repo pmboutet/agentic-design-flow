@@ -1,15 +1,32 @@
 // AudioWorkletProcessor pour traiter l'audio du microphone pour Speechmatics
 // Speechmatics nécessite PCM16 16kHz mono
-// Accumule les buffers jusqu'à 8192 samples avant d'envoyer
+// Accumule les buffers jusqu'à 16384 samples avant d'envoyer (1 seconde d'audio à 16kHz)
 
 class SpeechmaticsAudioProcessor extends AudioWorkletProcessor {
   constructor(options) {
     super();
     this.isActive = true;
     this.isFirefox = options.processorOptions?.isFirefox || false;
-    this.bufferAccumulator = new Float32Array(0); // Accumulateur pour atteindre 8192 samples
-    this.targetBufferSize = 8192; // Taille cible du buffer
+    this.bufferAccumulator = new Float32Array(0); // Accumulateur pour atteindre 16384 samples
+    this.targetBufferSize = 16384; // Taille cible du buffer (1 seconde à 16kHz)
     this.targetSampleRate = 16000; // Speechmatics nécessite 16kHz
+    
+    // AGC (Automatic Gain Control) parameters
+    this.enableAGC = options.processorOptions?.enableAGC !== false; // Default: true
+    this.targetRMS = 0.15; // Target RMS level (~-12dB) for normalization
+    this.currentGain = 1.0; // Current gain multiplier
+    this.gainAttackTime = 0.01; // Attack time in seconds (10ms)
+    this.gainReleaseTime = 0.1; // Release time in seconds (100ms)
+    this.minGain = 0.1; // Minimum gain (avoid silence amplification)
+    this.maxGain = 10.0; // Maximum gain (avoid saturation)
+    this.sampleRate = 16000; // Will be updated from sampleRate
+    
+    // Noise floor estimation
+    this.noiseFloorWindow = []; // Sliding window for noise floor calculation
+    this.noiseFloorWindowSize = 50; // ~3 seconds at 16kHz (50 chunks of 16384 samples)
+    this.noiseFloor = 0.01; // Estimated noise floor (initial guess)
+    this.rmsHistory = []; // History of RMS values for noise floor estimation
+    this.rmsHistorySize = 50;
     
     // Écouter les messages du thread principal
     this.port.onmessage = (event) => {
@@ -22,8 +39,84 @@ class SpeechmaticsAudioProcessor extends AudioWorkletProcessor {
       } else if (event.data.type === 'start') {
         this.isActive = true;
         console.log('[SpeechmaticsAudioWorklet] Started');
+      } else if (event.data.type === 'config') {
+        // Update AGC configuration
+        if (event.data.enableAGC !== undefined) {
+          this.enableAGC = event.data.enableAGC;
+        }
+        if (event.data.targetRMS !== undefined) {
+          this.targetRMS = event.data.targetRMS;
+        }
       }
     };
+  }
+  
+  // Calculate RMS (Root Mean Square) of audio buffer
+  calculateRMS(buffer) {
+    if (!buffer || buffer.length === 0) return 0;
+    let sumSquares = 0;
+    for (let i = 0; i < buffer.length; i++) {
+      sumSquares += buffer[i] * buffer[i];
+    }
+    return Math.sqrt(sumSquares / buffer.length);
+  }
+  
+  // Apply AGC to audio buffer
+  applyAGC(buffer, currentRMS) {
+    if (!this.enableAGC || currentRMS === 0) {
+      return buffer;
+    }
+    
+    // Calculate target gain
+    const targetGain = this.targetRMS / Math.max(currentRMS, 0.001);
+    
+    // Clamp gain to min/max
+    const clampedTargetGain = Math.max(this.minGain, Math.min(this.maxGain, targetGain));
+    
+    // Smooth gain changes (attack/release)
+    const gainDiff = clampedTargetGain - this.currentGain;
+    const attackCoeff = Math.exp(-1 / (this.gainAttackTime * this.sampleRate));
+    const releaseCoeff = Math.exp(-1 / (this.gainReleaseTime * this.sampleRate));
+    
+    // Use attack for increasing gain, release for decreasing
+    const coeff = gainDiff > 0 ? attackCoeff : releaseCoeff;
+    this.currentGain = this.currentGain + (1 - coeff) * gainDiff;
+    
+    // Apply gain to buffer
+    const output = new Float32Array(buffer.length);
+    for (let i = 0; i < buffer.length; i++) {
+      output[i] = buffer[i] * this.currentGain;
+      // Hard limit to prevent clipping
+      output[i] = Math.max(-1, Math.min(1, output[i]));
+    }
+    
+    return output;
+  }
+  
+  // Update noise floor estimation
+  updateNoiseFloor(rms) {
+    this.rmsHistory.push(rms);
+    if (this.rmsHistory.length > this.rmsHistorySize) {
+      this.rmsHistory.shift();
+    }
+    
+    // Noise floor is the minimum RMS over recent history (when not speaking)
+    // Use percentile approach: take 10th percentile as noise floor
+    if (this.rmsHistory.length >= 10) {
+      const sorted = [...this.rmsHistory].sort((a, b) => a - b);
+      const percentile10 = sorted[Math.floor(sorted.length * 0.1)];
+      this.noiseFloor = Math.max(0.001, percentile10);
+      
+      // Send noise floor update to main thread periodically
+      if (this.rmsHistory.length % 10 === 0) {
+        this.port.postMessage({
+          type: 'noiseFloor',
+          noiseFloor: this.noiseFloor,
+          currentRMS: rms,
+          currentGain: this.currentGain
+        });
+      }
+    }
   }
 
   flushBuffer() {
@@ -74,6 +167,11 @@ class SpeechmaticsAudioProcessor extends AudioWorkletProcessor {
       return true;
     }
 
+    // Update sample rate (needed for AGC timing calculations)
+    if (sampleRate) {
+      this.sampleRate = sampleRate;
+    }
+
     // Get the actual sample rate from the AudioContext
     // We need to downsample to 16kHz for Speechmatics
     // The AudioContext is created with 16kHz, but browsers may provide different rates
@@ -87,12 +185,19 @@ class SpeechmaticsAudioProcessor extends AudioWorkletProcessor {
       // Most browsers will provide the requested sample rate, but we downsample to be safe
       // If AudioContext is 16kHz, no downsampling needed
       // If it's higher (e.g., 44.1kHz or 48kHz), downsample
-      const currentSampleRate = sampleRate || 44100; // Default fallback
+      const currentSampleRate = (typeof sampleRate !== 'undefined' ? sampleRate : 44100); // Default fallback
       if (currentSampleRate > this.targetSampleRate) {
         processedData = this.downsampleTo16kHz(inputChannel, currentSampleRate);
       } else {
         processedData = inputChannel;
       }
+    }
+
+    // Apply AGC if enabled
+    if (this.enableAGC && processedData.length > 0) {
+      const rms = this.calculateRMS(processedData);
+      this.updateNoiseFloor(rms);
+      processedData = this.applyAGC(processedData, rms);
     }
 
     // Accumuler les données jusqu'à atteindre targetBufferSize

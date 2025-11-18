@@ -1,8 +1,23 @@
 /**
- * Speechmatics Voice Agent
- * Uses Speechmatics Real-Time STT, LLM for responses, and ElevenLabs for TTS
+ * SpeechmaticsVoiceAgent - Agent vocal utilisant Speechmatics STT + LLM + ElevenLabs TTS
  * 
- * This file has been refactored to use modular components for better maintainability
+ * Architecture modulaire :
+ * - SpeechmaticsAuth : Gestion de l'authentification Speechmatics et ElevenLabs
+ * - SpeechmaticsWebSocket : Gestion de la connexion WebSocket et des messages
+ * - SpeechmaticsAudio : Capture et envoi de l'audio du microphone
+ * - AudioChunkDedupe : Déduplication des chunks audio pour éviter les doublons
+ * - TranscriptionManager : Gestion des transcriptions partielles et finales
+ * - SpeechmaticsLLM : Appels au LLM (Anthropic/OpenAI) pour générer les réponses
+ * - ElevenLabsTTS : Synthèse vocale pour les réponses de l'agent
+ * 
+ * Flux de traitement :
+ * 1. Audio du microphone → Speechmatics STT (transcription en temps réel)
+ * 2. Transcription finale → LLM (génération de réponse)
+ * 3. Réponse LLM → ElevenLabs TTS (synthèse vocale)
+ * 4. Audio TTS → Lecture dans le navigateur
+ * 
+ * Ce fichier a été refactoré pour utiliser des composants modulaires
+ * afin d'améliorer la maintenabilité et la testabilité.
  */
 
 import { ElevenLabsTTS, type ElevenLabsConfig } from './elevenlabs';
@@ -32,36 +47,71 @@ export type {
   SpeechmaticsAudioCallback,
 };
 
+/**
+ * Classe principale SpeechmaticsVoiceAgent
+ * 
+ * Coordonne tous les modules pour fournir une expérience vocale complète :
+ * - Connexion WebSocket à Speechmatics
+ * - Capture audio du microphone
+ * - Transcription en temps réel
+ * - Génération de réponses via LLM
+ * - Synthèse vocale avec ElevenLabs
+ */
 export class SpeechmaticsVoiceAgent {
-  // Core modules
+  // ===== MODULES CORE =====
+  // Gestion de l'authentification (Speechmatics et ElevenLabs)
   private auth: SpeechmaticsAuth;
+  // Déduplication des chunks audio (évite les doublons)
   private audioDedupe: AudioChunkDedupe;
+  // Gestionnaire de transcription (traite les partials et finals)
   private transcriptionManager: TranscriptionManager | null = null;
+  // Gestionnaire WebSocket (connexion et messages)
   private websocket: SpeechmaticsWebSocket | null = null;
+  // Gestionnaire audio (capture et envoi du microphone)
   private audio: SpeechmaticsAudio | null = null;
+  // Gestionnaire LLM (appels à Anthropic/OpenAI)
   private llm: SpeechmaticsLLM;
+  // Gestionnaire TTS ElevenLabs (synthèse vocale)
   private elevenLabsTTS: ElevenLabsTTS | null = null;
 
-  // Configuration and state
+  // ===== CONFIGURATION ET ÉTAT =====
+  // Configuration actuelle de l'agent
   private config: SpeechmaticsConfig | null = null;
+  // Historique de conversation (pour le contexte LLM)
   private conversationHistory: Array<{ role: 'user' | 'agent'; content: string }> = [];
+  // Flag indiquant si une réponse est en cours de génération (pour la queue)
   private isGeneratingResponse: boolean = false;
+  // Queue des messages utilisateur en attente (si plusieurs messages arrivent pendant la génération)
   private userMessageQueue: Array<{ content: string; timestamp: string }> = [];
+  // Flag indiquant si l'agent est déconnecté (pour ignorer les messages tardifs)
   private isDisconnected: boolean = false;
+  // Promise de déconnexion en cours (pour éviter les déconnexions multiples)
   private disconnectPromise: Promise<void> | null = null;
 
-  // Callbacks
+  // ===== CALLBACKS =====
+  // Callback appelé lorsqu'un message est reçu (user ou agent, interim ou final)
   private onMessageCallback: SpeechmaticsMessageCallback | null = null;
+  // Callback appelé en cas d'erreur
   private onErrorCallback: SpeechmaticsErrorCallback | null = null;
+  // Callback appelé lors des changements d'état de connexion
   private onConnectionCallback: SpeechmaticsConnectionCallback | null = null;
+  // Callback appelé lorsqu'un chunk audio TTS est reçu (pour l'analyse si nécessaire)
   private onAudioCallback: SpeechmaticsAudioCallback | null = null;
 
+  /**
+   * Constructeur - Initialise les modules core
+   */
   constructor() {
     this.auth = new SpeechmaticsAuth();
     this.audioDedupe = new AudioChunkDedupe();
     this.llm = new SpeechmaticsLLM();
   }
 
+  /**
+   * Configure les callbacks pour recevoir les événements
+   * 
+   * @param callbacks - Objet contenant les callbacks optionnels
+   */
   setCallbacks(callbacks: {
     onMessage?: SpeechmaticsMessageCallback;
     onError?: SpeechmaticsErrorCallback;
@@ -74,13 +124,27 @@ export class SpeechmaticsVoiceAgent {
     this.onAudioCallback = callbacks.onAudio || null;
   }
 
+  /**
+   * Établit la connexion à Speechmatics et initialise tous les modules
+   * 
+   * Cette fonction :
+   * 1. Initialise ElevenLabs TTS (si activé)
+   * 2. Réinitialise le cache de déduplication audio
+   * 3. Crée le TranscriptionManager
+   * 4. Crée et connecte le WebSocket
+   * 5. Initialise le gestionnaire audio
+   * 6. Configure la sensibilité du microphone
+   * 
+   * @param config - Configuration de l'agent (STT, LLM, TTS, etc.)
+   */
   async connect(config: SpeechmaticsConfig): Promise<void> {
-    // Reset disconnect flag
+    // Réinitialiser le flag de déconnexion
     this.isDisconnected = false;
     console.log('[Speechmatics] 🔌 connect() called, isDisconnected reset to false');
     this.config = config;
 
-    // Only initialize ElevenLabs if TTS is not disabled
+    // ===== INITIALISATION D'ELEVENLABS TTS =====
+    // Initialiser ElevenLabs seulement si TTS n'est pas désactivé
     if (!config.disableElevenLabsTTS) {
       // Validate required ElevenLabs configuration
       if (!config.elevenLabsVoiceId) {
@@ -111,7 +175,8 @@ export class SpeechmaticsVoiceAgent {
     this.transcriptionManager = new TranscriptionManager(
       this.onMessageCallback,
       (transcript: string) => this.processUserMessage(transcript),
-      this.conversationHistory
+      this.conversationHistory,
+      config.sttEnablePartials !== false
     );
 
     // Initialize WebSocket manager
@@ -142,6 +207,13 @@ export class SpeechmaticsVoiceAgent {
     // Default: 1.5 (less sensitive to filter out background conversations)
     const sensitivity = config.microphoneSensitivity ?? 1.5;
     this.audio.setMicrophoneSensitivity(sensitivity);
+    
+    // Configure adaptive audio processing features
+    this.audio.setAdaptiveFeatures({
+      enableAdaptiveSensitivity: config.enableAdaptiveSensitivity !== false, // Default: true
+      enableAdaptiveNoiseGate: config.enableAdaptiveNoiseGate !== false, // Default: true
+      enableWorkletAGC: config.enableWorkletAGC !== false, // Default: true
+    });
   }
 
   private handleWebSocketMessage(data: any): void {
@@ -177,6 +249,11 @@ export class SpeechmaticsVoiceAgent {
     if (data.message === "AddPartialTranscript") {
       // Speechmatics API structure: transcript is in metadata.transcript (full text)
       const transcript = data.metadata?.transcript || "";
+      console.log('[Speechmatics] 📥 AddPartialTranscript received:', {
+        transcript: transcript.substring(0, 100),
+        fullLength: transcript.length,
+        hasContent: !!transcript.trim()
+      });
       if (transcript && transcript.trim()) {
         this.transcriptionManager?.handlePartialTranscript(transcript.trim());
       }
@@ -187,6 +264,11 @@ export class SpeechmaticsVoiceAgent {
     if (data.message === "AddTranscript") {
       // Speechmatics API structure: transcript is in metadata.transcript (full text)
       const transcript = data.metadata?.transcript || "";
+      console.log('[Speechmatics] 📥 AddTranscript received:', {
+        transcript: transcript.substring(0, 100),
+        fullLength: transcript.length,
+        hasContent: !!transcript.trim()
+      });
       if (transcript && transcript.trim()) {
         this.transcriptionManager?.handleFinalTranscript(transcript.trim());
       }
@@ -242,8 +324,22 @@ export class SpeechmaticsVoiceAgent {
   }
 
   private async processUserMessage(transcript: string): Promise<void> {
+    const processStartedAt = Date.now();
+    const processTimestamp = new Date().toISOString();
+    console.log('[Speechmatics] 📨 Received finalized user chunk', {
+      timestamp: processTimestamp,
+      inProgress: this.isGeneratingResponse,
+      queuedMessages: this.userMessageQueue.length,
+      transcriptPreview: transcript.slice(0, 120),
+      transcriptLength: transcript.length,
+    });
+
     if (this.isGeneratingResponse) {
       this.userMessageQueue.push({ content: transcript, timestamp: new Date().toISOString() });
+      console.log('[Speechmatics] ⏳ Agent busy - queued user chunk', {
+        queueSize: this.userMessageQueue.length,
+        timestamp: new Date().toISOString(),
+      });
       return;
     }
 
@@ -310,6 +406,12 @@ export class SpeechmaticsVoiceAgent {
 
       // Add to conversation history
       this.conversationHistory.push({ role: 'agent', content: llmResponse });
+      console.log('[Speechmatics] 📥 LLM response ready', {
+        timestamp: new Date().toISOString(),
+        elapsedMs: Date.now() - processStartedAt,
+        contentPreview: llmResponse.slice(0, 120),
+        contentLength: llmResponse.length,
+      });
 
       // Notify callback
       this.onMessageCallback?.({

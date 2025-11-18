@@ -30,6 +30,23 @@ export class SpeechmaticsAudio {
   private recentVoiceActivity: boolean[] = []; // Sliding window of recent VAD results
   private readonly VAD_WINDOW_SIZE = 5; // Number of chunks to track
   private hasRecentVoiceActivity: boolean = false; // Cached result
+  
+  // Adaptive sensitivity and noise gate
+  private enableAdaptiveSensitivity: boolean = true;
+  private enableAdaptiveNoiseGate: boolean = true;
+  private enableWorkletAGC: boolean = true;
+  private noiseFloor: number = 0.01; // Estimated noise floor from AudioWorklet
+  private noiseFloorHistory: number[] = []; // History for smoothing
+  private readonly NOISE_FLOOR_HISTORY_SIZE = 10;
+  private sensitivityMultiplier: number = 1.0; // User-set sensitivity multiplier
+  private adaptiveThresholdMargin: number = 0.005; // Margin above noise floor
+  private readonly MIN_VAD_THRESHOLD = 0.005; // Minimum threshold
+  private readonly MAX_VAD_THRESHOLD = 0.1; // Maximum threshold
+  private adaptiveThresholdUpdateCount: number = 0;
+  
+  // Hybrid noise gate - spectral energy detection
+  private spectralEnergyHistory: number[] = []; // History for spectral analysis
+  private readonly SPECTRAL_HISTORY_SIZE = 5;
 
   constructor(
     private audioDedupe: AudioChunkDedupe,
@@ -108,7 +125,8 @@ export class SpeechmaticsAudio {
     // Create AudioWorkletNode
     const processorOptions = {
       processorOptions: {
-        isFirefox: this.isFirefox
+        isFirefox: this.isFirefox,
+        enableAGC: this.enableWorkletAGC
       },
       numberOfInputs: 1,
       numberOfOutputs: 1,
@@ -127,6 +145,12 @@ export class SpeechmaticsAudio {
     this.recentVoiceActivity = [];
     this.hasRecentVoiceActivity = false;
     
+    // Reset adaptive sensitivity state
+    this.noiseFloor = 0.01;
+    this.noiseFloorHistory = [];
+    this.adaptiveThresholdUpdateCount = 0;
+    this.spectralEnergyHistory = [];
+    
     // Reset dedupe cache
     this.audioDedupe.reset();
 
@@ -142,6 +166,12 @@ export class SpeechmaticsAudio {
         return; // Stop if WebSocket is not open
       }
 
+      // Handle noise floor updates from AudioWorklet
+      if (event.data.type === 'noiseFloor') {
+        this.updateNoiseFloor(event.data.noiseFloor);
+        return;
+      }
+
       if (event.data.type === 'audio') {
         // Triple-check microphone state (race condition protection)
         // This ensures no audio is sent after stopMicrophone() is called
@@ -151,13 +181,15 @@ export class SpeechmaticsAudio {
 
         const pcmData = new Int16Array(event.data.data);
         
+        // Hybrid noise gate: Use multi-criteria detection (RMS + spectral energy)
+        const hasVoiceActivity = this.detectVoiceActivityHybrid(pcmData);
+        
         // Check for barge-in
-        if (!this.isMuted && this.isPlayingAudio && this.detectVoiceActivity(pcmData)) {
+        if (!this.isMuted && this.isPlayingAudio && hasVoiceActivity) {
           this.handleBargeIn();
         }
         
         // Update VAD sliding window
-        const hasVoiceActivity = this.detectVoiceActivity(pcmData);
         this.recentVoiceActivity.push(hasVoiceActivity);
         if (this.recentVoiceActivity.length > this.VAD_WINDOW_SIZE) {
           this.recentVoiceActivity.shift();
@@ -167,11 +199,18 @@ export class SpeechmaticsAudio {
         const activeChunks = this.recentVoiceActivity.filter(v => v).length;
         this.hasRecentVoiceActivity = activeChunks >= 2;
         
-        // VAD filter: Only send audio chunks if we have recent voice activity
+        // Adaptive noise gate: Only send audio chunks if we have recent voice activity
         // This filters out background noise and distant conversations while allowing
         // natural speech pauses (we send a few chunks after voice stops)
-        if (!this.hasRecentVoiceActivity && !hasVoiceActivity) {
-          return; // Skip silent/background audio chunks
+        if (this.enableAdaptiveNoiseGate) {
+          if (!this.hasRecentVoiceActivity && !hasVoiceActivity) {
+            return; // Skip silent/background audio chunks
+          }
+        } else {
+          // Fallback to simple VAD if adaptive noise gate is disabled
+          if (!this.hasRecentVoiceActivity && !hasVoiceActivity) {
+            return;
+          }
         }
         
         // Deduplicate and send
@@ -330,12 +369,52 @@ export class SpeechmaticsAudio {
   setMicrophoneSensitivity(sensitivity: number = 1.0): void {
     // Clamp sensitivity between 0.3 and 3.0
     const clampedSensitivity = Math.max(0.3, Math.min(3.0, sensitivity));
+    this.sensitivityMultiplier = clampedSensitivity;
+    
+    // Update base threshold (used when adaptive sensitivity is disabled)
     this.vadRmsThreshold = this.BASE_VAD_RMS_THRESHOLD * clampedSensitivity;
+    
+    // Update adaptive threshold if enabled
+    if (this.enableAdaptiveSensitivity) {
+      this.updateAdaptiveThreshold();
+    }
+    
     console.log('[Speechmatics] 🎚️ Microphone sensitivity set:', {
       sensitivity: clampedSensitivity,
       vadThreshold: this.vadRmsThreshold,
+      adaptiveThreshold: this.enableAdaptiveSensitivity ? this.getAdaptiveThreshold() : undefined,
+      adaptiveEnabled: this.enableAdaptiveSensitivity,
       description: clampedSensitivity > 1.0 ? 'Less sensitive (ignores distant sounds)' : 'More sensitive (captures quieter sounds)'
     });
+  }
+  
+  /**
+   * Configure adaptive features
+   */
+  setAdaptiveFeatures(config: {
+    enableAdaptiveSensitivity?: boolean;
+    enableAdaptiveNoiseGate?: boolean;
+    enableWorkletAGC?: boolean;
+  }): void {
+    if (config.enableAdaptiveSensitivity !== undefined) {
+      this.enableAdaptiveSensitivity = config.enableAdaptiveSensitivity;
+      if (this.enableAdaptiveSensitivity) {
+        this.updateAdaptiveThreshold();
+      }
+    }
+    if (config.enableAdaptiveNoiseGate !== undefined) {
+      this.enableAdaptiveNoiseGate = config.enableAdaptiveNoiseGate;
+    }
+    if (config.enableWorkletAGC !== undefined) {
+      this.enableWorkletAGC = config.enableWorkletAGC;
+      // Update AudioWorklet if processor exists
+      if (this.processorNode) {
+        this.processorNode.port.postMessage({
+          type: 'config',
+          enableAGC: this.enableWorkletAGC
+        });
+      }
+    }
   }
 
   async playAudio(audioData: Uint8Array): Promise<void> {
@@ -476,7 +555,140 @@ export class SpeechmaticsAudio {
     }
 
     const rms = Math.sqrt(sumSquares / samples);
-    return rms > this.vadRmsThreshold;
+    
+    // Use adaptive threshold if enabled
+    const threshold = this.enableAdaptiveSensitivity 
+      ? this.getAdaptiveThreshold() 
+      : this.vadRmsThreshold;
+    
+    return rms > threshold;
+  }
+  
+  /**
+   * Hybrid voice activity detection using RMS + spectral energy
+   * More accurate than RMS-only detection
+   */
+  private detectVoiceActivityHybrid(chunk: Int16Array): boolean {
+    if (!chunk.length) {
+      return false;
+    }
+
+    // Calculate RMS
+    let sumSquares = 0;
+    let samples = 0;
+    for (let i = 0; i < chunk.length; i += this.VAD_SAMPLE_STRIDE) {
+      const sample = chunk[i] / 32768;
+      sumSquares += sample * sample;
+      samples++;
+    }
+
+    if (samples === 0) {
+      return false;
+    }
+
+    const rms = Math.sqrt(sumSquares / samples);
+    
+    // Calculate spectral energy in vocal frequency range (300-3400 Hz)
+    // Simple approximation: use high-frequency content as proxy
+    const spectralEnergy = this.calculateSpectralEnergy(chunk);
+    
+    // Update spectral energy history
+    this.spectralEnergyHistory.push(spectralEnergy);
+    if (this.spectralEnergyHistory.length > this.SPECTRAL_HISTORY_SIZE) {
+      this.spectralEnergyHistory.shift();
+    }
+    
+    // Use adaptive threshold if enabled
+    const threshold = this.enableAdaptiveSensitivity 
+      ? this.getAdaptiveThreshold() 
+      : this.vadRmsThreshold;
+    
+    // Multi-criteria decision:
+    // 1. RMS above threshold (basic energy)
+    // 2. Spectral energy indicates voice frequencies
+    const rmsCheck = rms > threshold;
+    const spectralCheck = spectralEnergy > threshold * 0.5; // Lower threshold for spectral
+    
+    // Voice detected if either criterion is met (OR logic)
+    // This allows detection of quiet speech with good spectral characteristics
+    return rmsCheck || spectralCheck;
+  }
+  
+  /**
+   * Calculate spectral energy as approximation of voice frequency content
+   * Uses simple high-frequency emphasis filter
+   */
+  private calculateSpectralEnergy(chunk: Int16Array): number {
+    if (chunk.length < 2) return 0;
+    
+    // Simple high-pass filter approximation: emphasize differences
+    let energy = 0;
+    for (let i = 1; i < chunk.length; i++) {
+      const diff = Math.abs(chunk[i] - chunk[i - 1]) / 32768;
+      energy += diff * diff;
+    }
+    
+    return Math.sqrt(energy / (chunk.length - 1));
+  }
+  
+  /**
+   * Update noise floor from AudioWorklet and adjust adaptive threshold
+   */
+  private updateNoiseFloor(newNoiseFloor: number): void {
+    if (!this.enableAdaptiveSensitivity) {
+      return;
+    }
+    
+    // Smooth noise floor updates
+    this.noiseFloorHistory.push(newNoiseFloor);
+    if (this.noiseFloorHistory.length > this.NOISE_FLOOR_HISTORY_SIZE) {
+      this.noiseFloorHistory.shift();
+    }
+    
+    // Use median for robustness against outliers
+    const sorted = [...this.noiseFloorHistory].sort((a, b) => a - b);
+    const medianIndex = Math.floor(sorted.length / 2);
+    this.noiseFloor = sorted[medianIndex] || newNoiseFloor;
+    
+    // Update adaptive threshold
+    this.updateAdaptiveThreshold();
+  }
+  
+  /**
+   * Calculate adaptive VAD threshold based on noise floor
+   */
+  private getAdaptiveThreshold(): number {
+    if (!this.enableAdaptiveSensitivity || this.noiseFloor <= 0) {
+      return this.vadRmsThreshold;
+    }
+    
+    // Adaptive threshold = noise floor * sensitivity multiplier + margin
+    const adaptiveThreshold = (this.noiseFloor * this.sensitivityMultiplier) + this.adaptiveThresholdMargin;
+    
+    // Clamp to min/max bounds
+    return Math.max(this.MIN_VAD_THRESHOLD, Math.min(this.MAX_VAD_THRESHOLD, adaptiveThreshold));
+  }
+  
+  /**
+   * Update adaptive threshold and log changes periodically
+   */
+  private updateAdaptiveThreshold(): void {
+    if (!this.enableAdaptiveSensitivity) {
+      return;
+    }
+    
+    const newThreshold = this.getAdaptiveThreshold();
+    
+    // Log threshold updates periodically (every 50 updates)
+    this.adaptiveThresholdUpdateCount++;
+    if (this.adaptiveThresholdUpdateCount % 50 === 0) {
+      console.log('[Speechmatics] 🎚️ Adaptive threshold updated:', {
+        noiseFloor: this.noiseFloor.toFixed(4),
+        adaptiveThreshold: newThreshold.toFixed(4),
+        baseThreshold: this.vadRmsThreshold.toFixed(4),
+        sensitivityMultiplier: this.sensitivityMultiplier.toFixed(2)
+      });
+    }
   }
 
   private handleBargeIn(): void {

@@ -861,7 +861,7 @@ async function persistInsights(
 
       const updatePayload = {
         ask_session_id: targetRow.ask_session_id,
-        user_id: currentUserId ?? targetRow.user_id ?? null,
+        user_id: currentUserId ?? null,
         content: incoming.content ?? targetRow.content ?? '',
         summary: mergedNote,
         insight_type_id: targetRow.insight_type_id,
@@ -872,7 +872,7 @@ async function persistInsights(
         related_challenge_ids: incoming.relatedChallengeIds ?? targetRow.related_challenge_ids ?? [],
         source_message_id: incoming.sourceMessageId ?? targetRow.source_message_id ?? fallbackMessageId ?? null,
         conversation_thread_id: conversationThreadId ?? targetRow.conversation_thread_id ?? null,
-        plan_step_id: planStepId ?? targetRow.plan_step_id ?? null,
+        plan_step_id: planStepId ?? null,
         updated_at: nowIso,
       } satisfies Record<string, unknown>;
 
@@ -906,7 +906,7 @@ async function persistInsights(
 
       const updatePayload = {
         ask_session_id: existing.ask_session_id,
-        user_id: currentUserId ?? existing.user_id ?? null,
+        user_id: currentUserId ?? null,
         content: incoming.content ?? existing.content ?? '',
         summary: incoming.summary ?? existing.summary ?? null,
         insight_type_id: desiredTypeId,
@@ -917,7 +917,7 @@ async function persistInsights(
         related_challenge_ids: incoming.relatedChallengeIds ?? existing.related_challenge_ids ?? [],
         source_message_id: incoming.sourceMessageId ?? existing.source_message_id ?? fallbackMessageId ?? null,
         conversation_thread_id: conversationThreadId ?? existing.conversation_thread_id ?? null,
-        plan_step_id: planStepId ?? existing.plan_step_id ?? null,
+        plan_step_id: planStepId ?? null,
         updated_at: nowIso,
       };
 

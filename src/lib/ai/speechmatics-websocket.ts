@@ -143,8 +143,12 @@ export class SpeechmaticsWebSocket {
             transcription_config: {
               language: transcriptionLanguage,
               enable_partials: config.sttEnablePartials !== false,
-              max_delay: config.sttMaxDelay || 3.0,
-              operating_point: config.sttOperatingPoint || "enhanced",
+              // Low latency mode: reduce max_delay for faster response
+              // Default to 1.0s for low latency (was 3.0s)
+              max_delay: config.sttMaxDelay ?? (config.lowLatencyMode !== false ? 1.0 : 3.0),
+              // Use "standard" operating point for lower latency (was "enhanced")
+              // "enhanced" provides better accuracy but higher latency
+              operating_point: config.sttOperatingPoint || (config.lowLatencyMode !== false ? "standard" : "enhanced"),
             },
           };
 
@@ -152,8 +156,9 @@ export class SpeechmaticsWebSocket {
             language: transcriptionLanguage,
             originalLanguage: language,
             enable_partials: config.sttEnablePartials !== false,
-            max_delay: config.sttMaxDelay || 3.0,
-            operating_point: config.sttOperatingPoint || "enhanced",
+            max_delay: config.sttMaxDelay ?? (config.lowLatencyMode !== false ? 1.0 : 3.0),
+            operating_point: config.sttOperatingPoint || (config.lowLatencyMode !== false ? "standard" : "enhanced"),
+            lowLatencyMode: config.lowLatencyMode !== false,
           });
 
           ws.send(JSON.stringify(settings));
