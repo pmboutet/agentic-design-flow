@@ -27,10 +27,11 @@ export class SpeechmaticsLLM {
     options?: {
       enableThinking?: boolean;
       thinkingBudgetTokens?: number;
+      signal?: AbortSignal;
     }
   ): Promise<string> {
     const systemMessage = messages.find(m => m.role === 'system');
-    
+
     const payload: Record<string, unknown> = {
       provider,
       model,
@@ -51,6 +52,7 @@ export class SpeechmaticsLLM {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(payload),
+      signal: options?.signal,
     });
 
     if (!response.ok) {
@@ -62,6 +64,7 @@ export class SpeechmaticsLLM {
     return data.content || '';
   }
 }
+
 
 
 
