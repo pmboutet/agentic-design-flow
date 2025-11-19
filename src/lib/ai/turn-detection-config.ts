@@ -104,7 +104,7 @@ export function resolveSemanticTurnDetectorConfig(): SemanticTurnDetectorConfig 
     ),
     maxHoldMs: parseNumber(
       process.env.NEXT_PUBLIC_SEMANTIC_TURN_MAX_HOLD_MS || process.env.SEMANTIC_TURN_MAX_HOLD_MS,
-      2500
+      5000
     ),
     fallbackMode,
     contextMessages: Math.max(2, parseNumber(

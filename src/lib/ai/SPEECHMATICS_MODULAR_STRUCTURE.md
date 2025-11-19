@@ -120,3 +120,4 @@ Le pipeline Speechmatics inclut désormais un détecteur d'arrêt sémantique op
 Des tests unitaires couvrent le helper SLM et un scénario bout-en-bout VAD+détection pour sécuriser la logique.
 
 
+
