@@ -29,6 +29,7 @@ import { cn } from '@/lib/utils';
 import { useAuth } from '@/components/auth/AuthProvider';
 import type { ConversationPlan, ConversationPlanStep } from '@/types';
 import type { SemanticTurnTelemetryEvent } from '@/lib/ai/turn-detection';
+import { useInactivityMonitor, type Speaker } from '@/hooks/useInactivityMonitor';
 
 /**
  * Props du composant PremiumVoiceInterface
@@ -143,6 +144,7 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
   const [interimUser, setInterimUser] = useState<VoiceMessage | null>(null);
   const [interimAssistant, setInterimAssistant] = useState<VoiceMessage | null>(null);
   const [semanticTelemetry, setSemanticTelemetry] = useState<SemanticTurnTelemetryEvent | null>(null);
+  const [showInactivityOverlay, setShowInactivityOverlay] = useState(false);
 
   const conversationSteps = conversationPlan?.plan_data.steps ?? [];
   const currentConversationStepId = conversationPlan?.current_step_id;
@@ -187,7 +189,30 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   // Flag pour éviter les rechargements multiples de la page
   const reloadRequestedRef = useRef(false);
-  
+  // StrictMode detection: track if this is the first mount (skip it) or second mount (use it)
+  const strictModeFirstMountRef = useRef(true);
+
+  // ===== INACTIVITY MONITOR =====
+  const inactivityMonitor = useInactivityMonitor({
+    timeout: 20000, // 20 seconds
+    onInactive: useCallback(() => {
+      console.log('[PremiumVoiceInterface] ⏰ User inactive - showing overlay and muting');
+      setShowInactivityOverlay(true);
+      // Mute microphone when inactive
+      if (!isMuted && agentRef.current) {
+        setIsMuted(true);
+        // Only Speechmatics agent has setMicrophoneMuted
+        if (agentRef.current instanceof SpeechmaticsVoiceAgent) {
+          agentRef.current.setMicrophoneMuted(true);
+        }
+      }
+    }, [isMuted]),
+    onActive: useCallback(() => {
+      console.log('[PremiumVoiceInterface] ✅ User active again');
+      setShowInactivityOverlay(false);
+    }, []),
+  });
+
   // ===== DÉTECTION DU TYPE D'AGENT =====
   // Détection si l'agent est de type Hybrid (Deepgram STT + LLM + ElevenLabs TTS)
   const isHybridAgent = modelConfig?.provider === "hybrid-voice-agent";
@@ -665,6 +690,11 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
       if (isInterim) {
         setSemanticTelemetry(null);
       }
+      // Record user activity for inactivity monitor
+      inactivityMonitor.recordUserActivity();
+    } else {
+      // Record assistant activity for inactivity monitor
+      inactivityMonitor.recordAssistantActivity();
     }
 
     // Cas INTERIM → mise à jour du buffer local uniquement
@@ -809,8 +839,21 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
       setIsConnecting(true);
 
       // ===== CRÉATION ET CONFIGURATION DE L'AGENT VOCAL =====
+
+      // CRITICAL: Disconnect any existing agent before creating a new one
+      // This prevents orphaned agents from React StrictMode double-mounting
+      if (agentRef.current) {
+        console.log('[PremiumVoiceInterface] 🧹 Disconnecting existing agent before creating new one');
+        try {
+          await agentRef.current.disconnect();
+        } catch (err) {
+          console.error('[PremiumVoiceInterface] ❌ Error disconnecting existing agent:', err);
+        }
+        agentRef.current = null;
+      }
+
       // Sélection de l'agent selon la configuration
-      
+
       if (isHybridAgent) {
         // Agent Hybrid : Deepgram STT + LLM (Anthropic/OpenAI) + ElevenLabs TTS
         const agent = new HybridVoiceAgent();
@@ -1186,7 +1229,16 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
 
   // Auto-connect on mount
   useEffect(() => {
-    console.log('[PremiumVoiceInterface] 🚀 Component mounted, auto-connecting...', {
+    // CRITICAL: Skip first mount in StrictMode (development only)
+    // StrictMode deliberately double-mounts components to catch bugs
+    // We only want to connect on the second mount to avoid orphaned agents
+    if (strictModeFirstMountRef.current) {
+      console.log('[PremiumVoiceInterface] 🔄 First mount detected (StrictMode), skipping connection');
+      strictModeFirstMountRef.current = false;
+      return;
+    }
+
+    console.log('[PremiumVoiceInterface] 🚀 Component mounted (second mount), auto-connecting...', {
       hasAgent: !!agentRef.current,
       isConnected,
       isConnecting: isConnectingRef.current,
@@ -1733,7 +1785,6 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
                           agentRef.current.setMicrophoneSensitivity?.(value);
                         }
                       }}
-                      disabled={isConnected}
                       className="w-full h-2 bg-white/10 rounded-lg appearance-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                       style={{
                         background: `linear-gradient(to right, rgba(255,255,255,0.3) 0%, rgba(255,255,255,0.3) ${((microphoneSensitivity - 0.5) / 2.5) * 100}%, rgba(255,255,255,0.1) ${((microphoneSensitivity - 0.5) / 2.5) * 100}%, rgba(255,255,255,0.1) 100%)`
@@ -1770,6 +1821,57 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
           </div>
         </div>
       </div>
+
+      {/* Inactivity overlay with blur and resume confirmation */}
+      <AnimatePresence>
+        {showInactivityOverlay && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.3 }}
+            className="absolute inset-0 z-50 backdrop-blur-md bg-black/40 flex items-center justify-center"
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              transition={{ duration: 0.3, delay: 0.1 }}
+              className="bg-white/10 backdrop-blur-xl border border-white/20 rounded-2xl p-8 max-w-md mx-4 shadow-2xl"
+            >
+              <h2 className="text-white text-2xl font-semibold mb-4 text-center">
+                Still there?
+              </h2>
+              <p className="text-white/80 text-sm mb-6 text-center">
+                We noticed you've been inactive for a while. Your microphone has been muted.
+              </p>
+              <p className="text-white/70 text-xs mb-6 text-center">
+                {inactivityMonitor.lastSpeaker === 'user'
+                  ? "You were the last to speak. When you resume, I'll respond to your message."
+                  : "I was the last to speak. When you resume, I'll wait for your next message."}
+              </p>
+              <Button
+                onClick={() => {
+                  console.log('[PremiumVoiceInterface] 🔊 User resumed - unmuting microphone');
+                  setShowInactivityOverlay(false);
+
+                  // Unmute microphone
+                  if (isMuted && agentRef.current) {
+                    toggleMute();
+                  }
+
+                  // Reset inactivity timer
+                  inactivityMonitor.resetTimer();
+                }}
+                className="w-full bg-white/20 hover:bg-white/30 text-white border border-white/30 rounded-xl py-3 font-semibold transition-colors"
+                autoFocus
+              >
+                Resume Conversation
+              </Button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }, (prevProps, nextProps) => {
