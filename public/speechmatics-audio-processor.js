@@ -107,8 +107,8 @@ class SpeechmaticsAudioProcessor extends AudioWorkletProcessor {
       const percentile10 = sorted[Math.floor(sorted.length * 0.1)];
       this.noiseFloor = Math.max(0.001, percentile10);
       
-      // Send noise floor update to main thread periodically
-      if (this.rmsHistory.length % 10 === 0) {
+      // Send noise floor update to main thread periodically (only when active)
+      if (this.isActive && this.rmsHistory.length % 10 === 0) {
         this.port.postMessage({
           type: 'noiseFloor',
           noiseFloor: this.noiseFloor,

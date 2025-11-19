@@ -309,7 +309,7 @@ function MobileLayout({
                   ask={sessionData.ask}
                   messages={sessionData.messages}
                   conversationPlan={sessionData.conversationPlan}
-                  onSendMessage={handleSendMessage}
+                  onSendMessage={onSendMessage}
                   isLoading={sessionData.isLoading}
                   currentParticipantName={currentParticipantName}
                   isMultiUser={Boolean(sessionData.ask && sessionData.ask.participants.length > 1)}
@@ -319,10 +319,10 @@ function MobileLayout({
                   voiceModeUserPrompt={voiceModeConfig?.userPrompt || undefined}
                   voiceModePromptVariables={voiceModeConfig?.promptVariables || undefined}
                   voiceModeModelConfig={voiceModeConfig?.modelConfig || undefined}
-                  onVoiceMessage={handleVoiceMessage}
+                  onVoiceMessage={onVoiceMessage}
                   onReplyBoxFocusChange={setIsReplyBoxFocused}
-                  onInitConversation={handleInitConversation}
-                  onVoiceModeChange={handleVoiceModeChange}
+                  onInitConversation={onInitConversation}
+                  onVoiceModeChange={setIsVoiceModeActive}
                 />
               </div>
             </div>
