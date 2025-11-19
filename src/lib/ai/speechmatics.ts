@@ -20,6 +20,14 @@
  * afin d'améliorer la maintenabilité et la testabilité.
  */
 
+/**
+ * Helper function to get timestamp for logging
+ */
+function getTimestamp(): string {
+  const now = new Date();
+  return now.toISOString().split('T')[1].replace('Z', '');
+}
+
 import { ElevenLabsTTS, type ElevenLabsConfig } from './elevenlabs';
 import { SpeechmaticsAuth } from './speechmatics-auth';
 import { AudioChunkDedupe } from './speechmatics-audio-dedupe';
@@ -64,6 +72,10 @@ export type {
  * - Synthèse vocale avec ElevenLabs
  */
 export class SpeechmaticsVoiceAgent {
+  // ===== STATIC CLASS VARIABLES =====
+  // Global connection token counter shared across ALL instances to track connection attempts
+  private static globalConnectionToken: number = 0;
+
   // ===== MODULES CORE =====
   // Gestion de l'authentification (Speechmatics et ElevenLabs)
   private auth: SpeechmaticsAuth;
@@ -93,10 +105,14 @@ export class SpeechmaticsVoiceAgent {
   private isDisconnected: boolean = false;
   // Promise de déconnexion en cours (pour éviter les déconnexions multiples)
   private disconnectPromise: Promise<void> | null = null;
+  // Connection token for THIS instance's connection attempt (captured from global counter)
+  private myConnectionToken: number = 0;
   // Semantic turn detection configuration
   private semanticTurnConfig = resolveSemanticTurnDetectorConfig();
   private semanticTurnDetector: SemanticTurnDetector | null =
     createSemanticTurnDetector(this.semanticTurnConfig);
+  // AbortController for canceling in-flight LLM requests
+  private llmAbortController: AbortController | null = null;
 
   // ===== CALLBACKS =====
   // Callback appelé lorsqu'un message est reçu (user ou agent, interim ou final)
@@ -152,9 +168,14 @@ export class SpeechmaticsVoiceAgent {
    * @param config - Configuration de l'agent (STT, LLM, TTS, etc.)
    */
   async connect(config: SpeechmaticsConfig): Promise<void> {
+    // Increment GLOBAL connection token to track THIS specific connection attempt
+    // Using static counter ensures tokens are unique across ALL agent instances
+    SpeechmaticsVoiceAgent.globalConnectionToken++;
+    this.myConnectionToken = SpeechmaticsVoiceAgent.globalConnectionToken;
+    console.log(`[Speechmatics] 🔌 connect() called with token #${this.myConnectionToken}`);
+
     // Réinitialiser le flag de déconnexion
     this.isDisconnected = false;
-    console.log('[Speechmatics] 🔌 connect() called, isDisconnected reset to false');
     this.config = config;
     // Refresh semantic detector on each connection to pick up env changes
     this.semanticTurnConfig = resolveSemanticTurnDetectorConfig();
@@ -226,11 +247,29 @@ export class SpeechmaticsVoiceAgent {
     // Connect WebSocket
     await this.websocket.connect(config, this.disconnectPromise);
 
+    // CRITICAL: Check if this connection attempt is still valid
+    // If a newer connect() call has incremented the global counter beyond our token,
+    // it means this connection is orphaned and should be aborted
+    if (this.myConnectionToken !== SpeechmaticsVoiceAgent.globalConnectionToken) {
+      console.log(`[Speechmatics] ⚠️ Connection token mismatch (mine: ${this.myConnectionToken}, current: ${SpeechmaticsVoiceAgent.globalConnectionToken}), aborting audio initialization`);
+      return;
+    }
+
+    // Also check isDisconnected flag as a secondary safety check
+    if (this.isDisconnected) {
+      console.log(`[Speechmatics] ⚠️ Disconnected during connect (token: ${this.myConnectionToken}), aborting audio initialization`);
+      return;
+    }
+
+    console.log(`[Speechmatics] ✅ Connection token #${this.myConnectionToken} is active and creating Audio instance`);
+
+
     // Initialize audio manager (will be updated with WebSocket reference after connection)
     this.audio = new SpeechmaticsAudio(
       this.audioDedupe,
       () => {}, // onAudioChunk not needed, handled internally
-      this.websocket.getWebSocket()
+      this.websocket.getWebSocket(),
+      () => this.abortResponse() // Barge-in callback
     );
     
     // Update audio with WebSocket reference
@@ -291,6 +330,17 @@ export class SpeechmaticsVoiceAgent {
         hasContent: !!transcript.trim()
       });
       if (transcript && transcript.trim()) {
+        // Get recent conversation context for echo detection (last agent message + last user message)
+        const recentContext = this.conversationHistory
+          .slice(-2)
+          .map(msg => msg.content)
+          .join(' ')
+          .slice(-200); // Last 200 chars of recent context
+
+        // Validate barge-in with transcript content and context
+        this.audio?.validateBargeInWithTranscript(transcript.trim(), recentContext);
+
+        // Process partial transcript normally
         this.transcriptionManager?.handlePartialTranscript(transcript.trim());
       }
       return;
@@ -306,6 +356,17 @@ export class SpeechmaticsVoiceAgent {
         hasContent: !!transcript.trim()
       });
       if (transcript && transcript.trim()) {
+        // Get recent conversation context for echo detection (last agent message + last user message)
+        const recentContext = this.conversationHistory
+          .slice(-2)
+          .map(msg => msg.content)
+          .join(' ')
+          .slice(-200); // Last 200 chars of recent context
+
+        // Validate barge-in with transcript content and context
+        this.audio?.validateBargeInWithTranscript(transcript.trim(), recentContext);
+
+        // Process final transcript normally
         this.transcriptionManager?.handleFinalTranscript(transcript.trim());
       }
       return;
@@ -381,6 +442,22 @@ export class SpeechmaticsVoiceAgent {
 
     this.isGeneratingResponse = true;
 
+    // Add user message to conversation history
+    this.conversationHistory.push({ role: 'user', content: transcript });
+
+    // Update audio manager with conversation history for start-of-turn detection
+    if (this.audio) {
+      const historyForDetection = this.conversationHistory.slice(-4).map(msg => ({
+        role: msg.role === 'user' ? 'user' as const : 'assistant' as const,
+        content: msg.content,
+      }));
+      this.audio.updateConversationHistory(historyForDetection);
+    }
+
+    // Create abort controller for this LLM request
+    this.llmAbortController = new AbortController();
+    const signal = this.llmAbortController.signal;
+
     try {
       const llmProvider = this.config?.llmProvider || "anthropic";
       const llmApiKey = this.config?.llmApiKey || await this.llm.getLLMApiKey(llmProvider);
@@ -428,7 +505,7 @@ export class SpeechmaticsVoiceAgent {
         { role: 'user', content: userMessageContent },
       ];
 
-      // Call LLM
+      // Call LLM with abort signal
       const llmResponse = await this.llm.callLLM(
         llmProvider,
         llmApiKey,
@@ -437,12 +514,23 @@ export class SpeechmaticsVoiceAgent {
         {
           enableThinking: this.config?.enableThinking,
           thinkingBudgetTokens: this.config?.thinkingBudgetTokens,
+          signal,
         }
       );
 
       // Add to conversation history
       this.conversationHistory.push({ role: 'agent', content: llmResponse });
-      console.log('[Speechmatics] 📥 LLM response ready', {
+
+      // Update audio manager with conversation history for start-of-turn detection
+      if (this.audio) {
+        const historyForDetection = this.conversationHistory.slice(-4).map(msg => ({
+          role: msg.role === 'user' ? 'user' as const : 'assistant' as const,
+          content: msg.content,
+        }));
+        this.audio.updateConversationHistory(historyForDetection);
+      }
+
+      console.log(`[${getTimestamp()}] [Speechmatics] 📥 LLM response ready`, {
         timestamp: new Date().toISOString(),
         elapsedMs: Date.now() - processStartedAt,
         contentPreview: llmResponse.slice(0, 120),
@@ -460,6 +548,9 @@ export class SpeechmaticsVoiceAgent {
       // Generate TTS audio only if ElevenLabs is enabled
       if (!this.config?.disableElevenLabsTTS && this.elevenLabsTTS && this.audio) {
         try {
+          // Set current assistant speech for echo detection
+          this.audio.setCurrentAssistantSpeech(llmResponse);
+
           const audioStream = await this.elevenLabsTTS.streamTextToSpeech(llmResponse);
           const audioData = await this.audio.streamToUint8Array(audioStream);
           if (audioData) {
@@ -489,9 +580,20 @@ export class SpeechmaticsVoiceAgent {
         this.isGeneratingResponse = false;
       }
     } catch (error) {
+      // Check if error was caused by user aborting (barge-in)
+      if (error instanceof Error && error.name === 'AbortError') {
+        console.log(`[${getTimestamp()}] [Speechmatics] 🛑 LLM request aborted by user (barge-in)`);
+        // Don't treat abort as error - it's expected behavior
+        this.isGeneratingResponse = false;
+        return;
+      }
+
       console.error('[Speechmatics] ❌ Error processing user message:', error);
       this.isGeneratingResponse = false;
       this.onErrorCallback?.(error instanceof Error ? error : new Error(String(error)));
+    } finally {
+      // Clear abort controller
+      this.llmAbortController = null;
     }
   }
 
@@ -523,6 +625,10 @@ export class SpeechmaticsVoiceAgent {
     }
 
     this.disconnectPromise = (async () => {
+      // CRITICAL: Increment global token to invalidate any in-flight connect() attempts
+      // This ensures orphaned connections will be aborted when they finish
+      SpeechmaticsVoiceAgent.globalConnectionToken++;
+      console.log(`[Speechmatics] 🔌 disconnect() called (my token: ${this.myConnectionToken}, global token now: ${SpeechmaticsVoiceAgent.globalConnectionToken})`);
       this.isDisconnected = true;
 
       // CRITICAL: According to Speechmatics API docs:
@@ -543,8 +649,12 @@ export class SpeechmaticsVoiceAgent {
         console.log('[Speechmatics] 🎤 Step 1: Stopping microphone...');
         // Stop microphone input completely - this stops all AddAudio messages
         this.audio.setMicrophoneMuted(true);
-        await this.audio.stopMicrophone();
-        console.log('[Speechmatics] ✅ Microphone stopped');
+        try {
+          await this.audio.stopMicrophone();
+          console.log('[Speechmatics] ✅ Microphone stopped');
+        } catch (error) {
+          console.error('[Speechmatics] ❌ Error stopping microphone:', error);
+        }
         
         // CRITICAL: Wait to ensure NO audio chunks are in flight
         // According to docs: "Protocol specification doesn't allow adding audio after EndOfStream"
@@ -618,5 +728,36 @@ export class SpeechmaticsVoiceAgent {
 
   setMicrophoneMuted(muted: boolean): void {
     this.audio?.setMicrophoneMuted(muted);
+  }
+
+  /**
+   * Abort current assistant response (called when user interrupts)
+   * Stops ElevenLabs playback, clears assistant interim message, and cancels in-flight LLM request
+   */
+  abortResponse(): void {
+    console.log(`[${getTimestamp()}] [Speechmatics] 🛑 Aborting current assistant response`);
+
+    // Stop ElevenLabs TTS playback
+    if (this.audio) {
+      this.audio.stopAgentSpeech();
+    }
+
+    // Cancel in-flight LLM request
+    if (this.llmAbortController) {
+      this.llmAbortController.abort();
+      this.llmAbortController = null;
+    }
+
+    // Clear assistant interim message via callback
+    this.onMessageCallback?.({
+      role: 'agent',
+      content: '',
+      timestamp: new Date().toISOString(),
+      isInterim: true,
+      messageId: `abort-${Date.now()}`,
+    });
+
+    // Reset generation state
+    this.isGeneratingResponse = false;
   }
 }
