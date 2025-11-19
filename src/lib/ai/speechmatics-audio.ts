@@ -4,8 +4,16 @@
  */
 
 import { AudioChunkDedupe } from './speechmatics-audio-dedupe';
+import {
+  createStartOfTurnDetector,
+  resolveStartOfTurnDetectorConfig,
+  type StartOfTurnDetector,
+  type StartOfTurnMessage,
+} from './start-of-turn-detection';
 
 export class SpeechmaticsAudio {
+  private static instanceCounter = 0;
+  private instanceId: number;
   private audioContext: AudioContext | null = null;
   private mediaStream: MediaStream | null = null;
   private sourceNode: MediaStreamAudioSourceNode | null = null;
@@ -25,6 +33,16 @@ export class SpeechmaticsAudio {
   private readonly BASE_VAD_RMS_THRESHOLD = 0.015; // ~-36 dB threshold (base)
   private vadRmsThreshold: number = 0.015; // Dynamic threshold based on sensitivity
   private readonly VAD_SAMPLE_STRIDE = 4;
+
+  // Semantic barge-in detection state
+  private bargeInPendingValidation: boolean = false;
+  private bargeInValidationTimer: NodeJS.Timeout | null = null;
+  private readonly BARGE_IN_VALIDATION_TIMEOUT_MS = 1500; // Wait up to 1.5s for AI validation
+  private currentAssistantSpeech: string = ''; // Track what assistant is currently saying (for echo detection)
+
+  // Start-of-turn detection (AI-powered validation)
+  private startOfTurnDetector: StartOfTurnDetector | null = null;
+  private conversationHistory: StartOfTurnMessage[] = []; // Track conversation for context
   
   // VAD state for continuous voice activity tracking
   private recentVoiceActivity: boolean[] = []; // Sliding window of recent VAD results
@@ -51,9 +69,21 @@ export class SpeechmaticsAudio {
   constructor(
     private audioDedupe: AudioChunkDedupe,
     private onAudioChunk: (chunk: Int16Array) => void,
-    private ws: WebSocket | null
+    private ws: WebSocket | null,
+    private onBargeIn?: () => void
   ) {
+    this.instanceId = ++SpeechmaticsAudio.instanceCounter;
     this.isFirefox = typeof navigator !== 'undefined' && navigator.userAgent.includes('Firefox');
+
+    // Initialize start-of-turn detector
+    const startOfTurnConfig = resolveStartOfTurnDetectorConfig();
+    this.startOfTurnDetector = createStartOfTurnDetector(startOfTurnConfig);
+
+    console.log(`[Speechmatics Audio #${this.instanceId}] Instance created`, {
+      startOfTurnDetectionEnabled: startOfTurnConfig.enabled,
+      provider: startOfTurnConfig.provider,
+      model: startOfTurnConfig.model,
+    });
   }
 
   async startMicrophone(deviceId?: string, voiceIsolation: boolean = true): Promise<void> {
@@ -168,7 +198,12 @@ export class SpeechmaticsAudio {
 
       // Handle noise floor updates from AudioWorklet
       if (event.data.type === 'noiseFloor') {
-        this.updateNoiseFloor(event.data.noiseFloor);
+        // Don't process noise floor updates when muted
+        if (!this.isMuted) {
+          this.updateNoiseFloor(event.data.noiseFloor);
+        } else {
+          console.log(`[Speechmatics Audio #${this.instanceId}] 🔇 Skipping noise floor update (muted)`);
+        }
         return;
       }
 
@@ -236,19 +271,23 @@ export class SpeechmaticsAudio {
   }
 
   async stopMicrophone(): Promise<void> {
-    console.log('[Speechmatics] 🎤 stopMicrophone() called', {
+    console.log(`[Speechmatics Audio #${this.instanceId}] 🎤 stopMicrophone() called`, {
       timestamp: new Date().toISOString(),
       isMicrophoneActive: this.isMicrophoneActive,
       isMuted: this.isMuted,
       hasProcessor: !!this.processorNode,
       hasMediaStream: !!this.mediaStream,
     });
-    
+
     // CRITICAL: Set flags FIRST to stop any audio from being sent
     // This must happen before we stop the stream to prevent race conditions
     this.isMicrophoneActive = false;
     this.isMuted = false;
     this.stopAgentSpeech(false);
+
+    // Clear barge-in validation state
+    this.cancelBargeInValidation();
+
     console.log('[Speechmatics] ✅ Flags set: isMicrophoneActive=false, isMuted=false');
 
     // Clear AudioWorklet handler FIRST to stop processing new audio chunks
@@ -356,8 +395,40 @@ export class SpeechmaticsAudio {
 
     if (muted) {
       this.stopAgentSpeech(true);
+      // Tell AudioWorklet to stop processing FIRST
+      if (this.processorNode) {
+        try {
+          this.processorNode.port.postMessage({ type: 'stop' });
+          console.log('[Speechmatics] 🔇 Sent stop message to AudioWorklet');
+        } catch (error) {
+          console.warn('[Speechmatics] ⚠️ Error sending stop message to worklet:', error);
+        }
+      }
+      // Then disconnect audio processor to stop audio flow
+      if (this.processorNode && this.sourceNode) {
+        try {
+          this.sourceNode.disconnect(this.processorNode);
+          console.log('[Speechmatics] 🔇 Audio processor disconnected (muted)');
+        } catch (error) {
+          console.warn('[Speechmatics] ⚠️ Error disconnecting processor on mute:', error);
+        }
+      }
     } else if (!hasStream) {
       this.isMicrophoneActive = false;
+    } else {
+      // Reconnect audio processor when unmuting
+      if (this.processorNode && this.sourceNode && this.audioContext) {
+        try {
+          this.sourceNode.connect(this.processorNode);
+          this.processorNode.connect(this.audioContext.destination);
+          console.log('[Speechmatics] 🔊 Audio processor reconnected (unmuted)');
+          // Send start message to AudioWorklet to resume processing
+          this.processorNode.port.postMessage({ type: 'start' });
+          console.log('[Speechmatics] 🔊 Sent start message to AudioWorklet');
+        } catch (error) {
+          console.warn('[Speechmatics] ⚠️ Error reconnecting processor on unmute:', error);
+        }
+      }
     }
   }
 
@@ -482,18 +553,20 @@ export class SpeechmaticsAudio {
     source.start();
   }
 
-  private stopAgentSpeech(applyFade: boolean): void {
+  stopAgentSpeech(applyFade: boolean = true): void {
     if (!this.audioContext) {
       this.audioPlaybackQueue = [];
       this.isPlayingAudio = false;
       this.currentAudioSource = null;
       this.currentGainNode = null;
+      this.currentAssistantSpeech = ''; // Clear current speech
       return;
     }
 
     if (!this.currentAudioSource) {
       this.audioPlaybackQueue = [];
       this.isPlayingAudio = false;
+      this.currentAssistantSpeech = ''; // Clear current speech
       return;
     }
 
@@ -533,6 +606,7 @@ export class SpeechmaticsAudio {
       source.disconnect();
       this.currentAudioSource = null;
       this.currentGainNode = null;
+      this.currentAssistantSpeech = ''; // Clear current speech
     }
   }
 
@@ -682,11 +756,12 @@ export class SpeechmaticsAudio {
     // Log threshold updates periodically (every 50 updates)
     this.adaptiveThresholdUpdateCount++;
     if (this.adaptiveThresholdUpdateCount % 50 === 0) {
-      console.log('[Speechmatics] 🎚️ Adaptive threshold updated:', {
+      console.log(`[Speechmatics Audio #${this.instanceId}] 🎚️ Adaptive threshold updated:`, {
         noiseFloor: this.noiseFloor.toFixed(4),
         adaptiveThreshold: newThreshold.toFixed(4),
         baseThreshold: this.vadRmsThreshold.toFixed(4),
-        sensitivityMultiplier: this.sensitivityMultiplier.toFixed(2)
+        sensitivityMultiplier: this.sensitivityMultiplier.toFixed(2),
+        isMuted: this.isMuted
       });
     }
   }
@@ -701,9 +776,141 @@ export class SpeechmaticsAudio {
       return;
     }
 
-    this.lastBargeInTime = now;
+    // If barge-in is already pending validation, don't trigger again
+    if (this.bargeInPendingValidation) {
+      return;
+    }
+
+    // Mark barge-in as pending validation
+    this.bargeInPendingValidation = true;
     this.lastUserSpeechTimestamp = now;
+
+    const timestamp = new Date().toISOString().split('T')[1].replace('Z', '');
+    console.log(`[${timestamp}] [Speechmatics Audio] 🔊 VAD detected - waiting for AI validation...`);
+
+    // Set timeout to trigger barge-in if we don't get AI validation within timeout
+    // This ensures we don't get stuck if AI is slow or fails
+    this.bargeInValidationTimer = setTimeout(() => {
+      const ts = new Date().toISOString().split('T')[1].replace('Z', '');
+      console.log(`[${ts}] [Speechmatics Audio] ⏰ Barge-in validation timeout - assuming valid user speech`);
+      this.confirmBargeIn();
+    }, this.BARGE_IN_VALIDATION_TIMEOUT_MS);
+  }
+
+  /**
+   * Confirm barge-in and interrupt assistant response
+   * Called either by transcript validation or by timeout
+   */
+  private confirmBargeIn(): void {
+    if (!this.bargeInPendingValidation) {
+      return;
+    }
+
+    // Clear validation timer
+    if (this.bargeInValidationTimer) {
+      clearTimeout(this.bargeInValidationTimer);
+      this.bargeInValidationTimer = null;
+    }
+
+    // Reset validation state
+    this.bargeInPendingValidation = false;
+    this.lastBargeInTime = Date.now();
+
+    const timestamp = new Date().toISOString().split('T')[1].replace('Z', '');
+    console.log(`[${timestamp}] [Speechmatics Audio] ✅ Barge-in confirmed - interrupting agent speech`);
+
     this.stopAgentSpeech(true);
+
+    // Notify parent agent to abort response
+    this.onBargeIn?.();
+  }
+
+  /**
+   * Validate barge-in with transcript content using AI-powered start-of-turn detection
+   * Called by parent agent when partial transcript is received
+   * @param transcript The partial transcript content
+   * @param recentContext Recent conversation content (deprecated - using conversationHistory now)
+   * @returns true if barge-in should be confirmed, false otherwise
+   */
+  async validateBargeInWithTranscript(transcript: string, recentContext?: string): Promise<boolean> {
+    if (!this.bargeInPendingValidation) {
+      return false;
+    }
+
+    const cleanedTranscript = transcript.trim();
+    const words = cleanedTranscript.split(/\s+/).filter(Boolean);
+
+    // Quick check: Need at least 3 words for AI validation to be meaningful
+    if (words.length < 3) {
+      const timestamp = new Date().toISOString().split('T')[1].replace('Z', '');
+      console.log(`[${timestamp}] [Speechmatics Audio] ⏸️ Transcript too short (${words.length}/3 words) - waiting for more...`);
+      return false;
+    }
+
+    // Use AI-powered start-of-turn detection
+    if (this.startOfTurnDetector) {
+      try {
+        const result = await this.startOfTurnDetector.validateStartOfTurn(
+          cleanedTranscript,
+          this.currentAssistantSpeech,
+          this.conversationHistory
+        );
+
+        const timestamp = new Date().toISOString().split('T')[1].replace('Z', '');
+
+        if (result.isEcho) {
+          console.log(`[${timestamp}] [Speechmatics Audio] 🔁 AI detected echo - ignoring (confidence: ${result.confidence.toFixed(2)})`);
+          console.log(`[${timestamp}] [Speechmatics Audio] Reason: ${result.reason}`);
+          this.cancelBargeInValidation();
+          return false;
+        }
+
+        if (!result.isValidStart) {
+          console.log(`[${timestamp}] [Speechmatics Audio] ⏸️ AI rejected start of turn (confidence: ${result.confidence.toFixed(2)})`);
+          console.log(`[${timestamp}] [Speechmatics Audio] Reason: ${result.reason}`);
+          // Don't cancel yet - wait for more transcript or timeout
+          return false;
+        }
+
+        // AI confirmed valid start of turn
+        console.log(`[${timestamp}] [Speechmatics Audio] ✅ AI validated start of turn (confidence: ${result.confidence.toFixed(2)})`);
+        console.log(`[${timestamp}] [Speechmatics Audio] Reason: ${result.reason}`);
+        this.confirmBargeIn();
+        return true;
+      } catch (error) {
+        console.error('[Speechmatics Audio] AI validation error - falling back to simple validation', error);
+        // Fall through to simple validation
+      }
+    }
+
+    // Fallback: Simple validation if AI is disabled or failed
+    // Require minimum 5 words for fallback mode
+    if (words.length < 5) {
+      const timestamp = new Date().toISOString().split('T')[1].replace('Z', '');
+      console.log(`[${timestamp}] [Speechmatics Audio] ⏸️ Fallback mode: Need 5+ words (${words.length}/5)`);
+      return false;
+    }
+
+    const timestamp = new Date().toISOString().split('T')[1].replace('Z', '');
+    console.log(`[${timestamp}] [Speechmatics Audio] ✅ Fallback validation passed (${words.length} words)`);
+    this.confirmBargeIn();
+    return true;
+  }
+
+  /**
+   * Cancel pending barge-in validation
+   * Called when voice activity stops before we got meaningful content
+   */
+  cancelBargeInValidation(): void {
+    if (this.bargeInValidationTimer) {
+      clearTimeout(this.bargeInValidationTimer);
+      this.bargeInValidationTimer = null;
+    }
+    if (this.bargeInPendingValidation) {
+      const timestamp = new Date().toISOString().split('T')[1].replace('Z', '');
+      console.log(`[${timestamp}] [Speechmatics Audio] ❌ Barge-in validation cancelled - no meaningful content`);
+      this.bargeInPendingValidation = false;
+    }
   }
 
   private async audioDataToBuffer(audioData: Uint8Array): Promise<AudioBuffer> {
@@ -750,6 +957,22 @@ export class SpeechmaticsAudio {
 
   updateWebSocket(ws: WebSocket | null): void {
     this.ws = ws;
+  }
+
+  /**
+   * Update conversation history for start-of-turn detection
+   * Called by parent agent when messages are added to conversation
+   */
+  updateConversationHistory(history: StartOfTurnMessage[]): void {
+    this.conversationHistory = history;
+  }
+
+  /**
+   * Update what the assistant is currently saying (for echo detection)
+   * Called by parent agent when assistant starts speaking
+   */
+  setCurrentAssistantSpeech(text: string): void {
+    this.currentAssistantSpeech = text;
   }
 }
 
