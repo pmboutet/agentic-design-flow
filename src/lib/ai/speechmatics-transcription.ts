@@ -1,19 +1,27 @@
 /**
  * TranscriptionManager - Gestionnaire de transcription pour Speechmatics Voice Agent
- * 
+ *
  * Ce module gère toute la logique de traitement des transcriptions :
  * - Réception et fusion des transcriptions partielles (partial) et finales
  * - Déduplication intelligente pour éviter les doublons
  * - Détection de silence pour finaliser les messages utilisateur
  * - Nettoyage et normalisation du texte transcrit
  * - Gestion des messages intermédiaires (interim) pour l'affichage en temps réel
- * 
+ *
  * Architecture :
  * - Utilise un système de timeout pour détecter la fin de la parole
  * - Fusionne les segments de transcription qui se chevauchent
  * - Filtre les fragments incomplets et les doublons
  * - Gère les signaux EndOfUtterance de Speechmatics
  */
+
+/**
+ * Helper function to get timestamp for logging
+ */
+function getTimestamp(): string {
+  const now = new Date();
+  return now.toISOString().split('T')[1].replace('Z', '');
+}
 
 import type { SpeechmaticsMessageCallback } from './speechmatics-types';
 import type {
@@ -159,7 +167,7 @@ export class TranscriptionManager {
       // Always set timeout - even if EndOfUtterance was received
       // This ensures we respect the full silence period before responding
       this.silenceTimeout = setTimeout(() => {
-        console.log('[Transcription] ⏰ Silence timeout - processing message');
+        console.log(`[${getTimestamp()}] [Transcription] ⏰ Silence timeout - processing message`);
         this.handleSilenceTimeout();
       }, timeoutDuration);
     }
@@ -289,8 +297,8 @@ export class TranscriptionManager {
       this.currentStreamingMessageId = null;
       this.lastPreviewContent = null;
       
-      console.log('[Transcription] ✅ FINAL:', fullContent);
-      console.log('[📤 SEND FINAL]', fullContent.slice(0, 80) + (fullContent.length > 80 ? '...' : ''));
+      console.log(`[${getTimestamp()}] [Transcription] ✅ FINAL:`, fullContent);
+      console.log(`[${getTimestamp()}] [📤 SEND FINAL]`, fullContent.slice(0, 80) + (fullContent.length > 80 ? '...' : ''));
 
       // Add to conversation history
       this.conversationHistory.push({ role: 'user', content: fullContent });
@@ -320,7 +328,7 @@ export class TranscriptionManager {
     this.clearSemanticHold();
 
     // Log minimal pour debug
-    console.log('[📥 PARTIAL]', trimmedTranscript.slice(0, 80) + (trimmedTranscript.length > 80 ? '...' : ''));
+    console.log(`[${getTimestamp()}] [📥 PARTIAL]`, trimmedTranscript.slice(0, 80) + (trimmedTranscript.length > 80 ? '...' : ''));
     
     // Detect start of a brand new user turn (previous turn was already processed)
     if (!this.pendingFinalTranscript && this.lastProcessedContent) {
@@ -391,7 +399,7 @@ export class TranscriptionManager {
 
     const messageId = this.currentStreamingMessageId || undefined;
 
-    console.log('[📤 SEND INTERIM]', previewContent.slice(0, 60) + (previewContent.length > 60 ? '...' : ''));
+    console.log(`[${getTimestamp()}] [📤 SEND INTERIM]`, previewContent.slice(0, 60) + (previewContent.length > 60 ? '...' : ''));
 
     this.onMessageCallback?.({
       role: 'user',
@@ -444,7 +452,7 @@ export class TranscriptionManager {
       }
 
       const probability = await options.detector.getSemanticEotProb(messages);
-      console.log('[Transcription] 🎯 Semantic evaluation result', {
+      console.log(`[${getTimestamp()}] [Transcription] 🎯 Semantic evaluation result`, {
         trigger,
         probability,
         threshold: options.threshold,
@@ -515,7 +523,7 @@ export class TranscriptionManager {
       this.triggerSemanticEvaluation('semantic_grace');
     }, options.gracePeriodMs);
 
-    console.log('[Transcription] ⏳ Semantic hold active', {
+    console.log(`[${getTimestamp()}] [Transcription] ⏳ Semantic hold active`, {
       trigger,
       probability,
       threshold: options.threshold,
@@ -682,7 +690,7 @@ export class TranscriptionManager {
     this.clearSemanticHold();
 
     // Log minimal pour debug
-    console.log('[📥 FINAL]', trimmedTranscript.slice(0, 80) + (trimmedTranscript.length > 80 ? '...' : ''));
+    console.log(`[${getTimestamp()}] [📥 FINAL]`, trimmedTranscript.slice(0, 80) + (trimmedTranscript.length > 80 ? '...' : ''));
     
     // Seed pending transcript with the latest partial (usually the full text) if missing
     if (!this.pendingFinalTranscript) {
