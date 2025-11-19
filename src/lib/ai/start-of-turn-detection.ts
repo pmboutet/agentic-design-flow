@@ -105,70 +105,28 @@ class LLMStartOfTurnDetector implements StartOfTurnDetector {
     conversationHistory: StartOfTurnMessage[],
     signal: AbortSignal
   ): Promise<StartOfTurnValidationResult> {
-    const systemPrompt = `You are a voice conversation analyzer. Your task is to determine if a detected speech transcript is:
-1. A genuine start of user speech (valid interruption)
-2. An echo/repetition of what the assistant is currently saying
-
-Respond with a JSON object:
-{
-  "isValidStart": true/false,
-  "isEcho": true/false,
-  "confidence": 0.0-1.0,
-  "reason": "brief explanation"
-}
-
-Rules:
-- If the transcript closely matches what the assistant is saying, it's an echo (isEcho=true, isValidStart=false)
-- If the transcript is semantically similar to recent assistant speech, it's likely an echo
-- If the transcript is a new statement/question from the user, it's valid (isValidStart=true, isEcho=false)
-- If the transcript is too short (< 3 words), be cautious (lower confidence)
-- Consider the conversation context to determine if this is a natural user turn`;
-
-    const recentHistory = conversationHistory.slice(-2).map(msg =>
-      `${msg.role === 'assistant' ? 'Assistant' : 'User'}: ${msg.content}`
-    ).join('\n');
-
-    const userPrompt = `Current situation:
-- Assistant is currently saying: "${currentAssistantSpeech}"
-- Detected user speech: "${userTranscript}"
-- Recent conversation:
-${recentHistory}
-
-Is this detected speech a valid start of user turn, or is it an echo of the assistant?`;
-
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
+    // Call our secure API endpoint instead of calling Anthropic directly
+    const response = await fetch("/api/start-of-turn", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-api-key": this.config.apiKey || "",
-        "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
+        userTranscript,
+        currentAssistantSpeech,
+        conversationHistory,
+        provider: "anthropic",
         model: this.config.model,
-        max_tokens: 256,
-        temperature: 0,
-        system: systemPrompt,
-        messages: [
-          { role: "user", content: userPrompt }
-        ],
       }),
       signal,
     });
 
     if (!response.ok) {
-      throw new Error(`Anthropic API error: ${response.status}`);
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(`Start-of-turn API error: ${response.status} - ${JSON.stringify(errorData)}`);
     }
 
-    const data = await response.json();
-    const content = data.content?.[0]?.text || "";
-
-    // Extract JSON from response
-    const jsonMatch = content.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      throw new Error("No JSON found in response");
-    }
-
-    return JSON.parse(jsonMatch[0]);
+    return await response.json();
   }
 
   private async validateWithOpenAI(
@@ -177,52 +135,28 @@ Is this detected speech a valid start of user turn, or is it an echo of the assi
     conversationHistory: StartOfTurnMessage[],
     signal: AbortSignal
   ): Promise<StartOfTurnValidationResult> {
-    const systemPrompt = `You are a voice conversation analyzer. Determine if detected speech is a genuine user interruption or an echo of the assistant. Respond with JSON only:
-{
-  "isValidStart": true/false,
-  "isEcho": true/false,
-  "confidence": 0.0-1.0,
-  "reason": "brief explanation"
-}`;
-
-    const recentHistory = conversationHistory.slice(-2).map(msg =>
-      `${msg.role === 'assistant' ? 'Assistant' : 'User'}: ${msg.content}`
-    ).join('\n');
-
-    const userPrompt = `Assistant currently saying: "${currentAssistantSpeech}"
-Detected user speech: "${userTranscript}"
-Recent conversation:
-${recentHistory}
-
-Is this a valid user interruption or an echo?`;
-
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    // Call our secure API endpoint instead of calling OpenAI directly
+    const response = await fetch("/api/start-of-turn", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${this.config.apiKey}`,
       },
       body: JSON.stringify({
+        userTranscript,
+        currentAssistantSpeech,
+        conversationHistory,
+        provider: "openai",
         model: this.config.model,
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt }
-        ],
-        temperature: 0,
-        max_tokens: 256,
-        response_format: { type: "json_object" },
       }),
       signal,
     });
 
     if (!response.ok) {
-      throw new Error(`OpenAI API error: ${response.status}`);
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(`Start-of-turn API error: ${response.status} - ${JSON.stringify(errorData)}`);
     }
 
-    const data = await response.json();
-    const content = data.choices?.[0]?.message?.content || "{}";
-
-    return JSON.parse(content);
+    return await response.json();
   }
 }
 
@@ -236,37 +170,48 @@ export function createStartOfTurnDetector(
 }
 
 /**
- * Resolve configuration from environment variables
+ * Resolve configuration from environment variables with sensible defaults
+ *
+ * Default configuration:
+ * - Enabled: true
+ * - Provider: anthropic (Claude Haiku is faster and cheaper than GPT-4o-mini for this task)
+ * - Model: claude-3-5-haiku-latest
+ * - Timeout: 800ms (fast response needed for real-time barge-in)
+ * - API key: Falls back to ANTHROPIC_API_KEY from environment (server-side only)
  */
 export function resolveStartOfTurnDetectorConfig(): StartOfTurnDetectorConfig {
+  // Provider selection with default to Anthropic (better for low-latency tasks)
   const provider = (
     process.env.NEXT_PUBLIC_START_OF_TURN_PROVIDER ||
     process.env.START_OF_TURN_PROVIDER ||
-    "openai"
+    "anthropic"  // Default: Anthropic Claude Haiku (faster, cheaper)
   ).toLowerCase() as "openai" | "anthropic";
 
+  // Enabled by default - can be disabled via env var
   const enabled = (
     process.env.NEXT_PUBLIC_START_OF_TURN_ENABLED ||
     process.env.START_OF_TURN_ENABLED ||
     "true"
   ).toLowerCase() === "true";
 
+  // Model selection with provider-specific defaults
   const model =
     process.env.NEXT_PUBLIC_START_OF_TURN_MODEL ||
     process.env.START_OF_TURN_MODEL ||
     (provider === "anthropic" ? "claude-3-5-haiku-latest" : "gpt-4o-mini");
 
+  // API key resolution - not needed for client-side (using API proxy)
+  // This is only here for backwards compatibility but shouldn't be used
   const apiKey =
     process.env.NEXT_PUBLIC_START_OF_TURN_API_KEY ||
     process.env.START_OF_TURN_API_KEY ||
-    (provider === "anthropic"
-      ? process.env.ANTHROPIC_API_KEY
-      : process.env.OPENAI_API_KEY);
+    undefined;  // Server-side API route handles API keys
 
+  // Timeout for AI validation request (800ms is good balance between accuracy and UX)
   const requestTimeoutMs = parseInt(
     process.env.NEXT_PUBLIC_START_OF_TURN_TIMEOUT_MS ||
     process.env.START_OF_TURN_TIMEOUT_MS ||
-    "800",
+    "800",  // Default: 800ms timeout
     10
   );
 
