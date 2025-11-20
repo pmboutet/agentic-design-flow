@@ -9,24 +9,40 @@ export interface ConversationThread {
 }
 
 export interface AskSessionConfig {
+  conversation_mode?: string | null;
+  // DEPRECATED: Use conversation_mode instead
   audience_scope?: string | null;
   response_mode?: string | null;
 }
 
 /**
  * Determine if an ASK session should use a shared thread
- * 
- * Mode partagé (shared thread):
- * - audience_scope = 'group' AND response_mode = 'collective'
- * - Tous les participants partagent le même thread
- * - user_id = NULL, is_shared = true
- * 
- * Mode individuel (individual thread):
- * - audience_scope = 'individual' OR response_mode = 'simultaneous'
- * - Chaque utilisateur a son propre thread
- * - user_id = user's profile ID, is_shared = false
+ *
+ * Based on conversation_mode:
+ *
+ * - individual_parallel: Individual threads (is_shared = false)
+ *   → Plusieurs personnes répondent individuellement, pas de visibilité croisée
+ *   → Chaque utilisateur a son propre thread isolé
+ *
+ * - collaborative: Shared thread (is_shared = true)
+ *   → Conversation multi-voix, tout le monde voit tout
+ *   → Tous les participants partagent le même thread
+ *
+ * - group_reporter: Shared thread (is_shared = true)
+ *   → Un groupe contribue avec un rapporteur
+ *   → Tous les participants partagent le même thread
+ *   → Un participant est désigné comme rapporteur (is_spokesperson)
+ *
+ * For backward compatibility, also supports legacy audience_scope + response_mode logic.
  */
 export function shouldUseSharedThread(askSession: AskSessionConfig): boolean {
+  // New logic: use conversation_mode if available
+  if (askSession.conversation_mode) {
+    // Only individual_parallel uses individual threads
+    return askSession.conversation_mode !== 'individual_parallel';
+  }
+
+  // Legacy fallback: old logic using audience_scope + response_mode
   return (
     askSession.audience_scope === 'group' &&
     askSession.response_mode === 'collective'
@@ -35,15 +51,22 @@ export function shouldUseSharedThread(askSession: AskSessionConfig): boolean {
 
 /**
  * Get or create a conversation thread for an ASK session
- * 
- * Thread Logic:
- * - Shared thread: is_shared = true, user_id = NULL (for group/collective mode)
- *   → Tous les participants voient les mêmes messages et insights
- * 
- * - Individual thread: is_shared = false, user_id = specific user (for individual/simultaneous mode)
+ *
+ * Thread Logic based on conversation_mode:
+ *
+ * - individual_parallel: Individual threads (is_shared = false, user_id = specific user)
  *   → Chaque utilisateur a son propre thread isolé
- *   → Les messages et insights sont séparés par utilisateur
- * 
+ *   → Pas de visibilité croisée des messages et insights
+ *
+ * - collaborative: Shared thread (is_shared = true, user_id = NULL)
+ *   → Tous les participants partagent le même thread
+ *   → Tout le monde voit tous les messages et insights
+ *
+ * - group_reporter: Shared thread (is_shared = true, user_id = NULL)
+ *   → Tous les participants partagent le même thread
+ *   → Tout le monde voit tous les messages et insights
+ *   → Un participant est désigné comme rapporteur (via is_spokesperson)
+ *
  * Important: Si userId est fourni en mode individuel, le thread sera créé/recherché pour cet utilisateur spécifique.
  * Si userId est NULL en mode individuel, on bascule vers un thread partagé (fallback).
  */
@@ -138,7 +161,7 @@ export async function getMessagesForThread(
 
 /**
  * Get insights for a specific conversation thread
- * Used for isolation in individual mode
+ * Used for isolation in individual_parallel mode
  */
 export async function getInsightsForThread(
   supabase: SupabaseClient,

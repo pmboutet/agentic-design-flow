@@ -84,8 +84,7 @@ const challengeFormSchema = z.object({
 
 const askStatuses = ["active", "inactive", "draft", "closed"] as const;
 const deliveryModes = ["physical", "digital"] as const;
-const audienceScopes = ["individual", "group"] as const;
-const responseModes = ["collective", "simultaneous"] as const;
+const conversationModes = ["individual_parallel", "collaborative", "group_reporter"] as const;
 
 const askFormSchema = z.object({
   askKey: z.string().trim().min(3, "Key is required").max(255).regex(/^[a-zA-Z0-9._-]+$/),
@@ -105,8 +104,7 @@ const askFormSchema = z.object({
       .optional()
     ),
   deliveryMode: z.enum(deliveryModes),
-  audienceScope: z.enum(audienceScopes),
-  responseMode: z.enum(responseModes),
+  conversationMode: z.enum(conversationModes),
   participantIds: z.array(z.string().uuid()).default([]),
   participantEmails: z.array(z.string().email()).default([]),
   spokespersonId: z.string().uuid().optional().or(z.literal("")),
@@ -169,8 +167,7 @@ const defaultAskFormValues: AskFormInput = {
   isAnonymous: false,
   maxParticipants: undefined,
   deliveryMode: "digital",
-  audienceScope: "individual",
-  responseMode: "collective",
+  conversationMode: "collaborative",
   participantIds: [],
   participantEmails: [],
   spokespersonId: "",
@@ -808,7 +805,7 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
   });
 
   const askNameValue = askForm.watch("name");
-  const selectedAudience = askForm.watch("audienceScope");
+  const selectedConversationMode = askForm.watch("conversationMode");
   const selectedParticipants = askForm.watch("participantIds");
   const selectedSpokesperson = askForm.watch("spokespersonId");
   const participantEmails = askForm.watch("participantEmails") ?? [];
@@ -858,21 +855,13 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
   }, [askForm, selectedParticipants, selectedSpokesperson]);
 
   useEffect(() => {
-    if (selectedAudience !== "group") {
-      if (askForm.getValues("responseMode") !== "collective") {
-        askForm.setValue("responseMode", "collective", { shouldDirty: true });
-      }
-
-      const participants = askForm.getValues("participantIds") ?? [];
-      if (participants.length > 1) {
-        askForm.setValue("participantIds", [participants[0]], { shouldDirty: true });
-      }
-
+    // Clear spokesperson if not in group_reporter mode
+    if (selectedConversationMode !== "group_reporter") {
       if (askForm.getValues("spokespersonId")) {
         askForm.setValue("spokespersonId", "", { shouldDirty: true });
       }
     }
-  }, [askForm, selectedAudience]);
+  }, [askForm, selectedConversationMode]);
 
   useEffect(() => {
     if (clients.length > 0 && !selectedClientId) {
@@ -1770,11 +1759,7 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
       return;
     }
 
-    if (askForm.getValues("audienceScope") === "individual") {
-      askForm.setValue("participantIds", [userId], { shouldDirty: true });
-      return;
-    }
-
+    // For all conversation modes, allow multiple participants
     askForm.setValue("participantIds", [...current, userId], { shouldDirty: true });
   };
 
@@ -1790,8 +1775,7 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
       isAnonymous: values.isAnonymous,
       maxParticipants: values.maxParticipants,
       deliveryMode: values.deliveryMode,
-      audienceScope: values.audienceScope,
-      responseMode: values.responseMode,
+      conversationMode: values.conversationMode,
       participantIds: values.participantIds ?? [],
       participantEmails: values.participantEmails ?? [],
       spokespersonId: values.spokespersonId ?? "",
@@ -1843,10 +1827,7 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
       isAnonymous: session.isAnonymous,
       maxParticipants: session.maxParticipants ?? undefined,
       deliveryMode: session.deliveryMode ?? "digital",
-      audienceScope:
-        (session.audienceScope as AskFormInput["audienceScope"]) ||
-        (session.participants && session.participants.length > 1 ? "group" : "individual"),
-      responseMode: session.responseMode ?? "collective",
+      conversationMode: session.conversationMode ?? "collaborative",
       participantIds: session.participants?.map(participant => participant.id).filter((value): value is string => Boolean(value)) ?? [],
       participantEmails: session.participants?.filter(participant => !participant.id && participant.email).map(participant => participant.email!).filter(Boolean) ?? [],
       spokespersonId: session.participants?.find(participant => participant.isSpokesperson && participant.id)?.id ?? "",
@@ -2715,39 +2696,24 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                           </select>
                         </div>
                         <div className="flex flex-col gap-2">
-                          <Label htmlFor="ask-audience">Audience</Label>
+                          <Label htmlFor="ask-conversation-mode">Conversation Mode</Label>
                           <select
-                            id="ask-audience"
+                            id="ask-conversation-mode"
                             className="h-10 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm text-white"
-                            {...askForm.register("audienceScope")}
+                            {...askForm.register("conversationMode")}
                             disabled={isBusy}
                           >
-                            {audienceScopes.map(scope => (
-                              <option key={scope} value={scope}>
-                                {scope === "individual" ? "Single participant" : "Multiple participants"}
-                              </option>
-                            ))}
+                            <option value="individual_parallel">Individual parallel responses</option>
+                            <option value="collaborative">Multi-voice conversation</option>
+                            <option value="group_reporter">Group with reporter</option>
                           </select>
+                          <p className="text-xs text-slate-400">
+                            {selectedConversationMode === "individual_parallel" && "Each person responds separately, no cross-visibility"}
+                            {selectedConversationMode === "collaborative" && "Everyone sees and can respond to each other"}
+                            {selectedConversationMode === "group_reporter" && "Everyone sees everything, one reporter consolidates"}
+                          </p>
                         </div>
                       </div>
-
-                      {selectedAudience === "group" && (
-                        <div className="flex flex-col gap-2">
-                          <Label htmlFor="ask-response">Response mode</Label>
-                          <select
-                            id="ask-response"
-                            className="h-10 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm text-white"
-                            {...askForm.register("responseMode")}
-                            disabled={isBusy}
-                          >
-                            {responseModes.map(mode => (
-                              <option key={mode} value={mode}>
-                                {mode === "collective" ? "Single spokesperson" : "Simultaneous individual answers"}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                      )}
 
                       <div className="space-y-2">
                         <Label>Participants</Label>
@@ -2878,9 +2844,9 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                         </div>
                       </div>
 
-                      {selectedAudience === "group" && (selectedParticipants.length > 0 || participantEmails.length > 0) && (
+                      {selectedConversationMode === "group_reporter" && (selectedParticipants.length > 0 || participantEmails.length > 0) && (
                         <div className="flex flex-col gap-2">
-                          <Label htmlFor="ask-spokesperson">Spokesperson (optional)</Label>
+                          <Label htmlFor="ask-spokesperson">Reporter</Label>
                           <select
                             id="ask-spokesperson"
                             className="h-10 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm text-white"

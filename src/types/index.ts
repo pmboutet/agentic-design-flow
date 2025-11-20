@@ -1,6 +1,16 @@
 // Types for the ASK system and conversations
 export type AskDeliveryMode = "physical" | "digital";
+
+// New unified conversation mode (replaces audienceScope + responseMode)
+export type AskConversationMode =
+  | "individual_parallel"  // Multiple people respond individually, no cross-visibility
+  | "collaborative"        // Multi-voice conversation, everyone sees everything
+  | "group_reporter";      // Group contributes, one reporter consolidates
+
+// DEPRECATED: Use AskConversationMode instead
+/** @deprecated Use AskConversationMode instead */
 export type AskAudienceScope = "individual" | "group";
+/** @deprecated Use AskConversationMode instead */
 export type AskGroupResponseMode = "collective" | "simultaneous";
 
 export interface AskParticipant {
@@ -26,8 +36,11 @@ export interface Ask {
   createdAt: string;
   updatedAt: string;
   deliveryMode: AskDeliveryMode;
-  audienceScope: AskAudienceScope;
-  responseMode: AskGroupResponseMode;
+  conversationMode: AskConversationMode;
+  /** @deprecated Use conversationMode instead */
+  audienceScope?: AskAudienceScope;
+  /** @deprecated Use conversationMode instead */
+  responseMode?: AskGroupResponseMode;
   participants: AskParticipant[];
   askSessionId?: string;
 }
@@ -472,8 +485,11 @@ export interface AskSessionRecord {
   isAnonymous: boolean;
   maxParticipants?: number | null;
   deliveryMode: AskDeliveryMode;
-  audienceScope: AskAudienceScope;
-  responseMode: AskGroupResponseMode;
+  conversationMode: AskConversationMode;
+  /** @deprecated Use conversationMode instead */
+  audienceScope?: AskAudienceScope;
+  /** @deprecated Use conversationMode instead */
+  responseMode?: AskGroupResponseMode;
   createdBy?: string | null;
   createdAt: string;
   updatedAt: string;
@@ -508,8 +524,11 @@ export interface AskRecord {
   question: string;
   status: string;
   deliveryMode: AskDeliveryMode;
-  audienceScope: AskAudienceScope;
-  responseMode: AskGroupResponseMode;
+  conversationMode: AskConversationMode;
+  /** @deprecated Use conversationMode instead */
+  audienceScope?: AskAudienceScope;
+  /** @deprecated Use conversationMode instead */
+  responseMode?: AskGroupResponseMode;
   startDate: string;
   endDate: string;
   createdAt: string;
@@ -698,7 +717,10 @@ export interface AiAskSuggestion {
   maxParticipants?: number | null;
   isAnonymous?: boolean | null;
   deliveryMode?: AskDeliveryMode | null;
+  conversationMode?: AskConversationMode | null;
+  /** @deprecated Use conversationMode instead */
   audienceScope?: AskAudienceScope | null;
+  /** @deprecated Use conversationMode instead */
   responseMode?: AskGroupResponseMode | null;
   startDate?: string | null;
   endDate?: string | null;

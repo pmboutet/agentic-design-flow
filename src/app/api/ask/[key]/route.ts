@@ -22,6 +22,8 @@ interface AskSessionRow {
   start_date?: string | null;
   end_date?: string | null;
   delivery_mode?: string | null;
+  conversation_mode?: string | null;
+  // DEPRECATED: Use conversation_mode instead
   audience_scope?: string | null;
   response_mode?: string | null;
   is_anonymous?: boolean | null;
@@ -758,8 +760,9 @@ export async function GET(
       createdAt,
       updatedAt,
       deliveryMode: (askRow.delivery_mode as Ask['deliveryMode']) ?? 'digital',
-      audienceScope: (askRow.audience_scope as Ask['audienceScope']) ?? (participants.length > 1 ? 'group' : 'individual'),
-      responseMode: (askRow.response_mode as Ask['responseMode']) ?? (participants.length > 1 ? 'simultaneous' : 'collective'),
+      conversationMode: (askRow.conversation_mode as Ask['conversationMode']) ?? 'collaborative',
+      audienceScope: askRow.audience_scope as Ask['audienceScope'],
+      responseMode: askRow.response_mode as Ask['responseMode'],
       participants,
       askSessionId: askSessionId,
     };

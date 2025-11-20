@@ -14,8 +14,7 @@ import { type AskSessionRecord, type ManagedUser } from "@/types";
 
 const statusOptions = ["active", "inactive", "draft", "closed"] as const;
 const deliveryModes = ["physical", "digital"] as const;
-const audienceScopes = ["individual", "group"] as const;
-const responseModes = ["collective", "simultaneous"] as const;
+const conversationModes = ["individual_parallel", "collaborative", "group_reporter"] as const;
 
 const parseNumber = (value: unknown) => {
   if (value === "" || value === undefined || value === null) {
@@ -36,8 +35,7 @@ const formSchema = z.object({
   isAnonymous: z.boolean(),
   maxParticipants: z.preprocess(parseNumber, z.number().int().positive().max(10000).optional()),
   deliveryMode: z.enum(deliveryModes),
-  audienceScope: z.enum(audienceScopes),
-  responseMode: z.enum(responseModes),
+  conversationMode: z.enum(conversationModes),
   participantIds: z.array(z.string().uuid()).default([]),
   spokespersonId: z.string().uuid().optional().or(z.literal("")),
   systemPrompt: z.string().trim().optional().or(z.literal(""))
@@ -68,8 +66,7 @@ export function AskEditForm({ asks, availableUsers, onSubmit, isLoading }: AskEd
       isAnonymous: false,
       maxParticipants: undefined,
       deliveryMode: "digital",
-      audienceScope: "individual",
-      responseMode: "collective",
+      conversationMode: "collaborative",
       participantIds: [],
       spokespersonId: "",
       systemPrompt: ""
@@ -77,7 +74,7 @@ export function AskEditForm({ asks, availableUsers, onSubmit, isLoading }: AskEd
   });
 
   const selectedId = form.watch("askId");
-  const selectedAudience = form.watch("audienceScope");
+  const selectedConversationMode = form.watch("conversationMode");
   const selectedParticipants = form.watch("participantIds");
   const selectedSpokesperson = form.watch("spokespersonId");
 
@@ -120,8 +117,7 @@ export function AskEditForm({ asks, availableUsers, onSubmit, isLoading }: AskEd
       isAnonymous: ask.isAnonymous,
       maxParticipants: ask.maxParticipants ?? undefined,
       deliveryMode: ask.deliveryMode ?? "digital",
-      audienceScope: ask.audienceScope ?? (ask.participants && ask.participants.length > 1 ? "group" : "individual"),
-      responseMode: ask.responseMode ?? "collective",
+      conversationMode: ask.conversationMode ?? "collaborative",
       participantIds: ask.participants?.map(participant => participant.id) ?? [],
       spokespersonId: ask.participants?.find(participant => participant.isSpokesperson)?.id ?? "",
       systemPrompt: ask.systemPrompt ?? ""
@@ -158,8 +154,7 @@ export function AskEditForm({ asks, availableUsers, onSubmit, isLoading }: AskEd
       isAnonymous: values.isAnonymous,
       maxParticipants: values.maxParticipants,
       deliveryMode: values.deliveryMode,
-      audienceScope: values.audienceScope,
-      responseMode: values.responseMode,
+      conversationMode: values.conversationMode,
       participantIds: values.participantIds,
       spokespersonId: values.spokespersonId ?? "",
       systemPrompt: values.systemPrompt ?? ""
@@ -313,39 +308,24 @@ export function AskEditForm({ asks, availableUsers, onSubmit, isLoading }: AskEd
           </select>
         </div>
         <div className="flex flex-col gap-2">
-          <Label htmlFor="edit-audience">Participants attendus</Label>
+          <Label htmlFor="edit-conversation-mode">Mode de conversation</Label>
           <select
-            id="edit-audience"
-            {...form.register("audienceScope")}
+            id="edit-conversation-mode"
+            {...form.register("conversationMode")}
             className="h-10 rounded-md border border-border bg-white/70 px-3 text-sm text-slate-900"
             disabled={isLoading}
           >
-            {audienceScopes.map(scope => (
-              <option key={scope} value={scope}>
-                {scope === "individual" ? "Une seule personne" : "Plusieurs personnes"}
-              </option>
-            ))}
+            <option value="individual_parallel">Réponses individuelles en parallèle</option>
+            <option value="collaborative">Conversation multi-voix</option>
+            <option value="group_reporter">Groupe avec rapporteur</option>
           </select>
+          <p className="text-xs text-muted-foreground">
+            {selectedConversationMode === "individual_parallel" && "Chacun répond séparément, sans voir les autres"}
+            {selectedConversationMode === "collaborative" && "Tout le monde voit et peut rebondir sur les messages des autres"}
+            {selectedConversationMode === "group_reporter" && "Tout le monde voit tout, un rapporteur consolide"}
+          </p>
         </div>
       </div>
-
-      {selectedAudience === "group" && (
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="edit-response-mode">Mode de réponse</Label>
-          <select
-            id="edit-response-mode"
-            {...form.register("responseMode")}
-            className="h-10 rounded-md border border-border bg-white/70 px-3 text-sm text-slate-900"
-            disabled={isLoading}
-          >
-            {responseModes.map(mode => (
-              <option key={mode} value={mode}>
-                {mode === "collective" ? "Un porte-parole pour le groupe" : "Réponses individuelles simultanées"}
-              </option>
-            ))}
-          </select>
-        </div>
-      )}
 
       <div className="space-y-2">
         <Label>Contacts de la session</Label>
@@ -382,16 +362,16 @@ export function AskEditForm({ asks, availableUsers, onSubmit, isLoading }: AskEd
         </div>
       </div>
 
-      {selectedAudience === "group" && selectedParticipants.length > 0 && (
+      {selectedConversationMode === "group_reporter" && selectedParticipants.length > 0 && (
         <div className="flex flex-col gap-2">
-          <Label htmlFor="edit-spokesperson">Porte-parole (optionnel)</Label>
+          <Label htmlFor="edit-spokesperson">Rapporteur</Label>
           <select
             id="edit-spokesperson"
             {...form.register("spokespersonId")}
             className="h-10 rounded-md border border-border bg-white/70 px-3 text-sm text-slate-900"
             disabled={isLoading}
           >
-            <option value="">Aucun porte-parole dédié</option>
+            <option value="">Sélectionner un rapporteur</option>
             {selectedParticipants.map(participantId => {
               const user = eligibleUsers.find(item => item.id === participantId) || availableUsers.find(item => item.id === participantId);
               const displayName = user?.fullName || `${user?.firstName ?? ""} ${user?.lastName ?? ""}`.trim() || user?.email || participantId;
@@ -402,6 +382,9 @@ export function AskEditForm({ asks, availableUsers, onSubmit, isLoading }: AskEd
               );
             })}
           </select>
+          <p className="text-xs text-muted-foreground">
+            Le rapporteur consolide et porte la voix du groupe
+          </p>
         </div>
       )}
 
