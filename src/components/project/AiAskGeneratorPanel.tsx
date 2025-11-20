@@ -210,8 +210,15 @@ function AskSuggestionCard({
             <div>Mode anonyme: {suggestion.isAnonymous ? "oui" : "non"}</div>
           ) : null}
           {suggestion.deliveryMode ? <div>Livraison: {suggestion.deliveryMode}</div> : null}
-          {suggestion.audienceScope ? <div>Audience: {suggestion.audienceScope}</div> : null}
-          {suggestion.responseMode ? <div>Mode de réponse: {suggestion.responseMode}</div> : null}
+          {suggestion.conversationMode ? (
+            <div>
+              Mode: {
+                suggestion.conversationMode === "individual_parallel" ? "Réponses individuelles" :
+                suggestion.conversationMode === "collaborative" ? "Conversation collaborative" :
+                "Groupe avec rapporteur"
+              }
+            </div>
+          ) : null}
         </div>
         <Button onClick={() => onApply(suggestion, index)} className="gap-2 bg-indigo-500 text-white hover:bg-indigo-400">
           <Sparkles className="h-4 w-4" /> Utiliser cette suggestion

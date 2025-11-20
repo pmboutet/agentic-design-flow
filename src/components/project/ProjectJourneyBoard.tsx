@@ -38,9 +38,8 @@ import {
   type AiFoundationInsight,
   type AiNewChallengeSuggestion,
   type AiSubChallengeUpdateSuggestion,
-  type AskAudienceScope,
+  type AskConversationMode,
   type AskDeliveryMode,
-  type AskGroupResponseMode,
   type AskSessionRecord,
   type ChallengeRecord,
   type ProjectAskOverview,
@@ -107,8 +106,7 @@ const challengeStatusOptions: { value: ChallengeStatus; label: string }[] = [
 
 const askStatusOptions = ["active", "inactive", "draft", "closed"] as const;
 const askDeliveryModes: AskDeliveryMode[] = ["physical", "digital"];
-const askAudienceScopes: AskAudienceScope[] = ["individual", "group"];
-const askResponseModes: AskGroupResponseMode[] = ["collective", "simultaneous"];
+const askConversationModes: AskConversationMode[] = ["individual_parallel", "collaborative", "group_reporter"];
 
 const USE_MOCK_JOURNEY = process.env.NEXT_PUBLIC_USE_MOCK_PROJECT_JOURNEY === "true";
 
@@ -348,8 +346,7 @@ type AskFormState = {
   participantIds: string[];
   spokespersonId: string;
   deliveryMode: AskDeliveryMode;
-  audienceScope: AskAudienceScope;
-  responseMode: AskGroupResponseMode;
+  conversationMode: AskConversationMode;
   systemPrompt: string;
 };
 
@@ -381,8 +378,7 @@ function createEmptyAskForm(challengeId?: string): AskFormState {
     participantIds: [],
     spokespersonId: "",
     deliveryMode: "digital",
-    audienceScope: "individual",
-    responseMode: "collective",
+    conversationMode: "collaborative",
     systemPrompt: "",
   };
 }
@@ -1613,8 +1609,7 @@ export function ProjectJourneyBoard({ projectId, hideHeader = false }: ProjectJo
         isAnonymous:
           typeof suggestion.isAnonymous === "boolean" ? suggestion.isAnonymous : baseForm.isAnonymous,
         deliveryMode: suggestion.deliveryMode ?? baseForm.deliveryMode,
-        audienceScope: suggestion.audienceScope ?? baseForm.audienceScope,
-        responseMode: suggestion.responseMode ?? baseForm.responseMode,
+        conversationMode: suggestion.conversationMode ?? baseForm.conversationMode,
         startDate,
         endDate,
       });
@@ -2359,14 +2354,9 @@ export function ProjectJourneyBoard({ projectId, hideHeader = false }: ProjectJo
     setAskFormValues(current => ({ ...current, deliveryMode: value as AskDeliveryMode }));
   };
 
-  const handleAskAudienceScopeChange = (event: ChangeEvent<HTMLSelectElement>) => {
+  const handleAskConversationModeChange = (event: ChangeEvent<HTMLSelectElement>) => {
     const { value } = event.target;
-    setAskFormValues(current => ({ ...current, audienceScope: value as AskAudienceScope }));
-  };
-
-  const handleAskResponseModeChange = (event: ChangeEvent<HTMLSelectElement>) => {
-    const { value } = event.target;
-    setAskFormValues(current => ({ ...current, responseMode: value as AskGroupResponseMode }));
+    setAskFormValues(current => ({ ...current, conversationMode: value as AskConversationMode }));
   };
 
   const handleAskChallengeChange = (event: ChangeEvent<HTMLSelectElement>) => {
@@ -2501,8 +2491,7 @@ export function ProjectJourneyBoard({ projectId, hideHeader = false }: ProjectJo
       isAnonymous: askFormValues.isAnonymous,
       maxParticipants: numericMaxParticipants,
       deliveryMode: askFormValues.deliveryMode,
-      audienceScope: askFormValues.audienceScope,
-      responseMode: askFormValues.responseMode,
+      conversationMode: askFormValues.conversationMode,
       participantIds,
       spokespersonId,
       challengeId,
@@ -2627,8 +2616,7 @@ export function ProjectJourneyBoard({ projectId, hideHeader = false }: ProjectJo
         participantIds: participants,
         spokespersonId: spokesperson && participants.includes(spokesperson) ? spokesperson : "",
         deliveryMode: record.deliveryMode ?? "digital",
-        audienceScope: record.audienceScope ?? (participants.length > 1 ? "group" : "individual"),
-        responseMode: record.responseMode ?? "collective",
+        conversationMode: record.conversationMode ?? "collaborative",
         systemPrompt: record.systemPrompt ?? "",
       });
     } catch (error) {
@@ -3904,36 +3892,27 @@ export function ProjectJourneyBoard({ projectId, hideHeader = false }: ProjectJo
                       </select>
                     </div>
                     <div className="flex flex-col gap-2">
-                      <Label htmlFor="ask-audience">Audience</Label>
+                      <Label htmlFor="ask-conversation-mode">Mode de conversation</Label>
                       <select
-                        id="ask-audience"
-                        value={askFormValues.audienceScope}
-                        onChange={handleAskAudienceScopeChange}
+                        id="ask-conversation-mode"
+                        value={askFormValues.conversationMode}
+                        onChange={handleAskConversationModeChange}
                         className="h-10 rounded-md border border-white/10 bg-slate-900/70 px-3 text-sm text-white focus:border-indigo-400 focus:outline-none focus:ring focus:ring-indigo-400/20"
                         disabled={isSavingAsk || isLoadingAskDetails}
                       >
-                        {askAudienceScopes.map(scope => (
-                          <option key={scope} value={scope}>
-                            {scope === "individual" ? "Individual" : "Group"}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="flex flex-col gap-2">
-                      <Label htmlFor="ask-response">Response mode</Label>
-                      <select
-                        id="ask-response"
-                        value={askFormValues.responseMode}
-                        onChange={handleAskResponseModeChange}
-                        className="h-10 rounded-md border border-white/10 bg-slate-900/70 px-3 text-sm text-white focus:border-indigo-400 focus:outline-none focus:ring focus:ring-indigo-400/20"
-                        disabled={isSavingAsk || isLoadingAskDetails}
-                      >
-                        {askResponseModes.map(mode => (
+                        {askConversationModes.map(mode => (
                           <option key={mode} value={mode}>
-                            {mode === "collective" ? "Collective" : "Simultaneous"}
+                            {mode === "individual_parallel" ? "Réponses individuelles en parallèle" :
+                             mode === "collaborative" ? "Conversation multi-voix" :
+                             "Groupe avec rapporteur"}
                           </option>
                         ))}
                       </select>
+                      <p className="text-xs text-muted-foreground">
+                        {askFormValues.conversationMode === "individual_parallel" && "Chacun répond séparément, sans voir les autres"}
+                        {askFormValues.conversationMode === "collaborative" && "Tout le monde voit et peut rebondir sur les messages des autres"}
+                        {askFormValues.conversationMode === "group_reporter" && "Tout le monde voit tout, un rapporteur consolide"}
+                      </p>
                     </div>
                   </div>
 
@@ -3996,9 +3975,9 @@ export function ProjectJourneyBoard({ projectId, hideHeader = false }: ProjectJo
                     )}
                   </div>
 
-                  {askFormValues.participantIds?.length ? (
+                  {askFormValues.participantIds?.length && askFormValues.conversationMode === "group_reporter" ? (
                     <div className="flex flex-col gap-2">
-                      <Label htmlFor="ask-spokesperson">Spokesperson</Label>
+                      <Label htmlFor="ask-spokesperson">Spokesperson (rapporteur)</Label>
                       <select
                         id="ask-spokesperson"
                         value={askFormValues.spokespersonId}
@@ -4016,6 +3995,9 @@ export function ProjectJourneyBoard({ projectId, hideHeader = false }: ProjectJo
                             </option>
                           ))}
                       </select>
+                      <p className="text-xs text-muted-foreground">
+                        Le rapporteur consolide les contributions du groupe
+                      </p>
                     </div>
                   ) : null}
 
