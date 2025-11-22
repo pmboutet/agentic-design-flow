@@ -1445,10 +1445,15 @@ export default function HomePage() {
     }
 
     try {
-      const apiUrl = `/api/ask/${sessionData.askKey}/agent-config`;
-      console.log('[HomePage] 🎤 Fetching voice config from:', apiUrl);
-      
-      const response = await fetch(apiUrl);
+      // Build API URL with token if available
+      const apiUrl = new URL(`/api/ask/${sessionData.askKey}/agent-config`, window.location.origin);
+      if (sessionData.inviteToken) {
+        apiUrl.searchParams.set('token', sessionData.inviteToken);
+      }
+
+      console.log('[HomePage] 🎤 Fetching voice config from:', apiUrl.toString());
+
+      const response = await fetch(apiUrl.toString());
       console.log('[HomePage] 🎤 Voice config response:', {
         status: response.status,
         ok: response.ok,

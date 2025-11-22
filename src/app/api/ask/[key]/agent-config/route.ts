@@ -82,7 +82,7 @@ export async function GET(
   { params }: { params: Promise<{ key: string }> }
 ) {
   const { key } = await params;
-  
+
   if (!isValidAskKey(key)) {
     return NextResponse.json(
       { success: false, error: 'Invalid ask key format' },
@@ -92,14 +92,55 @@ export async function GET(
 
   try {
     const supabase = await createServerSupabaseClient();
-    const { data: askSession, error: askError } = await supabase
-      .from('ask_sessions')
-      .select('id, ask_key, question, description, project_id, challenge_id, system_prompt')
-      .eq('ask_key', key)
-      .maybeSingle<AskSessionRow>();
 
-    if (askError) {
-      throw new Error(`Failed to fetch ASK session: ${askError.message}`);
+    // Check if user is accessing via invite token
+    const { searchParams } = new URL(request.url);
+    const token = searchParams.get('token');
+
+    let askSession: AskSessionRow | null = null;
+
+    if (token) {
+      // Use token-based access function that bypasses RLS securely
+      const { data, error: tokenError } = await supabase
+        .rpc('get_ask_session_by_token', { p_token: token })
+        .maybeSingle<{
+          ask_session_id: string;
+          ask_key: string;
+          question: string;
+          description: string | null;
+          project_id: string | null;
+          challenge_id: string | null;
+        }>();
+
+      if (tokenError) {
+        throw new Error(`Failed to fetch ASK session by token: ${tokenError.message}`);
+      }
+
+      // Map the returned columns to our interface
+      if (data) {
+        askSession = {
+          id: data.ask_session_id,
+          ask_key: data.ask_key,
+          question: data.question,
+          description: data.description,
+          project_id: data.project_id,
+          challenge_id: data.challenge_id,
+          system_prompt: null, // Not returned by token function, will need to add if needed
+        };
+      }
+    } else {
+      // Standard authenticated access via RLS
+      const { data, error: askError } = await supabase
+        .from('ask_sessions')
+        .select('id, ask_key, question, description, project_id, challenge_id, system_prompt')
+        .eq('ask_key', key)
+        .maybeSingle<AskSessionRow>();
+
+      if (askError) {
+        throw new Error(`Failed to fetch ASK session: ${askError.message}`);
+      }
+
+      askSession = data;
     }
 
     if (!askSession) {
