@@ -150,15 +150,39 @@ export async function GET(
       );
     }
 
-    // Fetch participants
-    const { data: participantRows, error: participantError } = await supabase
-      .from('ask_participants')
-      .select('*')
-      .eq('ask_session_id', askSession.id)
-      .order('joined_at', { ascending: true });
+    // Fetch participants - use RPC if token is present, otherwise use direct table access
+    let participantRows: any[] = [];
+    if (token) {
+      // Use token-based RPC function that bypasses RLS
+      const { data: rpcParticipants, error: participantError } = await supabase
+        .rpc('get_ask_participants_by_token', { p_token: token });
+      
+      if (participantError) {
+        console.error('Error fetching participants via RPC:', participantError);
+      } else {
+        participantRows = (rpcParticipants ?? []).map((row: any) => ({
+          id: row.participant_id,
+          user_id: row.user_id,
+          participant_name: row.participant_name,
+          participant_email: row.participant_email,
+          role: row.role,
+          is_spokesperson: row.is_spokesperson,
+          joined_at: row.joined_at,
+        }));
+      }
+    } else {
+      // Standard authenticated access via RLS
+      const { data, error: participantError } = await supabase
+        .from('ask_participants')
+        .select('*')
+        .eq('ask_session_id', askSession.id)
+        .order('joined_at', { ascending: true });
 
-    if (participantError) {
-      console.error('Error fetching participants:', participantError);
+      if (participantError) {
+        console.error('Error fetching participants:', participantError);
+      } else {
+        participantRows = data ?? [];
+      }
     }
 
     const participantUserIds = (participantRows ?? [])
@@ -174,7 +198,12 @@ export async function GET(
         .in('id', participantUserIds);
 
       if (userError) {
-        console.error('Error fetching users:', userError);
+        // If token-based access, RLS might block profile access - this is OK, we'll use participant_name from RPC
+        if (token) {
+          console.warn('Could not fetch user profiles (RLS restriction with token), using participant_name from RPC:', userError.message);
+        } else {
+          console.error('Error fetching users:', userError);
+        }
       } else {
         usersById = (userRows ?? []).reduce<Record<string, UserRow>>((acc, user) => {
           acc[user.id] = user;
@@ -195,15 +224,41 @@ export async function GET(
       };
     });
 
-    // Fetch messages
-    const { data: messageRows, error: messageError } = await supabase
-      .from('messages')
-      .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at')
-      .eq('ask_session_id', askSession.id)
-      .order('created_at', { ascending: true });
+    // Fetch messages - use RPC if token is present, otherwise use direct table access
+    let messageRows: any[] = [];
+    if (token) {
+      // Use token-based RPC function that bypasses RLS
+      const { data: rpcMessages, error: messageError } = await supabase
+        .rpc('get_ask_messages_by_token', { p_token: token });
+      
+      if (messageError) {
+        console.error('Error fetching messages via RPC:', messageError);
+      } else {
+        messageRows = (rpcMessages ?? []).map((row: any) => ({
+          id: row.message_id,
+          ask_session_id: askSession.id,
+          user_id: row.sender_id,
+          sender_type: row.sender_type,
+          content: row.content,
+          message_type: row.type,
+          metadata: row.metadata,
+          created_at: row.created_at,
+          sender_name: row.sender_name, // Include sender_name from RPC
+        }));
+      }
+    } else {
+      // Standard authenticated access via RLS
+      const { data, error: messageError } = await supabase
+        .from('messages')
+        .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at')
+        .eq('ask_session_id', askSession.id)
+        .order('created_at', { ascending: true });
 
-    if (messageError) {
-      console.error('Error fetching messages:', messageError);
+      if (messageError) {
+        console.error('Error fetching messages:', messageError);
+      } else {
+        messageRows = data ?? [];
+      }
     }
 
     const messageUserIds = (messageRows ?? [])
@@ -219,7 +274,12 @@ export async function GET(
         .in('id', additionalUserIds);
 
       if (extraUsersError) {
-        console.error('Error fetching additional users:', extraUsersError);
+        // If token-based access, RLS might block profile access - this is OK, sender_name is already in RPC response
+        if (token) {
+          console.warn('Could not fetch additional user profiles (RLS restriction with token), using sender_name from RPC:', extraUsersError.message);
+        } else {
+          console.error('Error fetching additional users:', extraUsersError);
+        }
       } else {
         (extraUsers ?? []).forEach(user => {
           usersById[user.id] = user;
@@ -232,7 +292,13 @@ export async function GET(
       const metadata = normaliseMessageMetadata(row.metadata);
       const user = row.user_id ? usersById[row.user_id] ?? null : null;
 
+      // If using token RPC, sender_name is already provided in the row
       const senderName = (() => {
+        // For token-based access, sender_name is already computed by RPC function
+        if (token && (row as any).sender_name) {
+          return (row as any).sender_name;
+        }
+
         if (metadata && typeof metadata.senderName === 'string' && metadata.senderName.trim().length > 0) {
           return metadata.senderName;
         }
