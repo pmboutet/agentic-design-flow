@@ -364,8 +364,8 @@ export function AdminPageLayout({ children }: AdminPageLayoutProps) {
 
   return (
     <AdminSearchProvider value={defaultSearchContext}>
-      <div className="min-h-screen bg-slate-950 text-slate-100">
-        <div className="flex min-h-screen">
+      <div className="min-h-screen h-screen overflow-hidden bg-slate-950 text-slate-100">
+        <div className="flex h-full min-h-0">
           <aside
             className={cn(
               "hidden border-r border-white/10 bg-slate-950/70 px-5 py-6 backdrop-blur md:flex",
@@ -389,7 +389,7 @@ export function AdminPageLayout({ children }: AdminPageLayoutProps) {
             </div>
           ) : null}
 
-          <div className="flex flex-1 flex-col">
+          <div className="flex flex-1 flex-col min-h-0">
             <header className="sticky top-0 z-40 border-b border-white/10 bg-slate-950/80 backdrop-blur">
               <div className="flex items-center justify-between px-4 py-4 md:px-6">
                 <div className="flex items-center gap-3">
