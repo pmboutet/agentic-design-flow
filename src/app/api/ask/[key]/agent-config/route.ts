@@ -94,12 +94,17 @@ export async function GET(
     const supabase = await createServerSupabaseClient();
 
     // Check if user is accessing via invite token
-    const { searchParams } = new URL(request.url);
-    const token = searchParams.get('token');
+    // Use request.nextUrl instead of new URL(request.url) for Next.js compatibility
+    const token = request.nextUrl.searchParams.get('token');
+
+    console.log(`[agent-config] Token from URL: ${token ? token.substring(0, 8) + '...' : 'null'}`);
+    console.log(`[agent-config] Full URL: ${request.url}`);
+    console.log(`[agent-config] NextURL: ${request.nextUrl.toString()}`);
 
     let askSession: AskSessionRow | null = null;
 
     if (token) {
+      console.log(`[agent-config] Using token-based RPC access`);
       // Use token-based access function that bypasses RLS securely
       const { data, error: tokenError } = await supabase
         .rpc('get_ask_session_by_token', { p_token: token })
@@ -113,8 +118,11 @@ export async function GET(
         }>();
 
       if (tokenError) {
+        console.error(`[agent-config] RPC error:`, tokenError);
         throw new Error(`Failed to fetch ASK session by token: ${tokenError.message}`);
       }
+
+      console.log(`[agent-config] RPC result: data=${!!data}, error=${!!tokenError}`);
 
       // Map the returned columns to our interface
       if (data) {
@@ -129,6 +137,7 @@ export async function GET(
         };
       }
     } else {
+      console.log(`[agent-config] No token, using standard RLS access`);
       // Standard authenticated access via RLS
       const { data, error: askError } = await supabase
         .from('ask_sessions')
@@ -398,7 +407,7 @@ export async function GET(
       messages_json: JSON.stringify(conversationMessagesPayload),
     };
 
-    const agentConfig = await getAgentConfigForAsk(supabase, askSession.id, agentVariables);
+    const agentConfig = await getAgentConfigForAsk(supabase, askSession.id, agentVariables, token);
 
     return NextResponse.json({
       success: true,

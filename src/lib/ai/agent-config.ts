@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { AiAgentRecord, AiModelConfig } from '@/types';
 import { renderTemplate } from './templates';
 import { mapModelRow } from './models';
+import { getAdminSupabaseClient } from '@/lib/supabaseAdmin';
 
 interface RelatedPromptHolder {
   id: string;
@@ -334,35 +335,99 @@ export async function getFallbackModelConfig(
 export async function getAgentConfigForAsk(
   supabase: SupabaseClient,
   askSessionId: string,
-  variables?: PromptVariables
+  variables?: PromptVariables,
+  token?: string | null
 ): Promise<AgentConfigResult> {
+  // When using token, we need admin client for RLS-bypassed access to ai_agents
+  const clientForAgents = token ? getAdminSupabaseClient() : supabase;
   // First, get the ASK session with its configuration
-  const { data: askSession, error: askError } = await supabase
-    .from('ask_sessions')
-    .select(`
-      id,
-      ask_key,
-      question,
-      description,
-      system_prompt,
-      ai_config,
-      project_id,
-      challenge_id,
-      delivery_mode,
-      audience_scope,
-      response_mode,
-      projects(id, name, system_prompt),
-      challenges(id, name, system_prompt)
-    `)
-    .eq('id', askSessionId)
-    .maybeSingle<AskSessionWithRelations>();
+  let askSession: AskSessionWithRelations | null = null;
+  
+  if (token) {
+    // Use token-based RPC function that bypasses RLS
+    const { data: rpcData, error: rpcError } = await supabase
+      .rpc('get_ask_session_by_token', { p_token: token })
+      .maybeSingle();
+    
+    if (rpcError) {
+      throw new Error(`Failed to fetch ASK session by token: ${rpcError.message}`);
+    }
+    
+    if (!rpcData) {
+      throw new Error('ASK session not found');
+    }
+    
+    // Get project and challenge data via RPC if needed
+    let projectData: any = null;
+    let challengeData: any = null;
+    
+    if (rpcData.project_id || rpcData.challenge_id) {
+      const { data: contextData } = await supabase
+        .rpc('get_ask_context_by_token', { p_token: token })
+        .maybeSingle();
+      
+      if (contextData) {
+        projectData = contextData.project_name ? {
+          id: contextData.project_id,
+          name: contextData.project_name,
+          system_prompt: null, // Not available via token RPC
+        } : null;
+        
+        challengeData = contextData.challenge_name ? {
+          id: contextData.challenge_id,
+          name: contextData.challenge_name,
+          system_prompt: null, // Not available via token RPC
+        } : null;
+      }
+    }
+    
+    // Map RPC data to AskSessionWithRelations format
+    askSession = {
+      id: rpcData.ask_session_id,
+      ask_key: rpcData.ask_key,
+      question: rpcData.question,
+      description: rpcData.description,
+      system_prompt: null, // Not returned by token function
+      ai_config: null, // Not returned by token function - would need to add if needed
+      project_id: rpcData.project_id,
+      challenge_id: rpcData.challenge_id,
+      delivery_mode: rpcData.delivery_mode,
+      audience_scope: rpcData.audience_scope,
+      response_mode: rpcData.response_mode,
+      projects: projectData ? [projectData] : null,
+      challenges: challengeData ? [challengeData] : null,
+    } as AskSessionWithRelations;
+  } else {
+    // Standard authenticated access via RLS
+    const { data, error: askError } = await supabase
+      .from('ask_sessions')
+      .select(`
+        id,
+        ask_key,
+        question,
+        description,
+        system_prompt,
+        ai_config,
+        project_id,
+        challenge_id,
+        delivery_mode,
+        audience_scope,
+        response_mode,
+        projects(id, name, system_prompt),
+        challenges(id, name, system_prompt)
+      `)
+      .eq('id', askSessionId)
+      .maybeSingle<AskSessionWithRelations>();
 
-  if (askError) {
-    throw new Error(`Failed to fetch ASK session: ${askError.message}`);
-  }
+    if (askError) {
+      throw new Error(`Failed to fetch ASK session: ${askError.message}`);
+    }
 
-  if (!askSession) {
-    throw new Error('ASK session not found');
+    if (!data) {
+      throw new Error('ASK session not found');
+    }
+    
+    askSession = data;
   }
 
   // Priority 1: Agent Configuration (si configuré dans ai_config)
@@ -375,7 +440,7 @@ export async function getAgentConfigForAsk(
     const agentSlug = aiConfig.agent_slug;
 
     if (agentId || agentSlug) {
-      const agentRecord = await fetchAgentByIdOrSlug(supabase, {
+      const agentRecord = await fetchAgentByIdOrSlug(clientForAgents, {
         id: agentId ?? null,
         slug: agentSlug ?? null,
       });
@@ -393,8 +458,8 @@ export async function getAgentConfigForAsk(
     return {
       systemPrompt,
       userPrompt,
-      modelConfig: agent.modelConfig || await getDefaultModelConfig(supabase),
-      fallbackModelConfig: agent.fallbackModelConfig || await getFallbackModelConfig(supabase) || undefined,
+      modelConfig: agent.modelConfig || await getDefaultModelConfig(clientForAgents),
+      fallbackModelConfig: agent.fallbackModelConfig || await getFallbackModelConfig(clientForAgents) || undefined,
       agent,
     };
   }
@@ -414,5 +479,5 @@ export async function getAgentConfigForAsk(
   // L'agent (ou l'agent par défaut) est TOUJOURS utilisé, et les variables sont substituées dans ses prompts.
 
   // Priority 2: Default chat agent fallback (toujours utilisé si aucun agent configuré)
-  return getChatAgentConfig(supabase, variables || {});
+  return getChatAgentConfig(clientForAgents, variables || {});
 }
