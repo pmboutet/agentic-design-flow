@@ -347,7 +347,26 @@ export async function getAgentConfigForAsk(
     // Use token-based RPC function that bypasses RLS
     const { data: rpcData, error: rpcError } = await supabase
       .rpc('get_ask_session_by_token', { p_token: token })
-      .maybeSingle();
+      .maybeSingle<{
+        ask_session_id: string;
+        ask_key: string;
+        name: string;
+        question: string;
+        description: string | null;
+        status: string;
+        start_date: string;
+        end_date: string;
+        is_anonymous: boolean;
+        max_participants: number | null;
+        delivery_mode: string;
+        audience_scope: string;
+        response_mode: string;
+        project_id: string | null;
+        challenge_id: string | null;
+        created_by: string | null;
+        created_at: string;
+        updated_at: string;
+      }>();
     
     if (rpcError) {
       throw new Error(`Failed to fetch ASK session by token: ${rpcError.message}`);
@@ -364,7 +383,12 @@ export async function getAgentConfigForAsk(
     if (rpcData.project_id || rpcData.challenge_id) {
       const { data: contextData } = await supabase
         .rpc('get_ask_context_by_token', { p_token: token })
-        .maybeSingle();
+        .maybeSingle<{
+          project_id: string | null;
+          project_name: string | null;
+          challenge_id: string | null;
+          challenge_name: string | null;
+        }>();
       
       if (contextData) {
         projectData = contextData.project_name ? {
