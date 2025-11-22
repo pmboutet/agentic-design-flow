@@ -7,6 +7,7 @@ import { normaliseMessageMetadata } from '@/lib/messages';
 import type { ApiResponse, Message } from '@/types';
 import { buildConversationAgentVariables } from '@/lib/ai/conversation-agent';
 import { generateConversationPlan, createConversationPlan, getConversationPlanWithSteps } from '@/lib/ai/conversation-plan';
+import { getAdminSupabaseClient } from '@/lib/supabaseAdmin';
 
 interface AskSessionRow {
   id: string;
@@ -262,8 +263,9 @@ export async function POST(
     // Generate conversation plan if it doesn't exist yet
     let conversationPlan = null;
     if (conversationThread) {
+      const adminClient = getAdminSupabaseClient();
       console.log('🎯 POST /api/ask/[key]/init: Checking for existing conversation plan');
-      conversationPlan = await getConversationPlanWithSteps(supabase, conversationThread.id);
+      conversationPlan = await getConversationPlanWithSteps(adminClient, conversationThread.id);
       
       if (!conversationPlan) {
         console.log('📋 POST /api/ask/[key]/init: Generating new conversation plan');
@@ -281,13 +283,13 @@ export async function POST(
           };
 
           const planData = await generateConversationPlan(
-            supabase,
+            adminClient,
             askRow.id,
             planGenerationVariables
           );
 
           conversationPlan = await createConversationPlan(
-            supabase,
+            adminClient,
             conversationThread.id,
             planData
           );
@@ -401,4 +403,3 @@ export async function POST(
     }, { status: 500 });
   }
 }
-

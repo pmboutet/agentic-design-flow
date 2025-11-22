@@ -262,6 +262,12 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
     };
   }, [modelConfig, voiceAgentProvider, isSpeechmaticsAgent, isHybridAgent]);
 
+  // Niveau audio sécurisé pour l'animation (évite NaN/undefined quand le micro est bloqué)
+  const safeAudioLevel = useMemo(() => {
+    const clamped = Number.isFinite(audioLevel) ? audioLevel : 0;
+    return Math.min(Math.max(clamped, 0), 1);
+  }, [audioLevel]);
+
   // ===== REGISTRE DES MESSAGES POUR DÉDUPLICATION =====
   // Registre interne pour suivre les messages et éviter les doublons
   // Clé: messageId, Valeur: { content, status: 'interim' | 'final', timestamp }
@@ -418,13 +424,14 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
         // Calculer la moyenne des fréquences pour obtenir le niveau global
         const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
         // Normaliser entre 0 et 1 (128 = valeur médiane pour Uint8)
-        const normalizedLevel = Math.min(average / 128, 1);
+        const normalizedLevel = Number.isFinite(average) ? Math.min(average / 128, 1) : 0;
+        const safeLevel = Number.isFinite(normalizedLevel) ? normalizedLevel : 0;
 
         // Mettre à jour seulement si le changement est significatif (> 0.01)
         // Cela réduit les re-renders inutiles et améliore les performances
-        if (Math.abs(normalizedLevel - lastLevel) > 0.01) {
-          lastLevel = normalizedLevel;
-          setAudioLevel(normalizedLevel);
+        if (Math.abs(safeLevel - lastLevel) > 0.01) {
+          lastLevel = safeLevel;
+          setAudioLevel(safeLevel);
         }
 
         // Programmer la prochaine mise à jour
@@ -1664,9 +1671,9 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
                 {Array.from({ length: 12 }).map((_, i) => {
                   const angle = (i * 360) / 12;
                   const baseRadius = 28;
-                  const radius = baseRadius + audioLevel * 8;
+                  const radius = baseRadius + safeAudioLevel * 8;
                   const barWidth = 3;
-                  const barHeight = 4 + audioLevel * 12;
+                  const barHeight = 4 + safeAudioLevel * 12;
                   const centerX = 48;
                   const centerY = 48;
                   const x1 = centerX + Math.cos((angle * Math.PI) / 180) * radius;
@@ -1687,10 +1694,10 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
                       opacity={0.9}
                       animate={{
                         x2: isSpeaking 
-                          ? centerX + Math.cos((angle * Math.PI) / 180) * (radius + barHeight * (1.5 + audioLevel))
+                          ? centerX + Math.cos((angle * Math.PI) / 180) * (radius + barHeight * (1.5 + safeAudioLevel))
                           : x2,
                         y2: isSpeaking
-                          ? centerY + Math.sin((angle * Math.PI) / 180) * (radius + barHeight * (1.5 + audioLevel))
+                          ? centerY + Math.sin((angle * Math.PI) / 180) * (radius + barHeight * (1.5 + safeAudioLevel))
                           : y2,
                         opacity: isSpeaking ? [0.9, 1, 0.9] : 0.6,
                       }}

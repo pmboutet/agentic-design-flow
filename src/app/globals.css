@@ -99,10 +99,10 @@ body {
     @apply border-border;
   }
   html {
-    @apply h-screen m-0 p-0;
+    @apply min-h-screen m-0 p-0;
   }
   body {
-    @apply h-full m-0 p-0 bg-gradient-to-br from-indigo-100 via-white to-indigo-200 text-foreground;
+    @apply min-h-screen m-0 p-0 bg-gradient-to-br from-indigo-100 via-white to-indigo-200 text-foreground overflow-x-hidden;
   }
 }
 

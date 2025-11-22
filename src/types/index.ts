@@ -574,6 +574,7 @@ export interface ProjectAskParticipant {
   role: string;
   avatarInitials: string;
   avatarColor?: string;
+  inviteToken?: string | null;
   insights: ProjectParticipantInsight[];
 }
 

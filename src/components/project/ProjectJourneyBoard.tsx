@@ -21,6 +21,8 @@ import {
   Users,
   X,
 } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import type { Components } from "react-markdown";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -52,6 +54,7 @@ import { AiChallengeBuilderModal } from "@/components/project/AiChallengeBuilder
 import { AiAskGeneratorPanel } from "@/components/project/AiAskGeneratorPanel";
 import { AskPromptTemplateSelector } from "@/components/admin/AskPromptTemplateSelector";
 import { GraphRAGPanel } from "@/components/admin/GraphRAGPanel";
+import { useAuth } from "@/components/auth/AuthProvider";
 
 interface ProjectJourneyBoardProps {
   projectId: string;
@@ -109,6 +112,42 @@ const askDeliveryModes: AskDeliveryMode[] = ["physical", "digital"];
 const askConversationModes: AskConversationMode[] = ["individual_parallel", "collaborative", "group_reporter"];
 
 const USE_MOCK_JOURNEY = process.env.NEXT_PUBLIC_USE_MOCK_PROJECT_JOURNEY === "true";
+
+const challengeMarkdownComponents: Components = {
+  p: ({ children }) => (
+    <p className="text-sm text-slate-200 leading-relaxed">{children}</p>
+  ),
+  ul: ({ children }) => (
+    <ul className="list-disc space-y-1 pl-4 text-sm text-slate-200 leading-relaxed marker:text-indigo-200/80">
+      {children}
+    </ul>
+  ),
+  ol: ({ children }) => (
+    <ol className="list-decimal space-y-1 pl-4 text-sm text-slate-200 leading-relaxed marker:text-indigo-200/80">
+      {children}
+    </ol>
+  ),
+  li: ({ children }) => (
+    <li className="text-sm text-slate-200 leading-relaxed">{children}</li>
+  ),
+  strong: ({ children }) => <strong className="font-semibold text-white">{children}</strong>,
+  em: ({ children }) => <em className="italic text-slate-200">{children}</em>,
+  a: ({ children, ...props }) => (
+    <a
+      {...props}
+      className="text-sm text-indigo-200 underline decoration-indigo-200/70 underline-offset-4 hover:text-indigo-100"
+      target="_blank"
+      rel="noreferrer"
+    >
+      {children}
+    </a>
+  ),
+  blockquote: ({ children }) => (
+    <blockquote className="border-l-2 border-indigo-300/50 bg-indigo-500/10 px-3 py-2 text-sm italic text-slate-100">
+      {children}
+    </blockquote>
+  ),
+};
 
 function normalizeChallengeNodes(nodes?: ProjectChallengeNode[] | null): ProjectChallengeNode[] {
   return Array.isArray(nodes) ? nodes : [];
@@ -446,6 +485,13 @@ export function ProjectJourneyBoard({ projectId, hideHeader = false }: ProjectJo
   const [askAiSuggestions, setAskAiSuggestions] = useState<AiAskSuggestion[]>([]);
   const [askAiFeedback, setAskAiFeedback] = useState<FeedbackState | null>(null);
   const [askAiErrors, setAskAiErrors] = useState<string[] | null>(null);
+  const { profile } = useAuth();
+  const currentProfileId = profile?.id ?? null;
+  const isProdEnvironment = useMemo(() => {
+    const devFlag = (process.env.NEXT_PUBLIC_IS_DEV ?? "").toString().toLowerCase();
+    const isDevFlag = devFlag === "true" || devFlag === "1";
+    return process.env.NODE_ENV === "production" && !isDevFlag;
+  }, []);
 
   const pruneAiSuggestionNodes = (suggestion: AiChallengeUpdateSuggestion): AiChallengeUpdateSuggestion | null => {
     const hasChallengeUpdates = Boolean(
@@ -1638,6 +1684,7 @@ export function ProjectJourneyBoard({ projectId, hideHeader = false }: ProjectJo
           const subChallengeCount = countSubChallenges(node);
           const owners = node.owners ?? [];
           const ownerCount = owners.length;
+          const description = (node.description ?? "").trim();
 
           return (
             <Card
@@ -1657,7 +1704,11 @@ export function ProjectJourneyBoard({ projectId, hideHeader = false }: ProjectJo
                       <div className="flex items-start justify-between gap-3">
                         <div className="flex flex-col gap-2">
                           <CardTitle className="text-lg font-semibold text-white">{node.title}</CardTitle>
-                          <p className="text-sm text-slate-300">{node.description}</p>
+                          {description ? (
+                            <ReactMarkdown className="space-y-1.5" components={challengeMarkdownComponents}>
+                              {description}
+                            </ReactMarkdown>
+                          ) : null}
                         </div>
                         <ChevronRight
                           className={cn(
@@ -1842,6 +1893,41 @@ export function ProjectJourneyBoard({ projectId, hideHeader = false }: ProjectJo
   };
 
   // Hooks must be called before any early returns
+  const getAnswerLinkForAsk = useCallback(
+    (ask: ProjectAskOverview) => {
+      if (!ask?.askKey) {
+        return { href: null, canAnswer: false };
+      }
+
+      // In production, only expose the participant-specific link for the connected user
+      if (!isProdEnvironment) {
+        return {
+          href: `/?key=${encodeURIComponent(ask.askKey)}`,
+          canAnswer: true,
+        };
+      }
+
+      if (!currentProfileId) {
+        return { href: null, canAnswer: false };
+      }
+
+      const participant = ask.participants.find(
+        item => item.userId === currentProfileId || item.id === currentProfileId,
+      );
+      if (!participant) {
+        return { href: null, canAnswer: false };
+      }
+
+      const token = participant.inviteToken?.trim();
+      const href = token
+        ? `/?token=${encodeURIComponent(token)}`
+        : `/?key=${encodeURIComponent(ask.askKey)}`;
+
+      return { href, canAnswer: true };
+    },
+    [currentProfileId, isProdEnvironment],
+  );
+
   const availableUsers = boardData?.availableUsers ?? [];
   const inviteLinkConfig = useMemo(() => {
     const envBase = (process.env.NEXT_PUBLIC_APP_URL ?? "").trim().replace(/\/+$/, "");
@@ -3362,6 +3448,7 @@ export function ProjectJourneyBoard({ projectId, hideHeader = false }: ProjectJo
                   {activeChallengeAsks?.length ? (
                     activeChallengeAsks.map(ask => {
                       const isExpanded = expandedAsks.has(ask.id);
+                      const { href: answerHref, canAnswer } = getAnswerLinkForAsk(ask);
                       return (
                         <Card key={ask.id} id={`ask-${ask.id}`} className="border border-white/10 bg-slate-900/70 shadow-sm">
                           <CardHeader 
@@ -3378,8 +3465,13 @@ export function ProjectJourneyBoard({ projectId, hideHeader = false }: ProjectJo
                               });
                             }}
                           >
-                            <div className="flex flex-wrap items-center justify-between gap-3">
-                              <div className="flex items-center gap-2 flex-1">
+                            <div
+                              className={cn(
+                                "flex flex-wrap gap-3",
+                                isExpanded ? "flex-col" : "items-start justify-between"
+                              )}
+                            >
+                              <div className={cn("flex items-center gap-2", isExpanded ? "w-full" : "flex-1")}>
                                 <ChevronRight
                                   className={cn(
                                     "h-4 w-4 text-slate-400 transition-transform shrink-0",
@@ -3391,73 +3483,80 @@ export function ProjectJourneyBoard({ projectId, hideHeader = false }: ProjectJo
                                   {isExpanded && <p className="mt-1 text-sm text-slate-300">{ask.summary}</p>}
                                 </div>
                               </div>
-                            <div className="flex items-start gap-2">
-                              <div className="flex flex-col items-end gap-1 text-xs text-slate-400">
-                                <span className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/10 px-2.5 py-1 font-medium text-slate-100">
-                                  <Calendar className="h-3.5 w-3.5 text-slate-200" /> Due {formatDate(ask.dueDate)}
-                                </span>
-                                <span className="text-slate-300">Status: {ask.status}</span>
-                              </div>
-                              <div className="flex flex-col items-end gap-2 sm:flex-row sm:items-center sm:justify-end">
-                                <Button
-                                  asChild
-                                  size="sm"
-                                  className="gap-1 bg-emerald-500 text-white hover:bg-emerald-400"
-                                  onClick={(e) => e.stopPropagation()}
-                                >
-                                  <Link href={`/?key=${encodeURIComponent(ask.askKey)}`} target="_blank" rel="noopener noreferrer">
-                                    <MessageSquare className="h-3.5 w-3.5" />
-                                    Answer ASK
-                                  </Link>
-                                </Button>
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  variant="glassDark"
-                                  className="gap-1"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    void handleAskEditStart(ask.id);
-                                  }}
-                                  disabled={isSavingAsk || isLoadingAskDetails}
-                                >
-                                  {isLoadingAskDetails && editingAskId === ask.id ? (
-                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                  ) : (
-                                    <Pencil className="h-3.5 w-3.5" />
-                                  )}
-                                  Edit
-                                </Button>
+                              <div
+                                className={cn(
+                                  "flex items-start gap-2 sm:items-center sm:justify-end",
+                                  isExpanded && "w-full flex-wrap"
+                                )}
+                              >
+                                <div className="flex flex-col items-start gap-1 text-xs text-slate-400 sm:items-end">
+                                  <span className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/10 px-2.5 py-1 font-medium text-slate-100">
+                                    <Calendar className="h-3.5 w-3.5 text-slate-200" /> Due {formatDate(ask.dueDate)}
+                                  </span>
+                                  <span className="text-slate-300">Status: {ask.status}</span>
+                                </div>
+                                <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:justify-end">
+                                  {canAnswer && answerHref ? (
+                                    <Button
+                                      asChild
+                                      size="sm"
+                                      className="gap-1 bg-emerald-500 text-white hover:bg-emerald-400"
+                                      onClick={(e) => e.stopPropagation()}
+                                    >
+                                      <Link href={answerHref} target="_blank" rel="noopener noreferrer">
+                                        <MessageSquare className="h-3.5 w-3.5" />
+                                        Answer ASK
+                                      </Link>
+                                    </Button>
+                                  ) : null}
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="glassDark"
+                                    className="gap-1"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      void handleAskEditStart(ask.id);
+                                    }}
+                                    disabled={isSavingAsk || isLoadingAskDetails}
+                                  >
+                                    {isLoadingAskDetails && editingAskId === ask.id ? (
+                                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                    ) : (
+                                      <Pencil className="h-3.5 w-3.5" />
+                                    )}
+                                    Edit
+                                  </Button>
+                                </div>
                               </div>
                             </div>
-                          </div>
-                          {isExpanded && (
-                            <>
-                              <div className="flex flex-wrap items-center gap-2 text-xs text-slate-300">
-                                <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2.5 py-1 text-slate-200">
-                                  <Target className="h-3.5 w-3.5 text-indigo-300" /> General theme
-                                </span>
-                                <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2.5 py-1 text-slate-200">
-                                  <Users className="h-3.5 w-3.5 text-slate-200" /> {ask.participants?.length} participant{ask.participants?.length > 1 ? "s" : ""}
-                                </span>
-                              </div>
-                              <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
-                                <span className="font-semibold text-slate-300">Related projects:</span>
-                                {ask.relatedProjects?.length ? (
-                                  ask.relatedProjects.map(project => (
-                                    <span
-                                      key={project.id}
-                                      className="inline-flex items-center rounded-full border border-white/10 bg-white/10 px-2.5 py-1 text-slate-100"
-                                    >
-                                      {project.name}
-                                    </span>
-                                  ))
-                                ) : (
-                                  <span className="text-slate-400">Current project only</span>
-                                )}
-                              </div>
-                            </>
-                          )}
+                            {isExpanded && (
+                              <>
+                                <div className="flex flex-wrap items-center gap-2 text-xs text-slate-300">
+                                  <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2.5 py-1 text-slate-200">
+                                    <Target className="h-3.5 w-3.5 text-indigo-300" /> General theme
+                                  </span>
+                                  <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2.5 py-1 text-slate-200">
+                                    <Users className="h-3.5 w-3.5 text-slate-200" /> {ask.participants?.length} participant{ask.participants?.length > 1 ? "s" : ""}
+                                  </span>
+                                </div>
+                                <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
+                                  <span className="font-semibold text-slate-300">Related projects:</span>
+                                  {ask.relatedProjects?.length ? (
+                                    ask.relatedProjects.map(project => (
+                                      <span
+                                        key={project.id}
+                                        className="inline-flex items-center rounded-full border border-white/10 bg-white/10 px-2.5 py-1 text-slate-100"
+                                      >
+                                        {project.name}
+                                      </span>
+                                    ))
+                                  ) : (
+                                    <span className="text-slate-400">Current project only</span>
+                                  )}
+                                </div>
+                              </>
+                            )}
                         </CardHeader>
                         {isExpanded && (
                           <CardContent className="space-y-3">

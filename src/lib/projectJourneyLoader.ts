@@ -238,6 +238,7 @@ function mapParticipant(row: any): ProjectAskParticipant {
     role: summary.role ?? "participant",
     avatarInitials: initialsFromName(summary.name),
     avatarColor: undefined,
+    inviteToken: row.invite_token ?? null,
     insights: [],
   };
 }

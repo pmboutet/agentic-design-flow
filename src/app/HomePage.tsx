@@ -152,7 +152,7 @@ function MobileLayout({
   };
 
   return (
-    <div className="flex flex-col h-[calc(100vh-88px)] overflow-hidden">
+    <div className="flex flex-col h-[calc(100vh-88px)] overflow-hidden min-w-0 w-full">
       {/* Collapsible Header */}
       {askDetails && (
         <motion.div
@@ -266,7 +266,7 @@ function MobileLayout({
       )}
 
       {/* Swipeable Panels Container */}
-      <div className="flex-1 relative overflow-hidden" ref={containerRef}>
+      <div className="flex-1 relative overflow-hidden min-w-0" ref={containerRef}>
         <motion.div
           drag="x"
           dragConstraints={panelWidth > 0 ? { left: -panelWidth, right: 0 } : { left: 0, right: 0 }}
@@ -2039,7 +2039,7 @@ export default function HomePage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-indigo-100 via-white to-indigo-200">
+    <div className="min-h-screen bg-gradient-to-br from-indigo-100 via-white to-indigo-200 overflow-x-hidden">
       {/* Beautiful Header */}
       <motion.header
         initial={{ opacity: 0, y: -20 }}
@@ -2110,13 +2110,13 @@ export default function HomePage() {
           timeRemaining={timeRemaining}
         />
       ) : (
-        <main className="flex h-[calc(100vh-88px)] overflow-hidden gap-6 p-6">
+        <main className="flex h-[calc(100vh-88px)] overflow-hidden gap-6 p-6 min-w-0">
           {/* Chat Section - 1/3 of screen with glass effect */}
           <motion.div
             initial={{ opacity: 0, x: -40 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.6 }}
-            className="w-1/3"
+            className="w-1/3 min-w-0"
           >
             <div className="chat-container h-full flex flex-col">
               {sessionData.conversationPlan && (
@@ -2156,7 +2156,7 @@ export default function HomePage() {
             initial={{ opacity: 0, x: 40 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.6, delay: 0.2 }}
-            className="flex-1"
+            className="flex-1 min-w-0"
           >
             <div className="h-full flex flex-col overflow-hidden gap-4">
               {/* Ask Details Card */}

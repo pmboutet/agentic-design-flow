@@ -362,6 +362,11 @@ export async function GET(
       };
     });
 
+    const participantSummaries = participants.map(participant => ({
+      name: participant.name,
+      role: participant.role ?? null,
+    }));
+
     // Get or create conversation thread for this user/ASK
     const askConfig = {
       audience_scope: askRow.audience_scope ?? null,
@@ -557,83 +562,84 @@ export async function GET(
       }
     }
 
+    // Load project/challenge context when needed (plan generation or initial prompt)
+    let projectData: ProjectRow | null = null;
+    let challengeData: ChallengeRow | null = null;
+    const shouldLoadContext = !conversationPlan || messages.length === 0;
+
+    if (shouldLoadContext) {
+      if (askRow.project_id) {
+        const { data, error } = await dataClient
+          .from('projects')
+          .select('id, name, system_prompt')
+          .eq('id', askRow.project_id)
+          .maybeSingle<ProjectRow>();
+
+        if (error) {
+          console.error('❌ GET /api/ask/[key]: Failed to fetch project for context:', error);
+        } else {
+          projectData = data ?? null;
+        }
+      }
+
+      if (askRow.challenge_id) {
+        const { data, error } = await dataClient
+          .from('challenges')
+          .select('id, name, system_prompt')
+          .eq('id', askRow.challenge_id)
+          .maybeSingle<ChallengeRow>();
+
+        if (error) {
+          console.error('❌ GET /api/ask/[key]: Failed to fetch challenge for context:', error);
+        } else {
+          challengeData = data ?? null;
+        }
+      }
+    }
+
+    // Ensure a conversation plan exists even when messages already exist (prod backfill)
+    if (conversationThread && !conversationPlan) {
+      console.log('📋 GET /api/ask/[key]: Generating conversation plan because none exists');
+      try {
+        const { generateConversationPlan, createConversationPlan } = await import('@/lib/ai/conversation-plan');
+        
+        const planGenerationVariables = {
+          ask_key: askRow.ask_key,
+          ask_question: askRow.question,
+          ask_description: askRow.description ?? '',
+          system_prompt_ask: askRow.system_prompt ?? '',
+          system_prompt_project: projectData?.system_prompt ?? '',
+          system_prompt_challenge: challengeData?.system_prompt ?? '',
+          participants: participantSummaries.map(p => p.name).join(', '),
+          participants_list: participantSummaries,
+        };
+
+        // Use admin client to bypass RLS for agent fetch + plan insert
+        const adminForPlan = await getAdminClient();
+
+        const planData = await generateConversationPlan(
+          adminForPlan,
+          askRow.id,
+          planGenerationVariables
+        );
+
+        conversationPlan = await createConversationPlan(
+          adminForPlan,
+          conversationThread.id,
+          planData
+        );
+
+        console.log('✅ GET /api/ask/[key]: Conversation plan created with', planData.steps.length, 'steps');
+      } catch (planError) {
+        console.error('⚠️ GET /api/ask/[key]: Failed to generate conversation plan:', planError);
+        // Continue without the plan - it's an enhancement, not a requirement
+      }
+    }
+
     // If no messages exist, initiate conversation with agent
     if (messages.length === 0) {
       try {
         console.log('💬 GET /api/ask/[key]: No messages found, initiating conversation with agent');
-        
-        const participantSummaries = participants.map(participant => ({
-          name: participant.name,
-          role: participant.role ?? null,
-        }));
-
-        let projectData: ProjectRow | null = null;
-        if (askRow.project_id) {
-          const { data, error } = await dataClient
-            .from('projects')
-            .select('id, name, system_prompt')
-            .eq('id', askRow.project_id)
-            .maybeSingle<ProjectRow>();
-
-          if (error) {
-            console.error('❌ GET /api/ask/[key]: Failed to fetch project for init prompt:', error);
-          } else {
-            projectData = data ?? null;
-          }
-        }
-
-        let challengeData: ChallengeRow | null = null;
-        if (askRow.challenge_id) {
-          const { data, error } = await dataClient
-            .from('challenges')
-            .select('id, name, system_prompt')
-            .eq('id', askRow.challenge_id)
-            .maybeSingle<ChallengeRow>();
-
-          if (error) {
-            console.error('❌ GET /api/ask/[key]: Failed to fetch challenge for init prompt:', error);
-          } else {
-            challengeData = data ?? null;
-          }
-        }
-
-        // Generate conversation plan if it doesn't exist yet and we have a thread
-        if (conversationThread && !conversationPlan) {
-          console.log('📋 GET /api/ask/[key]: Generating conversation plan for new conversation');
-          try {
-            const { generateConversationPlan, createConversationPlan } = await import('@/lib/ai/conversation-plan');
-            
-            const planGenerationVariables = {
-              ask_key: askRow.ask_key,
-              ask_question: askRow.question,
-              ask_description: askRow.description ?? '',
-              system_prompt_ask: askRow.system_prompt ?? '',
-              system_prompt_project: projectData?.system_prompt ?? '',
-              system_prompt_challenge: challengeData?.system_prompt ?? '',
-              participants: participantSummaries.map(p => p.name).join(', '),
-              participants_list: participantSummaries,
-            };
-
-            const planData = await generateConversationPlan(
-              dataClient,
-              askRow.id,
-              planGenerationVariables
-            );
-
-            // Use admin client for creating plan steps (bypass RLS)
-            const adminForPlan = await getAdminClient();
-            conversationPlan = await createConversationPlan(
-              adminForPlan,
-              conversationThread.id,
-              planData
-            );
-
-            console.log('✅ GET /api/ask/[key]: Conversation plan created with', planData.steps.length, 'steps');
-          } catch (planError) {
-            console.error('⚠️ GET /api/ask/[key]: Failed to generate conversation plan:', planError);
-            // Continue without the plan - it's an enhancement, not a requirement
-          }
-        }
 
         const agentVariables = buildConversationAgentVariables({
           ask: askRow,
