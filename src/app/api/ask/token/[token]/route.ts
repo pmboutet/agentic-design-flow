@@ -3,6 +3,8 @@ import { type SupabaseClient } from "@supabase/supabase-js";
 import { createServerSupabaseClient } from "@/lib/supabaseServer";
 import { getAdminSupabaseClient } from "@/lib/supabaseAdmin";
 import { type ApiResponse } from "@/types";
+import { getOrCreateConversationThread } from "@/lib/asks";
+import { getConversationPlanWithSteps, type ConversationPlan } from "@/lib/ai/conversation-plan";
 
 type AskSessionRow = {
   ask_session_id: string;
@@ -533,6 +535,32 @@ export async function GET(
       };
     }
 
+    // Get conversation thread and plan
+    let conversationPlan: ConversationPlan | null = null;
+    try {
+      const askConfig = {
+        audience_scope: askRow.audience_scope,
+        response_mode: askRow.response_mode,
+      };
+
+      const { thread: conversationThread } = await getOrCreateConversationThread(
+        profileClient,
+        askRow.ask_session_id,
+        profileId,
+        askConfig
+      );
+
+      if (conversationThread) {
+        conversationPlan = await getConversationPlanWithSteps(profileClient, conversationThread.id);
+        if (conversationPlan && conversationPlan.plan_data) {
+          console.log('📋 GET /api/ask/token/[token]: Loaded conversation plan with', conversationPlan.plan_data.steps.length, 'steps');
+        }
+      }
+    } catch (planError) {
+      console.error('⚠️ GET /api/ask/token/[token]: Failed to load conversation plan:', planError);
+      // Continue without the plan - it's an enhancement, not a requirement
+    }
+
     return NextResponse.json<ApiResponse>({
       success: true,
       data: {
@@ -558,6 +586,7 @@ export async function GET(
         insights,
         challenges,
         viewer,
+        conversationPlan,
       }
     });
   } catch (error) {
