@@ -1236,22 +1236,6 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
 
   // Auto-connect on mount
   useEffect(() => {
-    // CRITICAL: Skip first mount in StrictMode (development only)
-    // StrictMode deliberately double-mounts components to catch bugs
-    // We only want to connect on the second mount to avoid orphaned agents
-    if (strictModeFirstMountRef.current) {
-      console.log('[PremiumVoiceInterface] 🔄 First mount detected (StrictMode), skipping connection');
-      strictModeFirstMountRef.current = false;
-      return;
-    }
-
-    console.log('[PremiumVoiceInterface] 🚀 Component mounted (second mount), auto-connecting...', {
-      hasAgent: !!agentRef.current,
-      isConnected,
-      isConnecting: isConnectingRef.current,
-      isDisconnecting: isDisconnectingRef.current
-    });
-
     // Flag pour détecter si le composant se démonte pendant l'opération async
     let isMounted = true;
 
@@ -1291,6 +1275,40 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
         }
       }
     };
+
+    // CRITICAL: Skip first mount in StrictMode (development only)
+    // StrictMode deliberately double-mounts components to catch bugs
+    // We only want to connect on the second mount to avoid orphaned agents
+    // In production (no StrictMode), connect immediately on first mount
+    if (strictModeFirstMountRef.current) {
+      console.log('[PremiumVoiceInterface] 🔄 First mount detected, setting timeout to detect StrictMode...');
+      strictModeFirstMountRef.current = false;
+
+      // Use a small timeout to detect if we're in StrictMode
+      // If StrictMode is active, the component will unmount/remount immediately
+      // If not (production), the timeout will fire and we'll connect
+      const timeoutId = setTimeout(() => {
+        console.log('[PremiumVoiceInterface] 🚀 No second mount detected (production mode), auto-connecting now...', {
+          hasAgent: !!agentRef.current,
+          isConnected,
+          isConnecting: isConnectingRef.current,
+          isDisconnecting: isDisconnectingRef.current
+        });
+        doConnect();
+      }, 50);
+
+      return () => {
+        isMounted = false;
+        clearTimeout(timeoutId);
+      };
+    }
+
+    console.log('[PremiumVoiceInterface] 🚀 Component mounted (second mount from StrictMode), auto-connecting...', {
+      hasAgent: !!agentRef.current,
+      isConnected,
+      isConnecting: isConnectingRef.current,
+      isDisconnecting: isDisconnectingRef.current
+    });
 
     doConnect();
 
