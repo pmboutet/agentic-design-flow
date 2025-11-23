@@ -1,19 +1,12 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Search, Sparkles, Network, TrendingUp, RefreshCw, Loader2 } from "lucide-react";
+import { Search, Network, TrendingUp, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import type { ApiResponse } from "@/types";
-
-interface Synthesis {
-  id: string;
-  synthesized_text: string;
-  source_insight_ids: string[];
-  key_concepts: string[];
-  created_at: string;
-}
+import { ProjectGraphVisualization } from "@/components/graph/ProjectGraphVisualization";
 
 interface InsightCluster {
   id: string;
@@ -31,44 +24,19 @@ interface RelatedInsight {
 
 interface GraphRAGPanelProps {
   projectId?: string | null;
+  refreshKey?: number;
 }
 
-export function GraphRAGPanel({ projectId }: GraphRAGPanelProps) {
+export function GraphRAGPanel({ projectId, refreshKey }: GraphRAGPanelProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchType, setSearchType] = useState<"semantic" | "keyword" | "graph">("semantic");
   const [searchResults, setSearchResults] = useState<Array<{ id: string; type: string; score?: number; method: string }>>([]);
   const [isSearching, setIsSearching] = useState(false);
-  const [syntheses, setSyntheses] = useState<Synthesis[]>([]);
   const [clusters, setClusters] = useState<InsightCluster[]>([]);
   const [relatedInsights, setRelatedInsights] = useState<RelatedInsight[]>([]);
   const [selectedInsightId, setSelectedInsightId] = useState<string | null>(null);
-  const [isLoadingSyntheses, setIsLoadingSyntheses] = useState(false);
-  const [isGeneratingSyntheses, setIsGeneratingSyntheses] = useState(false);
   const [isLoadingClusters, setIsLoadingClusters] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  // Load syntheses for the project
-  const loadSyntheses = useCallback(async () => {
-    if (!projectId) return;
-
-    setIsLoadingSyntheses(true);
-    setError(null);
-
-    try {
-      const response = await fetch(`/api/admin/graph/synthesis/${projectId}`);
-      const data: ApiResponse<Synthesis[]> = await response.json();
-
-      if (data.success && data.data) {
-        setSyntheses(data.data);
-      } else {
-        setError(data.error || "Failed to load syntheses");
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load syntheses");
-    } finally {
-      setIsLoadingSyntheses(false);
-    }
-  }, [projectId]);
 
   // Load clusters
   const loadClusters = useCallback(async () => {
@@ -143,39 +111,12 @@ export function GraphRAGPanel({ projectId }: GraphRAGPanelProps) {
     }
   }, [searchQuery, searchType, projectId]);
 
-  // Generate syntheses
-  const handleGenerateSyntheses = useCallback(async () => {
-    if (!projectId) return;
-
-    setIsGeneratingSyntheses(true);
-    setError(null);
-
-    try {
-      const response = await fetch(`/api/admin/graph/synthesis/${projectId}`, {
-        method: "POST",
-      });
-
-      const data: ApiResponse<Synthesis[]> = await response.json();
-
-      if (data.success && data.data) {
-        // Reload syntheses to get the full data structure
-        await loadSyntheses();
-      } else {
-        setError(data.error || "Failed to generate syntheses");
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to generate syntheses");
-    } finally {
-      setIsGeneratingSyntheses(false);
-    }
-  }, [projectId, loadSyntheses]);
 
   useEffect(() => {
     if (projectId) {
-      loadSyntheses();
       loadClusters();
     }
-  }, [projectId, loadSyntheses, loadClusters]);
+  }, [projectId, loadClusters, refreshKey]);
 
   useEffect(() => {
     if (selectedInsightId) {
@@ -191,6 +132,8 @@ export function GraphRAGPanel({ projectId }: GraphRAGPanelProps) {
           <h2 className="text-xl font-semibold">Graph RAG</h2>
         </div>
       </div>
+
+      <ProjectGraphVisualization projectId={projectId} refreshKey={refreshKey} />
 
       {/* Search Section */}
       <div className="space-y-4 rounded-lg border bg-card p-4">
@@ -261,61 +204,6 @@ export function GraphRAGPanel({ projectId }: GraphRAGPanelProps) {
         )}
       </div>
 
-      {/* Syntheses Section */}
-      <div className="space-y-4 rounded-lg border bg-card p-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Sparkles className="h-4 w-4 text-muted-foreground" />
-            <h3 className="font-medium">Synthèses d'insights</h3>
-          </div>
-          {projectId && (
-            <Button
-              onClick={handleGenerateSyntheses}
-              disabled={isGeneratingSyntheses}
-              size="sm"
-              variant="outline"
-            >
-              {isGeneratingSyntheses ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <RefreshCw className="h-4 w-4" />
-              )}
-              Générer
-            </Button>
-          )}
-        </div>
-
-        {isLoadingSyntheses ? (
-          <div className="flex items-center justify-center py-8">
-            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-          </div>
-        ) : syntheses.length > 0 ? (
-          <div className="space-y-4">
-            {syntheses.map((synthesis) => (
-              <div key={synthesis.id} className="rounded-md border bg-background p-4">
-                <p className="text-sm leading-relaxed">{synthesis.synthesized_text}</p>
-                <div className="mt-3 flex items-center gap-4 text-xs text-muted-foreground">
-                  <span>{synthesis.source_insight_ids.length} insights source</span>
-                  <span>
-                    {new Date(synthesis.created_at).toLocaleDateString("fr-FR", {
-                      day: "numeric",
-                      month: "short",
-                      year: "numeric",
-                    })}
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="text-sm text-muted-foreground py-4 text-center">
-            {projectId
-              ? "Aucune synthèse disponible. Cliquez sur 'Générer' pour créer des synthèses."
-              : "Sélectionnez un projet pour voir les synthèses."}
-          </p>
-        )}
-      </div>
-
       {/* Related Insights Section */}
       {selectedInsightId && (
         <div className="space-y-4 rounded-lg border bg-card p-4">
@@ -368,4 +256,3 @@ export function GraphRAGPanel({ projectId }: GraphRAGPanelProps) {
     </div>
   );
 }
-

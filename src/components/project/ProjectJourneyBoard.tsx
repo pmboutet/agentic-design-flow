@@ -14,6 +14,7 @@ import {
   MessageSquare,
   Pencil,
   Plus,
+  RefreshCw,
   Save,
   Sparkles,
   Target,
@@ -439,6 +440,8 @@ export function ProjectJourneyBoard({ projectId, hideHeader = false }: ProjectJo
   const [feedback, setFeedback] = useState<FeedbackState | null>(null);
   const [isEditingProject, setIsEditingProject] = useState(false);
   const [isSavingProject, setIsSavingProject] = useState(false);
+  const [isGeneratingSyntheses, setIsGeneratingSyntheses] = useState(false);
+  const [synthesisRefreshKey, setSynthesisRefreshKey] = useState(0);
   const [isChallengeFormVisible, setIsChallengeFormVisible] = useState(false);
   const [challengeFormMode, setChallengeFormMode] = useState<"create" | "edit">("create");
   const [isSavingChallenge, setIsSavingChallenge] = useState(false);
@@ -2814,6 +2817,41 @@ export function ProjectJourneyBoard({ projectId, hideHeader = false }: ProjectJo
     }
   };
 
+  const handleGenerateSyntheses = async () => {
+    setIsGeneratingSyntheses(true);
+    setFeedback(null);
+
+    try {
+      const response = await fetch(`/api/admin/graph/synthesis/${projectId}`, {
+        method: "POST",
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        setFeedback({
+          type: "success",
+          message: `Généré ${data.data?.length || 0} synthèse(s) d'insights.`,
+        });
+        // Force refresh of GraphRAGPanel
+        setSynthesisRefreshKey(prev => prev + 1);
+      } else {
+        setFeedback({
+          type: "error",
+          message: data.error || "Échec de la génération des synthèses.",
+        });
+      }
+    } catch (err) {
+      console.error("Failed to generate syntheses", err);
+      setFeedback({
+        type: "error",
+        message: err instanceof Error ? err.message : "Impossible de générer les synthèses.",
+      });
+    } finally {
+      setIsGeneratingSyntheses(false);
+    }
+  };
+
   const handleChallengeDelete = async () => {
     if (!editingChallengeId) {
       return;
@@ -2974,13 +3012,29 @@ export function ProjectJourneyBoard({ projectId, hideHeader = false }: ProjectJo
                 </Button>
               </>
             ) : (
-              <Button
-                onClick={handleEditToggle}
-                className="gap-2 btn-gradient bg-primary hover:bg-primary/90 h-10 px-4 py-2"
-              >
-                <Pencil className="h-4 w-4" />
-                Edit project
-              </Button>
+              <>
+                <Button
+                  onClick={handleEditToggle}
+                  className="gap-2 btn-gradient bg-primary hover:bg-primary/90 h-10 px-4 py-2"
+                >
+                  <Pencil className="h-4 w-4" />
+                  Edit project
+                </Button>
+                <Button
+                  onClick={handleGenerateSyntheses}
+                  disabled={isGeneratingSyntheses}
+                  size="sm"
+                  variant="outline"
+                  className="gap-2"
+                >
+                  {isGeneratingSyntheses ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="h-4 w-4" />
+                  )}
+                  Générer synthèses
+                </Button>
+              </>
             )}
           </div>
         </div>
@@ -3192,22 +3246,6 @@ export function ProjectJourneyBoard({ projectId, hideHeader = false }: ProjectJo
                   <span className="text-xs font-medium text-emerald-50 truncate hidden sm:inline">Foundational insights</span>
                   <span className="text-xs font-medium text-emerald-50 truncate sm:hidden">...</span>
                 </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const element = document.getElementById("syntheses");
-                    if (element && rightColumnRef.current) {
-                      const offset = element.getBoundingClientRect().top - rightColumnRef.current.getBoundingClientRect().top + rightColumnRef.current.scrollTop - 20;
-                      rightColumnRef.current.scrollTo({ top: offset, behavior: "smooth" });
-                    }
-                  }}
-                  className="group flex items-center justify-center gap-1.5 rounded-lg border border-purple-400/30 bg-purple-500/15 px-2.5 py-2 flex-1 min-w-0 transition-all duration-200 hover:bg-purple-500/25 hover:border-purple-400/50 hover:shadow-lg hover:shadow-purple-500/20 hover:scale-[1.02] active:scale-[0.98]"
-                  title="Synthèses"
-                >
-                  <Sparkles className="h-4 w-4 text-purple-300 transition-transform group-hover:scale-110 shrink-0" />
-                  <span className="text-xs font-medium text-purple-50 truncate hidden sm:inline">Synthèses</span>
-                  <span className="text-xs font-medium text-purple-50 truncate sm:hidden">...</span>
-                </button>
                 <div
                   className="relative flex-1 min-w-0"
                   onMouseEnter={() => {
@@ -3383,22 +3421,6 @@ export function ProjectJourneyBoard({ projectId, hideHeader = false }: ProjectJo
                         No insights are linked to this challenge yet.
                       </div>
                     )}
-                  </CardContent>
-                </Card>
-
-                {/* Graph RAG Syntheses Panel */}
-                <Card id="syntheses" className="border border-purple-400/40 bg-purple-500/10">
-                  <CardHeader className="pb-2">
-                    <CardTitle className="flex items-center gap-2 text-lg font-semibold text-white">
-                      <Sparkles className="h-5 w-5 text-purple-300" />
-                      Synthèses d'insights
-                    </CardTitle>
-                    <p className="text-sm text-slate-300">
-                      Synthèses automatiques regroupant les insights connexes du projet.
-                    </p>
-                  </CardHeader>
-                  <CardContent>
-                    <GraphRAGPanel projectId={projectId} />
                   </CardContent>
                 </Card>
 

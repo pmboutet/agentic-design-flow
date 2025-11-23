@@ -19,6 +19,7 @@ import {
   Network,
   Search,
   Settings,
+  Sparkles,
   Target,
   Users,
   X,
@@ -2103,9 +2104,34 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
     return profileRole.toLowerCase();
   }, [profileRole]);
 
-  const accessState = useMemo<"checking" | "signed-out" | "inactive" | "forbidden" | "profile-missing" | "granted">(() => {
+  // Timeout to prevent indefinite loading state
+  const [hasLoadingTimeout, setHasLoadingTimeout] = useState(false);
+
+  useEffect(() => {
     if (status === "loading") {
+      console.log("AdminDashboard: Auth status is loading, starting 5s timeout");
+      // Set a timeout of 5 seconds to prevent indefinite loading
+      const timeoutId = setTimeout(() => {
+        console.warn("Auth loading timed out after 5s, treating as signed-out");
+        setHasLoadingTimeout(true);
+      }, 5000);
+
+      return () => clearTimeout(timeoutId);
+    } else {
+      console.log("AdminDashboard: Auth status changed to:", status);
+      // Reset timeout flag when status changes
+      setHasLoadingTimeout(false);
+    }
+  }, [status]);
+
+  const accessState = useMemo<"checking" | "signed-out" | "inactive" | "forbidden" | "profile-missing" | "granted">(() => {
+    if (status === "loading" && !hasLoadingTimeout) {
       return "checking";
+    }
+
+    // If loading timed out, treat as signed-out to trigger redirect
+    if (status === "loading" && hasLoadingTimeout) {
+      return "signed-out";
     }
 
     if (status === "signed-out") {
@@ -2131,7 +2157,18 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
     }
 
     return "granted";
-  }, [status, normalizedRole, profileIsActive, hasProfile]);
+  }, [status, normalizedRole, profileIsActive, hasProfile, hasLoadingTimeout]);
+
+  // Debug logging for access state
+  useEffect(() => {
+    console.log("AdminDashboard: Access state:", accessState, {
+      status,
+      hasProfile,
+      normalizedRole,
+      profileIsActive,
+      hasLoadingTimeout,
+    });
+  }, [accessState, status, hasProfile, normalizedRole, profileIsActive, hasLoadingTimeout]);
 
   // Filter users based on role for search
   // Use profile.id and profile.role instead of profile object to avoid unnecessary recalculations
@@ -3343,15 +3380,26 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                       </div>
                       <div className="flex flex-wrap items-center gap-2">
                         {selectedProject && (
-                          <Button
-                            type="button"
-                            variant="glassDark"
-                            onClick={() => startProjectEdit(selectedProject.id)}
-                            className="gap-2"
-                          >
-                            <Pencil className="h-4 w-4" />
-                            Éditer
-                          </Button>
+                          <>
+                            <Button
+                              type="button"
+                              variant="glassDark"
+                              onClick={() => startProjectEdit(selectedProject.id)}
+                              className="gap-2"
+                            >
+                              <Pencil className="h-4 w-4" />
+                              Éditer
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="glassDark"
+                              onClick={() => window.open(`/admin/projects/${selectedProject.id}/synthesis`, '_blank')}
+                              className="gap-2"
+                            >
+                              <Sparkles className="h-4 w-4" />
+                              Synthèse
+                            </Button>
+                          </>
                         )}
                         <Button
                           type="button"
@@ -4135,9 +4183,6 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                 </div>
               </section>
             )}
-            {showOnlyChallengeWorkspace && renderChallengeWorkspace()}
-
-            {!showOnlyChallengeWorkspace && renderChallengeWorkspace()}
 
             {!showOnlyChallengeWorkspace && (
               <section
@@ -4184,16 +4229,6 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                     : "No upcoming challenge due date for the current project."}
                 </p>
               </div>
-              </section>
-            )}
-
-            {!showOnlyChallengeWorkspace && (
-              <section
-                ref={graphRagRef}
-                id="section-graph-rag"
-                className="space-y-6 rounded-3xl border border-white/10 bg-white/5 p-6 backdrop-blur"
-              >
-                <GraphRAGPanel projectId={selectedProjectId} />
               </section>
             )}
 
