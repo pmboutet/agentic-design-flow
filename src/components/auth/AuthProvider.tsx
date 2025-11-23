@@ -102,7 +102,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       // Handle Supabase errors
       if (result.error) {
-        console.error("Error fetching profile:", result.error);
+        console.error("[AuthProvider] Error fetching profile:", {
+          message: result.error.message,
+          code: 'code' in result.error ? result.error.code : undefined,
+          details: 'details' in result.error ? result.error.details : undefined,
+          hint: 'hint' in result.error ? result.error.hint : undefined,
+          authUserId: authUser.id,
+          elapsed
+        });
         return null;
       }
 
@@ -209,6 +216,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (!session?.user) {
+        console.log("[AuthProvider] No session/user, setting signed-out");
         setUser(null);
         setProfile(null);
         setStatus("signed-out");
@@ -220,7 +228,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       const authUser = session.user;
+      console.log("[AuthProvider] Fetching profile for user:", authUser.id, authUser.email);
       const userProfile = await fetchProfile(authUser);
+
+      console.log("[AuthProvider] Profile fetch result:", {
+        hasProfile: !!userProfile,
+        profileRole: userProfile?.role,
+        profileIsActive: userProfile?.isActive,
+        profileEmail: userProfile?.email,
+        failureCount: failureCountRef.current,
+        hasCachedProfile: !!cachedProfileRef.current
+      });
 
       // If profile is null and we've exceeded failures, we still set the user but without profile
       // The AdminDashboard will check for profile and deny access if missing
@@ -233,9 +251,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         role: userProfile?.role ?? null,
         profile: userProfile,
       });
-      
+
       // Always set to signed-in even if profile is missing
       // The access control will handle missing profile by denying access
+      console.log("[AuthProvider] Setting status to signed-in", {
+        hasProfile: !!userProfile,
+        userRole: userProfile?.role ?? null
+      });
       setStatus("signed-in");
     },
     [fetchProfile, isDevBypass]

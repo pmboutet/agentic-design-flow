@@ -621,7 +621,7 @@ function AskDetailDialog({ ask, projectName, challengeName, onClose }: AskDetail
 
 export function AdminDashboard({ initialProjectId = null, mode = "default" }: AdminDashboardProps = {}) {
   const router = useRouter();
-  const { profile, status, user } = useAuth();
+  const { profile, status, user, signOut } = useAuth();
   const searchContext = useAdminSearch();
   const {
     clients,
@@ -2203,12 +2203,27 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
 
   // Redirect if no access (only once) - but skip in dev mode
   const hasRedirectedRef = useRef(false);
+  const redirectCountRef = useRef(0);
   useEffect(() => {
     // In dev mode, don't redirect - let the user choose via DevUserSwitcher
     if (isDevMode) {
       return;
     }
     if (accessState === "signed-out" && !hasRedirectedRef.current) {
+      redirectCountRef.current += 1;
+      console.log("[AdminDashboard] Redirecting to login (attempt #" + redirectCountRef.current + ")", {
+        accessState,
+        status,
+        hasProfile,
+        hasLoadingTimeout
+      });
+
+      // Prevent infinite redirect loop
+      if (redirectCountRef.current > 3) {
+        console.error("[AdminDashboard] Too many redirects detected, stopping to prevent infinite loop");
+        return;
+      }
+
       hasRedirectedRef.current = true;
       // Use window.location for immediate redirect in production
       if (typeof window !== "undefined") {
@@ -2217,7 +2232,7 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
         router.replace("/auth/login?redirectTo=/admin");
       }
     }
-  }, [accessState, router, isDevMode]);
+  }, [accessState, router, isDevMode, status, hasProfile, hasLoadingTimeout]);
 
   // All hooks must be called before any conditional returns
   // Calculate values that depend on filteredUsers and other data
@@ -2297,13 +2312,27 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
 
   if (accessState === "profile-missing") {
     return (
-      <div className="flex h-screen items-center justify-center">
-        <div className="max-w-md rounded-2xl border border-yellow-500/40 bg-yellow-500/10 p-6 text-center text-slate-100">
-          <h2 className="text-xl font-semibold text-white">Profil non disponible</h2>
-          <p className="mt-3 text-sm text-slate-200">
-            Impossible de charger votre profil utilisateur. Cela peut être dû à un problème de connexion ou de réseau.
+      <div className="flex h-screen items-center justify-center bg-slate-950 p-4">
+        <div className="max-w-lg rounded-2xl border border-yellow-500/40 bg-yellow-500/10 p-8 text-center text-slate-100">
+          <h2 className="text-2xl font-semibold text-white">Profil non disponible</h2>
+          <p className="mt-4 text-sm leading-relaxed text-slate-200">
+            Impossible de charger votre profil utilisateur. Cela peut être dû à :
           </p>
-          <div className="mt-6 flex gap-3 justify-center">
+          <ul className="mt-3 space-y-2 text-left text-sm text-slate-300">
+            <li className="flex items-start gap-2">
+              <span className="text-yellow-400">•</span>
+              <span>Un problème de permissions dans la base de données (RLS)</span>
+            </li>
+            <li className="flex items-start gap-2">
+              <span className="text-yellow-400">•</span>
+              <span>Votre profil n&apos;a pas encore été créé par un administrateur</span>
+            </li>
+            <li className="flex items-start gap-2">
+              <span className="text-yellow-400">•</span>
+              <span>Un problème de connexion réseau</span>
+            </li>
+          </ul>
+          <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:justify-center">
             <Button
               onClick={() => window.location.reload()}
               variant="secondary"
@@ -2311,32 +2340,60 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
               Réessayer
             </Button>
             <Button
-              onClick={() => router.replace("/auth/login?redirectTo=/admin")}
+              onClick={async () => {
+                await signOut();
+                router.replace("/auth/login?redirectTo=/admin");
+              }}
               variant="outline"
             >
-              Se reconnecter
+              Se déconnecter
             </Button>
           </div>
+          {user?.email && (
+            <p className="mt-6 text-xs text-slate-400">
+              Connecté en tant que: {user.email}
+            </p>
+          )}
         </div>
       </div>
     );
   }
 
   if (accessState === "forbidden" || accessState === "inactive") {
+    const isInactive = accessState === "inactive";
     return (
-      <div className="flex h-screen items-center justify-center">
-        <div className="max-w-md rounded-2xl border border-red-500/40 bg-red-500/10 p-6 text-center text-slate-100">
-          <h2 className="text-xl font-semibold text-white">Accès refusé</h2>
-          <p className="mt-3 text-sm text-slate-200">
-            Vous n&apos;avez pas les droits nécessaires pour accéder à cet espace. Contactez un administrateur si vous pensez que c&apos;est une erreur.
+      <div className="flex h-screen items-center justify-center bg-slate-950 p-4">
+        <div className="max-w-lg rounded-2xl border border-red-500/40 bg-red-500/10 p-8 text-center text-slate-100">
+          <h2 className="text-2xl font-semibold text-white">
+            {isInactive ? "Compte inactif" : "Accès refusé"}
+          </h2>
+          <p className="mt-4 text-sm leading-relaxed text-slate-200">
+            {isInactive
+              ? "Votre compte a été désactivé. Contactez un administrateur pour réactiver votre accès."
+              : "Vous n'avez pas les droits nécessaires pour accéder à cet espace. Contactez un administrateur si vous pensez que c'est une erreur."
+            }
           </p>
-          <Button
-            className="mt-6"
-            onClick={() => router.replace("/auth/login?redirectTo=/admin")}
-            variant="secondary"
-          >
-            Retour à l&apos;accueil
-          </Button>
+          {normalizedRole && (
+            <p className="mt-3 text-xs text-slate-400">
+              Rôle actuel: {normalizedRole}
+            </p>
+          )}
+          <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:justify-center">
+            <Button
+              onClick={async () => {
+                await signOut();
+                router.replace("/auth/login");
+              }}
+              variant="secondary"
+            >
+              Se déconnecter
+            </Button>
+          </div>
+          {user?.email && (
+            <p className="mt-6 text-xs text-slate-400">
+              Connecté en tant que: {user.email}
+            </p>
+          )}
         </div>
       </div>
     );

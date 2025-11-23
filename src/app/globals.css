@@ -100,9 +100,12 @@ body {
   }
   html {
     @apply min-h-screen m-0 p-0;
+    max-width: 100vw;
+    overflow-x: hidden;
   }
   body {
     @apply min-h-screen m-0 p-0 bg-gradient-to-br from-indigo-100 via-white to-indigo-200 text-foreground overflow-x-hidden;
+    max-width: 100vw;
   }
 }
 
@@ -179,6 +182,23 @@ a.neumorphic-raised:active {
 /* Chat interface styling */
 .chat-container {
   @apply glass-card h-full flex flex-col overflow-hidden;
+  max-width: 100vw;
+  width: 100%;
+}
+
+/* Mobile chat constraints - prevent overflow when input is focused */
+@media (max-width: 768px) {
+  .chat-container,
+  .chat-container > * {
+    max-width: 100vw !important;
+    width: 100% !important;
+  }
+  
+  /* Ensure all chat elements respect viewport width */
+  [class*="chat"] {
+    max-width: 100vw;
+    box-sizing: border-box;
+  }
 }
 
 .chat-messages {

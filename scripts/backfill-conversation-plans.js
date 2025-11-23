@@ -225,6 +225,9 @@ async function backfillConversationPlans(dryRun = true) {
             conversation_thread_id: thread.id,
             plan_data: planData,
             current_step_id: planData.steps[0].id,
+            total_steps: planData.steps.length,
+            completed_steps: 0,
+            status: 'active',
           })
           .select()
           .single();
@@ -233,11 +236,33 @@ async function backfillConversationPlans(dryRun = true) {
           throw createError;
         }
 
+        // Create step records in normalized table
+        const now = new Date().toISOString();
+        const stepRecords = planData.steps.map((step, index) => ({
+          plan_id: plan.id,
+          step_identifier: step.id,
+          step_order: index + 1,
+          title: step.title,
+          objective: step.objective,
+          status: step.status,
+          summary: step.summary || null,
+          activated_at: step.status === 'active' ? now : null,
+          completed_at: step.completed_at || null,
+        }));
+
+        const { error: stepsError } = await supabase
+          .from('ask_conversation_plan_steps')
+          .insert(stepRecords);
+
+        if (stepsError) {
+          throw stepsError;
+        }
+
         console.log(`   ✅ Plan créé avec ${planData.steps.length} étapes`);
         planData.steps.forEach((step, i) => {
           console.log(`      ${i + 1}. ${step.title} (${step.status})`);
         });
-        
+
         created++;
       } catch (error) {
         console.error(`   ❌ Erreur: ${error.message}`);

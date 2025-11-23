@@ -152,7 +152,7 @@ function MobileLayout({
   };
 
   return (
-    <div className="flex flex-col h-[calc(100vh-88px)] overflow-hidden min-w-0 w-full">
+    <div className="flex flex-col h-[calc(100vh-88px)] overflow-hidden min-w-0 w-full max-w-full overflow-x-hidden">
       {/* Collapsible Header */}
       {askDetails && (
         <motion.div
@@ -266,14 +266,14 @@ function MobileLayout({
       )}
 
       {/* Swipeable Panels Container */}
-      <div className="flex-1 relative overflow-hidden min-w-0" ref={containerRef}>
+      <div className="flex-1 relative overflow-hidden min-w-0 max-w-full overflow-x-hidden" ref={containerRef}>
         <motion.div
           drag="x"
           dragConstraints={panelWidth > 0 ? { left: -panelWidth, right: 0 } : { left: 0, right: 0 }}
           dragElastic={0.2}
           onDragEnd={handleDragEnd}
           style={{ x }}
-          className="flex h-full"
+          className="flex h-full min-w-0 max-w-full"
           animate={{
             x: mobileActivePanel === 'chat' ? 0 : panelWidth > 0 ? -panelWidth : 0,
           }}
@@ -289,20 +289,20 @@ function MobileLayout({
         >
           {/* Chat Panel */}
           <motion.div
-            className="w-full flex-shrink-0 h-full"
+            className="w-full flex-shrink-0 h-full min-w-0 max-w-full overflow-x-hidden"
             animate={{
               opacity: mobileActivePanel === 'chat' ? 1 : 0.5,
             }}
             transition={{ duration: 0.2 }}
           >
-            <div className="h-full flex flex-col">
+            <div className="h-full flex flex-col min-w-0 max-w-full">
               {sessionData.conversationPlan && (
                 <ConversationProgressBar
                   steps={sessionData.conversationPlan.plan_data.steps}
                   currentStepId={sessionData.conversationPlan.current_step_id}
                 />
               )}
-              <div className="flex-1 p-2 md:p-4 overflow-y-auto">
+              <div className="flex-1 p-2 md:p-4 overflow-y-auto min-w-0 max-w-full overflow-x-hidden">
                 <ChatComponent
                   key={`chat-${sessionDataAskKey}`}
                   askKey={sessionDataAskKey}

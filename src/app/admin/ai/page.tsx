@@ -415,6 +415,7 @@ export default function AiConfigurationPage() {
   const [isCreating, setIsCreating] = useState(false);
   const [newAgent, setNewAgent] = useState<NewAgentDraft>(() => createEmptyNewAgentDraft());
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+  const [collapsedAgents, setCollapsedAgents] = useState<Set<string>>(new Set());
   const [collapsedModels, setCollapsedModels] = useState<Set<string>>(new Set());
   // Sections collapsibles pour chaque modèle : agent principal, STT, TTS
   const [collapsedModelSections, setCollapsedModelSections] = useState<Map<string, Set<string>>>(new Map());
@@ -631,6 +632,15 @@ export default function AiConfigurationPage() {
     fetchTemplates();
     fetchLogs();
   }, []);
+
+  // Fermer tous les agents par défaut quand ils sont chargés pour la première fois
+  const agentsInitializedRef = useRef(false);
+  useEffect(() => {
+    if (agents.length > 0 && !agentsInitializedRef.current) {
+      setCollapsedAgents(new Set(agents.map(agent => agent.id)));
+      agentsInitializedRef.current = true;
+    }
+  }, [agents]);
 
   useEffect(() => {
     fetchLogs();
@@ -1025,6 +1035,18 @@ export default function AiConfigurationPage() {
         next.delete(groupKey);
       } else {
         next.add(groupKey);
+      }
+      return next;
+    });
+  };
+
+  const toggleAgent = (agentId: string) => {
+    setCollapsedAgents(prev => {
+      const next = new Set(prev);
+      if (next.has(agentId)) {
+        next.delete(agentId);
+      } else {
+        next.add(agentId);
       }
       return next;
     });
@@ -2510,22 +2532,39 @@ export default function AiConfigurationPage() {
                 </CardHeader>
                 {!isCollapsed && (
                   <CardContent className="space-y-6">
-                    {group.agents.map(agent => (
-                      <Card key={agent.id} className="border-muted bg-card">
-                        <CardHeader>
-                          <div className="flex items-start justify-between gap-4">
-                            <div className="flex-1">
-                              <CardTitle className="text-lg">{agent.name}</CardTitle>
-                              {agent.description && (
-                                <CardDescription className="mt-1">{agent.description}</CardDescription>
-                              )}
+                    {group.agents.map(agent => {
+                      const isAgentCollapsed = collapsedAgents.has(agent.id);
+                      return (
+                        <Card key={agent.id} className="border-muted bg-card">
+                          <CardHeader>
+                            <div className="flex items-start justify-between gap-4">
+                              <div className="flex-1">
+                                <CardTitle className="text-lg">{agent.name}</CardTitle>
+                                {!isAgentCollapsed && agent.description && (
+                                  <CardDescription className="mt-1">{agent.description}</CardDescription>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${group.color.badge} border`}>
+                                  {agent.slug}
+                                </span>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => toggleAgent(agent.id)}
+                                  className="shrink-0"
+                                >
+                                  {isAgentCollapsed ? (
+                                    <ChevronDown className="h-4 w-4" />
+                                  ) : (
+                                    <ChevronUp className="h-4 w-4" />
+                                  )}
+                                </Button>
+                              </div>
                             </div>
-                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${group.color.badge} border`}>
-                              {agent.slug}
-                            </span>
-                          </div>
-                        </CardHeader>
-                        <CardContent className="space-y-6">
+                          </CardHeader>
+                          {!isAgentCollapsed && (
+                            <CardContent className="space-y-6">
                           <div className="grid gap-4 md:grid-cols-2">
                             <div className="space-y-2">
                               <Label>Modèle principal</Label>
@@ -2684,9 +2723,11 @@ export default function AiConfigurationPage() {
                               onClose={() => setTestModeAgentId(null)}
                             />
                           )}
-                        </CardContent>
-                      </Card>
-                    ))}
+                            </CardContent>
+                          )}
+                        </Card>
+                      );
+                    })}
                   </CardContent>
                 )}
               </Card>

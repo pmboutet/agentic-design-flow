@@ -347,12 +347,12 @@ export function ChatComponent({
   }
 
   return (
-    <Card className="h-full flex flex-col overflow-hidden">
-      <CardHeader className="pb-3 border-b border-border/40">
-        <div className="flex items-center justify-between gap-3">
-          <CardTitle className="text-base font-semibold">Conversation</CardTitle>
+    <Card className="h-full flex flex-col overflow-hidden max-w-full w-full min-w-0">
+      <CardHeader className="pb-3 border-b border-border/40 min-w-0">
+        <div className="flex items-center justify-between gap-3 min-w-0">
+          <CardTitle className="text-base font-semibold truncate min-w-0">Conversation</CardTitle>
           {participants.length > 0 && (
-            <span className="text-xs text-muted-foreground">
+            <span className="text-xs text-muted-foreground flex-shrink-0">
               {participants.length} participant{participants.length > 1 ? 's' : ''}
             </span>
           )}
@@ -360,8 +360,8 @@ export function ChatComponent({
       </CardHeader>
 
       {/* Messages area */}
-      <CardContent className="flex-1 flex flex-col overflow-hidden">
-        <div className="flex-1 overflow-y-auto space-y-4 mb-4 pr-2">
+      <CardContent className="flex-1 flex flex-col overflow-hidden min-w-0 max-w-full">
+        <div className="flex-1 overflow-y-auto space-y-4 mb-4 pr-2 min-w-0 max-w-full">
           <AnimatePresence>
             {messages.map((message, index) => {
               const previous = index > 0 ? messages[index - 1] : null;
@@ -516,8 +516,8 @@ export function ChatComponent({
 
         {/* File preview area */}
         {selectedFiles.length > 0 && !isVoiceMode && (
-          <div className="border rounded-lg p-3 mb-3 bg-muted/50">
-            <div className="flex flex-wrap gap-2">
+          <div className="border rounded-lg p-3 mb-3 bg-muted/50 min-w-0 max-w-full overflow-hidden">
+            <div className="flex flex-wrap gap-2 min-w-0 max-w-full">
               {selectedFiles.map((fileUpload, index) => (
                 <FilePreview
                   key={index}
@@ -533,20 +533,20 @@ export function ChatComponent({
         {!isVoiceMode && (
           <div 
             className={cn(
-              "relative border rounded-lg p-3 transition-colors",
+              "relative border rounded-lg p-3 transition-colors min-w-0 max-w-full",
               isDragOver && "border-primary bg-primary/5"
             )}
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
           >
-            <div className="flex items-end gap-2">
-              <div className="flex-1">
+            <div className="flex items-end gap-2 min-w-0 max-w-full">
+              <div className="flex-1 min-w-0">
                 <Textarea
                   value={inputValue}
                   onChange={(e) => handleInputChange(e.target.value)}
                   placeholder="Type your response..."
-                  className="border-0 shadow-none resize-none min-h-[60px] focus-visible:ring-0"
+                  className="border-0 shadow-none resize-none min-h-[60px] focus-visible:ring-0 w-full max-w-full min-w-0"
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && !e.shiftKey) {
                       e.preventDefault();
@@ -568,7 +568,7 @@ export function ChatComponent({
                 />
               </div>
               
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-1 flex-shrink-0">
                 {/* File upload button */}
                 <Button
                   variant="ghost"
@@ -702,7 +702,7 @@ function MessageBubble({
     >
       <div
         className={cn(
-          'max-w-[80%] flex flex-col gap-1',
+          'max-w-[80%] flex flex-col gap-1 min-w-0',
           isSystem ? 'items-center text-center' : isUser ? 'items-end' : 'items-start'
         )}
       >
@@ -714,7 +714,7 @@ function MessageBubble({
             {senderLabel}
           </span>
         )}
-        <div className={cn('w-full rounded-lg px-4 py-2 break-words shadow-sm', bubbleClass)}>
+        <div className={cn('w-full rounded-lg px-4 py-2 break-words shadow-sm min-w-0 max-w-full overflow-hidden', bubbleClass)}>
           {message.type === 'text' && (
             <div className={cn(
               "prose prose-sm dark:prose-invert max-w-none prose-p:my-2 prose-pre:my-2 prose-headings:my-2 prose-ul:my-2 prose-ol:my-2 prose-li:my-1",
