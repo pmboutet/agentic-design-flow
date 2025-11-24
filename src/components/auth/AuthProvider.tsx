@@ -78,16 +78,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       // Add timeout to prevent indefinite hanging
       // Use Promise.race to implement timeout
+      // Note: We fetch profile first, then client name separately to avoid slow joins
       const profilePromise = supabase
         .from("profiles")
-        .select("*, clients(name)")
+        .select("*")
         .eq("auth_id", authUser.id)
         .single();
 
       const timeoutPromise = new Promise<{ data: null; error: { message: string } }>((resolve) => {
         setTimeout(() => {
           resolve({ data: null, error: { message: "Profile fetch timeout" } });
-        }, 8000);
+        }, 15000); // Augmenté à 15s pour production
       });
 
       // Race between the actual request and timeout
@@ -120,6 +121,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       console.log(`Profile fetch completed successfully in ${elapsed}ms`);
+
+      // Fetch client name separately if needed (non-blocking)
+      let clientName: string | null = null;
+      if (result.data.client_id) {
+        try {
+          const clientResult = await supabase
+            .from("clients")
+            .select("name")
+            .eq("id", result.data.client_id)
+            .single();
+          clientName = clientResult.data?.name ?? null;
+        } catch (error) {
+          console.warn("Failed to fetch client name, continuing without it:", error);
+        }
+      }
+
       return {
         id: result.data.id,
         authId: result.data.auth_id,
@@ -129,7 +146,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         fullName: result.data.full_name,
         role: result.data.role,
         clientId: result.data.client_id,
-        clientName: result.data.clients?.name ?? null,
+        clientName: clientName,
         avatarUrl: result.data.avatar_url,
         isActive: result.data.is_active,
         lastLogin: result.data.last_login,
@@ -324,7 +341,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Set a timeout to prevent indefinite loading state
     const timeoutId = setTimeout(() => {
       if (isMounted) {
-        console.warn("Session check timed out after 10s, treating as signed-out. This may indicate:", {
+        console.warn("Session check timed out after 30s, treating as signed-out. This may indicate:", {
           issue: "getSession() is not responding",
           possibleCauses: [
             "Network connectivity issues",
@@ -338,7 +355,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setProfile(null);
         setStatus("signed-out");
       }
-    }, 10000); // 10 seconds timeout
+    }, 30000); // 30 seconds timeout (augmenté pour production)
 
     // Get initial session with better error handling
     const startTime = Date.now();
