@@ -364,7 +364,7 @@ export function AdminPageLayout({ children }: AdminPageLayoutProps) {
 
   return (
     <AdminSearchProvider value={defaultSearchContext}>
-      <div className="min-h-screen h-screen overflow-hidden bg-slate-950 text-slate-100">
+      <div className="admin-layout min-h-screen h-screen overflow-hidden bg-slate-950 text-slate-100">
         <div className="flex h-full min-h-0">
           <aside
             className={cn(

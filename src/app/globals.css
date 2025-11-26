@@ -107,6 +107,10 @@ body {
     @apply min-h-screen m-0 p-0 bg-gradient-to-br from-indigo-100 via-white to-indigo-200 text-foreground overflow-x-hidden;
     max-width: 100vw;
   }
+  /* Override body background for admin pages to prevent white space at bottom */
+  body:has(.admin-layout) {
+    background: rgb(2 6 23); /* slate-950 */
+  }
 }
 
 .glass-card {
