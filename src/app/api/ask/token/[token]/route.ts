@@ -543,28 +543,47 @@ export async function GET(
 
     // Get conversation thread and plan
     let conversationPlan: ConversationPlanWithSteps | null = null;
+    console.log('🔄 GET /api/ask/token/[token]: Starting conversation plan logic...');
+    console.log('📊 GET /api/ask/token/[token]: Current state:', {
+      messagesCount: messages.length,
+      hasAskRow: !!askRow,
+      askSessionId: askRow?.ask_session_id,
+      profileId,
+    });
+
     try {
       const askConfig = {
         audience_scope: askRow.audience_scope,
         response_mode: askRow.response_mode,
       };
 
+      console.log('🔧 GET /api/ask/token/[token]: Getting admin client...');
       const adminClient = getAdminSupabaseClient();
+      console.log('✅ GET /api/ask/token/[token]: Admin client obtained');
 
+      console.log('🔧 GET /api/ask/token/[token]: Getting or creating conversation thread...');
       const { thread: conversationThread } = await getOrCreateConversationThread(
         adminClient,
         askRow.ask_session_id,
         profileId,
         askConfig
       );
+      console.log('📊 GET /api/ask/token/[token]: Thread result:', {
+        hasThread: !!conversationThread,
+        threadId: conversationThread?.id,
+      });
 
       if (conversationThread) {
         console.log('🎯 GET /api/ask/token/[token]: Checking for existing conversation plan');
         conversationPlan = await getConversationPlanWithSteps(adminClient, conversationThread.id);
+        console.log('📊 GET /api/ask/token/[token]: Existing plan check:', {
+          hasPlan: !!conversationPlan,
+          planId: conversationPlan?.id,
+        });
 
         // Generate plan if it doesn't exist and conversation is empty
         if (!conversationPlan && messages.length === 0) {
-          console.log('📋 GET /api/ask/token/[token]: Generating new conversation plan');
+          console.log('📋 GET /api/ask/token/[token]: No plan exists and no messages, generating new plan...');
           try {
             // Build variables for plan generation
             const planGenerationVariables = {
@@ -577,13 +596,23 @@ export async function GET(
               participants: participants.map(p => p.name).join(', '),
               participants_list: participants.map(p => ({ name: p.name, role: p.role })),
             };
+            console.log('📊 GET /api/ask/token/[token]: Plan generation variables:', {
+              ask_key: planGenerationVariables.ask_key,
+              ask_question: planGenerationVariables.ask_question?.substring(0, 50),
+              participantsCount: participants.length,
+            });
 
+            console.log('🚀 GET /api/ask/token/[token]: Calling generateConversationPlan...');
             const planData = await generateConversationPlan(
               adminClient,
               askRow.ask_session_id,
               planGenerationVariables
             );
+            console.log('✅ GET /api/ask/token/[token]: generateConversationPlan returned:', {
+              stepsCount: planData?.steps?.length,
+            });
 
+            console.log('💾 GET /api/ask/token/[token]: Calling createConversationPlan...');
             conversationPlan = await createConversationPlan(
               adminClient,
               conversationThread.id,
@@ -592,17 +621,32 @@ export async function GET(
 
             console.log('✅ GET /api/ask/token/[token]: Conversation plan created with', planData.steps.length, 'steps');
           } catch (genError) {
-            console.error('⚠️ GET /api/ask/token/[token]: Failed to generate conversation plan:', genError);
+            console.error('⚠️ GET /api/ask/token/[token]: Failed to generate conversation plan:', {
+              error: genError instanceof Error ? genError.message : String(genError),
+              stack: genError instanceof Error ? genError.stack : undefined,
+            });
             // Continue without the plan - it's an enhancement, not a requirement
           }
         } else if (conversationPlan && conversationPlan.plan_data) {
           console.log('📋 GET /api/ask/token/[token]: Loaded existing conversation plan with', conversationPlan.plan_data.steps.length, 'steps');
+        } else {
+          console.log('⚠️ GET /api/ask/token/[token]: No plan generated because:', {
+            hasPlan: !!conversationPlan,
+            messagesCount: messages.length,
+            reason: conversationPlan ? 'Plan already exists' : 'Messages exist',
+          });
         }
+      } else {
+        console.log('⚠️ GET /api/ask/token/[token]: No conversation thread available');
       }
     } catch (planError) {
-      console.error('⚠️ GET /api/ask/token/[token]: Failed to load conversation plan:', planError);
+      console.error('⚠️ GET /api/ask/token/[token]: Failed to load conversation plan:', {
+        error: planError instanceof Error ? planError.message : String(planError),
+        stack: planError instanceof Error ? planError.stack : undefined,
+      });
       // Continue without the plan - it's an enhancement, not a requirement
     }
+    console.log('🏁 GET /api/ask/token/[token]: Plan logic completed, returning response...');
 
     return NextResponse.json<ApiResponse>({
       success: true,
