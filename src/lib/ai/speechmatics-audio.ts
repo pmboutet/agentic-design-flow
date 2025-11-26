@@ -786,14 +786,14 @@ export class SpeechmaticsAudio {
     this.lastUserSpeechTimestamp = now;
 
     const timestamp = new Date().toISOString().split('T')[1].replace('Z', '');
-    console.log(`[${timestamp}] [Speechmatics Audio] 🔊 VAD detected - waiting for AI validation...`);
+    console.log(`[${timestamp}] [Speechmatics Audio] 🔊 VAD detected - waiting for transcript validation...`);
 
-    // Set timeout to trigger barge-in if we don't get AI validation within timeout
-    // This ensures we don't get stuck if AI is slow or fails
+    // Set timeout to CANCEL barge-in if we don't get valid transcript within timeout
+    // This prevents echo from triggering interruption when no real user speech is detected
     this.bargeInValidationTimer = setTimeout(() => {
       const ts = new Date().toISOString().split('T')[1].replace('Z', '');
-      console.log(`[${ts}] [Speechmatics Audio] ⏰ Barge-in validation timeout - assuming valid user speech`);
-      this.confirmBargeIn();
+      console.log(`[${ts}] [Speechmatics Audio] ⏰ Barge-in validation timeout - no valid transcript received, cancelling`);
+      this.cancelBargeInValidation();
     }, this.BARGE_IN_VALIDATION_TIMEOUT_MS);
   }
 
