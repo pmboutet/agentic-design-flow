@@ -840,11 +840,29 @@ export class SpeechmaticsAudio {
     const cleanedTranscript = transcript.trim();
     const words = cleanedTranscript.split(/\s+/).filter(Boolean);
 
-    // Quick check: Need at least 3 words for AI validation to be meaningful
-    if (words.length < 3) {
+    // Quick check: Need at least 10 words for validation to be meaningful
+    // This prevents false positives from short echo fragments
+    if (words.length < 10) {
       const timestamp = new Date().toISOString().split('T')[1].replace('Z', '');
-      console.log(`[${timestamp}] [Speechmatics Audio] ⏸️ Transcript too short (${words.length}/3 words) - waiting for more...`);
+      console.log(`[${timestamp}] [Speechmatics Audio] ⏸️ Transcript too short (${words.length}/10 words) - waiting for more...`);
       return false;
+    }
+
+    // LOCAL ECHO DETECTION: Check if transcript is contained in or similar to assistant speech
+    // This is a fast local check before calling the AI validation API
+    if (this.currentAssistantSpeech && this.currentAssistantSpeech.trim()) {
+      const echoCheckResult = this.detectLocalEcho(cleanedTranscript, this.currentAssistantSpeech);
+      if (echoCheckResult.isEcho) {
+        const timestamp = new Date().toISOString().split('T')[1].replace('Z', '');
+        console.log(`[${timestamp}] [Speechmatics Audio] 🔁 Local echo detected - ignoring barge-in`, {
+          similarity: echoCheckResult.similarity.toFixed(2),
+          matchType: echoCheckResult.matchType,
+          transcriptPreview: cleanedTranscript.substring(0, 50),
+          assistantPreview: this.currentAssistantSpeech.substring(0, 50),
+        });
+        this.cancelBargeInValidation();
+        return false;
+      }
     }
 
     // Use AI-powered start-of-turn detection
@@ -884,10 +902,10 @@ export class SpeechmaticsAudio {
     }
 
     // Fallback: Simple validation if AI is disabled or failed
-    // Require minimum 5 words for fallback mode
-    if (words.length < 5) {
+    // Require minimum 10 words for fallback mode (same as main validation)
+    if (words.length < 10) {
       const timestamp = new Date().toISOString().split('T')[1].replace('Z', '');
-      console.log(`[${timestamp}] [Speechmatics Audio] ⏸️ Fallback mode: Need 5+ words (${words.length}/5)`);
+      console.log(`[${timestamp}] [Speechmatics Audio] ⏸️ Fallback mode: Need 10+ words (${words.length}/10)`);
       return false;
     }
 
@@ -895,6 +913,80 @@ export class SpeechmaticsAudio {
     console.log(`[${timestamp}] [Speechmatics Audio] ✅ Fallback validation passed (${words.length} words)`);
     this.confirmBargeIn();
     return true;
+  }
+
+  /**
+   * Detect if the transcript is likely an echo of the assistant's speech
+   * Uses fuzzy matching to detect partial containment
+   * @param transcript The user transcript to check
+   * @param assistantSpeech The assistant's current speech
+   * @returns Object with isEcho flag, similarity score, and match type
+   */
+  private detectLocalEcho(transcript: string, assistantSpeech: string): {
+    isEcho: boolean;
+    similarity: number;
+    matchType: 'contained' | 'fuzzy-words' | 'none';
+  } {
+    const normalizedTranscript = this.normalizeForEchoDetection(transcript);
+    const normalizedAssistant = this.normalizeForEchoDetection(assistantSpeech);
+
+    // Check 1: Is the transcript directly contained in assistant speech?
+    if (normalizedAssistant.includes(normalizedTranscript)) {
+      return { isEcho: true, similarity: 1.0, matchType: 'contained' };
+    }
+
+    // Check 2: Fuzzy word-based matching
+    // Extract words and check what percentage of transcript words appear in assistant speech
+    const transcriptWords = normalizedTranscript.split(/\s+/).filter(w => w.length > 2);
+    const assistantWords = new Set(normalizedAssistant.split(/\s+/).filter(w => w.length > 2));
+
+    if (transcriptWords.length === 0) {
+      return { isEcho: false, similarity: 0, matchType: 'none' };
+    }
+
+    // Count how many transcript words are found in assistant speech
+    let matchedWords = 0;
+    for (const word of transcriptWords) {
+      if (assistantWords.has(word)) {
+        matchedWords++;
+      }
+    }
+
+    const similarity = matchedWords / transcriptWords.length;
+
+    // If 60% or more of the transcript words are in the assistant speech, it's likely an echo
+    // This threshold catches partial echoes while allowing genuine user interruptions
+    if (similarity >= 0.6) {
+      return { isEcho: true, similarity, matchType: 'fuzzy-words' };
+    }
+
+    // Check 3: Sliding window - check if any consecutive sequence of transcript words
+    // appears in the assistant speech (catches fragmented echoes)
+    const windowSize = Math.min(5, Math.floor(transcriptWords.length / 2));
+    if (windowSize >= 3) {
+      for (let i = 0; i <= transcriptWords.length - windowSize; i++) {
+        const windowPhrase = transcriptWords.slice(i, i + windowSize).join(' ');
+        if (normalizedAssistant.includes(windowPhrase)) {
+          return { isEcho: true, similarity: 0.7, matchType: 'fuzzy-words' };
+        }
+      }
+    }
+
+    return { isEcho: false, similarity, matchType: 'none' };
+  }
+
+  /**
+   * Normalize text for echo detection comparison
+   * Removes punctuation, accents, and converts to lowercase
+   */
+  private normalizeForEchoDetection(text: string): string {
+    return text
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '') // Remove accents
+      .replace(/[.,!?;:'"«»\-–—…()[\]{}]/g, ' ') // Remove punctuation
+      .replace(/\s+/g, ' ')
+      .trim();
   }
 
   /**
