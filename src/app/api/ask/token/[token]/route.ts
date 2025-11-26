@@ -4,7 +4,13 @@ import { createServerSupabaseClient } from "@/lib/supabaseServer";
 import { getAdminSupabaseClient } from "@/lib/supabaseAdmin";
 import { type ApiResponse } from "@/types";
 import { getOrCreateConversationThread } from "@/lib/asks";
-import { getConversationPlanWithSteps, type ConversationPlan } from "@/lib/ai/conversation-plan";
+import {
+  getConversationPlanWithSteps,
+  generateConversationPlan,
+  createConversationPlan,
+  type ConversationPlan,
+  type ConversationPlanWithSteps
+} from "@/lib/ai/conversation-plan";
 
 type AskSessionRow = {
   ask_session_id: string;
@@ -536,24 +542,61 @@ export async function GET(
     }
 
     // Get conversation thread and plan
-    let conversationPlan: ConversationPlan | null = null;
+    let conversationPlan: ConversationPlanWithSteps | null = null;
     try {
       const askConfig = {
         audience_scope: askRow.audience_scope,
         response_mode: askRow.response_mode,
       };
 
+      const adminClient = getAdminSupabaseClient();
+
       const { thread: conversationThread } = await getOrCreateConversationThread(
-        profileClient,
+        adminClient,
         askRow.ask_session_id,
         profileId,
         askConfig
       );
 
       if (conversationThread) {
-        conversationPlan = await getConversationPlanWithSteps(profileClient, conversationThread.id);
-        if (conversationPlan && conversationPlan.plan_data) {
-          console.log('📋 GET /api/ask/token/[token]: Loaded conversation plan with', conversationPlan.plan_data.steps.length, 'steps');
+        console.log('🎯 GET /api/ask/token/[token]: Checking for existing conversation plan');
+        conversationPlan = await getConversationPlanWithSteps(adminClient, conversationThread.id);
+
+        // Generate plan if it doesn't exist and conversation is empty
+        if (!conversationPlan && messages.length === 0) {
+          console.log('📋 GET /api/ask/token/[token]: Generating new conversation plan');
+          try {
+            // Build variables for plan generation
+            const planGenerationVariables = {
+              ask_key: askRow.ask_key,
+              ask_question: askRow.question,
+              ask_description: askRow.description ?? '',
+              system_prompt_ask: '', // Token route doesn't have access to system prompts
+              system_prompt_project: '',
+              system_prompt_challenge: '',
+              participants: participants.map(p => p.name).join(', '),
+              participants_list: participants.map(p => ({ name: p.name, role: p.role })),
+            };
+
+            const planData = await generateConversationPlan(
+              adminClient,
+              askRow.ask_session_id,
+              planGenerationVariables
+            );
+
+            conversationPlan = await createConversationPlan(
+              adminClient,
+              conversationThread.id,
+              planData
+            );
+
+            console.log('✅ GET /api/ask/token/[token]: Conversation plan created with', planData.steps.length, 'steps');
+          } catch (genError) {
+            console.error('⚠️ GET /api/ask/token/[token]: Failed to generate conversation plan:', genError);
+            // Continue without the plan - it's an enhancement, not a requirement
+          }
+        } else if (conversationPlan && conversationPlan.plan_data) {
+          console.log('📋 GET /api/ask/token/[token]: Loaded existing conversation plan with', conversationPlan.plan_data.steps.length, 'steps');
         }
       }
     } catch (planError) {
