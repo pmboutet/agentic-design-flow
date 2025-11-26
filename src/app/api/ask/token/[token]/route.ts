@@ -543,12 +543,18 @@ export async function GET(
 
     // Get conversation thread and plan
     let conversationPlan: ConversationPlanWithSteps | null = null;
+
+    // Use participant's user_id for thread creation (from token), or fall back to authenticated profileId
+    const threadUserId = participantInfo?.user_id ?? profileId;
+
     console.log('🔄 GET /api/ask/token/[token]: Starting conversation plan logic...');
     console.log('📊 GET /api/ask/token/[token]: Current state:', {
       messagesCount: messages.length,
       hasAskRow: !!askRow,
       askSessionId: askRow?.ask_session_id,
       profileId,
+      participantUserId: participantInfo?.user_id,
+      threadUserId,
     });
 
     try {
@@ -565,7 +571,7 @@ export async function GET(
       const { thread: conversationThread } = await getOrCreateConversationThread(
         adminClient,
         askRow.ask_session_id,
-        profileId,
+        threadUserId,
         askConfig
       );
       console.log('📊 GET /api/ask/token/[token]: Thread result:', {
