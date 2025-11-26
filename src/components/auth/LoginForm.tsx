@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { useAuth } from "./AuthProvider";
 
 interface LoginFormProps {
@@ -13,7 +12,8 @@ export function LoginForm({ redirectTo = "/admin" }: LoginFormProps) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const router = useRouter();
+  // Note: redirectTo is used by signInWithGoogle for OAuth flow
+  // For email/password login, the parent component (LoginPageContent) handles redirect via useEffect
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -26,7 +26,8 @@ export function LoginForm({ redirectTo = "/admin" }: LoginFormProps) {
       return;
     }
 
-    router.push(redirectTo);
+    // Don't navigate here - let the parent LoginPageContent handle redirect
+    // when auth status changes to "signed-in" via its useEffect
   };
 
   const handleGoogleSignIn = async () => {
