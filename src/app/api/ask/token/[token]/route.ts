@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { type SupabaseClient } from "@supabase/supabase-js";
 import { createServerSupabaseClient } from "@/lib/supabaseServer";
 import { getAdminSupabaseClient } from "@/lib/supabaseAdmin";
-import { type ApiResponse } from "@/types";
+import { type ApiResponse, type Message } from "@/types";
 import { getOrCreateConversationThread } from "@/lib/asks";
 import {
   getConversationPlanWithSteps,
@@ -11,6 +11,9 @@ import {
   type ConversationPlan,
   type ConversationPlanWithSteps
 } from "@/lib/ai/conversation-plan";
+import { executeAgent } from "@/lib/ai/service";
+import { buildConversationAgentVariables } from "@/lib/ai/conversation-agent";
+import { normaliseMessageMetadata } from "@/lib/messages";
 
 type AskSessionRow = {
   ask_session_id: string;
@@ -626,6 +629,93 @@ export async function GET(
             );
 
             console.log('✅ GET /api/ask/token/[token]: Conversation plan created with', planData.steps.length, 'steps');
+
+            // Generate initial message right after plan creation
+            console.log('💬 GET /api/ask/token/[token]: Generating initial message...');
+            try {
+              // Build variables for initial message agent
+              const agentVariables = buildConversationAgentVariables({
+                ask: {
+                  ask_key: askRow.ask_key,
+                  question: askRow.question,
+                  description: askRow.description,
+                  system_prompt: null, // Token route doesn't have access
+                },
+                project: null,
+                challenge: null,
+                messages: [],
+                participants: participants.map(p => ({ name: p.name, role: p.role })),
+                conversationPlan,
+              });
+
+              console.log('🔧 GET /api/ask/token/[token]: Calling executeAgent for initial message');
+              const agentResult = await executeAgent({
+                supabase: adminClient,
+                agentSlug: 'ask-conversation-response',
+                askSessionId: askRow.ask_session_id,
+                interactionType: 'ask.chat.response',
+                variables: agentVariables,
+              });
+
+              if (typeof agentResult.content === 'string' && agentResult.content.trim().length > 0) {
+                const aiResponse = agentResult.content.trim();
+
+                // Insert the initial AI message
+                const { data: insertedRows, error: insertError } = await adminClient
+                  .from('messages')
+                  .insert({
+                    ask_session_id: askRow.ask_session_id,
+                    content: aiResponse,
+                    sender_type: 'ai',
+                    message_type: 'text',
+                    metadata: { senderName: 'Agent' },
+                    conversation_thread_id: conversationThread.id,
+                  })
+                  .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at, conversation_thread_id')
+                  .limit(1);
+
+                if (insertError || !insertedRows || insertedRows.length === 0) {
+                  console.error('⚠️ GET /api/ask/token/[token]: Failed to insert initial message:', insertError);
+                } else {
+                  const inserted = insertedRows[0];
+                  const initialMessage: Message = {
+                    id: inserted.id,
+                    askKey: askRow.ask_key,
+                    askSessionId: inserted.ask_session_id,
+                    conversationThreadId: inserted.conversation_thread_id ?? null,
+                    content: inserted.content,
+                    type: (inserted.message_type as Message['type']) ?? 'text',
+                    senderType: 'ai',
+                    senderId: inserted.user_id ?? null,
+                    senderName: 'Agent',
+                    timestamp: inserted.created_at ?? new Date().toISOString(),
+                    metadata: normaliseMessageMetadata(inserted.metadata as Record<string, unknown> | null),
+                  };
+                  // Add to messages array so it's included in the response
+                  messages.push({
+                    id: initialMessage.id,
+                    askKey: askRow.ask_key,
+                    askSessionId: askRow.ask_session_id,
+                    content: initialMessage.content,
+                    type: initialMessage.type,
+                    senderType: initialMessage.senderType,
+                    senderId: initialMessage.senderId,
+                    senderName: initialMessage.senderName,
+                    timestamp: initialMessage.timestamp,
+                    metadata: inserted.metadata as Record<string, unknown> || {},
+                    clientId: initialMessage.id,
+                  });
+                  console.log('✅ GET /api/ask/token/[token]: Initial message created:', initialMessage.id);
+                }
+              } else {
+                console.error('⚠️ GET /api/ask/token/[token]: Agent did not return valid content for initial message');
+              }
+            } catch (initMsgError) {
+              console.error('⚠️ GET /api/ask/token/[token]: Failed to generate initial message:', {
+                error: initMsgError instanceof Error ? initMsgError.message : String(initMsgError),
+              });
+              // Continue without initial message - user can still interact
+            }
           } catch (genError) {
             console.error('⚠️ GET /api/ask/token/[token]: Failed to generate conversation plan:', {
               error: genError instanceof Error ? genError.message : String(genError),
@@ -652,7 +742,7 @@ export async function GET(
       });
       // Continue without the plan - it's an enhancement, not a requirement
     }
-    console.log('🏁 GET /api/ask/token/[token]: Plan logic completed, returning response...');
+    console.log('🏁 GET /api/ask/token/[token]: Plan and initial message logic completed, returning response...');
 
     return NextResponse.json<ApiResponse>({
       success: true,
