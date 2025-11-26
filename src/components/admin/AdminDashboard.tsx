@@ -2152,36 +2152,35 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
     // Trust the middleware: if we're on /admin, the middleware already verified session exists.
     // Show the dashboard while AuthProvider confirms the session client-side.
     // Only block if we timeout or explicitly get signed-out status.
-    if (status === "loading" && !hasLoadingTimeout) {
-      return "granted"; // Trust middleware, show dashboard while loading
-    }
-
-    // If loading timed out, treat as signed-out to trigger redirect
-    if (status === "loading" && hasLoadingTimeout) {
-      return "signed-out";
-    }
 
     if (status === "signed-out") {
       return "signed-out";
     }
 
-    // Profile is still loading - trust middleware and show dashboard
-    // The profile fetch happens async after session is confirmed
-    if (status === "signed-in" && !hasProfile && !hasLoadingTimeout) {
-      return "granted"; // Trust middleware while profile loads
+    // While loading or while profile/role is not yet available, trust middleware
+    // The middleware already verified the session server-side
+    if (!hasLoadingTimeout) {
+      if (status === "loading") {
+        return "granted"; // Trust middleware while auth loads
+      }
+      if (status === "signed-in" && (!hasProfile || !normalizedRole)) {
+        return "granted"; // Trust middleware while profile loads
+      }
     }
 
-    // Only show profile-missing if we've timed out waiting for it
-    if (status === "signed-in" && !hasProfile && hasLoadingTimeout) {
-      return "profile-missing";
+    // If loading timed out, check what we have
+    if (hasLoadingTimeout) {
+      if (status === "loading") {
+        return "signed-out";
+      }
+      if (status === "signed-in" && !hasProfile) {
+        return "profile-missing";
+      }
     }
 
-    if (!normalizedRole) {
-      return "forbidden";
-    }
-
+    // At this point we have profile and role - do proper access checks
     const allowedRoles = ["full_admin", "project_admin", "facilitator", "manager", "admin"];
-    if (!allowedRoles.includes(normalizedRole)) {
+    if (!normalizedRole || !allowedRoles.includes(normalizedRole)) {
       return "forbidden";
     }
 
