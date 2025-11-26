@@ -2106,21 +2106,45 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
 
   // Timeout to prevent indefinite loading state
   const [hasLoadingTimeout, setHasLoadingTimeout] = useState(false);
+  // Extended timeout to show user-friendly options after longer wait
+  const [hasExtendedTimeout, setHasExtendedTimeout] = useState(false);
+  // Track total verification time for debugging
+  const verificationStartRef = useRef<number | null>(null);
 
   useEffect(() => {
+    // Track when verification started
+    if (status === "loading" && verificationStartRef.current === null) {
+      verificationStartRef.current = Date.now();
+    }
+
     if (status === "loading") {
-      console.log("AdminDashboard: Auth status is loading, starting 5s timeout");
-      // Set a timeout of 5 seconds to prevent indefinite loading
+      console.log("AdminDashboard: Auth status is loading, starting timeouts");
+
+      // Set a timeout of 5 seconds to trigger redirect attempt
       const timeoutId = setTimeout(() => {
         console.warn("Auth loading timed out after 5s, treating as signed-out");
         setHasLoadingTimeout(true);
       }, 5000);
 
-      return () => clearTimeout(timeoutId);
+      // Extended timeout of 8s to show retry options to the user
+      const extendedTimeoutId = setTimeout(() => {
+        const elapsed = verificationStartRef.current
+          ? Math.round((Date.now() - verificationStartRef.current) / 1000)
+          : 8;
+        console.warn(`Auth loading still in progress after ${elapsed}s, showing options to user`);
+        setHasExtendedTimeout(true);
+      }, 8000);
+
+      return () => {
+        clearTimeout(timeoutId);
+        clearTimeout(extendedTimeoutId);
+      };
     } else {
       console.log("AdminDashboard: Auth status changed to:", status);
-      // Reset timeout flag when status changes
+      // Reset timeout flags when status changes
       setHasLoadingTimeout(false);
+      setHasExtendedTimeout(false);
+      verificationStartRef.current = null;
     }
   }, [status]);
 
@@ -2290,9 +2314,49 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
 
   // Now we can do conditional returns
   if (accessState === "checking") {
+    // Show options after extended timeout to prevent user being stuck
+    if (hasExtendedTimeout) {
+      return (
+        <div className="flex h-screen items-center justify-center bg-slate-950 p-4">
+          <div className="max-w-lg rounded-2xl border border-slate-700 bg-slate-900 p-8 text-center">
+            <div className="mb-4 flex justify-center">
+              <div className="h-10 w-10 animate-spin rounded-full border-4 border-slate-600 border-t-blue-500" />
+            </div>
+            <h2 className="text-xl font-semibold text-white">Vérification en cours...</h2>
+            <p className="mt-3 text-sm text-slate-400">
+              La vérification prend plus de temps que prévu. Vous pouvez patienter ou essayer ces options :
+            </p>
+            <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-center">
+              <Button
+                onClick={() => window.location.reload()}
+                variant="secondary"
+              >
+                Actualiser la page
+              </Button>
+              <Button
+                onClick={async () => {
+                  await signOut();
+                  window.location.href = "/auth/login?redirectTo=/admin";
+                }}
+                variant="outline"
+              >
+                Se reconnecter
+              </Button>
+            </div>
+            <p className="mt-6 text-xs text-slate-500">
+              Si le problème persiste, vérifiez votre connexion réseau ou contactez un administrateur.
+            </p>
+          </div>
+        </div>
+      );
+    }
+    // Normal checking state - show simple loading
     return (
       <div className="flex h-screen items-center justify-center">
         <div className="text-center">
+          <div className="mb-3 flex justify-center">
+            <div className="h-6 w-6 animate-spin rounded-full border-2 border-slate-600 border-t-blue-500" />
+          </div>
           <p className="text-slate-400">Vérification des accès...</p>
         </div>
       </div>
@@ -2304,6 +2368,9 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
     return (
       <div className="flex h-screen items-center justify-center">
         <div className="text-center">
+          <div className="mb-3 flex justify-center">
+            <div className="h-6 w-6 animate-spin rounded-full border-2 border-slate-600 border-t-blue-500" />
+          </div>
           <p className="text-slate-400">Redirection vers la connexion...</p>
         </div>
       </div>
