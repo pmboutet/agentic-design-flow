@@ -6,7 +6,7 @@ import { parseErrorMessage } from '@/lib/utils';
 import { normaliseMessageMetadata } from '@/lib/messages';
 import type { ApiResponse, Message } from '@/types';
 import { buildConversationAgentVariables } from '@/lib/ai/conversation-agent';
-import { generateConversationPlan, createConversationPlan, getConversationPlanWithSteps } from '@/lib/ai/conversation-plan';
+import { generateConversationPlan, createConversationPlan, getConversationPlanWithSteps, type ConversationPlanWithSteps } from '@/lib/ai/conversation-plan';
 import { getAdminSupabaseClient } from '@/lib/supabaseAdmin';
 
 interface AskSessionRow {
@@ -388,10 +388,11 @@ export async function POST(
 
     console.log('✅ POST /api/ask/[key]/init: Initial conversation message created:', initialMessage.id);
 
-    return NextResponse.json<ApiResponse<{ message: Message }>>({
+    return NextResponse.json<ApiResponse<{ message: Message; conversationPlan: ConversationPlanWithSteps | null }>>({
       success: true,
       data: {
         message: initialMessage,
+        conversationPlan,
       },
     });
 

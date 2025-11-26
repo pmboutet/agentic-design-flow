@@ -1016,7 +1016,7 @@ export default function HomePage() {
         headers,
       });
 
-      const data: ApiResponse<{ message: Message | null }> = await response.json();
+      const data: ApiResponse<{ message: Message | null; conversationPlan: ConversationPlan | null }> = await response.json();
 
       if (!data.success) {
         console.error('Failed to initiate conversation:', data.error);
@@ -1024,12 +1024,19 @@ export default function HomePage() {
       }
 
       // If a message was created, add it to the state
-      if (data.data?.message) {
+      // Also update conversationPlan if it was generated
+      if (data.data?.message || data.data?.conversationPlan) {
         setSessionData(prev => ({
           ...prev,
-          messages: [...prev.messages, data.data!.message!],
+          messages: data.data?.message ? [...prev.messages, data.data.message] : prev.messages,
+          conversationPlan: data.data?.conversationPlan ?? prev.conversationPlan,
         }));
-        console.log('✅ HomePage: Initial conversation message added:', data.data.message.id);
+        if (data.data?.message) {
+          console.log('✅ HomePage: Initial conversation message added:', data.data.message.id);
+        }
+        if (data.data?.conversationPlan) {
+          console.log('✅ HomePage: Conversation plan loaded:', data.data.conversationPlan.id);
+        }
       }
     } catch (error) {
       console.error('Error initiating conversation:', error);
