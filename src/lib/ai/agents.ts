@@ -65,6 +65,7 @@ export async function fetchAgentBySlug(
   slug: string,
   options: { includeModels?: boolean } = {},
 ): Promise<AiAgentRecord | null> {
+  console.log('🔍 [fetchAgentBySlug] Querying ai_agents for slug:', slug);
   const { data, error } = await supabase
     .from("ai_agents")
     .select("*")
@@ -72,12 +73,21 @@ export async function fetchAgentBySlug(
     .maybeSingle<AiAgentRow>();
 
   if (error) {
+    console.error('❌ [fetchAgentBySlug] Query error:', {
+      message: error.message,
+      code: error.code,
+      details: error.details,
+      hint: error.hint,
+    });
     throw error;
   }
 
   if (!data) {
+    console.warn('⚠️ [fetchAgentBySlug] Agent not found in database:', slug);
     return null;
   }
+
+  console.log('✅ [fetchAgentBySlug] Agent found:', { id: data.id, slug: data.slug });
 
   const agent = mapAgentRow(data);
 
