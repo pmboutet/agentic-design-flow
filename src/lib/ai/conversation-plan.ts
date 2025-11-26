@@ -83,8 +83,17 @@ export async function generateConversationPlan(
   variables: PromptVariables
 ): Promise<LegacyConversationPlanData> {
   console.log('🎯 Generating conversation plan for ASK session:', askSessionId);
+  console.log('🔍 Plan generation variables:', {
+    ask_key: variables.ask_key,
+    ask_question: variables.ask_question?.substring(0, 100),
+    hasDescription: !!variables.ask_description,
+    hasSystemPromptAsk: !!variables.system_prompt_ask,
+    hasSystemPromptProject: !!variables.system_prompt_project,
+    hasSystemPromptChallenge: !!variables.system_prompt_challenge,
+  });
 
   try {
+    console.log('📡 Calling executeAgent with ask-conversation-plan-generator...');
     const agentResult = await executeAgent({
       supabase,
       agentSlug: 'ask-conversation-plan-generator',
@@ -92,6 +101,7 @@ export async function generateConversationPlan(
       interactionType: 'ask.plan.generation',
       variables,
     });
+    console.log('✅ executeAgent returned successfully');
 
     console.log('📥 Plan generation result:', {
       hasContent: !!agentResult.content,
@@ -137,7 +147,11 @@ export async function generateConversationPlan(
     console.log('✅ Generated plan with', planData.steps.length, 'steps');
     return planData;
   } catch (error) {
-    console.error('❌ Error generating conversation plan:', error);
+    console.error('❌ Error generating conversation plan:', {
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+      name: error instanceof Error ? error.name : undefined,
+    });
     throw error;
   }
 }

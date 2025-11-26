@@ -2,9 +2,18 @@ import { NextRequest, NextResponse } from "next/server";
 import { type SupabaseClient } from "@supabase/supabase-js";
 import { createServerSupabaseClient } from "@/lib/supabaseServer";
 import { getAdminSupabaseClient } from "@/lib/supabaseAdmin";
-import { type ApiResponse } from "@/types";
+import { type ApiResponse, type Message } from "@/types";
 import { getOrCreateConversationThread } from "@/lib/asks";
-import { getConversationPlanWithSteps, type ConversationPlan } from "@/lib/ai/conversation-plan";
+import {
+  getConversationPlanWithSteps,
+  generateConversationPlan,
+  createConversationPlan,
+  type ConversationPlan,
+  type ConversationPlanWithSteps
+} from "@/lib/ai/conversation-plan";
+import { executeAgent } from "@/lib/ai/service";
+import { buildConversationAgentVariables } from "@/lib/ai/conversation-agent";
+import { normaliseMessageMetadata } from "@/lib/messages";
 
 type AskSessionRow = {
   ask_session_id: string;
@@ -536,30 +545,204 @@ export async function GET(
     }
 
     // Get conversation thread and plan
-    let conversationPlan: ConversationPlan | null = null;
+    let conversationPlan: ConversationPlanWithSteps | null = null;
+
+    // Use participant's user_id for thread creation (from token), or fall back to authenticated profileId
+    const threadUserId = participantInfo?.user_id ?? profileId;
+
+    console.log('🔄 GET /api/ask/token/[token]: Starting conversation plan logic...');
+    console.log('📊 GET /api/ask/token/[token]: Current state:', {
+      messagesCount: messages.length,
+      hasAskRow: !!askRow,
+      askSessionId: askRow?.ask_session_id,
+      profileId,
+      participantUserId: participantInfo?.user_id,
+      threadUserId,
+    });
+
     try {
       const askConfig = {
         audience_scope: askRow.audience_scope,
         response_mode: askRow.response_mode,
       };
 
+      console.log('🔧 GET /api/ask/token/[token]: Getting admin client...');
+      const adminClient = getAdminSupabaseClient();
+      console.log('✅ GET /api/ask/token/[token]: Admin client obtained');
+
+      console.log('🔧 GET /api/ask/token/[token]: Getting or creating conversation thread...');
       const { thread: conversationThread } = await getOrCreateConversationThread(
-        profileClient,
+        adminClient,
         askRow.ask_session_id,
-        profileId,
+        threadUserId,
         askConfig
       );
+      console.log('📊 GET /api/ask/token/[token]: Thread result:', {
+        hasThread: !!conversationThread,
+        threadId: conversationThread?.id,
+      });
 
       if (conversationThread) {
-        conversationPlan = await getConversationPlanWithSteps(profileClient, conversationThread.id);
-        if (conversationPlan && conversationPlan.plan_data) {
-          console.log('📋 GET /api/ask/token/[token]: Loaded conversation plan with', conversationPlan.plan_data.steps.length, 'steps');
+        console.log('🎯 GET /api/ask/token/[token]: Checking for existing conversation plan');
+        conversationPlan = await getConversationPlanWithSteps(adminClient, conversationThread.id);
+        console.log('📊 GET /api/ask/token/[token]: Existing plan check:', {
+          hasPlan: !!conversationPlan,
+          planId: conversationPlan?.id,
+        });
+
+        // Generate plan if it doesn't exist and conversation is empty
+        if (!conversationPlan && messages.length === 0) {
+          console.log('📋 GET /api/ask/token/[token]: No plan exists and no messages, generating new plan...');
+          try {
+            // Build variables for plan generation
+            const planGenerationVariables = {
+              ask_key: askRow.ask_key,
+              ask_question: askRow.question,
+              ask_description: askRow.description ?? '',
+              system_prompt_ask: '', // Token route doesn't have access to system prompts
+              system_prompt_project: '',
+              system_prompt_challenge: '',
+              participants: participants.map(p => p.name).join(', '),
+              participants_list: participants.map(p => ({ name: p.name, role: p.role })),
+            };
+            console.log('📊 GET /api/ask/token/[token]: Plan generation variables:', {
+              ask_key: planGenerationVariables.ask_key,
+              ask_question: planGenerationVariables.ask_question?.substring(0, 50),
+              participantsCount: participants.length,
+            });
+
+            console.log('🚀 GET /api/ask/token/[token]: Calling generateConversationPlan...');
+            const planData = await generateConversationPlan(
+              adminClient,
+              askRow.ask_session_id,
+              planGenerationVariables
+            );
+            console.log('✅ GET /api/ask/token/[token]: generateConversationPlan returned:', {
+              stepsCount: planData?.steps?.length,
+            });
+
+            console.log('💾 GET /api/ask/token/[token]: Calling createConversationPlan...');
+            conversationPlan = await createConversationPlan(
+              adminClient,
+              conversationThread.id,
+              planData
+            );
+
+            console.log('✅ GET /api/ask/token/[token]: Conversation plan created with', planData.steps.length, 'steps');
+
+            // Generate initial message right after plan creation
+            console.log('💬 GET /api/ask/token/[token]: Generating initial message...');
+            try {
+              // Build variables for initial message agent
+              const agentVariables = buildConversationAgentVariables({
+                ask: {
+                  ask_key: askRow.ask_key,
+                  question: askRow.question,
+                  description: askRow.description,
+                  system_prompt: null, // Token route doesn't have access
+                },
+                project: null,
+                challenge: null,
+                messages: [],
+                participants: participants.map(p => ({ name: p.name, role: p.role })),
+                conversationPlan,
+              });
+
+              console.log('🔧 GET /api/ask/token/[token]: Calling executeAgent for initial message');
+              const agentResult = await executeAgent({
+                supabase: adminClient,
+                agentSlug: 'ask-conversation-response',
+                askSessionId: askRow.ask_session_id,
+                interactionType: 'ask.chat.response',
+                variables: agentVariables,
+              });
+
+              if (typeof agentResult.content === 'string' && agentResult.content.trim().length > 0) {
+                const aiResponse = agentResult.content.trim();
+
+                // Insert the initial AI message
+                const { data: insertedRows, error: insertError } = await adminClient
+                  .from('messages')
+                  .insert({
+                    ask_session_id: askRow.ask_session_id,
+                    content: aiResponse,
+                    sender_type: 'ai',
+                    message_type: 'text',
+                    metadata: { senderName: 'Agent' },
+                    conversation_thread_id: conversationThread.id,
+                  })
+                  .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at, conversation_thread_id')
+                  .limit(1);
+
+                if (insertError || !insertedRows || insertedRows.length === 0) {
+                  console.error('⚠️ GET /api/ask/token/[token]: Failed to insert initial message:', insertError);
+                } else {
+                  const inserted = insertedRows[0];
+                  const initialMessage: Message = {
+                    id: inserted.id,
+                    askKey: askRow.ask_key,
+                    askSessionId: inserted.ask_session_id,
+                    conversationThreadId: inserted.conversation_thread_id ?? null,
+                    content: inserted.content,
+                    type: (inserted.message_type as Message['type']) ?? 'text',
+                    senderType: 'ai',
+                    senderId: inserted.user_id ?? null,
+                    senderName: 'Agent',
+                    timestamp: inserted.created_at ?? new Date().toISOString(),
+                    metadata: normaliseMessageMetadata(inserted.metadata as Record<string, unknown> | null),
+                  };
+                  // Add to messages array so it's included in the response
+                  messages.push({
+                    id: initialMessage.id,
+                    askKey: askRow.ask_key,
+                    askSessionId: askRow.ask_session_id,
+                    content: initialMessage.content,
+                    type: initialMessage.type,
+                    senderType: initialMessage.senderType,
+                    senderId: initialMessage.senderId,
+                    senderName: initialMessage.senderName,
+                    timestamp: initialMessage.timestamp,
+                    metadata: inserted.metadata as Record<string, unknown> || {},
+                    clientId: initialMessage.id,
+                  });
+                  console.log('✅ GET /api/ask/token/[token]: Initial message created:', initialMessage.id);
+                }
+              } else {
+                console.error('⚠️ GET /api/ask/token/[token]: Agent did not return valid content for initial message');
+              }
+            } catch (initMsgError) {
+              console.error('⚠️ GET /api/ask/token/[token]: Failed to generate initial message:', {
+                error: initMsgError instanceof Error ? initMsgError.message : String(initMsgError),
+              });
+              // Continue without initial message - user can still interact
+            }
+          } catch (genError) {
+            console.error('⚠️ GET /api/ask/token/[token]: Failed to generate conversation plan:', {
+              error: genError instanceof Error ? genError.message : String(genError),
+              stack: genError instanceof Error ? genError.stack : undefined,
+            });
+            // Continue without the plan - it's an enhancement, not a requirement
+          }
+        } else if (conversationPlan && conversationPlan.plan_data) {
+          console.log('📋 GET /api/ask/token/[token]: Loaded existing conversation plan with', conversationPlan.plan_data.steps.length, 'steps');
+        } else {
+          console.log('⚠️ GET /api/ask/token/[token]: No plan generated because:', {
+            hasPlan: !!conversationPlan,
+            messagesCount: messages.length,
+            reason: conversationPlan ? 'Plan already exists' : 'Messages exist',
+          });
         }
+      } else {
+        console.log('⚠️ GET /api/ask/token/[token]: No conversation thread available');
       }
     } catch (planError) {
-      console.error('⚠️ GET /api/ask/token/[token]: Failed to load conversation plan:', planError);
+      console.error('⚠️ GET /api/ask/token/[token]: Failed to load conversation plan:', {
+        error: planError instanceof Error ? planError.message : String(planError),
+        stack: planError instanceof Error ? planError.stack : undefined,
+      });
       // Continue without the plan - it's an enhancement, not a requirement
     }
+    console.log('🏁 GET /api/ask/token/[token]: Plan and initial message logic completed, returning response...');
 
     return NextResponse.json<ApiResponse>({
       success: true,

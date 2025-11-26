@@ -88,11 +88,10 @@ export async function getOrCreateConversationThread(
   if (useShared) {
     query = query.is('user_id', null).eq('is_shared', true);
   } else {
-    // In individual mode, we need a userId. If not provided, return null thread
-    // (caller should handle fallback to shared thread or all messages)
+    // In individual mode, we need a userId. If not provided, fallback to shared thread
     if (!threadUserId) {
       console.warn('Individual thread mode requires userId, but none provided. Falling back to shared thread behavior.');
-      // Try to get shared thread as fallback
+      // Try to get or create shared thread as fallback
       const sharedQuery = supabase
         .from('conversation_threads')
         .select('id, ask_session_id, user_id, is_shared, created_at')
@@ -100,13 +99,31 @@ export async function getOrCreateConversationThread(
         .is('user_id', null)
         .eq('is_shared', true)
         .maybeSingle<ConversationThread>();
-      
+
       const { data: sharedThread, error: sharedError } = await sharedQuery;
       if (!sharedError && sharedThread) {
         return { thread: sharedThread, error: null };
       }
-      // If no shared thread exists either, return null (caller will use fallback)
-      return { thread: null, error: null };
+
+      // If no shared thread exists, CREATE one as fallback
+      console.log('No shared thread exists, creating one as fallback for plan generation...');
+      const { data: newSharedThread, error: createSharedError } = await supabase
+        .from('conversation_threads')
+        .insert({
+          ask_session_id: askSessionId,
+          user_id: null,
+          is_shared: true,
+        })
+        .select('id, ask_session_id, user_id, is_shared, created_at')
+        .single<ConversationThread>();
+
+      if (createSharedError) {
+        console.error('Failed to create shared thread fallback:', createSharedError);
+        return { thread: null, error: createSharedError };
+      }
+
+      console.log('Created shared thread fallback:', newSharedThread?.id);
+      return { thread: newSharedThread, error: null };
     }
     query = query.eq('user_id', threadUserId).eq('is_shared', false);
   }

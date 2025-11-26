@@ -86,12 +86,15 @@ async function ensureAgentHasModel(agent: AiAgentRecord): Promise<AiAgentRecord>
 }
 
 export async function executeAgent(options: ExecuteAgentOptions): Promise<AgentExecutionResult> {
+  console.log('🔍 [executeAgent] Fetching agent:', options.agentSlug);
   const agent = await fetchAgentBySlug(options.supabase, options.agentSlug, { includeModels: true });
 
   if (!agent) {
+    console.error('❌ [executeAgent] Agent not found:', options.agentSlug);
     throw new Error(`Unable to find AI agent with slug "${options.agentSlug}"`);
   }
 
+  console.log('✅ [executeAgent] Agent found:', { id: agent.id, slug: agent.slug, modelConfigId: agent.modelConfigId });
   await ensureAgentHasModel(agent);
 
   // For ask-conversation-response agent, use getAgentConfigForAsk to ensure
