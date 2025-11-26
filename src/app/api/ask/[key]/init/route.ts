@@ -95,9 +95,40 @@ export async function POST(
     const { key } = await params;
     const supabase = await createServerSupabaseClient();
 
+    // Check for invite token in headers (allows anonymous participation via token)
+    const inviteToken = request.headers.get('X-Invite-Token');
+    let profileId: string | null = null;
+    let tokenAskSessionId: string | null = null;
+    let dataClient = supabase;
+
+    if (inviteToken) {
+      console.log('🔐 POST /api/ask/[key]/init: Processing invite token');
+      const adminClient = getAdminSupabaseClient();
+      const { data: participant, error: tokenError } = await adminClient
+        .from('ask_participants')
+        .select('id, user_id, ask_session_id')
+        .eq('invite_token', inviteToken)
+        .maybeSingle();
+
+      if (tokenError) {
+        console.error('❌ Error validating invite token:', tokenError);
+        return NextResponse.json<ApiResponse>({
+          success: false,
+          error: 'Token invalide'
+        }, { status: 403 });
+      }
+
+      if (participant) {
+        profileId = participant.user_id;
+        tokenAskSessionId = participant.ask_session_id;
+        dataClient = adminClient;
+        console.log('✅ POST /api/ask/[key]/init: Token validated, profileId:', profileId);
+      }
+    }
+
     // Get ASK session
     const { row: askRow, error: askError } = await getAskSessionByKey<AskSessionRow>(
-      supabase,
+      dataClient,
       key,
       'id, ask_key, question, description, status, system_prompt, project_id, challenge_id, audience_scope, response_mode'
     );
@@ -109,33 +140,43 @@ export async function POST(
       }, { status: 404 });
     }
 
+    // Verify token belongs to this ASK session if using token auth
+    if (tokenAskSessionId && tokenAskSessionId !== askRow.id) {
+      console.error('❌ Token ASK session mismatch:', { tokenAskSessionId, askRowId: askRow.id });
+      return NextResponse.json<ApiResponse>({
+        success: false,
+        error: 'Ce token ne correspond pas à cette session ASK'
+      }, { status: 403 });
+    }
+
     // Get or create conversation thread
     const askConfig = {
       audience_scope: askRow.audience_scope ?? null,
       response_mode: askRow.response_mode ?? null,
     };
 
-    // Try to get current user for thread determination
-    let profileId: string | null = null;
-    try {
-      const { data: userResult } = await supabase.auth.getUser();
-      if (userResult?.user) {
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('id')
-          .eq('auth_id', userResult.user.id)
-          .single();
-        if (profile) {
-          profileId = profile.id;
+    // Try to get current user for thread determination (if not already set via token)
+    if (!profileId) {
+      try {
+        const { data: userResult } = await supabase.auth.getUser();
+        if (userResult?.user) {
+          const { data: profile } = await dataClient
+            .from('profiles')
+            .select('id')
+            .eq('auth_id', userResult.user.id)
+            .single();
+          if (profile) {
+            profileId = profile.id;
+          }
         }
+      } catch (error) {
+        // Ignore auth errors - will use shared thread if needed
+        console.log('⚠️ Init conversation: Could not get user profile, will use shared thread if needed');
       }
-    } catch (error) {
-      // Ignore auth errors - will use shared thread if needed
-      console.log('⚠️ Init conversation: Could not get user profile, will use shared thread if needed');
     }
 
     const { thread: conversationThread } = await getOrCreateConversationThread(
-      supabase,
+      dataClient,
       askRow.id,
       profileId,
       askConfig
@@ -145,13 +186,13 @@ export async function POST(
     let hasMessages = false;
     if (conversationThread) {
       const { messages: threadMessages } = await getMessagesForThread(
-        supabase,
+        dataClient,
         conversationThread.id
       );
       hasMessages = (threadMessages ?? []).length > 0;
     } else {
       // Check for messages without thread
-      const { data: messagesWithoutThread } = await supabase
+      const { data: messagesWithoutThread } = await dataClient
         .from('messages')
         .select('id')
         .eq('ask_session_id', askRow.id)
@@ -175,7 +216,7 @@ export async function POST(
     console.log('💬 POST /api/ask/[key]/init: Initiating conversation with agent');
     
     // Build participants context for prompt
-    const { data: participantRows, error: participantError } = await supabase
+    const { data: participantRows, error: participantError } = await dataClient
       .from('ask_participants')
       .select('*')
       .eq('ask_session_id', askRow.id)
@@ -196,7 +237,7 @@ export async function POST(
     let usersById: Record<string, UserRow> = {};
 
     if (participantUserIds.length > 0) {
-      const { data: userRows, error: userError } = await supabase
+      const { data: userRows, error: userError } = await dataClient
         .from('profiles')
         .select('id, email, full_name, first_name, last_name')
         .in('id', participantUserIds);
@@ -232,7 +273,7 @@ export async function POST(
     // Fetch related prompts context
     let projectData: ProjectRow | null = null;
     if (askRow.project_id) {
-      const { data, error } = await supabase
+      const { data, error } = await dataClient
         .from('projects')
         .select('id, name, system_prompt')
         .eq('id', askRow.project_id)
@@ -247,7 +288,7 @@ export async function POST(
 
     let challengeData: ChallengeRow | null = null;
     if (askRow.challenge_id) {
-      const { data, error } = await supabase
+      const { data, error } = await dataClient
         .from('challenges')
         .select('id, name, system_prompt')
         .eq('id', askRow.challenge_id)
@@ -324,7 +365,7 @@ export async function POST(
     });
     
     const agentResult = await executeAgent({
-      supabase,
+      supabase: dataClient,
       agentSlug: 'ask-conversation-response',
       askSessionId: askRow.id,
       interactionType: 'ask.chat.response',
@@ -350,7 +391,7 @@ export async function POST(
     const aiResponse = agentResult.content.trim();
     
     // Insert the initial AI message
-    const { data: insertedRows, error: insertError } = await supabase
+    const { data: insertedRows, error: insertError } = await dataClient
       .from('messages')
       .insert({
         ask_session_id: askRow.id,
