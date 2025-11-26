@@ -2149,8 +2149,11 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
   }, [status]);
 
   const accessState = useMemo<"checking" | "signed-out" | "inactive" | "forbidden" | "profile-missing" | "granted">(() => {
+    // Trust the middleware: if we're on /admin, the middleware already verified session exists.
+    // Show the dashboard while AuthProvider confirms the session client-side.
+    // Only block if we timeout or explicitly get signed-out status.
     if (status === "loading" && !hasLoadingTimeout) {
-      return "checking";
+      return "granted"; // Trust middleware, show dashboard while loading
     }
 
     // If loading timed out, treat as signed-out to trigger redirect
