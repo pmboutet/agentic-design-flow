@@ -2165,8 +2165,14 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
       return "signed-out";
     }
 
-    // Check if profile is missing (user is signed in but profile wasn't loaded)
-    if (status === "signed-in" && !hasProfile) {
+    // Profile is still loading - trust middleware and show dashboard
+    // The profile fetch happens async after session is confirmed
+    if (status === "signed-in" && !hasProfile && !hasLoadingTimeout) {
+      return "granted"; // Trust middleware while profile loads
+    }
+
+    // Only show profile-missing if we've timed out waiting for it
+    if (status === "signed-in" && !hasProfile && hasLoadingTimeout) {
       return "profile-missing";
     }
 
