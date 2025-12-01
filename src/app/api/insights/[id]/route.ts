@@ -21,10 +21,13 @@ export async function PATCH(
 
     const payload = updateSchema.parse(body);
 
+    // When content is manually updated, clear the summary so the new content is displayed
+    // The summary field takes priority in display (summary || content), so we must nullify it
     const { data, error } = await supabase
       .from("insights")
       .update({
         content: sanitizeText(payload.content),
+        summary: null, // Clear summary so updated content is displayed
         updated_at: new Date().toISOString(),
       })
       .eq("id", insightId)
