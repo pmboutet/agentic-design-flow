@@ -913,11 +913,9 @@ export class SpeechmaticsAudio {
 
     // During grace period, require slightly more words to be safe against echo
     // REDUCED from 15/20 to 5/8 to allow legitimate interruptions
-    // With speaker diarization enabled, we rely less on word count and more on speaker identification
     const requiredWords = inGracePeriod ? 8 : 5;
 
     // Quick check: Need minimum words for validation to be meaningful
-    // Lower threshold (5 words) now that we have speaker diarization for echo detection
     if (words.length < requiredWords) {
       const timestamp = new Date().toISOString().split('T')[1].replace('Z', '');
       console.log(`[${timestamp}] [Speechmatics Audio] ⏸️ Transcript too short (${words.length}/${requiredWords} words${inGracePeriod ? ' - grace period active' : ''}) - waiting for more...`);
@@ -1137,7 +1135,7 @@ export class SpeechmaticsAudio {
 
   /**
    * Check if audio is currently playing (TTS playback)
-   * Used for speaker diarization echo filtering
+   * Used for barge-in detection and echo filtering
    */
   isPlaying(): boolean {
     return this.isPlayingAudio;

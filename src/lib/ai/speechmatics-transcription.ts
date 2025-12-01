@@ -63,6 +63,9 @@ export class TranscriptionManager {
   private utteranceDebounceTimeout: NodeJS.Timeout | null = null;
   // Dernier contenu de prévisualisation envoyé (pour éviter les doublons dans les callbacks)
   private lastPreviewContent: string | null = null;
+  // Rate limiting for partial updates to prevent rapid duplicates in display
+  private lastPartialUpdateTimestamp: number = 0;
+  private readonly MIN_PARTIAL_UPDATE_INTERVAL_MS = 100; // Minimum 100ms between partial updates
   // Gestion de la détection sémantique des fins de tour
   private semanticHoldTimeout: NodeJS.Timeout | null = null;
   private semanticHoldStartedAt: number | null = null;
@@ -70,12 +73,13 @@ export class TranscriptionManager {
   private pendingSemanticTrigger: SemanticTurnTrigger | null = null;
   
   // ===== CONSTANTES DE CONFIGURATION =====
-  // Timeout de détection de silence (2.5s) - fail-safe si aucune transcription partielle n'arrive
-  private readonly SILENCE_DETECTION_TIMEOUT = 2500;
-  // Timeout plus rapide (1s) quand les partials sont désactivés
-  private readonly SILENCE_DETECTION_TIMEOUT_NO_PARTIALS = 1000;
-  // Délai de finalisation de l'énoncé (1s) - attend sans nouvelle transcription partielle avant de finaliser
-  private readonly UTTERANCE_FINALIZATION_DELAY = 1000;
+  // Timeout de détection de silence (2s) - fail-safe si aucune transcription partielle n'arrive
+  private readonly SILENCE_DETECTION_TIMEOUT = 2000;
+  // Timeout plus rapide (800ms) quand les partials sont désactivés
+  private readonly SILENCE_DETECTION_TIMEOUT_NO_PARTIALS = 800;
+  // Délai de finalisation de l'énoncé (600ms) - réduit grâce à la fonctionnalité abort-on-continue
+  // Si l'utilisateur continue de parler après ce délai, la réponse sera annulée
+  private readonly UTTERANCE_FINALIZATION_DELAY = 600;
   // Longueur minimale d'un énoncé en caractères (pour éviter les fragments trop courts)
   private readonly MIN_UTTERANCE_CHAR_LENGTH = 20;
   // Nombre minimal de mots dans un énoncé (pour éviter les fragments trop courts)
@@ -327,31 +331,48 @@ export class TranscriptionManager {
     const trimmedTranscript = transcript.trim();
     this.clearSemanticHold();
 
-    // Log minimal pour debug
-    console.log(`[${getTimestamp()}] [📥 PARTIAL]`, trimmedTranscript.slice(0, 80) + (trimmedTranscript.length > 80 ? '...' : ''));
-    
     // Detect start of a brand new user turn (previous turn was already processed)
     if (!this.pendingFinalTranscript && this.lastProcessedContent) {
       this.lastProcessedContent = null;
       this.lastFinalUserContent = null;
       this.currentStreamingMessageId = null;
     }
-    
-    // Skip if exactly the same as last partial (duplicate)
+
+    // DEDUPLICATION: Skip if exactly the same as last partial
     if (trimmedTranscript === this.lastPartialUserContent) {
       return;
     }
-    
-    // Skip if very similar to last partial
-    if (this.lastPartialUserContent && 
-        trimmedTranscript.length > 10 && 
-        this.lastPartialUserContent.length > 10) {
-      const similarity = this.calculateSimilarity(trimmedTranscript, this.lastPartialUserContent);
-      if (similarity > 0.9) {
+
+    // DEDUPLICATION: Normalize both transcripts for more robust comparison
+    const normalizedNew = this.normalizeForComparison(trimmedTranscript);
+    const normalizedLast = this.lastPartialUserContent ? this.normalizeForComparison(this.lastPartialUserContent) : '';
+
+    // Skip if normalized versions are identical (catches "hello" vs "Hello!")
+    if (normalizedNew === normalizedLast) {
+      return;
+    }
+
+    // Skip if very similar to last partial (using word-based similarity)
+    if (normalizedLast && normalizedNew.length > 5 && normalizedLast.length > 5) {
+      const similarity = this.calculateSimilarity(normalizedNew, normalizedLast);
+      // Lowered threshold from 0.9 to 0.85 to catch more near-duplicates
+      if (similarity > 0.85) {
         return; // Skip duplicate
       }
     }
-    
+
+    // Skip if new partial is just a prefix or suffix of the last one (unchanged content)
+    if (this.lastPartialUserContent) {
+      const lastLower = this.lastPartialUserContent.toLowerCase();
+      const newLower = trimmedTranscript.toLowerCase();
+      if (lastLower.includes(newLower) || newLower.includes(lastLower)) {
+        // Only update if it's actually longer (more content)
+        if (trimmedTranscript.length <= this.lastPartialUserContent.length) {
+          return; // Skip shorter or equal content
+        }
+      }
+    }
+
     this.lastPartialUserContent = trimmedTranscript;
     
     // Ensure we have a streaming message id for optimistic updates
@@ -387,10 +408,30 @@ export class TranscriptionManager {
     this.scheduleUtteranceFinalization();
     
     const previewContent = this.cleanTranscript(this.pendingFinalTranscript || trimmedTranscript);
-    if (!previewContent || previewContent === this.lastPreviewContent) {
+    if (!previewContent) {
       return;
     }
+
+    // DEDUPLICATION: Normalize preview content for comparison
+    const normalizedPreview = this.normalizeForComparison(previewContent);
+    const normalizedLastPreview = this.lastPreviewContent ? this.normalizeForComparison(this.lastPreviewContent) : '';
+
+    // Skip if preview content is the same (after normalization)
+    if (normalizedPreview === normalizedLastPreview) {
+      return;
+    }
+
+    // RATE LIMITING: Prevent too many updates per second
+    const now = Date.now();
+    const timeSinceLastUpdate = now - this.lastPartialUpdateTimestamp;
+    if (timeSinceLastUpdate < this.MIN_PARTIAL_UPDATE_INTERVAL_MS) {
+      // Too soon - skip this update but still update pending state
+      // The next partial will show the accumulated content
+      return;
+    }
+
     this.lastPreviewContent = previewContent;
+    this.lastPartialUpdateTimestamp = now;
 
     // Respect config flag to disable partial streaming
     if (!this.enablePartials) {
@@ -398,8 +439,6 @@ export class TranscriptionManager {
     }
 
     const messageId = this.currentStreamingMessageId || undefined;
-
-    console.log(`[${getTimestamp()}] [📤 SEND INTERIM]`, previewContent.slice(0, 60) + (previewContent.length > 60 ? '...' : ''));
 
     this.onMessageCallback?.({
       role: 'user',
@@ -803,12 +842,14 @@ export class TranscriptionManager {
       clearTimeout(this.utteranceDebounceTimeout);
       this.utteranceDebounceTimeout = null;
     }
+    this.clearSemanticHold();
     this.pendingFinalTranscript = null;
     this.lastPartialUserContent = null;
     this.lastFinalUserContent = null;
     this.lastProcessedContent = null;
     this.currentStreamingMessageId = null;
     this.lastPreviewContent = null;
+    this.lastPartialUpdateTimestamp = 0;
   }
 
   /**
@@ -902,6 +943,20 @@ export class TranscriptionManager {
       .toLowerCase()
       .replace(/^[\s.,!?;:…'"()\-]+/g, '')
       .replace(/[\s.,!?;:…'"()\-]+$/g, '');
+  }
+
+  /**
+   * Normalize text for robust comparison (deduplication)
+   * Removes punctuation, accents, extra spaces, and converts to lowercase
+   */
+  private normalizeForComparison(text: string): string {
+    return text
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '') // Remove accents
+      .replace(/[.,!?;:'"«»\-–—…()[\]{}]/g, '') // Remove punctuation
+      .replace(/\s+/g, ' ')
+      .trim();
   }
 
   /**

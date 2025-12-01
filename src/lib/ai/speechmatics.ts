@@ -101,6 +101,10 @@ export class SpeechmaticsVoiceAgent {
   private isGeneratingResponse: boolean = false;
   // Queue des messages utilisateur en attente (si plusieurs messages arrivent pendant la génération)
   private userMessageQueue: Array<{ content: string; timestamp: string }> = [];
+  // Track if user continues speaking during response generation (abort-on-continue)
+  private responseAbortedDueToUserContinuation: boolean = false;
+  // Last processed user message (to detect new content during response)
+  private lastSentUserMessage: string = '';
   // Flag indiquant si l'agent est déconnecté (pour ignorer les messages tardifs)
   private isDisconnected: boolean = false;
   // Promise de déconnexion en cours (pour éviter les déconnexions multiples)
@@ -113,10 +117,6 @@ export class SpeechmaticsVoiceAgent {
     createSemanticTurnDetector(this.semanticTurnConfig);
   // AbortController for canceling in-flight LLM requests
   private llmAbortController: AbortController | null = null;
-  // Speaker diarization: track which speaker is the TTS echo vs real user
-  // When TTS is playing and we detect a speaker, that's likely the echo
-  private echoSpeaker: string | null = null;
-  private lastSpeakerWhilePlaying: string | null = null;
 
   // ===== CALLBACKS =====
   // Callback appelé lorsqu'un message est reçu (user ou agent, interim ou final)
@@ -327,49 +327,26 @@ export class SpeechmaticsVoiceAgent {
     // Handle partial transcription
     if (data.message === "AddPartialTranscript") {
       // Speechmatics API structure: transcript is in metadata.transcript (full text)
-      // With diarization, each word in results[] has a "speaker" property (e.g., "S1", "S2")
       const transcript = data.metadata?.transcript || "";
-      const results = data.results || [];
 
-      // Extract speaker info from results (diarization)
-      const speakerInfo = this.extractSpeakerInfo(results);
-
-      console.log('[Speechmatics] 📥 AddPartialTranscript received:', {
-        transcript: transcript.substring(0, 100),
-        fullLength: transcript.length,
-        hasContent: !!transcript.trim(),
-        speaker: speakerInfo.dominantSpeaker,
-        speakerConfidence: speakerInfo.confidence,
-      });
-
-      // SPEAKER-BASED ECHO FILTERING:
-      // If TTS is playing and we detect speech, track that speaker as potential echo
-      // If we later detect a DIFFERENT speaker while TTS is playing, that's likely the real user
       if (this.audio && transcript && transcript.trim()) {
-        const isPlaying = this.isAudioPlaying();
+        const trimmedTranscript = transcript.trim();
 
-        if (isPlaying && speakerInfo.dominantSpeaker) {
-          // Track speaker detected while TTS is playing
-          if (!this.echoSpeaker) {
-            // First speaker detected while playing = likely echo (TTS captured by mic)
-            this.echoSpeaker = speakerInfo.dominantSpeaker;
-            this.lastSpeakerWhilePlaying = speakerInfo.dominantSpeaker;
-            console.log(`[Speechmatics] 🔊 Speaker ${speakerInfo.dominantSpeaker} detected while TTS playing - marking as potential echo`);
-          } else if (speakerInfo.dominantSpeaker !== this.echoSpeaker) {
-            // Different speaker detected = likely real user interrupting!
-            console.log(`[Speechmatics] 👤 Different speaker ${speakerInfo.dominantSpeaker} detected (echo speaker: ${this.echoSpeaker}) - likely real user!`);
-            // Let this through for validation
-          } else {
-            // Same speaker as echo - likely still TTS echo
-            console.log(`[Speechmatics] 🔁 Same speaker as echo (${speakerInfo.dominantSpeaker}) - likely TTS echo`);
-            // We still validate but this info helps the barge-in logic
-          }
-        } else if (!isPlaying) {
-          // When TTS is not playing, any speaker is the real user
-          // Reset echo speaker tracking
-          if (this.echoSpeaker) {
-            console.log(`[Speechmatics] 🔄 TTS stopped - resetting echo speaker tracking (was: ${this.echoSpeaker})`);
-            this.echoSpeaker = null;
+        // ABORT-ON-CONTINUE: If response is being generated and user continues speaking,
+        // abort the current response and let them finish
+        if (this.isGeneratingResponse && this.lastSentUserMessage) {
+          const hasSignificantNewContent = this.hasSignificantNewContent(trimmedTranscript, this.lastSentUserMessage);
+          if (hasSignificantNewContent) {
+            console.log('[Speechmatics] 🛑 User continues speaking during response - aborting response');
+            console.log('[Speechmatics] New content:', trimmedTranscript.substring(0, 100));
+            this.responseAbortedDueToUserContinuation = true;
+            this.abortResponse();
+            // Remove the incomplete user message from conversation history
+            // (it will be replaced by the complete one when user finishes)
+            if (this.conversationHistory.length > 0 &&
+                this.conversationHistory[this.conversationHistory.length - 1]?.role === 'user') {
+              this.conversationHistory.pop();
+            }
           }
         }
 
@@ -381,11 +358,10 @@ export class SpeechmaticsVoiceAgent {
           .slice(-200); // Last 200 chars of recent context
 
         // Validate barge-in with transcript content and context
-        // Pass speaker info to help with validation
-        this.audio?.validateBargeInWithTranscript(transcript.trim(), recentContext);
+        this.audio?.validateBargeInWithTranscript(trimmedTranscript, recentContext);
 
         // Process partial transcript normally
-        this.transcriptionManager?.handlePartialTranscript(transcript.trim());
+        this.transcriptionManager?.handlePartialTranscript(trimmedTranscript);
       }
       return;
     }
@@ -393,20 +369,8 @@ export class SpeechmaticsVoiceAgent {
     // Handle final transcription
     if (data.message === "AddTranscript") {
       // Speechmatics API structure: transcript is in metadata.transcript (full text)
-      // With diarization, each word in results[] has a "speaker" property (e.g., "S1", "S2")
       const transcript = data.metadata?.transcript || "";
-      const results = data.results || [];
 
-      // Extract speaker info from results (diarization)
-      const speakerInfo = this.extractSpeakerInfo(results);
-
-      console.log('[Speechmatics] 📥 AddTranscript received:', {
-        transcript: transcript.substring(0, 100),
-        fullLength: transcript.length,
-        hasContent: !!transcript.trim(),
-        speaker: speakerInfo.dominantSpeaker,
-        speakerConfidence: speakerInfo.confidence,
-      });
       if (transcript && transcript.trim()) {
         // Get recent conversation context for echo detection (last agent message + last user message)
         const recentContext = this.conversationHistory
@@ -481,7 +445,15 @@ export class SpeechmaticsVoiceAgent {
       queuedMessages: this.userMessageQueue.length,
       transcriptPreview: transcript.slice(0, 120),
       transcriptLength: transcript.length,
+      wasAbortedDueToContinuation: this.responseAbortedDueToUserContinuation,
     });
+
+    // If we were aborted due to user continuation, clear the flag and proceed
+    // The new transcript should contain the complete user input
+    if (this.responseAbortedDueToUserContinuation) {
+      console.log('[Speechmatics] ✅ Processing complete user input after abort');
+      this.responseAbortedDueToUserContinuation = false;
+    }
 
     if (this.isGeneratingResponse) {
       this.userMessageQueue.push({ content: transcript, timestamp: new Date().toISOString() });
@@ -493,6 +465,9 @@ export class SpeechmaticsVoiceAgent {
     }
 
     this.isGeneratingResponse = true;
+
+    // Track the message we're about to process (for abort-on-continue detection)
+    this.lastSentUserMessage = transcript;
 
     // Add user message to conversation history
     this.conversationHistory.push({ role: 'user', content: transcript });
@@ -619,6 +594,9 @@ export class SpeechmaticsVoiceAgent {
         console.log('[Speechmatics] 🔊 TTS disabled - skipping audio generation');
       }
 
+      // Clear the sent message tracker as response completed successfully
+      this.lastSentUserMessage = '';
+
       // Process queued messages
       if (this.userMessageQueue.length > 0) {
         const nextMessage = this.userMessageQueue.shift();
@@ -632,16 +610,23 @@ export class SpeechmaticsVoiceAgent {
         this.isGeneratingResponse = false;
       }
     } catch (error) {
-      // Check if error was caused by user aborting (barge-in)
+      // Check if error was caused by user aborting (barge-in or continuation)
       if (error instanceof Error && error.name === 'AbortError') {
-        console.log(`[${getTimestamp()}] [Speechmatics] 🛑 LLM request aborted by user (barge-in)`);
+        const reason = this.responseAbortedDueToUserContinuation ? 'user continuation' : 'barge-in';
+        console.log(`[${getTimestamp()}] [Speechmatics] 🛑 LLM request aborted (${reason})`);
         // Don't treat abort as error - it's expected behavior
         this.isGeneratingResponse = false;
+        // Keep lastSentUserMessage if aborted due to continuation
+        // (will be compared against new partials)
+        if (!this.responseAbortedDueToUserContinuation) {
+          this.lastSentUserMessage = '';
+        }
         return;
       }
 
       console.error('[Speechmatics] ❌ Error processing user message:', error);
       this.isGeneratingResponse = false;
+      this.lastSentUserMessage = '';
       this.onErrorCallback?.(error instanceof Error ? error : new Error(String(error)));
     } finally {
       // Clear abort controller
@@ -742,6 +727,8 @@ export class SpeechmaticsVoiceAgent {
       this.conversationHistory = [];
       this.userMessageQueue = [];
       this.audioDedupe.reset();
+      this.lastSentUserMessage = '';
+      this.responseAbortedDueToUserContinuation = false;
 
       this.onConnectionCallback?.(false);
       
@@ -783,6 +770,54 @@ export class SpeechmaticsVoiceAgent {
   }
 
   /**
+   * Check if new transcript contains significant new content beyond what was already sent
+   * Used to detect when user continues speaking after we started generating a response
+   */
+  private hasSignificantNewContent(newTranscript: string, sentMessage: string): boolean {
+    // Normalize both for comparison
+    const normalizeText = (text: string) => text
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '') // Remove accents
+      .replace(/[.,!?;:'"«»\-–—…()[\]{}]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    const normalizedNew = normalizeText(newTranscript);
+    const normalizedSent = normalizeText(sentMessage);
+
+    // If new is shorter or same length, likely just a variation/repetition
+    if (normalizedNew.length <= normalizedSent.length) {
+      return false;
+    }
+
+    // Check if new content starts with sent content (continuation)
+    if (normalizedNew.startsWith(normalizedSent)) {
+      // Calculate new words added
+      const newPortion = normalizedNew.substring(normalizedSent.length).trim();
+      const newWords = newPortion.split(/\s+/).filter(w => w.length > 1);
+      // Require at least 3 new words to consider it significant continuation
+      if (newWords.length >= 3) {
+        console.log('[Speechmatics] 📝 Detected continuation:', newWords.length, 'new words');
+        return true;
+      }
+    }
+
+    // Check word-based: count new words not in sent message
+    const sentWords = new Set(normalizedSent.split(/\s+/).filter(w => w.length > 1));
+    const newWords = normalizedNew.split(/\s+/).filter(w => w.length > 1);
+    const genuinelyNewWords = newWords.filter(w => !sentWords.has(w));
+
+    // If 3+ genuinely new words, user is continuing
+    if (genuinelyNewWords.length >= 3) {
+      console.log('[Speechmatics] 📝 Detected new words:', genuinelyNewWords.slice(0, 5).join(', '));
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
    * Abort current assistant response (called when user interrupts)
    * Stops ElevenLabs playback, clears assistant interim message, and cancels in-flight LLM request
    */
@@ -813,51 +848,4 @@ export class SpeechmaticsVoiceAgent {
     this.isGeneratingResponse = false;
   }
 
-  /**
-   * Extract speaker information from Speechmatics diarization results
-   * Returns the dominant speaker and confidence level
-   */
-  private extractSpeakerInfo(results: any[]): { dominantSpeaker: string | null; confidence: number } {
-    if (!results || results.length === 0) {
-      return { dominantSpeaker: null, confidence: 0 };
-    }
-
-    // Count words per speaker
-    const speakerCounts: Record<string, number> = {};
-    let totalWords = 0;
-
-    for (const result of results) {
-      // Each result can be a word with a speaker property
-      if (result.type === 'word' && result.speaker) {
-        speakerCounts[result.speaker] = (speakerCounts[result.speaker] || 0) + 1;
-        totalWords++;
-      }
-    }
-
-    if (totalWords === 0) {
-      return { dominantSpeaker: null, confidence: 0 };
-    }
-
-    // Find dominant speaker (most words)
-    let dominantSpeaker: string | null = null;
-    let maxCount = 0;
-    for (const [speaker, count] of Object.entries(speakerCounts)) {
-      if (count > maxCount) {
-        maxCount = count;
-        dominantSpeaker = speaker;
-      }
-    }
-
-    const confidence = totalWords > 0 ? maxCount / totalWords : 0;
-
-    return { dominantSpeaker, confidence };
-  }
-
-  /**
-   * Check if TTS audio is currently playing
-   * Used for speaker diarization echo filtering
-   */
-  private isAudioPlaying(): boolean {
-    return this.audio?.isPlaying() || false;
-  }
 }
