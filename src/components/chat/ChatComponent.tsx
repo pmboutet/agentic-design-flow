@@ -767,17 +767,18 @@ function MessageBubble({
             {senderLabel}
           </span>
         )}
-        <div className={cn('w-full rounded-lg px-4 py-2 break-words shadow-sm min-w-0 max-w-full overflow-hidden relative group', bubbleClass)}>
-          {/* Edit button for user messages */}
+        <div className="relative group">
+          {/* Edit button for user messages - positioned outside the bubble */}
           {isUser && message.type === 'text' && onStartEdit && !isEditing && !isInterim && (
             <button
               onClick={() => onStartEdit(message.id, cleanContent)}
-              className="absolute -left-8 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-full hover:bg-muted/80 text-muted-foreground hover:text-foreground"
+              className="absolute -left-8 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-full hover:bg-muted/80 text-muted-foreground hover:text-foreground z-10"
               title="Modifier ce message"
             >
               <Pencil className="h-4 w-4" />
             </button>
           )}
+          <div className={cn('w-full rounded-lg px-4 py-2 break-words shadow-sm min-w-0 max-w-full overflow-hidden', bubbleClass)}>
 
           {/* Edit mode */}
           {isEditing && message.type === 'text' ? (
@@ -862,8 +863,9 @@ function MessageBubble({
               </div>
             </>
           )}
+          </div>
         </div>
-        
+
         {/* Step completion indicator */}
         {hasStepComplete && !isUser && completedStep && (
           <motion.div
