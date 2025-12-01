@@ -290,6 +290,16 @@ export function ProjectGraphVisualization({ projectId, refreshKey }: ProjectGrap
     }
   }, [isFullscreen]);
 
+  // Configure D3 forces
+  useEffect(() => {
+    if (fgRef.current) {
+      // Very strong repulsion between nodes
+      fgRef.current.d3Force('charge')?.strength(-2000);
+      // Much larger link distance
+      fgRef.current.d3Force('link')?.distance(250);
+    }
+  }, [filteredGraphData]);
+
   // Handle escape key to exit fullscreen
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -312,8 +322,9 @@ export function ProjectGraphVisualization({ projectId, refreshKey }: ProjectGrap
   }, []);
 
   // Handle node click
-  const handleNodeClick = useCallback((node: ForceGraphNode) => {
-    setSelectedNode(prev => prev?.id === node.id ? null : node);
+  const handleNodeClick = useCallback((node: { id?: string | number; [key: string]: unknown }, _event: MouseEvent) => {
+    const forceNode = node as unknown as ForceGraphNode;
+    setSelectedNode(prev => prev?.id === forceNode.id ? null : forceNode);
   }, []);
 
   // Handle zoom change
@@ -593,12 +604,6 @@ export function ProjectGraphVisualization({ projectId, refreshKey }: ProjectGrap
                   cooldownTicks={100}
                   d3AlphaDecay={0.01}
                   d3VelocityDecay={0.2}
-                  d3Force={(engine: any) => {
-                    // Very strong repulsion between nodes
-                    engine.force('charge')?.strength(-2000);
-                    // Much larger link distance
-                    engine.force('link')?.distance(250);
-                  }}
                 />
               )}
             </div>
