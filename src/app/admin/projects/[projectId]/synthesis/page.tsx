@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { Sparkles, Loader2, ArrowLeft, RefreshCw, Search } from "lucide-react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { Sparkles, Loader2, ArrowLeft, RefreshCw, Search, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -31,6 +31,8 @@ export default function SynthesisPage({ params }: SynthesisPageProps) {
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [refreshSuccess, setRefreshSuccess] = useState(false);
+  const refreshSuccessTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     params.then(({ projectId }) => {
@@ -38,11 +40,17 @@ export default function SynthesisPage({ params }: SynthesisPageProps) {
     });
   }, [params]);
 
-  const loadSyntheses = useCallback(async () => {
+  const loadSyntheses = useCallback(async (showSuccessIndicator = false) => {
     if (!projectId) return;
 
     setIsLoading(true);
     setError(null);
+    setRefreshSuccess(false);
+
+    // Clear any existing timeout
+    if (refreshSuccessTimeoutRef.current) {
+      clearTimeout(refreshSuccessTimeoutRef.current);
+    }
 
     try {
       const response = await fetch(`/api/admin/graph/synthesis/${projectId}`);
@@ -51,6 +59,14 @@ export default function SynthesisPage({ params }: SynthesisPageProps) {
       if (data.success && data.data) {
         setSyntheses(data.data);
         setFilteredSyntheses(data.data);
+
+        // Show success indicator for manual refreshes
+        if (showSuccessIndicator) {
+          setRefreshSuccess(true);
+          refreshSuccessTimeoutRef.current = setTimeout(() => {
+            setRefreshSuccess(false);
+          }, 2000);
+        }
       } else {
         setError(data.error || "Failed to load syntheses");
       }
@@ -109,6 +125,15 @@ export default function SynthesisPage({ params }: SynthesisPageProps) {
     }
   }, [projectId, loadSyntheses]);
 
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (refreshSuccessTimeoutRef.current) {
+        clearTimeout(refreshSuccessTimeoutRef.current);
+      }
+    };
+  }, []);
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-8">
       <div className="mx-auto max-w-5xl space-y-6">
@@ -144,13 +169,17 @@ export default function SynthesisPage({ params }: SynthesisPageProps) {
               {isGenerating ? 'Génération...' : 'Générer synthèses'}
             </Button>
             <Button
-              onClick={loadSyntheses}
+              onClick={() => loadSyntheses(true)}
               disabled={isLoading || isGenerating}
               variant="outline"
-              className="gap-2"
+              className={`gap-2 ${refreshSuccess ? 'border-green-500 text-green-400' : ''}`}
             >
-              <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
-              Rafraîchir
+              {refreshSuccess ? (
+                <Check className="h-4 w-4 text-green-400" />
+              ) : (
+                <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+              )}
+              {refreshSuccess ? 'Actualisé' : 'Rafraîchir'}
             </Button>
           </div>
         </div>
