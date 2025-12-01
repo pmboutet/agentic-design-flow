@@ -71,9 +71,11 @@ async function validateWithAnthropic(
     );
   }
 
-  const systemPrompt = `You are a voice conversation analyzer. Your task is to determine if a detected speech transcript is:
-1. A genuine start of user speech (valid interruption)
-2. An echo/repetition of what the assistant is currently saying
+  const systemPrompt = `You are a voice conversation analyzer specializing in echo detection for real-time voice AI systems. Your PRIMARY goal is to PREVENT FALSE POSITIVE BARGE-INS caused by the microphone picking up the assistant's own voice output.
+
+Your task is to determine if a detected speech transcript is:
+1. A genuine start of user speech (valid interruption) - ONLY if clearly different from assistant speech
+2. An echo/repetition of what the assistant is currently saying - MOST COMMON CASE
 
 Respond with a JSON object:
 {
@@ -83,12 +85,24 @@ Respond with a JSON object:
   "reason": "brief explanation"
 }
 
-Rules:
-- If the transcript closely matches what the assistant is saying, it's an echo (isEcho=true, isValidStart=false)
-- If the transcript is semantically similar to recent assistant speech, it's likely an echo
-- If the transcript is a new statement/question from the user, it's valid (isValidStart=true, isEcho=false)
-- If the transcript is too short (< 3 words), be cautious (lower confidence)
-- Consider the conversation context to determine if this is a natural user turn`;
+CRITICAL RULES (in order of priority):
+1. DEFAULT TO ECHO: When in doubt, assume it's an echo. False negatives (missing a real interruption) are better than false positives (stopping the assistant mid-speech for echo)
+2. WORD MATCHING: If 30% or more of the transcript words appear in what the assistant is saying, it's almost certainly an echo
+3. PHRASE MATCHING: If ANY sequence of 3+ consecutive words from the transcript appears in assistant speech, it's an echo
+4. SEMANTIC SIMILARITY: If the transcript conveys similar meaning to recent assistant speech (even with different words), it's likely an echo
+5. SHORT TRANSCRIPTS: Transcripts under 10 words are highly suspicious - require very high confidence to accept as valid
+6. CONTEXT CHECK: A valid interruption should be semantically DIFFERENT from what the assistant is discussing
+7. SPEECH RECOGNITION ERRORS: Account for transcription errors - "il" could be "elle", missing articles, etc.
+
+Examples of ECHO (isEcho=true):
+- Assistant says "Je peux vous aider avec ça" → User transcript: "avec ça" or "peux vous aider"
+- Assistant says "La météo sera belle demain" → User transcript: "météo belle demain" or "sera belle"
+- Any transcript that sounds like a fragment of assistant speech
+
+Examples of VALID INTERRUPTION (isValidStart=true):
+- Assistant talking about weather → User asks "Quelle heure est-il?"
+- Assistant explaining something → User says "Attends, j'ai une question différente"
+- User introduces a completely new topic`;
 
   const recentHistory = conversationHistory.slice(-2).map(msg =>
     `${msg.role === 'assistant' ? 'Assistant' : 'User'}: ${msg.content}`
@@ -172,13 +186,21 @@ async function validateWithOpenAI(
     );
   }
 
-  const systemPrompt = `You are a voice conversation analyzer. Determine if detected speech is a genuine user interruption or an echo of the assistant. Respond with JSON only:
+  const systemPrompt = `You are a voice conversation analyzer specializing in echo detection. Your PRIMARY goal is to PREVENT false barge-ins from microphone echo.
+
+DEFAULT TO ECHO when in doubt. Respond with JSON only:
 {
   "isValidStart": true/false,
   "isEcho": true/false,
   "confidence": 0.0-1.0,
   "reason": "brief explanation"
-}`;
+}
+
+Rules (priority order):
+1. If 30%+ transcript words appear in assistant speech → ECHO
+2. If 3+ consecutive words match assistant speech → ECHO
+3. Short transcripts (<10 words) are suspicious → lower confidence
+4. Valid interruption must be semantically DIFFERENT from assistant topic`;
 
   const recentHistory = conversationHistory.slice(-2).map(msg =>
     `${msg.role === 'assistant' ? 'Assistant' : 'User'}: ${msg.content}`
