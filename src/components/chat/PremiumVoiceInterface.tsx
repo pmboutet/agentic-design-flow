@@ -295,6 +295,72 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
     isMutedRef.current = isMuted;
   }, [isMuted]);
 
+  // ===== MISE À JOUR DYNAMIQUE DES PROMPTS LORS DU CHANGEMENT DE STEP =====
+  // Quand le current_step_id change, on recharge les variables depuis l'API
+  // et on met à jour les prompts de l'agent Speechmatics sans reconnexion
+  const previousStepIdRef = useRef<string | null | undefined>(currentConversationStepId);
+
+  useEffect(() => {
+    // Skip if step hasn't actually changed
+    if (previousStepIdRef.current === currentConversationStepId) {
+      return;
+    }
+
+    // Skip initial mount (no previous step)
+    if (previousStepIdRef.current === undefined && !currentConversationStepId) {
+      previousStepIdRef.current = currentConversationStepId;
+      return;
+    }
+
+    // Update ref for next comparison
+    const prevStepId = previousStepIdRef.current;
+    previousStepIdRef.current = currentConversationStepId;
+
+    // Only update if we have a Speechmatics agent connected
+    const agent = agentRef.current;
+    if (!(agent instanceof SpeechmaticsVoiceAgent) || !agent.isConnected()) {
+      console.log('[PremiumVoiceInterface] 📋 Step changed but no Speechmatics agent connected, skipping prompt update');
+      return;
+    }
+
+    console.log('[PremiumVoiceInterface] 📋 Step changed, updating prompts dynamically:', {
+      previousStepId: prevStepId,
+      newStepId: currentConversationStepId,
+    });
+
+    // Fetch fresh agent config with updated variables
+    const updatePromptsFromApi = async () => {
+      try {
+        const response = await fetch(`/api/ask/${askKey}/agent-config`);
+        if (!response.ok) {
+          console.error('[PremiumVoiceInterface] ❌ Failed to fetch agent config for step update');
+          return;
+        }
+
+        const result = await response.json();
+        if (!result.success || !result.data) {
+          console.error('[PremiumVoiceInterface] ❌ Invalid agent config response');
+          return;
+        }
+
+        const { systemPrompt: newSystemPrompt, userPrompt: newUserPrompt, promptVariables: newPromptVariables } = result.data;
+
+        // Update the agent's prompts without reconnecting
+        agent.updatePrompts({
+          systemPrompt: newSystemPrompt,
+          userPrompt: newUserPrompt,
+          promptVariables: newPromptVariables,
+        });
+
+        console.log('[PremiumVoiceInterface] ✅ Prompts updated successfully for new step:', currentConversationStepId);
+      } catch (error) {
+        console.error('[PremiumVoiceInterface] ❌ Error updating prompts for step change:', error);
+      }
+    };
+
+    updatePromptsFromApi();
+  }, [currentConversationStepId, askKey]);
+
   // ===== FONCTIONS DE FUSION ET GESTION DES MESSAGES =====
   /**
    * Fusionne le contenu de streaming pour éviter les doublons et les fragments

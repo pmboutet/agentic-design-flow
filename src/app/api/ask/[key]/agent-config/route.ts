@@ -4,6 +4,8 @@ import { getAgentConfigForAsk, type PromptVariables } from '@/lib/ai/agent-confi
 import { isValidAskKey } from '@/lib/utils';
 import { normaliseMessageMetadata } from '@/lib/messages';
 import { buildConversationAgentVariables } from '@/lib/ai/conversation-agent';
+import { getConversationPlanWithSteps } from '@/lib/ai/conversation-plan';
+import { getOrCreateConversationThread } from '@/lib/asks';
 
 interface AskSessionRow {
   id: string;
@@ -52,6 +54,7 @@ interface MessageRow {
   message_type?: string | null;
   metadata?: Record<string, unknown> | null;
   created_at?: string | null;
+  plan_step_id?: string | null;
 }
 
 function buildParticipantDisplayName(participant: ParticipantRow, user: UserRow | null, index: number): string {
@@ -259,7 +262,7 @@ export async function GET(
       // Standard authenticated access via RLS
       const { data, error: messageError } = await supabase
         .from('messages')
-        .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at')
+        .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at, plan_step_id')
         .eq('ask_session_id', askSession.id)
         .order('created_at', { ascending: true });
 
@@ -345,8 +348,21 @@ export async function GET(
         senderName,
         timestamp: row.created_at ?? new Date().toISOString(),
         metadata: metadata,
+        planStepId: row.plan_step_id ?? null,
       };
     });
+
+    // Fetch conversation plan with steps (for step-aware prompt variables)
+    let conversationPlan = null;
+    try {
+      // Get or create conversation thread to find plan
+      const thread = await getOrCreateConversationThread(supabase, askSession.id, null);
+      if (thread?.id) {
+        conversationPlan = await getConversationPlanWithSteps(supabase, thread.id);
+      }
+    } catch (planError) {
+      console.warn('[agent-config] Could not load conversation plan:', planError);
+    }
 
     // Fetch project and challenge data
     let projectData: ProjectRow | null = null;
@@ -388,6 +404,7 @@ export async function GET(
       senderName: message.senderName,
       content: message.content,
       timestamp: message.timestamp,
+      planStepId: message.planStepId,
     }));
 
     const promptVariables = buildConversationAgentVariables({
@@ -396,6 +413,7 @@ export async function GET(
       challenge: challengeData,
       messages: conversationMessagesPayload,
       participants: participantSummaries,
+      conversationPlan, // Include conversation plan for step-aware variables
     });
 
     // Build agent variables (same as stream/route.ts)

@@ -760,4 +760,58 @@ export class SpeechmaticsVoiceAgent {
     // Reset generation state
     this.isGeneratingResponse = false;
   }
+
+  /**
+   * Update prompts dynamically without reconnecting
+   * Call this when the conversation step changes to update system prompt with new variables
+   *
+   * @param prompts - New prompts and variables to use for subsequent LLM calls
+   */
+  updatePrompts(prompts: {
+    systemPrompt?: string;
+    userPrompt?: string;
+    promptVariables?: Record<string, string | null | undefined>;
+  }): void {
+    if (!this.config) {
+      console.warn('[Speechmatics] ⚠️ Cannot update prompts: no config available (not connected)');
+      return;
+    }
+
+    const updates: string[] = [];
+
+    if (prompts.systemPrompt !== undefined) {
+      this.config.systemPrompt = prompts.systemPrompt;
+      updates.push('systemPrompt');
+    }
+
+    if (prompts.userPrompt !== undefined) {
+      this.config.userPrompt = prompts.userPrompt;
+      updates.push('userPrompt');
+    }
+
+    if (prompts.promptVariables !== undefined) {
+      this.config.promptVariables = prompts.promptVariables;
+      updates.push(`promptVariables (${Object.keys(prompts.promptVariables).length} vars)`);
+    }
+
+    console.log(`[Speechmatics] 📝 Prompts updated dynamically:`, updates.join(', '));
+
+    // Log key variables for debugging step changes
+    if (prompts.promptVariables) {
+      const vars = prompts.promptVariables;
+      console.log('[Speechmatics] 📋 Key variables after update:', {
+        current_step_id: vars.current_step_id ?? '(not set)',
+        current_step: vars.current_step ? `${String(vars.current_step).substring(0, 50)}...` : '(not set)',
+        completed_steps_summary: vars.completed_steps_summary ? `${String(vars.completed_steps_summary).substring(0, 50)}...` : '(not set)',
+      });
+    }
+  }
+
+  /**
+   * Get the current step ID from prompt variables
+   * Useful for detecting step changes
+   */
+  getCurrentStepId(): string | null {
+    return this.config?.promptVariables?.current_step_id as string | null ?? null;
+  }
 }
