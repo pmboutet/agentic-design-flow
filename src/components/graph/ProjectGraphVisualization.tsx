@@ -312,8 +312,8 @@ export function ProjectGraphVisualization({ projectId, refreshKey }: ProjectGrap
   }, []);
 
   // Handle node click
-  const handleNodeClick = useCallback((node: ForceGraphNode) => {
-    setSelectedNode(prev => prev?.id === node.id ? null : node);
+  const handleNodeClick = useCallback((node: any, event: MouseEvent) => {
+    setSelectedNode(prev => prev?.id === node.id ? null : node as ForceGraphNode);
   }, []);
 
   // Handle zoom change
@@ -593,12 +593,14 @@ export function ProjectGraphVisualization({ projectId, refreshKey }: ProjectGrap
                   cooldownTicks={100}
                   d3AlphaDecay={0.01}
                   d3VelocityDecay={0.2}
-                  d3Force={(engine: any) => {
-                    // Very strong repulsion between nodes
-                    engine.force('charge')?.strength(-2000);
-                    // Much larger link distance
-                    engine.force('link')?.distance(250);
-                  }}
+                  {...{
+                    d3Force: (engine: any) => {
+                      // Very strong repulsion between nodes
+                      engine.force('charge')?.strength(-2000);
+                      // Much larger link distance
+                      engine.force('link')?.distance(250);
+                    }
+                  } as any}
                 />
               )}
             </div>
