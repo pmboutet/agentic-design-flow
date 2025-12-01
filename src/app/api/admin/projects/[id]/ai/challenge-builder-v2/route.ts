@@ -49,6 +49,8 @@ const requestSchema = z
     agentSlug: z.string().trim().min(1).optional(),
     temperature: z.number().min(0).max(2).optional(),
     maxOutputTokens: z.number().int().positive().optional(),
+    /** If provided, only analyze this challenge and its sub-challenges */
+    scopeChallengeId: z.string().trim().min(1).optional(),
   })
   .optional();
 
@@ -164,6 +166,30 @@ const CHALLENGE_IMPACT_VALUES = new Set<ProjectChallengeNode["impact"]>(["low", 
 
 function flattenChallengeTree(nodes: ProjectChallengeNode[]): ProjectChallengeNode[] {
   return nodes.flatMap(node => [node, ...(node.children ? flattenChallengeTree(node.children) : [])]);
+}
+
+/**
+ * Find a challenge by ID in a tree structure
+ */
+function findChallengeById(nodes: ProjectChallengeNode[], id: string): ProjectChallengeNode | null {
+  for (const node of nodes) {
+    if (node.id === id) return node;
+    if (node.children?.length) {
+      const found = findChallengeById(node.children, id);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+/**
+ * Get a challenge and all its descendants (for scoped analysis)
+ */
+function getScopedChallenges(allChallenges: ProjectChallengeNode[], scopeChallengeId: string): ProjectChallengeNode[] {
+  const scopeChallenge = findChallengeById(allChallenges, scopeChallengeId);
+  if (!scopeChallenge) return [];
+  // Return the scope challenge itself + flatten its children
+  return [scopeChallenge, ...(scopeChallenge.children ? flattenChallengeTree(scopeChallenge.children) : [])];
 }
 
 function buildChallengeParentMap(nodes: ProjectChallengeNode[]): Map<string, string | null> {
@@ -978,7 +1004,19 @@ export async function POST(
     const { boardData } = context;
 
     const parentMap = buildChallengeParentMap(boardData.challenges);
-    const challengeList = flattenChallengeTree(boardData.challenges);
+    const allChallengesList = flattenChallengeTree(boardData.challenges);
+
+    // Apply scope filter if provided
+    const scopeChallengeId = options?.scopeChallengeId;
+    const challengeList = scopeChallengeId
+      ? getScopedChallenges(boardData.challenges, scopeChallengeId)
+      : allChallengesList;
+
+    if (scopeChallengeId) {
+      const scopeChallenge = findChallengeById(boardData.challenges, scopeChallengeId);
+      console.log(`🎯 Scoped analysis: focusing on "${scopeChallenge?.title}" and its ${challengeList.length - 1} sub-challenges`);
+    }
+
     const insightLookup = aggregateInsightLookup(boardData, context.askRows, context.insightRows);
     const asksById = buildAsksMap(context.askRows);
     const availableOwnerOptionsJson = JSON.stringify(buildAvailableOwnerOptions(boardData));
