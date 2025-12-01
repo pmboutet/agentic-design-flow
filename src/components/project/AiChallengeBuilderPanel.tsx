@@ -368,24 +368,26 @@ function SuggestionCard({
           <div>
             <SectionTitle>Description</SectionTitle>
             {isEditingDescription ? (
-              <div className="mt-2 space-y-2">
+              <div className="mt-2 rounded-md border border-slate-700 bg-slate-900/60">
                 <EditableText
                   value={updatedDescription ?? ""}
                   onChange={value => handleUpdateField("description", value)}
                   placeholder="Description mise à jour"
-                  className="border-slate-700 bg-slate-900/80 text-slate-100"
+                  className="border-0 bg-transparent text-slate-100"
                   disabled={applyingChallengeUpdate}
                   autoFocus
                 />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setIsEditingDescription(false)}
-                  className="text-slate-400 hover:text-slate-200"
-                >
-                  Voir les modifications
-                </Button>
+                <div className="border-t border-slate-700 px-3 py-2 flex justify-end">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setIsEditingDescription(false)}
+                    className="text-slate-400 hover:text-slate-200 gap-1.5"
+                  >
+                    Voir les modifications
+                  </Button>
+                </div>
               </div>
             ) : (
               <AiDiffView
