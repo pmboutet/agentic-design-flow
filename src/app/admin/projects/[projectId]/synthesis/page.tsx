@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { Sparkles, Loader2, ArrowLeft, RefreshCw, Search } from "lucide-react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { Sparkles, Loader2, ArrowLeft, RefreshCw, Search, Check, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import type { ApiResponse } from "@/types";
 import { useRouter } from "next/navigation";
+import { ProjectGraphVisualization } from "@/components/graph/ProjectGraphVisualization";
 
 interface Synthesis {
   id: string;
@@ -31,6 +32,10 @@ export default function SynthesisPage({ params }: SynthesisPageProps) {
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [refreshSuccess, setRefreshSuccess] = useState(false);
+  const [generateMessage, setGenerateMessage] = useState<{ type: 'success' | 'warning'; text: string } | null>(null);
+  const refreshSuccessTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const generateMessageTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     params.then(({ projectId }) => {
@@ -38,11 +43,17 @@ export default function SynthesisPage({ params }: SynthesisPageProps) {
     });
   }, [params]);
 
-  const loadSyntheses = useCallback(async () => {
+  const loadSyntheses = useCallback(async (showSuccessIndicator = false) => {
     if (!projectId) return;
 
     setIsLoading(true);
     setError(null);
+    setRefreshSuccess(false);
+
+    // Clear any existing timeout
+    if (refreshSuccessTimeoutRef.current) {
+      clearTimeout(refreshSuccessTimeoutRef.current);
+    }
 
     try {
       const response = await fetch(`/api/admin/graph/synthesis/${projectId}`);
@@ -51,6 +62,14 @@ export default function SynthesisPage({ params }: SynthesisPageProps) {
       if (data.success && data.data) {
         setSyntheses(data.data);
         setFilteredSyntheses(data.data);
+
+        // Show success indicator for manual refreshes
+        if (showSuccessIndicator) {
+          setRefreshSuccess(true);
+          refreshSuccessTimeoutRef.current = setTimeout(() => {
+            setRefreshSuccess(false);
+          }, 2000);
+        }
       } else {
         setError(data.error || "Failed to load syntheses");
       }
@@ -83,6 +102,12 @@ export default function SynthesisPage({ params }: SynthesisPageProps) {
 
     setIsGenerating(true);
     setError(null);
+    setGenerateMessage(null);
+
+    // Clear any existing timeout
+    if (generateMessageTimeoutRef.current) {
+      clearTimeout(generateMessageTimeoutRef.current);
+    }
 
     try {
       const response = await fetch(`/api/admin/graph/synthesis/${projectId}`, {
@@ -93,6 +118,24 @@ export default function SynthesisPage({ params }: SynthesisPageProps) {
       if (data.success && data.data) {
         setSyntheses(data.data);
         setFilteredSyntheses(data.data);
+
+        // Show feedback based on results
+        if (data.data.length === 0) {
+          setGenerateMessage({
+            type: 'warning',
+            text: 'Aucune synthèse générée. Il faut au moins 3 insights liés dans le graphe de connaissances.'
+          });
+        } else {
+          setGenerateMessage({
+            type: 'success',
+            text: `${data.data.length} synthèse${data.data.length > 1 ? 's' : ''} générée${data.data.length > 1 ? 's' : ''} avec succès.`
+          });
+        }
+
+        // Clear message after 5 seconds
+        generateMessageTimeoutRef.current = setTimeout(() => {
+          setGenerateMessage(null);
+        }, 5000);
       } else {
         setError(data.error || "Failed to generate syntheses");
       }
@@ -108,6 +151,18 @@ export default function SynthesisPage({ params }: SynthesisPageProps) {
       loadSyntheses();
     }
   }, [projectId, loadSyntheses]);
+
+  // Cleanup timeouts on unmount
+  useEffect(() => {
+    return () => {
+      if (refreshSuccessTimeoutRef.current) {
+        clearTimeout(refreshSuccessTimeoutRef.current);
+      }
+      if (generateMessageTimeoutRef.current) {
+        clearTimeout(generateMessageTimeoutRef.current);
+      }
+    };
+  }, []);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-8">
@@ -144,16 +199,39 @@ export default function SynthesisPage({ params }: SynthesisPageProps) {
               {isGenerating ? 'Génération...' : 'Générer synthèses'}
             </Button>
             <Button
-              onClick={loadSyntheses}
+              onClick={() => loadSyntheses(true)}
               disabled={isLoading || isGenerating}
               variant="outline"
-              className="gap-2"
+              className={`gap-2 ${refreshSuccess ? 'border-green-500 text-green-400' : ''}`}
             >
-              <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
-              Rafraîchir
+              {refreshSuccess ? (
+                <Check className="h-4 w-4 text-green-400" />
+              ) : (
+                <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+              )}
+              {refreshSuccess ? 'Actualisé' : 'Rafraîchir'}
             </Button>
           </div>
         </div>
+
+        {/* Generate Message */}
+        {generateMessage && (
+          <div className={`flex items-center gap-3 rounded-xl border p-4 ${
+            generateMessage.type === 'warning'
+              ? 'border-amber-500/30 bg-amber-500/10 text-amber-300'
+              : 'border-green-500/30 bg-green-500/10 text-green-300'
+          }`}>
+            {generateMessage.type === 'warning' ? (
+              <AlertTriangle className="h-5 w-5 flex-shrink-0" />
+            ) : (
+              <Check className="h-5 w-5 flex-shrink-0" />
+            )}
+            <p className="text-sm">{generateMessage.text}</p>
+          </div>
+        )}
+
+        {/* Graph Visualization */}
+        <ProjectGraphVisualization projectId={projectId} />
 
         {/* Search Bar */}
         <div className="rounded-2xl border border-white/10 bg-white/5 p-4 backdrop-blur">
