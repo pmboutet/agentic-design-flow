@@ -372,6 +372,7 @@ export function ChatComponent({
         onMessage={handleVoiceMessage}
         onError={handleVoiceError}
         onClose={handleVoiceClose}
+        onEditMessage={onEditMessage}
         messages={voiceMessages}
         conversationPlan={conversationPlan}
       />
