@@ -291,13 +291,18 @@ export function AdminPageLayout({ children }: AdminPageLayoutProps) {
   };
 
   const activeHref = useMemo(() => {
-    const entry = navigationItems.find(item => {
+    // Filter all matching items, then pick the most specific (longest href)
+    const matchingItems = navigationItems.filter(item => {
       if (item.href === "/admin") {
         return pathname === item.href;
       }
       return pathname.startsWith(item.href);
     });
-    return entry?.href ?? null;
+    // Sort by href length descending to get the most specific match
+    const mostSpecific = matchingItems.sort(
+      (a, b) => b.href.length - a.href.length
+    )[0];
+    return mostSpecific?.href ?? null;
   }, [pathname]);
 
   const sidebarContent = (
