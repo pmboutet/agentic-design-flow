@@ -1935,23 +1935,28 @@ export default function HomePage() {
         };
       });
 
-      // Trigger AI response for the edited message
-      console.log('[handleEditMessage] 🤖 Triggering AI response for edited message...');
+      // Trigger AI response for the edited message - but NOT in voice mode
+      // In voice mode, the voice agent should handle the response naturally
+      if (!isVoiceModeActive) {
+        console.log('[handleEditMessage] 🤖 Triggering AI response for edited message (text mode)...');
 
-      // Schedule streaming response just like handleSendMessage does
-      setTimeout(async () => {
-        try {
-          await handleStreamingResponse(newContent);
-        } catch (streamError) {
-          console.error('[handleEditMessage] ❌ Error during streaming response:', streamError);
-        }
-      }, 100);
+        // Schedule streaming response just like handleSendMessage does
+        setTimeout(async () => {
+          try {
+            await handleStreamingResponse(newContent);
+          } catch (streamError) {
+            console.error('[handleEditMessage] ❌ Error during streaming response:', streamError);
+          }
+        }, 100);
+      } else {
+        console.log('[handleEditMessage] 🎤 Voice mode active - skipping text streaming, voice agent will respond');
+      }
 
     } catch (error) {
       console.error('[handleEditMessage] ❌ Error editing message:', error);
       throw error;
     }
-  }, [sessionData.askKey, sessionData.inviteToken, handleStreamingResponse]);
+  }, [sessionData.askKey, sessionData.inviteToken, handleStreamingResponse, isVoiceModeActive]);
 
   // Retry loading session data
   const retryLoad = () => {
