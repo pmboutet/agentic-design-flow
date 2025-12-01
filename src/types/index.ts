@@ -375,6 +375,7 @@ export interface ChallengeComponentProps {
 export interface InsightPanelProps {
   insights: Insight[];
   onRequestChallengeLink?: (insightId: string) => void;
+  onInsightUpdate?: (insightId: string, newContent: string) => void;
   askKey: string;
   isDetectingInsights?: boolean;
 }

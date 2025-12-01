@@ -79,6 +79,7 @@ interface MobileLayoutProps {
   statusLabel: string;
   timelineLabel: string | null;
   timeRemaining: string | null;
+  onInsightUpdate: (insightId: string, newContent: string) => void;
 }
 
 /**
@@ -107,6 +108,7 @@ function MobileLayout({
   statusLabel,
   timelineLabel,
   timeRemaining,
+  onInsightUpdate,
 }: MobileLayoutProps) {
   const [panelWidth, setPanelWidth] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -341,6 +343,7 @@ function MobileLayout({
                 insights={sessionData.insights}
                 askKey={sessionDataAskKey}
                 isDetectingInsights={isDetectingInsights}
+                onInsightUpdate={onInsightUpdate}
               />
             </div>
           </motion.div>
@@ -1911,6 +1914,18 @@ export default function HomePage() {
     }
   }, [isVoiceModeActive, sessionData.messages.length, reloadMessagesAfterVoiceMode]);
 
+  // Handle insight content update
+  const handleInsightUpdate = useCallback((insightId: string, newContent: string) => {
+    setSessionData(prev => ({
+      ...prev,
+      insights: prev.insights.map(insight =>
+        insight.id === insightId
+          ? { ...insight, content: newContent, summary: null }
+          : insight
+      ),
+    }));
+  }, []);
+
   // Clear error
   const clearError = () => {
     setSessionData(prev => ({ ...prev, error: null }));
@@ -2108,6 +2123,7 @@ export default function HomePage() {
           statusLabel={statusLabel}
           timelineLabel={timelineLabel}
           timeRemaining={timeRemaining}
+          onInsightUpdate={handleInsightUpdate}
         />
       ) : (
         <main className="flex h-[calc(100vh-88px)] overflow-hidden gap-6 p-6 min-w-0">
@@ -2296,6 +2312,7 @@ export default function HomePage() {
                   insights={sessionData.insights}
                   askKey={sessionData.askKey}
                   isDetectingInsights={isDetectingInsights}
+                  onInsightUpdate={handleInsightUpdate}
                 />
               </div>
             </div>
