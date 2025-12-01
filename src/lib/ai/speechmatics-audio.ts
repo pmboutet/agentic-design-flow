@@ -911,12 +911,13 @@ export class SpeechmaticsAudio {
     const cleanedTranscript = transcript.trim();
     const words = cleanedTranscript.split(/\s+/).filter(Boolean);
 
-    // During grace period, require even more words to be extra safe against echo
-    const requiredWords = inGracePeriod ? 20 : 15;
+    // During grace period, require slightly more words to be safe against echo
+    // REDUCED from 15/20 to 5/8 to allow legitimate interruptions
+    // With speaker diarization enabled, we rely less on word count and more on speaker identification
+    const requiredWords = inGracePeriod ? 8 : 5;
 
-    // Quick check: Need at least 15-20 words for validation to be meaningful
-    // Increased from 10 to 15-20 to better filter out echo fragments
-    // This prevents false positives from short echo fragments that can contain multiple words
+    // Quick check: Need minimum words for validation to be meaningful
+    // Lower threshold (5 words) now that we have speaker diarization for echo detection
     if (words.length < requiredWords) {
       const timestamp = new Date().toISOString().split('T')[1].replace('Z', '');
       console.log(`[${timestamp}] [Speechmatics Audio] ⏸️ Transcript too short (${words.length}/${requiredWords} words${inGracePeriod ? ' - grace period active' : ''}) - waiting for more...`);
@@ -977,7 +978,7 @@ export class SpeechmaticsAudio {
     }
 
     // Fallback: Simple validation if AI is disabled or failed
-    // Use same word count threshold as main validation (respects grace period)
+    // Use same reduced word count threshold (5/8 words) as main validation
     if (words.length < requiredWords) {
       const timestamp = new Date().toISOString().split('T')[1].replace('Z', '');
       console.log(`[${timestamp}] [Speechmatics Audio] ⏸️ Fallback mode: Need ${requiredWords}+ words (${words.length}/${requiredWords})`);
@@ -1132,6 +1133,14 @@ export class SpeechmaticsAudio {
 
   updateWebSocket(ws: WebSocket | null): void {
     this.ws = ws;
+  }
+
+  /**
+   * Check if audio is currently playing (TTS playback)
+   * Used for speaker diarization echo filtering
+   */
+  isPlaying(): boolean {
+    return this.isPlayingAudio;
   }
 
   /**

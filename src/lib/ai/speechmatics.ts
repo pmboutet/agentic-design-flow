@@ -113,6 +113,10 @@ export class SpeechmaticsVoiceAgent {
     createSemanticTurnDetector(this.semanticTurnConfig);
   // AbortController for canceling in-flight LLM requests
   private llmAbortController: AbortController | null = null;
+  // Speaker diarization: track which speaker is the TTS echo vs real user
+  // When TTS is playing and we detect a speaker, that's likely the echo
+  private echoSpeaker: string | null = null;
+  private lastSpeakerWhilePlaying: string | null = null;
 
   // ===== CALLBACKS =====
   // Callback appelé lorsqu'un message est reçu (user ou agent, interim ou final)
@@ -323,13 +327,52 @@ export class SpeechmaticsVoiceAgent {
     // Handle partial transcription
     if (data.message === "AddPartialTranscript") {
       // Speechmatics API structure: transcript is in metadata.transcript (full text)
+      // With diarization, each word in results[] has a "speaker" property (e.g., "S1", "S2")
       const transcript = data.metadata?.transcript || "";
+      const results = data.results || [];
+
+      // Extract speaker info from results (diarization)
+      const speakerInfo = this.extractSpeakerInfo(results);
+
       console.log('[Speechmatics] 📥 AddPartialTranscript received:', {
         transcript: transcript.substring(0, 100),
         fullLength: transcript.length,
-        hasContent: !!transcript.trim()
+        hasContent: !!transcript.trim(),
+        speaker: speakerInfo.dominantSpeaker,
+        speakerConfidence: speakerInfo.confidence,
       });
-      if (transcript && transcript.trim()) {
+
+      // SPEAKER-BASED ECHO FILTERING:
+      // If TTS is playing and we detect speech, track that speaker as potential echo
+      // If we later detect a DIFFERENT speaker while TTS is playing, that's likely the real user
+      if (this.audio && transcript && transcript.trim()) {
+        const isPlaying = this.isAudioPlaying();
+
+        if (isPlaying && speakerInfo.dominantSpeaker) {
+          // Track speaker detected while TTS is playing
+          if (!this.echoSpeaker) {
+            // First speaker detected while playing = likely echo (TTS captured by mic)
+            this.echoSpeaker = speakerInfo.dominantSpeaker;
+            this.lastSpeakerWhilePlaying = speakerInfo.dominantSpeaker;
+            console.log(`[Speechmatics] 🔊 Speaker ${speakerInfo.dominantSpeaker} detected while TTS playing - marking as potential echo`);
+          } else if (speakerInfo.dominantSpeaker !== this.echoSpeaker) {
+            // Different speaker detected = likely real user interrupting!
+            console.log(`[Speechmatics] 👤 Different speaker ${speakerInfo.dominantSpeaker} detected (echo speaker: ${this.echoSpeaker}) - likely real user!`);
+            // Let this through for validation
+          } else {
+            // Same speaker as echo - likely still TTS echo
+            console.log(`[Speechmatics] 🔁 Same speaker as echo (${speakerInfo.dominantSpeaker}) - likely TTS echo`);
+            // We still validate but this info helps the barge-in logic
+          }
+        } else if (!isPlaying) {
+          // When TTS is not playing, any speaker is the real user
+          // Reset echo speaker tracking
+          if (this.echoSpeaker) {
+            console.log(`[Speechmatics] 🔄 TTS stopped - resetting echo speaker tracking (was: ${this.echoSpeaker})`);
+            this.echoSpeaker = null;
+          }
+        }
+
         // Get recent conversation context for echo detection (last agent message + last user message)
         const recentContext = this.conversationHistory
           .slice(-2)
@@ -338,6 +381,7 @@ export class SpeechmaticsVoiceAgent {
           .slice(-200); // Last 200 chars of recent context
 
         // Validate barge-in with transcript content and context
+        // Pass speaker info to help with validation
         this.audio?.validateBargeInWithTranscript(transcript.trim(), recentContext);
 
         // Process partial transcript normally
@@ -349,11 +393,19 @@ export class SpeechmaticsVoiceAgent {
     // Handle final transcription
     if (data.message === "AddTranscript") {
       // Speechmatics API structure: transcript is in metadata.transcript (full text)
+      // With diarization, each word in results[] has a "speaker" property (e.g., "S1", "S2")
       const transcript = data.metadata?.transcript || "";
+      const results = data.results || [];
+
+      // Extract speaker info from results (diarization)
+      const speakerInfo = this.extractSpeakerInfo(results);
+
       console.log('[Speechmatics] 📥 AddTranscript received:', {
         transcript: transcript.substring(0, 100),
         fullLength: transcript.length,
-        hasContent: !!transcript.trim()
+        hasContent: !!transcript.trim(),
+        speaker: speakerInfo.dominantSpeaker,
+        speakerConfidence: speakerInfo.confidence,
       });
       if (transcript && transcript.trim()) {
         // Get recent conversation context for echo detection (last agent message + last user message)
@@ -759,5 +811,53 @@ export class SpeechmaticsVoiceAgent {
 
     // Reset generation state
     this.isGeneratingResponse = false;
+  }
+
+  /**
+   * Extract speaker information from Speechmatics diarization results
+   * Returns the dominant speaker and confidence level
+   */
+  private extractSpeakerInfo(results: any[]): { dominantSpeaker: string | null; confidence: number } {
+    if (!results || results.length === 0) {
+      return { dominantSpeaker: null, confidence: 0 };
+    }
+
+    // Count words per speaker
+    const speakerCounts: Record<string, number> = {};
+    let totalWords = 0;
+
+    for (const result of results) {
+      // Each result can be a word with a speaker property
+      if (result.type === 'word' && result.speaker) {
+        speakerCounts[result.speaker] = (speakerCounts[result.speaker] || 0) + 1;
+        totalWords++;
+      }
+    }
+
+    if (totalWords === 0) {
+      return { dominantSpeaker: null, confidence: 0 };
+    }
+
+    // Find dominant speaker (most words)
+    let dominantSpeaker: string | null = null;
+    let maxCount = 0;
+    for (const [speaker, count] of Object.entries(speakerCounts)) {
+      if (count > maxCount) {
+        maxCount = count;
+        dominantSpeaker = speaker;
+      }
+    }
+
+    const confidence = totalWords > 0 ? maxCount / totalWords : 0;
+
+    return { dominantSpeaker, confidence };
+  }
+
+  /**
+   * Check if TTS audio is currently playing
+   * Used for speaker diarization echo filtering
+   */
+  private isAudioPlaying(): boolean {
+    return this.audio?.isPlaying() || false;
   }
 }

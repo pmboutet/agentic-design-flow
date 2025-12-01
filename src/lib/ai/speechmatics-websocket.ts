@@ -159,6 +159,17 @@ export class SpeechmaticsWebSocket {
               conversation_config: {
                 end_of_utterance_silence_trigger: endOfUtteranceSilenceTrigger,
               },
+              // SPEAKER DIARIZATION: Enable to distinguish user voice from TTS echo
+              // When enabled, each word gets a "speaker" label (S1, S2, etc.)
+              // This helps identify if speech is from user vs assistant playback echo
+              diarization: "speaker",
+              speaker_diarization_config: {
+                // Lower sensitivity to reduce false speaker switches (0.0 to 1.0)
+                // We want to distinguish only 2 speakers: user and TTS echo
+                speaker_sensitivity: 0.3,
+                // Limit max speakers to 2 (user + echo/assistant)
+                max_speakers: 2,
+              },
             },
           };
 
@@ -170,6 +181,9 @@ export class SpeechmaticsWebSocket {
             operating_point: config.sttOperatingPoint || (config.lowLatencyMode !== false ? "standard" : "enhanced"),
             lowLatencyMode: config.lowLatencyMode !== false,
             end_of_utterance_silence_trigger: endOfUtteranceSilenceTrigger,
+            diarization: 'speaker',
+            speaker_sensitivity: 0.3,
+            max_speakers: 2,
           });
 
           ws.send(JSON.stringify(settings));
