@@ -15,28 +15,26 @@ interface DiffToken {
 }
 
 /**
- * Tokenize text into words and whitespace/punctuation, preserving all characters
+ * Tokenize text into words, preserving whitespace
  */
-function tokenize(text: string): string[] {
-  // Split by word boundaries, keeping separators
-  return text.split(/(\s+|[.,;:!?()[\]{}'"«»—–-])/g).filter(t => t.length > 0);
+function tokenizeWords(text: string): string[] {
+  // Split keeping whitespace and punctuation as separate tokens
+  return text.split(/(\s+)/g).filter(t => t.length > 0);
 }
 
 /**
- * Compute word-level diff using LCS algorithm
+ * Compute LCS-based diff on an array of strings
  */
-function computeWordDiff(previous: string, next: string): DiffToken[] {
-  const oldTokens = tokenize(previous);
-  const newTokens = tokenize(next);
-  const m = oldTokens.length;
-  const n = newTokens.length;
+function lcsArrayDiff<T>(oldArr: T[], newArr: T[]): Array<{ type: DiffTokenType; value: T }> {
+  const m = oldArr.length;
+  const n = newArr.length;
 
   // Build LCS table
   const dp: number[][] = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0));
 
   for (let i = m - 1; i >= 0; i -= 1) {
     for (let j = n - 1; j >= 0; j -= 1) {
-      if (oldTokens[i] === newTokens[j]) {
+      if (oldArr[i] === newArr[j]) {
         dp[i][j] = dp[i + 1][j + 1] + 1;
       } else {
         dp[i][j] = Math.max(dp[i + 1][j], dp[i][j + 1]);
@@ -45,44 +43,135 @@ function computeWordDiff(previous: string, next: string): DiffToken[] {
   }
 
   // Backtrack to build diff
-  const tokens: DiffToken[] = [];
+  const result: Array<{ type: DiffTokenType; value: T }> = [];
   let i = 0;
   let j = 0;
 
   while (i < m && j < n) {
-    if (oldTokens[i] === newTokens[j]) {
-      tokens.push({ type: "unchanged", value: oldTokens[i] });
+    if (oldArr[i] === newArr[j]) {
+      result.push({ type: "unchanged", value: oldArr[i] });
       i += 1;
       j += 1;
-      continue;
-    }
-
-    if (dp[i + 1][j] >= dp[i][j + 1]) {
-      tokens.push({ type: "removed", value: oldTokens[i] });
+    } else if (dp[i + 1][j] >= dp[i][j + 1]) {
+      result.push({ type: "removed", value: oldArr[i] });
       i += 1;
     } else {
-      tokens.push({ type: "added", value: newTokens[j] });
+      result.push({ type: "added", value: newArr[j] });
       j += 1;
     }
   }
 
   while (i < m) {
-    tokens.push({ type: "removed", value: oldTokens[i] });
+    result.push({ type: "removed", value: oldArr[i] });
     i += 1;
   }
 
   while (j < n) {
-    tokens.push({ type: "added", value: newTokens[j] });
+    result.push({ type: "added", value: newArr[j] });
     j += 1;
   }
 
+  return result;
+}
+
+/**
+ * Compute word-level diff for a pair of modified lines
+ */
+function diffWords(oldText: string, newText: string): DiffToken[] {
+  const oldWords = tokenizeWords(oldText);
+  const newWords = tokenizeWords(newText);
+
+  const diff = lcsArrayDiff(oldWords, newWords);
+
   // Merge consecutive tokens of same type
   const merged: DiffToken[] = [];
-  tokens.forEach(token => {
+  diff.forEach(item => {
+    const last = merged[merged.length - 1];
+    if (last && last.type === item.type) {
+      last.value += item.value;
+    } else {
+      merged.push({ type: item.type, value: item.value });
+    }
+  });
+
+  return merged;
+}
+
+/**
+ * Compute diff using line-then-word approach for better accuracy
+ * First diff by lines, then for changed lines, diff by words
+ */
+function computeLineThenWordDiff(previous: string, next: string): DiffToken[] {
+  const oldLines = previous.split(/\n/);
+  const newLines = next.split(/\n/);
+
+  // First pass: diff by lines
+  const lineDiff = lcsArrayDiff(oldLines, newLines);
+
+  // Process line diff and apply word-level diff for changes
+  const result: DiffToken[] = [];
+  let i = 0;
+
+  while (i < lineDiff.length) {
+    const item = lineDiff[i];
+
+    if (item.type === "unchanged") {
+      // Unchanged line - add as is
+      if (result.length > 0 && !result[result.length - 1].value.endsWith("\n")) {
+        result.push({ type: "unchanged", value: "\n" });
+      }
+      result.push({ type: "unchanged", value: item.value });
+      i += 1;
+      continue;
+    }
+
+    // Collect consecutive removed and added lines
+    const removedLines: string[] = [];
+    const addedLines: string[] = [];
+
+    while (i < lineDiff.length && lineDiff[i].type !== "unchanged") {
+      if (lineDiff[i].type === "removed") {
+        removedLines.push(lineDiff[i].value);
+      } else {
+        addedLines.push(lineDiff[i].value);
+      }
+      i += 1;
+    }
+
+    // If we have both removed and added, do word-level diff
+    if (removedLines.length > 0 && addedLines.length > 0) {
+      const oldText = removedLines.join("\n");
+      const newText = addedLines.join("\n");
+      const wordDiff = diffWords(oldText, newText);
+
+      if (result.length > 0 && !result[result.length - 1].value.endsWith("\n")) {
+        result.push({ type: "unchanged", value: "\n" });
+      }
+      result.push(...wordDiff);
+    } else {
+      // Only removals or only additions
+      if (removedLines.length > 0) {
+        if (result.length > 0 && !result[result.length - 1].value.endsWith("\n")) {
+          result.push({ type: "unchanged", value: "\n" });
+        }
+        result.push({ type: "removed", value: removedLines.join("\n") });
+      }
+      if (addedLines.length > 0) {
+        if (result.length > 0 && !result[result.length - 1].value.endsWith("\n")) {
+          result.push({ type: "unchanged", value: "\n" });
+        }
+        result.push({ type: "added", value: addedLines.join("\n") });
+      }
+    }
+  }
+
+  // Final merge of consecutive same-type tokens
+  const merged: DiffToken[] = [];
+  result.forEach(token => {
     const last = merged[merged.length - 1];
     if (last && last.type === token.type) {
-      last.value = `${last.value}${token.value}`;
-    } else {
+      last.value += token.value;
+    } else if (token.value.length > 0) {
       merged.push({ ...token });
     }
   });
@@ -109,12 +198,10 @@ interface AiDiffViewProps {
   className?: string;
   /** Callback when user wants to edit - if provided, shows edit button */
   onEdit?: () => void;
-  /** Label for the edit button */
-  editLabel?: string;
 }
 
-export function AiDiffView({ previous, next, className, onEdit, editLabel = "Modifier" }: AiDiffViewProps) {
-  const tokens = useMemo(() => computeWordDiff(previous ?? "", next ?? ""), [previous, next]);
+export function AiDiffView({ previous, next, className, onEdit }: AiDiffViewProps) {
+  const tokens = useMemo(() => computeLineThenWordDiff(previous ?? "", next ?? ""), [previous, next]);
 
   // Check if there are any actual changes
   const hasChanges = tokens.some(t => t.type !== "unchanged");
@@ -128,9 +215,22 @@ export function AiDiffView({ previous, next, className, onEdit, editLabel = "Mod
   }
 
   return (
-    <div className={cn("rounded-md border border-slate-700 bg-slate-900/60 text-sm", className)}>
+    <div className={cn("group relative rounded-md border border-slate-700 bg-slate-900/60 text-sm", className)}>
+      {/* Edit button - top right, visible on hover */}
+      {onEdit && (
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={onEdit}
+          className="absolute right-2 top-2 h-6 w-6 text-slate-500 opacity-0 transition-opacity group-hover:opacity-100 hover:text-slate-200"
+          title="Modifier"
+        >
+          <Pencil className="h-3.5 w-3.5" />
+        </Button>
+      )}
+
       {/* Final text with markdown rendering */}
-      <div className="p-3 text-slate-200 leading-relaxed">
+      <div className="p-3 pr-10 text-slate-200 leading-relaxed">
         <ReactMarkdown components={markdownComponents}>
           {next ?? ""}
         </ReactMarkdown>
@@ -174,20 +274,6 @@ export function AiDiffView({ previous, next, className, onEdit, editLabel = "Mod
           })}
         </div>
       </div>
-
-      {onEdit && (
-        <div className="border-t border-slate-700 px-3 py-2 flex justify-end">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={onEdit}
-            className="text-slate-400 hover:text-slate-200 gap-1.5"
-          >
-            <Pencil className="h-3.5 w-3.5" />
-            {editLabel}
-          </Button>
-        </div>
-      )}
     </div>
   );
 }

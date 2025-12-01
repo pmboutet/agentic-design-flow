@@ -369,11 +369,11 @@ function SuggestionCard({
             <SectionTitle>Description</SectionTitle>
             {isEditingDescription ? (
               <div className="mt-2 rounded-md border border-slate-700 bg-slate-900/60">
-                <EditableText
+                <textarea
                   value={updatedDescription ?? ""}
-                  onChange={value => handleUpdateField("description", value)}
+                  onChange={e => handleUpdateField("description", e.target.value)}
                   placeholder="Description mise à jour"
-                  className="border-0 bg-transparent text-slate-100"
+                  className="w-full min-h-[100px] resize-y rounded-t-md border-0 bg-transparent px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-0"
                   disabled={applyingChallengeUpdate}
                   autoFocus
                 />
