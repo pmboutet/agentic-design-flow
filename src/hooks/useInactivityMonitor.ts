@@ -48,6 +48,11 @@ export interface InactivityMonitorState {
   lastActivityTimestamp: number | null;
 
   /**
+   * Whether the timer is currently paused (e.g., while assistant is speaking)
+   */
+  isPaused: boolean;
+
+  /**
    * Reset inactivity timer (called when activity detected)
    */
   resetTimer: () => void;
@@ -59,8 +64,20 @@ export interface InactivityMonitorState {
 
   /**
    * Record assistant activity (speech output)
+   * @param isFinal - Whether this is the final message (not interim)
    */
-  recordAssistantActivity: () => void;
+  recordAssistantActivity: (isFinal?: boolean) => void;
+
+  /**
+   * Pause the inactivity timer (e.g., while assistant is speaking)
+   */
+  pauseTimer: () => void;
+
+  /**
+   * Resume the inactivity timer after a delay
+   * @param delayMs - Delay in milliseconds before resuming (default: 0)
+   */
+  resumeTimerAfterDelay: (delayMs?: number) => void;
 
   /**
    * Manually set inactive state
@@ -77,9 +94,12 @@ export function useInactivityMonitor(
   const [isInactive, setIsInactive] = useState(false);
   const [lastSpeaker, setLastSpeaker] = useState<Speaker>(null);
   const [lastActivityTimestamp, setLastActivityTimestamp] = useState<number | null>(null);
+  const [isPaused, setIsPaused] = useState(false);
 
   // Refs for stable callbacks
   const inactivityTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const resumeDelayTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const isPausedRef = useRef(false);
   const onInactiveRef = useRef(onInactive);
   const onActiveRef = useRef(onActive);
 
@@ -92,6 +112,11 @@ export function useInactivityMonitor(
     onActiveRef.current = onActive;
   }, [onActive]);
 
+  // Keep isPausedRef in sync
+  useEffect(() => {
+    isPausedRef.current = isPaused;
+  }, [isPaused]);
+
   /**
    * Clear existing timer
    */
@@ -103,10 +128,26 @@ export function useInactivityMonitor(
   }, []);
 
   /**
-   * Start inactivity timer
+   * Clear resume delay timer
+   */
+  const clearResumeDelayTimer = useCallback(() => {
+    if (resumeDelayTimerRef.current) {
+      clearTimeout(resumeDelayTimerRef.current);
+      resumeDelayTimerRef.current = null;
+    }
+  }, []);
+
+  /**
+   * Start inactivity timer (only if not paused)
    */
   const startTimer = useCallback(() => {
     clearTimer();
+    // Don't start timer if paused
+    if (isPausedRef.current) {
+      const timestamp = new Date().toISOString().split('T')[1].replace('Z', '');
+      console.log(`[${timestamp}] [InactivityMonitor] ⏸️ Timer paused, not starting`);
+      return;
+    }
     inactivityTimerRef.current = setTimeout(() => {
       const timestamp = new Date().toISOString().split('T')[1].replace('Z', '');
       console.log(`[${timestamp}] [InactivityMonitor] ⏰ Inactivity timeout - triggering inactive state`);
@@ -133,24 +174,75 @@ export function useInactivityMonitor(
   }, [isInactive, startTimer]);
 
   /**
+   * Pause the inactivity timer (e.g., while assistant is speaking)
+   */
+  const pauseTimer = useCallback(() => {
+    const timestamp = new Date().toISOString().split('T')[1].replace('Z', '');
+    console.log(`[${timestamp}] [InactivityMonitor] ⏸️ Pausing timer (assistant speaking)`);
+    setIsPaused(true);
+    isPausedRef.current = true;
+    clearTimer();
+    clearResumeDelayTimer();
+  }, [clearTimer, clearResumeDelayTimer]);
+
+  /**
+   * Resume the inactivity timer after a delay
+   */
+  const resumeTimerAfterDelay = useCallback((delayMs: number = 0) => {
+    clearResumeDelayTimer();
+
+    if (delayMs === 0) {
+      const timestamp = new Date().toISOString().split('T')[1].replace('Z', '');
+      console.log(`[${timestamp}] [InactivityMonitor] ▶️ Resuming timer immediately`);
+      setIsPaused(false);
+      isPausedRef.current = false;
+      startTimer();
+    } else {
+      const timestamp = new Date().toISOString().split('T')[1].replace('Z', '');
+      console.log(`[${timestamp}] [InactivityMonitor] ⏳ Will resume timer in ${delayMs}ms`);
+      resumeDelayTimerRef.current = setTimeout(() => {
+        const ts = new Date().toISOString().split('T')[1].replace('Z', '');
+        console.log(`[${ts}] [InactivityMonitor] ▶️ Resuming timer after delay`);
+        setIsPaused(false);
+        isPausedRef.current = false;
+        startTimer();
+      }, delayMs);
+    }
+  }, [clearResumeDelayTimer, startTimer]);
+
+  /**
    * Record user activity
    */
   const recordUserActivity = useCallback(() => {
     const timestamp = new Date().toISOString().split('T')[1].replace('Z', '');
     console.log(`[${timestamp}] [InactivityMonitor] 👤 User activity detected`);
     setLastSpeaker('user');
+    // User activity cancels any pending resume and resets immediately
+    clearResumeDelayTimer();
+    setIsPaused(false);
+    isPausedRef.current = false;
     resetTimer();
-  }, [resetTimer]);
+  }, [resetTimer, clearResumeDelayTimer]);
 
   /**
    * Record assistant activity
+   * @param isFinal - Whether this is the final message (not interim)
    */
-  const recordAssistantActivity = useCallback(() => {
+  const recordAssistantActivity = useCallback((isFinal: boolean = false) => {
     const timestamp = new Date().toISOString().split('T')[1].replace('Z', '');
-    console.log(`[${timestamp}] [InactivityMonitor] 🤖 Assistant activity detected`);
+    console.log(`[${timestamp}] [InactivityMonitor] 🤖 Assistant activity detected (isFinal: ${isFinal})`);
     setLastSpeaker('assistant');
-    resetTimer();
-  }, [resetTimer]);
+    setLastActivityTimestamp(Date.now());
+
+    if (!isFinal) {
+      // Interim message: pause the timer while assistant is speaking
+      pauseTimer();
+    } else {
+      // Final message: resume timer after a delay to account for TTS playback
+      // Estimate ~3 seconds for TTS to finish playing
+      resumeTimerAfterDelay(3000);
+    }
+  }, [pauseTimer, resumeTimerAfterDelay]);
 
   /**
    * Manually set inactive state
@@ -171,16 +263,20 @@ export function useInactivityMonitor(
 
     return () => {
       clearTimer();
+      clearResumeDelayTimer();
     };
-  }, [startTimer, clearTimer]);
+  }, [startTimer, clearTimer, clearResumeDelayTimer]);
 
   return {
     isInactive,
     lastSpeaker,
     lastActivityTimestamp,
+    isPaused,
     resetTimer,
     recordUserActivity,
     recordAssistantActivity,
+    pauseTimer,
+    resumeTimerAfterDelay,
     setInactive: setInactiveManual,
   };
 }

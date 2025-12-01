@@ -19,7 +19,7 @@
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, MicOff, Volume2, VolumeX, Pencil, Settings } from 'lucide-react';
+import { X, MicOff, Volume2, VolumeX, Pencil, Check, Settings } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { DeepgramVoiceAgent, DeepgramMessageEvent } from '@/lib/ai/deepgram';
@@ -72,6 +72,7 @@ interface PremiumVoiceInterfaceProps {
   onError: (error: Error) => void;
   onClose: () => void;
   onEdit?: () => void;
+  onEditMessage?: (messageId: string, newContent: string) => Promise<void>;
   messages?: Array<{
     role: 'user' | 'assistant';
     content: string;
@@ -119,6 +120,7 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
   onError,
   onClose,
   onEdit,
+  onEditMessage,
   messages = [],
   conversationPlan,
 }: PremiumVoiceInterfaceProps) {
@@ -145,6 +147,13 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
   const [interimAssistant, setInterimAssistant] = useState<VoiceMessage | null>(null);
   const [semanticTelemetry, setSemanticTelemetry] = useState<SemanticTurnTelemetryEvent | null>(null);
   const [showInactivityOverlay, setShowInactivityOverlay] = useState(false);
+
+  // ===== ÉTATS D'ÉDITION DE MESSAGE =====
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [editContent, setEditContent] = useState("");
+  const [isSubmittingEdit, setIsSubmittingEdit] = useState(false);
+  // Track if mic was muted before editing (to restore state after)
+  const wasMutedBeforeEditRef = useRef(false);
 
   const conversationSteps = conversationPlan?.plan_data.steps ?? [];
   const currentConversationStepId = conversationPlan?.current_step_id;
@@ -196,17 +205,23 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
   const inactivityMonitor = useInactivityMonitor({
     timeout: 20000, // 20 seconds
     onInactive: useCallback(() => {
+      // Don't show overlay if mic is already muted - user is intentionally not speaking
+      if (isMutedRef.current) {
+        console.log('[PremiumVoiceInterface] ⏰ User inactive but mic already muted - skipping overlay');
+        return;
+      }
       console.log('[PremiumVoiceInterface] ⏰ User inactive - showing overlay and muting');
       setShowInactivityOverlay(true);
       // Mute microphone when inactive
-      if (!isMuted && agentRef.current) {
+      if (agentRef.current) {
         setIsMuted(true);
+        isMutedRef.current = true;
         // Only Speechmatics agent has setMicrophoneMuted
         if (agentRef.current instanceof SpeechmaticsVoiceAgent) {
           agentRef.current.setMicrophoneMuted(true);
         }
       }
-    }, [isMuted]),
+    }, []),
     onActive: useCallback(() => {
       console.log('[PremiumVoiceInterface] ✅ User active again');
       setShowInactivityOverlay(false);
@@ -767,7 +782,8 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
       inactivityMonitor.recordUserActivity();
     } else {
       // Record assistant activity for inactivity monitor
-      inactivityMonitor.recordAssistantActivity();
+      // Pass isFinal=true for final messages so the timer resumes after TTS delay
+      inactivityMonitor.recordAssistantActivity(!isInterim);
     }
 
     // Cas INTERIM → mise à jour du buffer local uniquement
@@ -1144,6 +1160,62 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
     onClose();
     reloadPage();
   }, [disconnect, onEdit, onClose, reloadPage]);
+
+  // ===== HANDLERS D'ÉDITION DE MESSAGE =====
+  const handleStartEdit = useCallback((messageId: string, currentContent: string) => {
+    console.log('[PremiumVoiceInterface] ✏️ Starting edit for message:', messageId);
+    // Save current mute state and mute the mic
+    wasMutedBeforeEditRef.current = isMuted;
+    if (!isMuted) {
+      // Mute the mic while editing
+      const agent = agentRef.current;
+      if (agent && isConnected) {
+        if (agent instanceof SpeechmaticsVoiceAgent) {
+          agent.setMicrophoneMuted(true);
+        }
+        setIsMuted(true);
+        isMutedRef.current = true;
+      }
+    }
+    setEditingMessageId(messageId);
+    setEditContent(currentContent);
+  }, [isMuted, isConnected]);
+
+  const handleCancelEdit = useCallback(() => {
+    console.log('[PremiumVoiceInterface] ❌ Cancelling edit');
+    setEditingMessageId(null);
+    setEditContent("");
+    // Restore mic state if it wasn't muted before
+    if (!wasMutedBeforeEditRef.current) {
+      const agent = agentRef.current;
+      if (agent && isConnected) {
+        if (agent instanceof SpeechmaticsVoiceAgent) {
+          agent.setMicrophoneMuted(false);
+        }
+        setIsMuted(false);
+        isMutedRef.current = false;
+      }
+    }
+  }, [isConnected]);
+
+  const handleSubmitEdit = useCallback(async () => {
+    if (!editingMessageId || !editContent.trim() || !onEditMessage) return;
+
+    console.log('[PremiumVoiceInterface] 💾 Submitting edit for message:', editingMessageId);
+    setIsSubmittingEdit(true);
+
+    try {
+      await onEditMessage(editingMessageId, editContent.trim());
+      setEditingMessageId(null);
+      setEditContent("");
+      // Keep mic muted - the AI will respond and we want to let the user hear it
+      // The mic will stay muted, user can unmute when ready
+    } catch (error) {
+      console.error('[PremiumVoiceInterface] ❌ Error submitting edit:', error);
+    } finally {
+      setIsSubmittingEdit(false);
+    }
+  }, [editingMessageId, editContent, onEditMessage]);
 
   const handleCloseClick = useCallback(async () => {
     console.log('[PremiumVoiceInterface] ❌ Close button clicked - disconnecting everything');
@@ -1645,6 +1717,9 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
             {displayMessages.map((message, idx) => {
               const messageKey = message.messageId || `${message.role}-${idx}-${message.timestamp}`;
               const isStreamingAssistant = message.isInterim && message.role === "assistant";
+              const isUser = message.role === "user";
+              const isEditing = editingMessageId === message.messageId;
+              const canEdit = isUser && !message.isInterim && message.messageId && onEditMessage;
 
               return (
                 <motion.div
@@ -1660,30 +1735,96 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
                   }}
                   className={cn(
                     "flex",
-                    message.role === "user" ? "justify-end" : "justify-start"
+                    isUser ? "justify-end" : "justify-start"
                   )}
                 >
-                  <div
-                    className={cn(
-                      "max-w-[75%] rounded-2xl px-4 py-3 backdrop-blur-xl shadow-lg",
-                      message.role === "user"
-                        ? "bg-white/20 text-white"
-                        : "bg-white/10 text-white/90"
+                  <div className="relative group max-w-[75%]">
+                    {/* Edit button for user messages */}
+                    {canEdit && !isEditing && (
+                      <button
+                        onClick={() => handleStartEdit(message.messageId!, message.content)}
+                        className="absolute -left-8 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-full hover:bg-white/20 text-white/60 hover:text-white z-10"
+                        title="Modifier ce message"
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </button>
                     )}
-                    style={{
-                      boxShadow: "0 8px 32px 0 rgba(0,0,0,0.2)",
-                      willChange: "opacity, transform",
-                    }}
-                  >
-                    <AnimatedText
-                      content={message.content}
-                      isInterim={message.isInterim}
-                    />
-                    {isStreamingAssistant && (
-                      <span className="inline-block mt-1 text-xs text-white/60">
-                        …
-                      </span>
-                    )}
+                    <div
+                      className={cn(
+                        "rounded-2xl px-4 py-3 backdrop-blur-xl shadow-lg",
+                        isUser
+                          ? "bg-white/20 text-white"
+                          : "bg-white/10 text-white/90"
+                      )}
+                      style={{
+                        boxShadow: "0 8px 32px 0 rgba(0,0,0,0.2)",
+                        willChange: "opacity, transform",
+                      }}
+                    >
+                      {isEditing ? (
+                        <div className="flex flex-col gap-2 min-w-[200px]">
+                          <textarea
+                            ref={(el) => {
+                              if (el) {
+                                el.style.height = 'auto';
+                                el.style.height = el.scrollHeight + 'px';
+                              }
+                            }}
+                            value={editContent}
+                            onChange={(e) => {
+                              setEditContent(e.target.value);
+                              e.target.style.height = 'auto';
+                              e.target.style.height = e.target.scrollHeight + 'px';
+                            }}
+                            className="w-full min-h-[60px] p-2 rounded border border-white/30 bg-black/30 text-white resize-none focus:outline-none focus:ring-2 focus:ring-white/50 overflow-hidden"
+                            autoFocus
+                            disabled={isSubmittingEdit}
+                          />
+                          <div className="flex justify-end gap-2">
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={handleCancelEdit}
+                              disabled={isSubmittingEdit}
+                              className="text-white/80 hover:text-white hover:bg-white/10"
+                            >
+                              <X className="h-4 w-4 mr-1" />
+                              Annuler
+                            </Button>
+                            <Button
+                              size="sm"
+                              onClick={handleSubmitEdit}
+                              disabled={isSubmittingEdit || !editContent.trim()}
+                              className="bg-white/20 hover:bg-white/30 text-white"
+                            >
+                              {isSubmittingEdit ? (
+                                <>Sauvegarde...</>
+                              ) : (
+                                <>
+                                  <Check className="h-4 w-4 mr-1" />
+                                  Sauvegarder
+                                </>
+                              )}
+                            </Button>
+                          </div>
+                          <p className="text-xs text-white/60">
+                            Les messages suivants seront supprimés et la conversation reprendra depuis ce point.
+                          </p>
+                        </div>
+                      ) : (
+                        <>
+                          <AnimatedText
+                            content={message.content}
+                            isInterim={message.isInterim}
+                          />
+                          {isStreamingAssistant && (
+                            <span className="inline-block mt-1 text-xs text-white/60">
+                              …
+                            </span>
+                          )}
+                        </>
+                      )}
+                    </div>
                   </div>
                 </motion.div>
               );

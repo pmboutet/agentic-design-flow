@@ -8,7 +8,7 @@ export type SemanticTurnMessage = {
   content: string;
 };
 
-export type SemanticTurnTrigger = "end_of_utterance" | "silence_timeout" | "semantic_grace";
+export type SemanticTurnTrigger = "end_of_utterance" | "silence_timeout" | "semantic_grace" | "utterance_debounce";
 
 export type SemanticTurnDecision = "dispatch" | "hold" | "fallback" | "skipped";
 

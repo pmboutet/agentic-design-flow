@@ -844,6 +844,10 @@ async function persistInsights(
 
     if (action === 'delete' || action === 'remove' || action === 'obsolete') {
       if (targetRow) {
+        // Clean up graph edges before deleting the insight
+        const { deleteEdgesForInsight } = await import('@/lib/graphRAG/graphBuilder');
+        await deleteEdgesForInsight(targetRow.id, supabase);
+
         await supabase.from('kpi_estimations').delete().eq('insight_id', targetRow.id);
         await supabase.from('insight_authors').delete().eq('insight_id', targetRow.id);
         await supabase.from('insights').delete().eq('id', targetRow.id);

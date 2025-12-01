@@ -159,6 +159,8 @@ export class SpeechmaticsWebSocket {
               conversation_config: {
                 end_of_utterance_silence_trigger: endOfUtteranceSilenceTrigger,
               },
+              // NOTE: Speaker diarization is NOT available in Speechmatics streaming mode
+              // Tested Dec 2024: speaker field always returns null in real-time transcription
             },
           };
 
