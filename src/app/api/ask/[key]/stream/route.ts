@@ -352,7 +352,7 @@ export async function POST(
       // This ensures messages created before thread creation are still visible
       const { data: messagesWithoutThread, error: messagesWithoutThreadError } = await dataClient
         .from('messages')
-        .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at, conversation_thread_id')
+        .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at, conversation_thread_id, plan_step_id')
         .eq('ask_session_id', askRow.id)
         .is('conversation_thread_id', null)
         .order('created_at', { ascending: true });
@@ -373,7 +373,7 @@ export async function POST(
       // Fallback: get all messages for backward compatibility
       const { data, error: messageError } = await dataClient
         .from('messages')
-        .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at, conversation_thread_id')
+        .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at, conversation_thread_id, plan_step_id')
         .eq('ask_session_id', askRow.id)
         .order('created_at', { ascending: true });
 
@@ -465,6 +465,7 @@ export async function POST(
         senderName,
         timestamp: row.created_at ?? new Date().toISOString(),
         metadata: metadata,
+        planStepId: row.plan_step_id ?? null, // Link to conversation plan step
       };
     });
 
