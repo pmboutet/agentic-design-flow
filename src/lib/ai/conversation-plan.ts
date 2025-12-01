@@ -586,28 +586,24 @@ export async function generateStepSummary(
     step_messages: formattedMessages,
   };
 
-  try {
-    // Call the summarizer agent
-    const agentResult = await executeAgent({
-      supabase,
-      agentSlug: 'ask-conversation-step-summarizer',
-      askSessionId,
-      interactionType: 'ask.step.summary',
-      variables,
-    });
+  // Call the summarizer agent - throw errors instead of returning fallback
+  const agentResult = await executeAgent({
+    supabase,
+    agentSlug: 'ask-conversation-step-summarizer',
+    askSessionId,
+    interactionType: 'ask.step.summary',
+    variables,
+  });
 
-    if (typeof agentResult.content !== 'string' || agentResult.content.trim().length === 0) {
-      console.error('❌ Summarizer agent returned empty content');
-      return `${messages.length} messages échangés lors de cette étape.`;
-    }
-
-    const summary = agentResult.content.trim();
-    console.log('✅ Generated AI summary:', summary.substring(0, 100) + '...');
-    return summary;
-  } catch (error) {
-    console.error('❌ Failed to generate AI summary:', error);
-    return `${messages.length} messages échangés lors de cette étape.`;
+  if (typeof agentResult.content !== 'string' || agentResult.content.trim().length === 0) {
+    const error = new Error('Summarizer agent returned empty content');
+    console.error('❌ Summarizer agent returned empty content for step:', stepId);
+    throw error;
   }
+
+  const summary = agentResult.content.trim();
+  console.log('✅ Generated AI summary:', summary.substring(0, 100) + '...');
+  return summary;
 }
 
 /**

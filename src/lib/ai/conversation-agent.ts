@@ -13,6 +13,7 @@ export interface ConversationMessageSummary {
   senderName?: string | null;
   content: string;
   timestamp: string;
+  planStepId?: string | null; // Optional: link to conversation plan step
 }
 
 export interface ConversationAgentContext {
@@ -58,6 +59,45 @@ function formatMessageHistory(messages: ConversationMessageSummary[]): string {
       return `${senderLabel}: ${message.content}`;
     })
     .join('\n');
+}
+
+/**
+ * Helper function to format step messages for prompt
+ * Filters messages by the current active step's plan_step_id
+ */
+function formatStepMessages(
+  messages: ConversationMessageSummary[],
+  currentStepId: string | null,
+  planSteps?: Array<{ id: string; step_identifier: string }> | null
+): string {
+  if (!currentStepId || !planSteps || planSteps.length === 0) {
+    // No plan or no current step - return all messages as fallback
+    return formatMessageHistory(messages);
+  }
+
+  // Find the step record that matches the current step identifier
+  const currentStepRecord = planSteps.find(step => step.step_identifier === currentStepId);
+  if (!currentStepRecord) {
+    console.log('📋 step_messages: Could not find step record for', currentStepId);
+    return formatMessageHistory(messages);
+  }
+
+  // Filter messages that belong to this step
+  const stepMessages = messages.filter(msg => msg.planStepId === currentStepRecord.id);
+
+  if (stepMessages.length === 0) {
+    return 'Aucun message pour cette étape.';
+  }
+
+  console.log(`📋 step_messages: Filtered ${stepMessages.length}/${messages.length} messages for step ${currentStepId}`);
+
+  return stepMessages
+    .map(message => {
+      const senderLabel = message.senderType === 'ai' ? 'Agent' : (message.senderName || 'Participant');
+      const timestamp = new Date(message.timestamp).toLocaleString('fr-FR');
+      return `[${timestamp}] ${senderLabel}:\n${message.content}`;
+    })
+    .join('\n\n---\n\n');
 }
 
 /**
@@ -152,6 +192,9 @@ export function buildConversationAgentVariables(context: ConversationAgentContex
   // Default value: always provide a message, even if no plan exists
   let completedStepsSummaryFormatted = 'Aucune étape complétée pour le moment';
   let planProgressFormatted = '';
+  let stepMessagesFormatted = '';
+  let stepMessagesJson = '[]';
+  let planSteps: Array<{ id: string; step_identifier: string }> | null = null;
 
   if (context.conversationPlan) {
     const {
@@ -175,6 +218,32 @@ export function buildConversationAgentVariables(context: ConversationAgentContex
       ? context.conversationPlan.steps.length
       : context.conversationPlan.plan_data?.steps.length || 0;
 
+    // Get plan steps for step_messages filtering
+    if ('steps' in context.conversationPlan && Array.isArray(context.conversationPlan.steps)) {
+      planSteps = context.conversationPlan.steps.map((step: any) => ({
+        id: step.id,
+        step_identifier: step.step_identifier,
+      }));
+    }
+
+    // Format step_messages (only messages from the current step)
+    stepMessagesFormatted = formatStepMessages(context.messages, currentStepId, planSteps);
+
+    // Create JSON version of step messages for current step
+    if (currentStepId && planSteps) {
+      const currentStepRecord = planSteps.find(step => step.step_identifier === currentStepId);
+      if (currentStepRecord) {
+        const stepMessages = context.messages.filter(msg => msg.planStepId === currentStepRecord.id);
+        stepMessagesJson = JSON.stringify(stepMessages.map(msg => ({
+          id: msg.id,
+          senderType: msg.senderType,
+          senderName: msg.senderName ?? (msg.senderType === 'ai' ? 'Agent' : 'Participant'),
+          content: msg.content,
+          timestamp: msg.timestamp,
+        })));
+      }
+    }
+
     console.log('📋 Conversation plan available:', {
       planId: context.conversationPlan.id,
       stepsCount,
@@ -182,9 +251,16 @@ export function buildConversationAgentVariables(context: ConversationAgentContex
       completedSteps: context.conversationPlan.completed_steps,
       totalSteps: context.conversationPlan.total_steps,
       completedStepsSummaryLength: completedStepsSummaryFormatted.length,
+      stepMessagesCount: planSteps ? context.messages.filter(m => {
+        const stepRecord = planSteps!.find(s => s.step_identifier === currentStepId);
+        return stepRecord && m.planStepId === stepRecord.id;
+      }).length : 0,
     });
   } else {
     console.log('📋 No conversation plan available - using default completed_steps_summary');
+    // Fallback: use all messages as step_messages when no plan exists
+    stepMessagesFormatted = formatMessageHistory(context.messages);
+    stepMessagesJson = JSON.stringify(conversationMessagesPayload);
   }
 
   // Build base variables
@@ -209,6 +285,9 @@ export function buildConversationAgentVariables(context: ConversationAgentContex
     current_step_id: currentStepId,
     completed_steps_summary: completedStepsSummaryFormatted,
     plan_progress: planProgressFormatted,
+    // Step-specific messages (filtered by current step's plan_step_id)
+    step_messages: stepMessagesFormatted,
+    step_messages_json: stepMessagesJson,
   };
 
   // Add legacy message_history for backward compatibility
