@@ -312,3 +312,136 @@ export async function buildAllEdgesForInsight(
   }
 }
 
+/**
+ * Delete all graph edges related to an insight (as source or target)
+ * Also cleans up insight_keywords relationships
+ */
+export async function deleteEdgesForInsight(
+  insightId: string,
+  supabase?: ReturnType<typeof getAdminSupabaseClient>
+): Promise<void> {
+  const client = supabase || getAdminSupabaseClient();
+
+  console.log(`[Graph RAG] Deleting all edges for insight ${insightId}...`);
+
+  try {
+    // Delete edges where insight is the source
+    const { error: sourceError } = await client
+      .from("knowledge_graph_edges")
+      .delete()
+      .eq("source_id", insightId)
+      .eq("source_type", "insight");
+
+    if (sourceError) {
+      console.error(`[Graph RAG] Error deleting source edges for ${insightId}:`, sourceError);
+    }
+
+    // Delete edges where insight is the target
+    const { error: targetError } = await client
+      .from("knowledge_graph_edges")
+      .delete()
+      .eq("target_id", insightId)
+      .eq("target_type", "insight");
+
+    if (targetError) {
+      console.error(`[Graph RAG] Error deleting target edges for ${insightId}:`, targetError);
+    }
+
+    // Delete insight_keywords relationships
+    const { error: keywordsError } = await client
+      .from("insight_keywords")
+      .delete()
+      .eq("insight_id", insightId);
+
+    if (keywordsError) {
+      console.error(`[Graph RAG] Error deleting keywords for ${insightId}:`, keywordsError);
+    }
+
+    console.log(`[Graph RAG] Successfully deleted all edges and keywords for insight ${insightId}`);
+  } catch (error) {
+    console.error(`[Graph RAG] Error in deleteEdgesForInsight for ${insightId}:`, error);
+    throw error;
+  }
+}
+
+/**
+ * Rebuild all graph data for an insight: delete old edges, regenerate embeddings, extract entities, rebuild edges
+ * Used when insight content is manually modified
+ */
+export async function rebuildGraphForInsight(
+  insightId: string,
+  newContent: string,
+  supabase?: ReturnType<typeof getAdminSupabaseClient>
+): Promise<void> {
+  const client = supabase || getAdminSupabaseClient();
+
+  console.log(`[Graph RAG] Rebuilding graph for insight ${insightId}...`);
+
+  try {
+    // Step 1: Delete existing edges and keywords
+    await deleteEdgesForInsight(insightId, client);
+
+    // Step 2: Generate new content embedding
+    const contentEmbedding = await generateEmbedding(newContent).catch((err) => {
+      console.error(`[Graph RAG] Error generating embedding for insight ${insightId}:`, err);
+      return null;
+    });
+
+    // Step 3: Update insight with new embedding
+    if (contentEmbedding) {
+      const { error: updateError } = await client
+        .from("insights")
+        .update({
+          content_embedding: contentEmbedding,
+          summary_embedding: null, // Clear summary embedding since summary is now null
+          embedding_updated_at: new Date().toISOString(),
+        })
+        .eq("id", insightId);
+
+      if (updateError) {
+        console.error(`[Graph RAG] Error updating embedding for ${insightId}:`, updateError);
+      }
+    }
+
+    // Step 4: Extract new entities using AI
+    const { extractEntitiesFromInsight, storeInsightKeywords, generateEntityEmbeddings } =
+      await import("@/lib/graphRAG/extractEntities");
+    const { mapInsightRowToInsight } = await import("@/lib/insights");
+
+    // Fetch the updated insight row
+    const { data: insightRow, error: fetchError } = await client
+      .from("insights")
+      .select("*")
+      .eq("id", insightId)
+      .single();
+
+    if (fetchError || !insightRow) {
+      console.error(`[Graph RAG] Error fetching insight ${insightId}:`, fetchError);
+      return;
+    }
+
+    const insight = mapInsightRowToInsight(insightRow);
+
+    // Extract entities
+    const { entityIds, keywords } = await extractEntitiesFromInsight(insight);
+
+    // Store insight-keyword relationships
+    if (keywords.length > 0) {
+      await storeInsightKeywords(client, insightId, keywords);
+    }
+
+    // Generate embeddings for new entities
+    if (entityIds.length > 0) {
+      await generateEntityEmbeddings(client, entityIds);
+    }
+
+    // Step 5: Rebuild all edges
+    await buildAllEdgesForInsight(insightId, contentEmbedding || undefined, client);
+
+    console.log(`[Graph RAG] Successfully rebuilt graph for insight ${insightId}`);
+  } catch (error) {
+    console.error(`[Graph RAG] Error in rebuildGraphForInsight for ${insightId}:`, error);
+    // Don't throw - we don't want to block the update if graph rebuild fails
+  }
+}
+
