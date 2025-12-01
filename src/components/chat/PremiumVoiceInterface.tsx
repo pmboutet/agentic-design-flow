@@ -701,7 +701,8 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
       inactivityMonitor.recordUserActivity();
     } else {
       // Record assistant activity for inactivity monitor
-      inactivityMonitor.recordAssistantActivity();
+      // Pass isFinal=true for final messages so the timer resumes after TTS delay
+      inactivityMonitor.recordAssistantActivity(!isInterim);
     }
 
     // Cas INTERIM → mise à jour du buffer local uniquement
