@@ -279,6 +279,16 @@ export function ProjectGraphVisualization({ projectId, refreshKey }: ProjectGrap
     setSelectedNode(null);
   }, []);
 
+  // Re-fit graph when fullscreen changes
+  useEffect(() => {
+    if (fgRef.current) {
+      // Small delay to let the container resize
+      setTimeout(() => {
+        fgRef.current?.zoomToFit(400, 60);
+      }, 100);
+    }
+  }, [isFullscreen]);
+
   // Handle escape key to exit fullscreen
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -355,10 +365,11 @@ export function ProjectGraphVisualization({ projectId, refreshKey }: ProjectGrap
     // Draw label
     if (showLabel) {
       const label = node.name;
-      const fontSize = Math.max(10, 12 / globalScale);
+      // Smaller font size, capped between 8 and 14 pixels
+      const fontSize = Math.min(14, Math.max(8, 10 / globalScale));
       ctx.font = `${fontSize}px Sans-Serif`;
       const textWidth = ctx.measureText(label).width;
-      const bckgDimensions = [textWidth + fontSize * 0.4, fontSize + fontSize * 0.4];
+      const bckgDimensions = [textWidth + fontSize * 0.3, fontSize + fontSize * 0.3];
 
       // Background
       ctx.fillStyle = `rgba(15, 23, 42, ${alpha * 0.85})`;
