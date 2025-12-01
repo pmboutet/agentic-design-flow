@@ -303,14 +303,13 @@ export function ChatComponent({
     return messages
       .filter(msg => msg.senderType === 'user' || msg.senderType === 'ai')
       .map(msg => {
-        // Extract messageId from metadata if available (for voice messages)
-        const metadataMessageId = (msg.metadata as any)?.messageId;
         return {
           role: msg.senderType === 'user' ? 'user' as const : 'assistant' as const,
           content: msg.content,
           timestamp: msg.timestamp,
-          messageId: metadataMessageId || undefined, // Preserve messageId for deduplication
-          metadata: msg.metadata, // Preserve metadata to access messageId later
+          // Use the database ID (msg.id) for editing, not the streaming messageId
+          messageId: msg.id,
+          metadata: msg.metadata,
         };
       });
   }, [messages]);
