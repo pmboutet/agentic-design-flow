@@ -784,9 +784,20 @@ function MessageBubble({
           {isEditing && message.type === 'text' ? (
             <div className="flex flex-col gap-2">
               <textarea
+                ref={(el) => {
+                  if (el) {
+                    el.style.height = 'auto';
+                    el.style.height = el.scrollHeight + 'px';
+                  }
+                }}
                 value={editContent}
-                onChange={(e) => onEditContentChange?.(e.target.value)}
-                className="w-full min-h-[80px] p-2 rounded border border-border bg-background text-foreground resize-y focus:outline-none focus:ring-2 focus:ring-primary"
+                onChange={(e) => {
+                  onEditContentChange?.(e.target.value);
+                  // Auto-resize on content change
+                  e.target.style.height = 'auto';
+                  e.target.style.height = e.target.scrollHeight + 'px';
+                }}
+                className="w-full min-h-[60px] p-2 rounded border border-border bg-background text-foreground resize-none focus:outline-none focus:ring-2 focus:ring-primary overflow-hidden"
                 autoFocus
                 disabled={isSubmittingEdit}
               />
