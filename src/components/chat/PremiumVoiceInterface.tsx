@@ -205,17 +205,23 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
   const inactivityMonitor = useInactivityMonitor({
     timeout: 20000, // 20 seconds
     onInactive: useCallback(() => {
+      // Don't show overlay if mic is already muted - user is intentionally not speaking
+      if (isMutedRef.current) {
+        console.log('[PremiumVoiceInterface] ⏰ User inactive but mic already muted - skipping overlay');
+        return;
+      }
       console.log('[PremiumVoiceInterface] ⏰ User inactive - showing overlay and muting');
       setShowInactivityOverlay(true);
       // Mute microphone when inactive
-      if (!isMuted && agentRef.current) {
+      if (agentRef.current) {
         setIsMuted(true);
+        isMutedRef.current = true;
         // Only Speechmatics agent has setMicrophoneMuted
         if (agentRef.current instanceof SpeechmaticsVoiceAgent) {
           agentRef.current.setMicrophoneMuted(true);
         }
       }
-    }, [isMuted]),
+    }, []),
     onActive: useCallback(() => {
       console.log('[PremiumVoiceInterface] ✅ User active again');
       setShowInactivityOverlay(false);
