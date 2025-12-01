@@ -160,6 +160,9 @@ function SuggestionCard({
   onDismissNewSubChallenge,
 }: SuggestionCardProps) {
   const [draft, setDraft] = useState<AiChallengeUpdateSuggestion>(() => cloneChallengeSuggestion(suggestion));
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [isEditingDescription, setIsEditingDescription] = useState(false);
+  const [editingSubChallengeFields, setEditingSubChallengeFields] = useState<Record<string, Set<string>>>({});
 
   useEffect(() => {
     setDraft(cloneChallengeSuggestion(suggestion));
@@ -167,6 +170,25 @@ function SuggestionCard({
 
   const originalTitle = challenge?.title ?? suggestion.challengeTitle;
   const originalDescription = challenge?.description ?? "";
+
+  // Helper to find original sub-challenge by ID
+  const getOriginalSubChallenge = (id: string) => challenge?.children?.find(c => c.id === id);
+
+  // Helper to toggle sub-challenge field editing
+  const toggleSubChallengeFieldEdit = (subId: string, field: string, editing: boolean) => {
+    setEditingSubChallengeFields(prev => {
+      const current = new Set(prev[subId] ?? []);
+      if (editing) {
+        current.add(field);
+      } else {
+        current.delete(field);
+      }
+      return { ...prev, [subId]: current };
+    });
+  };
+
+  const isEditingSubChallengeField = (subId: string, field: string) =>
+    editingSubChallengeFields[subId]?.has(field) ?? false;
   const updatedTitle = draft.updates?.title ?? null;
   const updatedDescription = draft.updates?.description ?? null;
   const updatedStatus = draft.updates?.status ?? null;
@@ -348,32 +370,85 @@ function SuggestionCard({
           </div>
         ) : null}
 
-        {updatedTitle && updatedTitle !== originalTitle ? (
+        {(updatedTitle && updatedTitle !== originalTitle) || isEditingTitle ? (
           <div>
             <SectionTitle>Title</SectionTitle>
-            <p className="mt-1 rounded-md border border-slate-800 bg-slate-950/60 px-3 py-2 text-xs text-slate-400">
-              Current title: {originalTitle}
-            </p>
-            <Input
-              value={updatedTitle}
-              onChange={event => handleUpdateField("title", event.target.value)}
-              className="mt-2 border border-slate-700 bg-slate-900/80 text-slate-100"
-              disabled={applyingChallengeUpdate}
-            />
+            {isEditingTitle ? (
+              <div className="mt-2 rounded-md border border-slate-700 bg-slate-900/60">
+                <Input
+                  value={updatedTitle ?? originalTitle}
+                  onChange={event => handleUpdateField("title", event.target.value)}
+                  className="border-0 bg-transparent text-slate-100"
+                  disabled={applyingChallengeUpdate}
+                  autoFocus
+                />
+                <div className="border-t border-slate-700 px-3 py-2 flex justify-end">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setIsEditingTitle(false)}
+                    className="text-slate-400 hover:text-slate-200 gap-1.5"
+                  >
+                    Voir les modifications
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <AiDiffView
+                previous={originalTitle}
+                next={updatedTitle ?? ""}
+                className="mt-2"
+                onEdit={() => setIsEditingTitle(true)}
+              />
+            )}
           </div>
         ) : null}
 
-        {updatedDescription && updatedDescription !== originalDescription ? (
+        {(updatedDescription && updatedDescription !== originalDescription) || isEditingDescription ? (
           <div>
             <SectionTitle>Description</SectionTitle>
-            <AiDiffView previous={originalDescription} next={updatedDescription} className="mt-2" />
-            <EditableText
-              value={updatedDescription ?? ""}
-              onChange={value => handleUpdateField("description", value)}
-              placeholder="Description mise à jour"
-              className="mt-3 border-slate-700 bg-slate-900/80 text-slate-100"
-              disabled={applyingChallengeUpdate}
-            />
+            {isEditingDescription ? (
+              <div className="mt-2 rounded-md border border-slate-700 bg-slate-900/60">
+                <textarea
+                  ref={el => {
+                    if (el) {
+                      el.style.height = "auto";
+                      el.style.height = `${el.scrollHeight}px`;
+                    }
+                  }}
+                  value={updatedDescription ?? originalDescription}
+                  onChange={e => {
+                    handleUpdateField("description", e.target.value);
+                    // Auto-resize
+                    e.target.style.height = "auto";
+                    e.target.style.height = `${e.target.scrollHeight}px`;
+                  }}
+                  placeholder="Description mise à jour"
+                  className="w-full min-h-[80px] resize-none rounded-t-md border-0 bg-transparent px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-0"
+                  disabled={applyingChallengeUpdate}
+                  autoFocus
+                />
+                <div className="border-t border-slate-700 px-3 py-2 flex justify-end">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setIsEditingDescription(false)}
+                    className="text-slate-400 hover:text-slate-200 gap-1.5"
+                  >
+                    Voir les modifications
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <AiDiffView
+                previous={originalDescription}
+                next={updatedDescription ?? ""}
+                className="mt-2"
+                onEdit={() => setIsEditingDescription(true)}
+              />
+            )}
           </div>
         ) : null}
 
@@ -412,38 +487,100 @@ function SuggestionCard({
             <SectionTitle>Sub-challenge updates</SectionTitle>
             {draft.subChallengeUpdates.map((update, index) => {
               const isApplying = applyingSubChallengeUpdateIds.has(update.id);
+              const originalSub = getOriginalSubChallenge(update.id);
+              const originalSubTitle = originalSub?.title ?? "";
+              const originalSubDescription = originalSub?.description ?? "";
               return (
                 <div
                   key={update.id}
                   className="space-y-2 rounded-md border border-indigo-400/30 bg-indigo-500/10 px-3 py-2"
                 >
-                  <Input
-                    value={update.title ?? ""}
-                    onChange={event => handleSubChallengeUpdateChange(index, "title", event.target.value)}
-                    placeholder={`Sub-challenge ${update.id}`}
-                    className="border border-indigo-300/40 bg-indigo-500/20 text-sm text-indigo-100 placeholder:text-indigo-200/60"
-                    disabled={isApplying}
-                  />
+                  {/* Title with diff */}
+                  {update.title && update.title !== originalSubTitle ? (
+                    isEditingSubChallengeField(update.id, "title") ? (
+                      <div className="rounded-md border border-indigo-300/40 bg-indigo-500/20">
+                        <Input
+                          value={update.title ?? originalSubTitle}
+                          onChange={event => handleSubChallengeUpdateChange(index, "title", event.target.value)}
+                          className="border-0 bg-transparent text-sm text-indigo-100"
+                          disabled={isApplying}
+                          autoFocus
+                        />
+                        <div className="border-t border-indigo-300/30 px-2 py-1 flex justify-end">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => toggleSubChallengeFieldEdit(update.id, "title", false)}
+                            className="text-indigo-200/60 hover:text-indigo-100 text-xs h-6"
+                          >
+                            Voir les modifications
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <AiDiffView
+                        previous={originalSubTitle}
+                        next={update.title}
+                        className="border-indigo-300/40 bg-indigo-500/20"
+                        onEdit={() => toggleSubChallengeFieldEdit(update.id, "title", true)}
+                      />
+                    )
+                  ) : (
+                    <p className="text-sm font-medium text-indigo-100">{originalSubTitle || `Sub-challenge ${update.id}`}</p>
+                  )}
+
+                  {/* Description with diff */}
                   {update.description ? (
-                  <EditableText
-                    value={update.description}
-                    onChange={value => handleSubChallengeUpdateChange(index, "description", value)}
-                    placeholder="Description du sous-challenge"
-                    className="border-indigo-300/40 bg-indigo-500/15 text-xs text-indigo-100"
-                    textClassName="text-xs text-indigo-100"
-                    disabled={isApplying}
-                  />
-                ) : null}
-                {update.summary ? (
-                  <EditableText
-                    value={update.summary}
-                    onChange={value => handleSubChallengeUpdateChange(index, "summary", value)}
-                    placeholder="Résumé du sous-challenge"
-                    className="border-indigo-300/40 bg-indigo-500/15 text-xs text-indigo-100"
-                    textClassName="text-xs text-indigo-100"
-                    disabled={isApplying}
-                  />
-                ) : null}
+                    update.description !== originalSubDescription ? (
+                      isEditingSubChallengeField(update.id, "description") ? (
+                        <div className="rounded-md border border-indigo-300/40 bg-indigo-500/15">
+                          <textarea
+                            ref={el => {
+                              if (el) {
+                                el.style.height = "auto";
+                                el.style.height = `${el.scrollHeight}px`;
+                              }
+                            }}
+                            value={update.description}
+                            onChange={e => {
+                              handleSubChallengeUpdateChange(index, "description", e.target.value);
+                              e.target.style.height = "auto";
+                              e.target.style.height = `${e.target.scrollHeight}px`;
+                            }}
+                            className="w-full min-h-[60px] resize-none border-0 bg-transparent px-3 py-2 text-xs text-indigo-100 focus:outline-none focus:ring-0"
+                            disabled={isApplying}
+                            autoFocus
+                          />
+                          <div className="border-t border-indigo-300/30 px-2 py-1 flex justify-end">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => toggleSubChallengeFieldEdit(update.id, "description", false)}
+                              className="text-indigo-200/60 hover:text-indigo-100 text-xs h-6"
+                            >
+                              Voir les modifications
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <AiDiffView
+                          previous={originalSubDescription}
+                          next={update.description}
+                          className="border-indigo-300/40 bg-indigo-500/15 text-xs"
+                          onEdit={() => toggleSubChallengeFieldEdit(update.id, "description", true)}
+                        />
+                      )
+                    ) : (
+                      <p className="text-xs text-indigo-100/80">{update.description}</p>
+                    )
+                  ) : null}
+
+                  {/* Summary - keep simple for now */}
+                  {update.summary ? (
+                    <p className="text-xs text-indigo-200/70 italic">{update.summary}</p>
+                  ) : null}
                 {update.status ? (
                   <p className="text-xs text-indigo-100/80">
                     {formatStatusSummary("Status", undefined, update.status)}

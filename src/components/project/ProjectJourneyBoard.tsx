@@ -731,7 +731,7 @@ export function ProjectJourneyBoard({ projectId, hideHeader = false }: ProjectJo
     [boardData],
   );
 
-  const handleLaunchAiChallengeBuilder = useCallback(async () => {
+  const handleLaunchAiChallengeBuilder = useCallback(async (scopeChallengeId?: string) => {
     // Open the modal
     setIsAiPanelOpen(true);
 
@@ -740,6 +740,7 @@ export function ProjectJourneyBoard({ projectId, hideHeader = false }: ProjectJo
     fetch(`/api/admin/projects/${projectId}/ai/challenge-builder`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(scopeChallengeId ? { scopeChallengeId } : {}),
     }).catch((error) => {
       console.error("Failed to start challenge builder:", error);
       setAiBuilderFeedback({
@@ -1781,6 +1782,24 @@ export function ProjectJourneyBoard({ projectId, hideHeader = false }: ProjectJo
                   </div>
                 </button>
                 <div className={cn("flex shrink-0 items-start gap-1", isActive ? "p-4" : "p-3")}>
+                  {node.children?.length ? (
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      className="text-indigo-300 hover:bg-indigo-500/20 hover:text-indigo-100"
+                      disabled={isAiBuilderRunning}
+                      onClick={event => {
+                        event.stopPropagation();
+                        event.preventDefault();
+                        handleLaunchAiChallengeBuilder(node.id);
+                      }}
+                      title="Analyze sub-challenges with AI"
+                    >
+                      <Sparkles className="h-4 w-4" />
+                      <span className="sr-only">Analyze sub-challenges of {node.title} with AI</span>
+                    </Button>
+                  ) : null}
                   <Button
                     type="button"
                     size="icon"
@@ -3164,7 +3183,7 @@ export function ProjectJourneyBoard({ projectId, hideHeader = false }: ProjectJo
                   type="button"
                   variant="outline"
                   className="gap-2 border-indigo-300/40 bg-indigo-500/10 text-indigo-100 hover:bg-indigo-500/20"
-                  onClick={handleLaunchAiChallengeBuilder}
+                  onClick={() => handleLaunchAiChallengeBuilder()}
                   disabled={isAiBuilderRunning}
                 >
                   {isAiBuilderRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
