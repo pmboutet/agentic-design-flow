@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import type { ApiResponse } from "@/types";
 import { useRouter } from "next/navigation";
+import { ProjectGraphVisualization } from "@/components/graph/ProjectGraphVisualization";
 
 interface Synthesis {
   id: string;
@@ -228,6 +229,9 @@ export default function SynthesisPage({ params }: SynthesisPageProps) {
             <p className="text-sm">{generateMessage.text}</p>
           </div>
         )}
+
+        {/* Graph Visualization */}
+        <ProjectGraphVisualization projectId={projectId} />
 
         {/* Search Bar */}
         <div className="rounded-2xl border border-white/10 bg-white/5 p-4 backdrop-blur">
