@@ -105,6 +105,8 @@ export class SpeechmaticsVoiceAgent {
   private responseAbortedDueToUserContinuation: boolean = false;
   // Last processed user message (to detect new content during response)
   private lastSentUserMessage: string = '';
+  // Deduplication: Track last successfully processed message to avoid duplicate processing
+  private lastProcessedMessage: { content: string; timestamp: number } | null = null;
   // Flag indiquant si l'agent est déconnecté (pour ignorer les messages tardifs)
   private isDisconnected: boolean = false;
   // Promise de déconnexion en cours (pour éviter les déconnexions multiples)
@@ -445,6 +447,8 @@ export class SpeechmaticsVoiceAgent {
   private async processUserMessage(transcript: string): Promise<void> {
     const processStartedAt = Date.now();
     const processTimestamp = new Date().toISOString();
+    const normalizedTranscript = transcript.trim().toLowerCase();
+
     console.log('[Speechmatics] 📨 Received finalized user chunk', {
       timestamp: processTimestamp,
       inProgress: this.isGeneratingResponse,
@@ -454,6 +458,17 @@ export class SpeechmaticsVoiceAgent {
       wasAbortedDueToContinuation: this.responseAbortedDueToUserContinuation,
     });
 
+    // DEDUPLICATION: Skip if this is identical to what we just processed (within 5 seconds)
+    if (this.lastProcessedMessage &&
+        this.lastProcessedMessage.content === normalizedTranscript &&
+        processStartedAt - this.lastProcessedMessage.timestamp < 5000) {
+      console.log('[Speechmatics] 🔁 Skipping duplicate message (same as recently processed)', {
+        transcript: transcript.slice(0, 50),
+        timeSinceLastProcess: processStartedAt - this.lastProcessedMessage.timestamp,
+      });
+      return;
+    }
+
     // If we were aborted due to user continuation, clear the flag and proceed
     // The new transcript should contain the complete user input
     if (this.responseAbortedDueToUserContinuation) {
@@ -462,6 +477,20 @@ export class SpeechmaticsVoiceAgent {
     }
 
     if (this.isGeneratingResponse) {
+      // DEDUPLICATION: Check if this message is already in queue or identical to what's being processed
+      const isInQueue = this.userMessageQueue.some(q => q.content.trim().toLowerCase() === normalizedTranscript);
+      const isCurrentlyProcessing = this.lastSentUserMessage.trim().toLowerCase() === normalizedTranscript;
+
+      if (isInQueue || isCurrentlyProcessing) {
+        console.log('[Speechmatics] 🔁 Skipping duplicate - already in queue or being processed', {
+          isInQueue,
+          isCurrentlyProcessing,
+          transcript: transcript.slice(0, 50),
+          queueSize: this.userMessageQueue.length,
+        });
+        return;
+      }
+
       this.userMessageQueue.push({ content: transcript, timestamp: new Date().toISOString() });
       console.log('[Speechmatics] ⏳ Agent busy - queued user chunk', {
         queueSize: this.userMessageQueue.length,
@@ -608,6 +637,12 @@ export class SpeechmaticsVoiceAgent {
       } else if (this.config?.disableElevenLabsTTS) {
         console.log('[Speechmatics] 🔊 TTS disabled - skipping audio generation');
       }
+
+      // DEDUPLICATION: Track the successfully processed message to prevent re-processing
+      this.lastProcessedMessage = {
+        content: this.lastSentUserMessage.trim().toLowerCase(),
+        timestamp: Date.now(),
+      };
 
       // Clear the sent message tracker as response completed successfully
       this.lastSentUserMessage = '';
