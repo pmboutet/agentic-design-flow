@@ -364,16 +364,27 @@ function SuggestionCard({
           </div>
         ) : null}
 
-        {updatedDescription && updatedDescription !== originalDescription ? (
+        {(updatedDescription && updatedDescription !== originalDescription) || isEditingDescription ? (
           <div>
             <SectionTitle>Description</SectionTitle>
             {isEditingDescription ? (
               <div className="mt-2 rounded-md border border-slate-700 bg-slate-900/60">
                 <textarea
-                  value={updatedDescription ?? ""}
-                  onChange={e => handleUpdateField("description", e.target.value)}
+                  ref={el => {
+                    if (el) {
+                      el.style.height = "auto";
+                      el.style.height = `${el.scrollHeight}px`;
+                    }
+                  }}
+                  value={updatedDescription ?? originalDescription}
+                  onChange={e => {
+                    handleUpdateField("description", e.target.value);
+                    // Auto-resize
+                    e.target.style.height = "auto";
+                    e.target.style.height = `${e.target.scrollHeight}px`;
+                  }}
                   placeholder="Description mise à jour"
-                  className="w-full min-h-[100px] resize-y rounded-t-md border-0 bg-transparent px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-0"
+                  className="w-full min-h-[80px] resize-none rounded-t-md border-0 bg-transparent px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-0"
                   disabled={applyingChallengeUpdate}
                   autoFocus
                 />
@@ -392,7 +403,7 @@ function SuggestionCard({
             ) : (
               <AiDiffView
                 previous={originalDescription}
-                next={updatedDescription}
+                next={updatedDescription ?? ""}
                 className="mt-2"
                 onEdit={() => setIsEditingDescription(true)}
               />
