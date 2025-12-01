@@ -366,12 +366,12 @@ export function ProjectGraphVisualization({ projectId, refreshKey }: ProjectGrap
     // Draw label
     if (showLabel) {
       const label = node.name;
-      // Very small font size, capped between 1.5 and 3.5 pixels
-      const fontSize = Math.min(3.5, Math.max(1.5, 2.5 / globalScale));
+      // Font size between 2.4 and 5 pixels
+      const fontSize = Math.min(5, Math.max(2.4, 3.5 / globalScale));
       ctx.font = `${fontSize}px Sans-Serif`;
 
-      // Word wrap for long labels - wider to show more text
-      const maxWidth = 120 / globalScale;
+      // Word wrap for long labels - triple width for more text
+      const maxWidth = 360 / globalScale;
       const words = label.split(' ');
       const lines: string[] = [];
       let currentLine = '';
