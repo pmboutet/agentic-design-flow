@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Send, Paperclip, Mic, Image, FileText, X, Radio } from "lucide-react";
+import { Send, Paperclip, Mic, Image, FileText, X, Radio, Pencil, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -46,6 +46,7 @@ export function ChatComponent({
   onReplyBoxFocusChange,
   onVoiceModeChange,
   onInitConversation,
+  onEditMessage,
 }: ChatComponentProps) {
   // Temporarily disabled to reduce log spam
   // console.log('[ChatComponent] 🔄 Rendering', {
@@ -60,6 +61,10 @@ export function ChatComponent({
   const [isRecording, setIsRecording] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const [isVoiceMode, setIsVoiceMode] = useState(false);
+  // Edit mode state
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [editContent, setEditContent] = useState("");
+  const [isSubmittingEdit, setIsSubmittingEdit] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -110,6 +115,33 @@ export function ChatComponent({
     }, 1500);
   };
 
+  // Handle starting edit mode for a message
+  const handleStartEdit = useCallback((messageId: string, currentContent: string) => {
+    setEditingMessageId(messageId);
+    setEditContent(currentContent);
+  }, []);
+
+  // Handle canceling edit
+  const handleCancelEdit = useCallback(() => {
+    setEditingMessageId(null);
+    setEditContent("");
+  }, []);
+
+  // Handle submitting the edit
+  const handleSubmitEdit = useCallback(async () => {
+    if (!editingMessageId || !editContent.trim() || !onEditMessage) return;
+
+    setIsSubmittingEdit(true);
+    try {
+      await onEditMessage(editingMessageId, editContent.trim());
+      setEditingMessageId(null);
+      setEditContent("");
+    } catch (error) {
+      console.error('Error editing message:', error);
+    } finally {
+      setIsSubmittingEdit(false);
+    }
+  }, [editingMessageId, editContent, onEditMessage]);
 
   // Handle sending messages
   const handleSendMessage = async () => {
@@ -391,6 +423,13 @@ export function ChatComponent({
                   showSender={showSenderName}
                   senderLabel={effectiveSenderName}
                   conversationPlan={conversationPlan}
+                  isEditing={editingMessageId === message.id}
+                  editContent={editingMessageId === message.id ? editContent : ""}
+                  onStartEdit={onEditMessage ? handleStartEdit : undefined}
+                  onCancelEdit={handleCancelEdit}
+                  onSubmitEdit={handleSubmitEdit}
+                  onEditContentChange={setEditContent}
+                  isSubmittingEdit={isSubmittingEdit}
                 />
               );
             })}
@@ -654,11 +693,25 @@ function MessageBubble({
   showSender,
   senderLabel,
   conversationPlan,
+  isEditing = false,
+  editContent = "",
+  onStartEdit,
+  onCancelEdit,
+  onSubmitEdit,
+  onEditContentChange,
+  isSubmittingEdit = false,
 }: {
   message: Message;
   showSender: boolean;
   senderLabel?: string | null;
   conversationPlan?: ConversationPlan | null;
+  isEditing?: boolean;
+  editContent?: string;
+  onStartEdit?: (messageId: string, currentContent: string) => void;
+  onCancelEdit?: () => void;
+  onSubmitEdit?: () => void;
+  onEditContentChange?: (content: string) => void;
+  isSubmittingEdit?: boolean;
 }) {
   const isUser = message.senderType === 'user';
   const isSystem = message.senderType === 'system';
@@ -714,44 +767,101 @@ function MessageBubble({
             {senderLabel}
           </span>
         )}
-        <div className={cn('w-full rounded-lg px-4 py-2 break-words shadow-sm min-w-0 max-w-full overflow-hidden', bubbleClass)}>
-          {message.type === 'text' && (
-            <div className={cn(
-              "prose prose-sm dark:prose-invert max-w-none prose-p:my-2 prose-pre:my-2 prose-headings:my-2 prose-ul:my-2 prose-ol:my-2 prose-li:my-1",
-              isUser && "[&>*]:text-white [&_p]:text-white [&_li]:text-white [&_strong]:text-white [&_em]:text-white"
-            )}>
-              <TypewriterText 
-                content={cleanContent}
-                isInterim={message.metadata?.isInterim === true}
-              />
-            </div>
-          )}
-          {message.type === 'image' && (
-            <img
-              src={message.content}
-              alt="Uploaded image"
-              className="max-w-full h-auto rounded"
-            />
-          )}
-          {message.type === 'audio' && (
-            <audio controls className="max-w-full">
-              <source src={message.content} type={message.metadata?.mimeType} />
-              Your browser does not support audio playback.
-            </audio>
-          )}
-          {message.type === 'document' && (
-            <div className="flex items-center gap-2">
-              <FileText className="h-4 w-4" />
-              <span className="text-sm">
-                {message.metadata?.fileName}
-                {message.metadata?.fileSize && ` (${formatFileSize(message.metadata.fileSize)})`}
-              </span>
-            </div>
+        <div className={cn('w-full rounded-lg px-4 py-2 break-words shadow-sm min-w-0 max-w-full overflow-hidden relative group', bubbleClass)}>
+          {/* Edit button for user messages */}
+          {isUser && message.type === 'text' && onStartEdit && !isEditing && !isInterim && (
+            <button
+              onClick={() => onStartEdit(message.id, cleanContent)}
+              className="absolute -left-8 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-full hover:bg-muted/80 text-muted-foreground hover:text-foreground"
+              title="Modifier ce message"
+            >
+              <Pencil className="h-4 w-4" />
+            </button>
           )}
 
-          <div className="text-xs opacity-70 mt-1">
-            {new Date(message.timestamp).toLocaleTimeString()}
-          </div>
+          {/* Edit mode */}
+          {isEditing && message.type === 'text' ? (
+            <div className="flex flex-col gap-2">
+              <textarea
+                value={editContent}
+                onChange={(e) => onEditContentChange?.(e.target.value)}
+                className="w-full min-h-[80px] p-2 rounded border border-border bg-background text-foreground resize-y focus:outline-none focus:ring-2 focus:ring-primary"
+                autoFocus
+                disabled={isSubmittingEdit}
+              />
+              <div className="flex justify-end gap-2">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={onCancelEdit}
+                  disabled={isSubmittingEdit}
+                >
+                  <X className="h-4 w-4 mr-1" />
+                  Annuler
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={onSubmitEdit}
+                  disabled={isSubmittingEdit || !editContent.trim()}
+                >
+                  {isSubmittingEdit ? (
+                    <>Sauvegarde...</>
+                  ) : (
+                    <>
+                      <Check className="h-4 w-4 mr-1" />
+                      Sauvegarder
+                    </>
+                  )}
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Les messages suivants seront supprimés et la conversation reprendra depuis ce point.
+              </p>
+            </div>
+          ) : (
+            <>
+              {message.type === 'text' && (
+                <div className={cn(
+                  "prose prose-sm dark:prose-invert max-w-none prose-p:my-2 prose-pre:my-2 prose-headings:my-2 prose-ul:my-2 prose-ol:my-2 prose-li:my-1",
+                  isUser && "[&>*]:text-white [&_p]:text-white [&_li]:text-white [&_strong]:text-white [&_em]:text-white"
+                )}>
+                  <TypewriterText
+                    content={cleanContent}
+                    isInterim={message.metadata?.isInterim === true}
+                  />
+                </div>
+              )}
+              {message.type === 'image' && (
+                <img
+                  src={message.content}
+                  alt="Uploaded image"
+                  className="max-w-full h-auto rounded"
+                />
+              )}
+              {message.type === 'audio' && (
+                <audio controls className="max-w-full">
+                  <source src={message.content} type={message.metadata?.mimeType} />
+                  Your browser does not support audio playback.
+                </audio>
+              )}
+              {message.type === 'document' && (
+                <div className="flex items-center gap-2">
+                  <FileText className="h-4 w-4" />
+                  <span className="text-sm">
+                    {message.metadata?.fileName}
+                    {message.metadata?.fileSize && ` (${formatFileSize(message.metadata.fileSize)})`}
+                  </span>
+                </div>
+              )}
+
+              <div className="flex items-center justify-between text-xs opacity-70 mt-1">
+                <span>{new Date(message.timestamp).toLocaleTimeString()}</span>
+                {Boolean(message.metadata?.isEdited) && (
+                  <span className="ml-2 italic">(modifié)</span>
+                )}
+              </div>
+            </>
+          )}
         </div>
         
         {/* Step completion indicator */}

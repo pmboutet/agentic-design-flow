@@ -363,6 +363,8 @@ export interface ChatComponentProps {
   onReplyBoxFocusChange?: (isFocused: boolean) => void;
   onVoiceModeChange?: (isActive: boolean) => void;
   onInitConversation?: () => void;
+  // Message editing props
+  onEditMessage?: (messageId: string, newContent: string) => Promise<void>;
 }
 
 export interface ChallengeComponentProps {

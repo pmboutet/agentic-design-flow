@@ -69,6 +69,7 @@ interface MobileLayoutProps {
   isVoiceModeActive: boolean;
   reloadMessagesAfterVoiceMode: () => void;
   onInitConversation: () => void;
+  onEditMessage: (messageId: string, newContent: string) => Promise<void>;
   mobileActivePanel: 'chat' | 'insights';
   setMobileActivePanel: (panel: 'chat' | 'insights') => void;
   isMobileHeaderExpanded: boolean;
@@ -97,6 +98,7 @@ function MobileLayout({
   isVoiceModeActive,
   reloadMessagesAfterVoiceMode,
   onInitConversation,
+  onEditMessage,
   mobileActivePanel,
   setMobileActivePanel,
   isMobileHeaderExpanded,
@@ -323,6 +325,7 @@ function MobileLayout({
                   onReplyBoxFocusChange={setIsReplyBoxFocused}
                   onInitConversation={onInitConversation}
                   onVoiceModeChange={setIsVoiceModeActive}
+                  onEditMessage={onEditMessage}
                 />
               </div>
             </div>
@@ -1860,6 +1863,96 @@ export default function HomePage() {
     scheduleInsightDetection,
   ]);
 
+  // Handle editing a message (for correcting transcription errors)
+  const handleEditMessage = useCallback(async (messageId: string, newContent: string) => {
+    if (!sessionData.askKey) {
+      console.error('[handleEditMessage] ❌ No askKey, aborting');
+      throw new Error('No ask key available');
+    }
+
+    console.log('[handleEditMessage] 📝 Editing message:', {
+      messageId,
+      newContentPreview: newContent.slice(0, 50) + '...',
+      askKey: sessionData.askKey,
+    });
+
+    // Build the endpoint
+    const endpoint = `/api/ask/${sessionData.askKey}/message/${messageId}`;
+
+    // Include invite token in headers if available
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+
+    if (sessionData.inviteToken) {
+      headers['X-Invite-Token'] = sessionData.inviteToken;
+    }
+
+    try {
+      const response = await fetch(endpoint, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({
+          content: newContent,
+          deleteSubsequent: true, // Delete all messages after this one
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!data.success) {
+        throw new Error(data.error || 'Failed to edit message');
+      }
+
+      console.log('[handleEditMessage] ✅ Message edited successfully:', {
+        messageId: data.data?.message?.id,
+        deletedCount: data.data?.deletedCount,
+      });
+
+      // Update local state: update the edited message and remove subsequent messages
+      setSessionData(prev => {
+        const messageIndex = prev.messages.findIndex(m => m.id === messageId);
+        if (messageIndex === -1) {
+          console.warn('[handleEditMessage] Message not found in local state');
+          return prev;
+        }
+
+        // Keep messages up to and including the edited one
+        const messagesBeforeEdit = prev.messages.slice(0, messageIndex);
+        const editedMessage = {
+          ...prev.messages[messageIndex],
+          content: newContent,
+          metadata: {
+            ...prev.messages[messageIndex].metadata,
+            isEdited: true,
+            editedAt: new Date().toISOString(),
+          },
+        };
+
+        return {
+          ...prev,
+          messages: [...messagesBeforeEdit, editedMessage],
+        };
+      });
+
+      // Trigger AI response for the edited message
+      console.log('[handleEditMessage] 🤖 Triggering AI response for edited message...');
+
+      // Schedule streaming response just like handleSendMessage does
+      setTimeout(async () => {
+        try {
+          await handleStreamingResponse(newContent);
+        } catch (streamError) {
+          console.error('[handleEditMessage] ❌ Error during streaming response:', streamError);
+        }
+      }, 100);
+
+    } catch (error) {
+      console.error('[handleEditMessage] ❌ Error editing message:', error);
+      throw error;
+    }
+  }, [sessionData.askKey, sessionData.inviteToken, handleStreamingResponse]);
+
   // Retry loading session data
   const retryLoad = () => {
     if (sessionData.inviteToken) {
@@ -2098,6 +2191,7 @@ export default function HomePage() {
           isVoiceModeActive={isVoiceModeActive}
           reloadMessagesAfterVoiceMode={reloadMessagesAfterVoiceMode}
           onInitConversation={handleInitConversation}
+          onEditMessage={handleEditMessage}
           mobileActivePanel={mobileActivePanel}
           setMobileActivePanel={setMobileActivePanel}
           isMobileHeaderExpanded={isMobileHeaderExpanded}
@@ -2146,6 +2240,7 @@ export default function HomePage() {
                   onReplyBoxFocusChange={setIsReplyBoxFocused}
                   onInitConversation={handleInitConversation}
                   onVoiceModeChange={handleVoiceModeChange}
+                  onEditMessage={handleEditMessage}
                 />
               </div>
             </div>
