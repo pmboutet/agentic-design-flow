@@ -156,7 +156,7 @@ function MobileLayout({
   };
 
   return (
-    <div className="flex flex-col h-[calc(100vh-88px)] overflow-hidden min-w-0 w-full max-w-full overflow-x-hidden">
+    <div className="flex flex-col h-[calc(100dvh-88px)] overflow-hidden min-w-0 w-full max-w-full overflow-x-hidden touch-pan-y">
       {/* Collapsible Header */}
       {askDetails && (
         <motion.div
@@ -2152,7 +2152,7 @@ export default function HomePage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-indigo-100 via-white to-indigo-200 overflow-x-hidden">
+    <div className="min-h-[100dvh] bg-gradient-to-br from-indigo-100 via-white to-indigo-200 overflow-x-hidden w-full max-w-full">
       {/* Beautiful Header */}
       <motion.header
         initial={{ opacity: 0, y: -20 }}
@@ -2225,7 +2225,7 @@ export default function HomePage() {
           onInsightUpdate={handleInsightUpdate}
         />
       ) : (
-        <main className="flex h-[calc(100vh-88px)] overflow-hidden gap-6 p-6 min-w-0">
+        <main className="flex h-[calc(100dvh-88px)] overflow-hidden gap-6 p-6 min-w-0">
           {/* Chat Section - 1/3 of screen with glass effect */}
           <motion.div
             initial={{ opacity: 0, x: -40 }}
