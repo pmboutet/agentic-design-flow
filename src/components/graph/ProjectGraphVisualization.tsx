@@ -369,23 +369,62 @@ export function ProjectGraphVisualization({ projectId, refreshKey }: ProjectGrap
       // Much smaller font size, capped between 3 and 6 pixels
       const fontSize = Math.min(6, Math.max(3, 5 / globalScale));
       ctx.font = `${fontSize}px Sans-Serif`;
-      const textWidth = ctx.measureText(label).width;
-      const bckgDimensions = [textWidth + fontSize * 0.2, fontSize + fontSize * 0.2];
 
-      // Background
+      // Word wrap for long labels
+      const maxWidth = 60 / globalScale;
+      const words = label.split(' ');
+      const lines: string[] = [];
+      let currentLine = '';
+
+      for (const word of words) {
+        const testLine = currentLine ? `${currentLine} ${word}` : word;
+        const testWidth = ctx.measureText(testLine).width;
+        if (testWidth > maxWidth && currentLine) {
+          lines.push(currentLine);
+          currentLine = word;
+        } else {
+          currentLine = testLine;
+        }
+      }
+      if (currentLine) lines.push(currentLine);
+
+      // Limit to 3 lines max
+      const displayLines = lines.slice(0, 3);
+      if (lines.length > 3) {
+        displayLines[2] = displayLines[2].slice(0, -3) + '...';
+      }
+
+      const lineHeight = fontSize * 1.2;
+      const maxTextWidth = Math.max(...displayLines.map(l => ctx.measureText(l).width));
+      const boxWidth = maxTextWidth + fontSize * 0.4;
+      const boxHeight = displayLines.length * lineHeight + fontSize * 0.3;
+      const boxX = node.x - boxWidth / 2;
+      const boxY = node.y + node.val + 3;
+      const borderRadius = fontSize * 0.3;
+
+      // Background with rounded corners
       ctx.fillStyle = `rgba(15, 23, 42, ${alpha * 0.85})`;
-      ctx.fillRect(
-        node.x - bckgDimensions[0] / 2,
-        node.y + node.val + 2,
-        bckgDimensions[0],
-        bckgDimensions[1]
-      );
+      ctx.beginPath();
+      ctx.moveTo(boxX + borderRadius, boxY);
+      ctx.lineTo(boxX + boxWidth - borderRadius, boxY);
+      ctx.quadraticCurveTo(boxX + boxWidth, boxY, boxX + boxWidth, boxY + borderRadius);
+      ctx.lineTo(boxX + boxWidth, boxY + boxHeight - borderRadius);
+      ctx.quadraticCurveTo(boxX + boxWidth, boxY + boxHeight, boxX + boxWidth - borderRadius, boxY + boxHeight);
+      ctx.lineTo(boxX + borderRadius, boxY + boxHeight);
+      ctx.quadraticCurveTo(boxX, boxY + boxHeight, boxX, boxY + boxHeight - borderRadius);
+      ctx.lineTo(boxX, boxY + borderRadius);
+      ctx.quadraticCurveTo(boxX, boxY, boxX + borderRadius, boxY);
+      ctx.closePath();
+      ctx.fill();
 
-      // Text
+      // Text lines
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillStyle = `rgba(226, 232, 240, ${alpha})`;
-      ctx.fillText(label, node.x, node.y + node.val + 2 + bckgDimensions[1] / 2);
+      displayLines.forEach((line, i) => {
+        const lineY = boxY + (i + 0.5) * lineHeight + fontSize * 0.15;
+        ctx.fillText(line, node.x, lineY);
+      });
     }
   }, [selectedNode, connectedNodeIds]);
 
@@ -555,14 +594,11 @@ export function ProjectGraphVisualization({ projectId, refreshKey }: ProjectGrap
                   d3AlphaDecay={0.02}
                   d3VelocityDecay={0.3}
                   d3Force={(engine: any) => {
-                    // Increase repulsion between nodes
-                    engine.force('charge')?.strength(-150);
+                    // Strong repulsion between nodes for long labels
+                    engine.force('charge')?.strength(-500);
                     // Increase link distance
-                    engine.force('link')?.distance(80);
-                    // Add collision detection to prevent overlap
-                    engine.force('collide', null);
+                    engine.force('link')?.distance(120);
                   }}
-                  onEngineStop={() => fgRef.current?.zoomToFit(400, 50)}
                 />
               )}
             </div>
