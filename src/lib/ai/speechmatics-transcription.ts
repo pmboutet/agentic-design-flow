@@ -196,6 +196,7 @@ export class TranscriptionManager {
   /**
    * Schedule utterance finalisation after a short debounce period
    * This prevents sending multiple fragments when user pauses briefly
+   * IMPORTANT: Uses semantic detection if available to avoid sending incomplete utterances
    */
   private scheduleUtteranceFinalization(force: boolean = false): void {
     if (this.utteranceDebounceTimeout) {
@@ -209,7 +210,13 @@ export class TranscriptionManager {
       ? Math.min(200, defaultDelay)
       : defaultDelay;
     this.utteranceDebounceTimeout = setTimeout(() => {
-      this.processPendingTranscript(force);
+      // CRITICAL FIX: Use semantic detection if enabled instead of sending directly
+      // This ensures incomplete utterances are held until user truly finishes
+      if (this.semanticOptions?.detector && !force) {
+        this.triggerSemanticEvaluation('utterance_debounce');
+      } else {
+        this.processPendingTranscript(force);
+      }
     }, delay);
   }
 
