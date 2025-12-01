@@ -538,6 +538,15 @@ export class SpeechmaticsVoiceAgent {
         { role: 'user', content: userMessageContent },
       ];
 
+      // Log conversation state for debugging
+      console.log('[Speechmatics] 🧠 LLM context state:', {
+        hasSystemPrompt: !!this.config?.systemPrompt,
+        systemPromptLength: this.config?.systemPrompt?.length || 0,
+        conversationHistoryLength: this.conversationHistory.length,
+        recentHistoryLength: recentHistory.length,
+        totalMessagesForLLM: messages.length,
+      });
+
       // Call LLM with abort signal
       const llmResponse = await this.llm.callLLM(
         llmProvider,
@@ -605,14 +614,18 @@ export class SpeechmaticsVoiceAgent {
 
       // Process queued messages
       if (this.userMessageQueue.length > 0) {
+        console.log(`[Speechmatics] 📋 Processing queue after response (${this.userMessageQueue.length} pending)`);
         const nextMessage = this.userMessageQueue.shift();
         if (nextMessage) {
+          console.log(`[Speechmatics] ▶️ Dequeued message: "${nextMessage.content.slice(0, 50)}..."`);
           // Process next message (will reset isGeneratingResponse when done)
           await this.processUserMessage(nextMessage.content);
         } else {
+          console.log('[Speechmatics] ✅ Queue empty after shift, response cycle complete');
           this.isGeneratingResponse = false;
         }
       } else {
+        console.log('[Speechmatics] ✅ No queued messages, response cycle complete');
         this.isGeneratingResponse = false;
       }
     } catch (error) {
@@ -627,13 +640,34 @@ export class SpeechmaticsVoiceAgent {
         if (!this.responseAbortedDueToUserContinuation) {
           this.lastSentUserMessage = '';
         }
+        // NOTE: Don't process queue on abort - user is still speaking or interrupted
+        // The new/complete message will arrive through normal flow
         return;
       }
 
       console.error('[Speechmatics] ❌ Error processing user message:', error);
-      this.isGeneratingResponse = false;
       this.lastSentUserMessage = '';
       this.onErrorCallback?.(error instanceof Error ? error : new Error(String(error)));
+
+      // CRITICAL: Even on error, try to process queued messages so we don't get stuck
+      if (this.userMessageQueue.length > 0) {
+        console.log(`[Speechmatics] 🔄 Error occurred but processing ${this.userMessageQueue.length} queued messages`);
+        const nextMessage = this.userMessageQueue.shift();
+        if (nextMessage) {
+          // Reset flag before recursive call (it will be set to true again in processUserMessage)
+          this.isGeneratingResponse = false;
+          // Use setTimeout to avoid deep recursion and allow event loop to process
+          setTimeout(() => {
+            this.processUserMessage(nextMessage.content).catch(err => {
+              console.error('[Speechmatics] ❌ Error processing queued message:', err);
+            });
+          }, 100);
+        } else {
+          this.isGeneratingResponse = false;
+        }
+      } else {
+        this.isGeneratingResponse = false;
+      }
     } finally {
       // Clear abort controller
       this.llmAbortController = null;
