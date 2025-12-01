@@ -8,7 +8,7 @@ import { useIndeterminateProgress } from "@/hooks/useIndeterminateProgress";
 import { Button } from "@/components/ui/button";
 import { AiDiffView } from "@/components/project/AiDiffView";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import { EditableText } from "@/components/ui/EditableText";
 import {
   type AiChallengeUpdateSuggestion,
   type AiFoundationInsight,
@@ -270,12 +270,11 @@ function SuggestionCard({
       <div className="flex items-start justify-between gap-4">
         <div className="flex-1 space-y-2">
           <h4 className="text-base font-semibold text-white">{originalTitle}</h4>
-          <Textarea
+          <EditableText
             value={draft.summary ?? ""}
-            onChange={event => handleSummaryChange(event.target.value)}
+            onChange={handleSummaryChange}
             placeholder="Ajoutez ou ajustez le résumé de la recommandation"
-            rows={2}
-            className="min-h-[56px] resize-y border border-slate-700 bg-slate-900/80 text-sm text-slate-200 placeholder:text-slate-500"
+            className="border-slate-700 bg-slate-900/80"
           />
         </div>
         <div className="flex flex-col gap-2 sm:flex-row">
@@ -368,11 +367,11 @@ function SuggestionCard({
           <div>
             <SectionTitle>Description</SectionTitle>
             <AiDiffView previous={originalDescription} next={updatedDescription} className="mt-2" />
-            <Textarea
+            <EditableText
               value={updatedDescription ?? ""}
-              onChange={event => handleUpdateField("description", event.target.value)}
-              rows={5}
-              className="mt-3 resize-y border border-slate-700 bg-slate-900/80 text-slate-100 placeholder:text-slate-500"
+              onChange={value => handleUpdateField("description", value)}
+              placeholder="Description mise à jour"
+              className="mt-3 border-slate-700 bg-slate-900/80 text-slate-100"
               disabled={applyingChallengeUpdate}
             />
           </div>
@@ -426,20 +425,22 @@ function SuggestionCard({
                     disabled={isApplying}
                   />
                   {update.description ? (
-                    <Textarea
-                      value={update.description}
-                    onChange={event => handleSubChallengeUpdateChange(index, "description", event.target.value)}
-                    rows={3}
-                    className="resize-y border border-indigo-300/40 bg-indigo-500/15 text-xs text-indigo-100 placeholder:text-indigo-200/60"
+                  <EditableText
+                    value={update.description}
+                    onChange={value => handleSubChallengeUpdateChange(index, "description", value)}
+                    placeholder="Description du sous-challenge"
+                    className="border-indigo-300/40 bg-indigo-500/15 text-xs text-indigo-100"
+                    textClassName="text-xs text-indigo-100"
                     disabled={isApplying}
                   />
                 ) : null}
                 {update.summary ? (
-                  <Textarea
+                  <EditableText
                     value={update.summary}
-                    onChange={event => handleSubChallengeUpdateChange(index, "summary", event.target.value)}
-                    rows={2}
-                    className="resize-y border border-indigo-300/40 bg-indigo-500/15 text-xs text-indigo-100 placeholder:text-indigo-200/60"
+                    onChange={value => handleSubChallengeUpdateChange(index, "summary", value)}
+                    placeholder="Résumé du sous-challenge"
+                    className="border-indigo-300/40 bg-indigo-500/15 text-xs text-indigo-100"
+                    textClassName="text-xs text-indigo-100"
                     disabled={isApplying}
                   />
                 ) : null}
@@ -502,20 +503,21 @@ function SuggestionCard({
                     className="border border-emerald-300/40 bg-emerald-500/15 text-sm font-semibold text-emerald-100 placeholder:text-emerald-200/70"
                     disabled={isApplying}
                 />
-                <Textarea
+                <EditableText
                   value={newChallenge.description ?? ""}
-                  onChange={event => handleNewSubChallengeChange(index, "description", event.target.value)}
-                  rows={3}
+                  onChange={value => handleNewSubChallengeChange(index, "description", value)}
                   placeholder="Describe the new sub-challenge"
-                  className="resize-y border border-emerald-300/40 bg-emerald-500/15 text-xs text-emerald-100 placeholder:text-emerald-200/70"
+                  className="border-emerald-300/40 bg-emerald-500/15 text-xs text-emerald-100"
+                  textClassName="text-xs text-emerald-100"
                   disabled={isApplying}
                 />
                 {newChallenge.summary ? (
-                  <Textarea
+                  <EditableText
                     value={newChallenge.summary}
-                    onChange={event => handleNewSubChallengeChange(index, "summary", event.target.value)}
-                    rows={2}
-                    className="resize-y border border-emerald-300/40 bg-emerald-500/15 text-xs text-emerald-100 placeholder:text-emerald-200/70"
+                    onChange={value => handleNewSubChallengeChange(index, "summary", value)}
+                    placeholder="Résumé"
+                    className="border-emerald-300/40 bg-emerald-500/15 text-xs text-emerald-100"
+                    textClassName="text-xs text-emerald-100"
                     disabled={isApplying}
                   />
                 ) : null}
@@ -605,19 +607,18 @@ function NewChallengeCard({
             onChange={event => handleFieldChange("title", event.target.value)}
             className="border border-emerald-300/40 bg-emerald-500/15 text-base font-semibold text-emerald-100 placeholder:text-emerald-200/70"
           />
-          <Textarea
+          <EditableText
             value={draft.summary ?? ""}
-            onChange={event => handleFieldChange("summary", event.target.value)}
-            rows={2}
+            onChange={value => handleFieldChange("summary", value)}
             placeholder="Résumé de la recommandation"
-            className="min-h-[56px] resize-y border border-emerald-300/40 bg-emerald-500/15 text-sm text-emerald-100 placeholder:text-emerald-200/70"
+            className="border-emerald-300/40 bg-emerald-500/15 text-sm text-emerald-100"
+            textClassName="text-sm text-emerald-100"
           />
-          <Textarea
+          <EditableText
             value={draft.description ?? ""}
-            onChange={event => handleFieldChange("description", event.target.value)}
-            rows={3}
+            onChange={value => handleFieldChange("description", value)}
             placeholder="Description détaillée"
-            className="resize-y border border-slate-700 bg-slate-900/80 text-sm text-slate-200 placeholder:text-slate-500"
+            className="border-slate-700 bg-slate-900/80"
           />
         </div>
         <div className="flex gap-2">

@@ -101,6 +101,12 @@ export class SpeechmaticsVoiceAgent {
   private isGeneratingResponse: boolean = false;
   // Queue des messages utilisateur en attente (si plusieurs messages arrivent pendant la génération)
   private userMessageQueue: Array<{ content: string; timestamp: string }> = [];
+  // Track if user continues speaking during response generation (abort-on-continue)
+  private responseAbortedDueToUserContinuation: boolean = false;
+  // Last processed user message (to detect new content during response)
+  private lastSentUserMessage: string = '';
+  // Deduplication: Track last successfully processed message to avoid duplicate processing
+  private lastProcessedMessage: { content: string; timestamp: number } | null = null;
   // Flag indiquant si l'agent est déconnecté (pour ignorer les messages tardifs)
   private isDisconnected: boolean = false;
   // Promise de déconnexion en cours (pour éviter les déconnexions multiples)
@@ -324,12 +330,34 @@ export class SpeechmaticsVoiceAgent {
     if (data.message === "AddPartialTranscript") {
       // Speechmatics API structure: transcript is in metadata.transcript (full text)
       const transcript = data.metadata?.transcript || "";
-      console.log('[Speechmatics] 📥 AddPartialTranscript received:', {
-        transcript: transcript.substring(0, 100),
-        fullLength: transcript.length,
-        hasContent: !!transcript.trim()
-      });
-      if (transcript && transcript.trim()) {
+
+      if (this.audio && transcript && transcript.trim()) {
+        const trimmedTranscript = transcript.trim();
+
+        // ABORT-ON-CONTINUE: If response is being generated and user continues speaking,
+        // abort the current response and let them finish
+        if (this.isGeneratingResponse && this.lastSentUserMessage) {
+          const hasSignificantNewContent = this.hasSignificantNewContent(trimmedTranscript, this.lastSentUserMessage);
+          if (hasSignificantNewContent) {
+            console.log('[Speechmatics] 🛑 User continues speaking during response - aborting response');
+            console.log('[Speechmatics] New content:', trimmedTranscript.substring(0, 100));
+            this.responseAbortedDueToUserContinuation = true;
+            this.abortResponse();
+            // Remove the incomplete user message from conversation history
+            // (it will be replaced by the complete one when user finishes)
+            if (this.conversationHistory.length > 0 &&
+                this.conversationHistory[this.conversationHistory.length - 1]?.role === 'user') {
+              this.conversationHistory.pop();
+            }
+            // CRITICAL: Clear the message queue since those are now stale fragments
+            // The transcription manager will send the complete message when user finishes
+            if (this.userMessageQueue.length > 0) {
+              console.log(`[Speechmatics] 🧹 Clearing ${this.userMessageQueue.length} stale queued messages`);
+              this.userMessageQueue = [];
+            }
+          }
+        }
+
         // Get recent conversation context for echo detection (last agent message + last user message)
         const recentContext = this.conversationHistory
           .slice(-2)
@@ -338,10 +366,10 @@ export class SpeechmaticsVoiceAgent {
           .slice(-200); // Last 200 chars of recent context
 
         // Validate barge-in with transcript content and context
-        this.audio?.validateBargeInWithTranscript(transcript.trim(), recentContext);
+        this.audio?.validateBargeInWithTranscript(trimmedTranscript, recentContext);
 
         // Process partial transcript normally
-        this.transcriptionManager?.handlePartialTranscript(transcript.trim());
+        this.transcriptionManager?.handlePartialTranscript(trimmedTranscript);
       }
       return;
     }
@@ -350,11 +378,7 @@ export class SpeechmaticsVoiceAgent {
     if (data.message === "AddTranscript") {
       // Speechmatics API structure: transcript is in metadata.transcript (full text)
       const transcript = data.metadata?.transcript || "";
-      console.log('[Speechmatics] 📥 AddTranscript received:', {
-        transcript: transcript.substring(0, 100),
-        fullLength: transcript.length,
-        hasContent: !!transcript.trim()
-      });
+
       if (transcript && transcript.trim()) {
         // Get recent conversation context for echo detection (last agent message + last user message)
         const recentContext = this.conversationHistory
@@ -423,15 +447,50 @@ export class SpeechmaticsVoiceAgent {
   private async processUserMessage(transcript: string): Promise<void> {
     const processStartedAt = Date.now();
     const processTimestamp = new Date().toISOString();
+    const normalizedTranscript = transcript.trim().toLowerCase();
+
     console.log('[Speechmatics] 📨 Received finalized user chunk', {
       timestamp: processTimestamp,
       inProgress: this.isGeneratingResponse,
       queuedMessages: this.userMessageQueue.length,
       transcriptPreview: transcript.slice(0, 120),
       transcriptLength: transcript.length,
+      wasAbortedDueToContinuation: this.responseAbortedDueToUserContinuation,
     });
 
+    // DEDUPLICATION: Skip if this is identical to what we just processed (within 5 seconds)
+    if (this.lastProcessedMessage &&
+        this.lastProcessedMessage.content === normalizedTranscript &&
+        processStartedAt - this.lastProcessedMessage.timestamp < 5000) {
+      console.log('[Speechmatics] 🔁 Skipping duplicate message (same as recently processed)', {
+        transcript: transcript.slice(0, 50),
+        timeSinceLastProcess: processStartedAt - this.lastProcessedMessage.timestamp,
+      });
+      return;
+    }
+
+    // If we were aborted due to user continuation, clear the flag and proceed
+    // The new transcript should contain the complete user input
+    if (this.responseAbortedDueToUserContinuation) {
+      console.log('[Speechmatics] ✅ Processing complete user input after abort');
+      this.responseAbortedDueToUserContinuation = false;
+    }
+
     if (this.isGeneratingResponse) {
+      // DEDUPLICATION: Check if this message is already in queue or identical to what's being processed
+      const isInQueue = this.userMessageQueue.some(q => q.content.trim().toLowerCase() === normalizedTranscript);
+      const isCurrentlyProcessing = this.lastSentUserMessage.trim().toLowerCase() === normalizedTranscript;
+
+      if (isInQueue || isCurrentlyProcessing) {
+        console.log('[Speechmatics] 🔁 Skipping duplicate - already in queue or being processed', {
+          isInQueue,
+          isCurrentlyProcessing,
+          transcript: transcript.slice(0, 50),
+          queueSize: this.userMessageQueue.length,
+        });
+        return;
+      }
+
       this.userMessageQueue.push({ content: transcript, timestamp: new Date().toISOString() });
       console.log('[Speechmatics] ⏳ Agent busy - queued user chunk', {
         queueSize: this.userMessageQueue.length,
@@ -441,6 +500,9 @@ export class SpeechmaticsVoiceAgent {
     }
 
     this.isGeneratingResponse = true;
+
+    // Track the message we're about to process (for abort-on-continue detection)
+    this.lastSentUserMessage = transcript;
 
     // Add user message to conversation history
     this.conversationHistory.push({ role: 'user', content: transcript });
@@ -505,6 +567,15 @@ export class SpeechmaticsVoiceAgent {
         { role: 'user', content: userMessageContent },
       ];
 
+      // Log conversation state for debugging
+      console.log('[Speechmatics] 🧠 LLM context state:', {
+        hasSystemPrompt: !!this.config?.systemPrompt,
+        systemPromptLength: this.config?.systemPrompt?.length || 0,
+        conversationHistoryLength: this.conversationHistory.length,
+        recentHistoryLength: recentHistory.length,
+        totalMessagesForLLM: messages.length,
+      });
+
       // Call LLM with abort signal
       const llmResponse = await this.llm.callLLM(
         llmProvider,
@@ -567,30 +638,71 @@ export class SpeechmaticsVoiceAgent {
         console.log('[Speechmatics] 🔊 TTS disabled - skipping audio generation');
       }
 
+      // DEDUPLICATION: Track the successfully processed message to prevent re-processing
+      this.lastProcessedMessage = {
+        content: this.lastSentUserMessage.trim().toLowerCase(),
+        timestamp: Date.now(),
+      };
+
+      // Clear the sent message tracker as response completed successfully
+      this.lastSentUserMessage = '';
+
       // Process queued messages
       if (this.userMessageQueue.length > 0) {
+        console.log(`[Speechmatics] 📋 Processing queue after response (${this.userMessageQueue.length} pending)`);
         const nextMessage = this.userMessageQueue.shift();
         if (nextMessage) {
+          console.log(`[Speechmatics] ▶️ Dequeued message: "${nextMessage.content.slice(0, 50)}..."`);
           // Process next message (will reset isGeneratingResponse when done)
           await this.processUserMessage(nextMessage.content);
+        } else {
+          console.log('[Speechmatics] ✅ Queue empty after shift, response cycle complete');
+          this.isGeneratingResponse = false;
+        }
+      } else {
+        console.log('[Speechmatics] ✅ No queued messages, response cycle complete');
+        this.isGeneratingResponse = false;
+      }
+    } catch (error) {
+      // Check if error was caused by user aborting (barge-in or continuation)
+      if (error instanceof Error && error.name === 'AbortError') {
+        const reason = this.responseAbortedDueToUserContinuation ? 'user continuation' : 'barge-in';
+        console.log(`[${getTimestamp()}] [Speechmatics] 🛑 LLM request aborted (${reason})`);
+        // Don't treat abort as error - it's expected behavior
+        this.isGeneratingResponse = false;
+        // Keep lastSentUserMessage if aborted due to continuation
+        // (will be compared against new partials)
+        if (!this.responseAbortedDueToUserContinuation) {
+          this.lastSentUserMessage = '';
+        }
+        // NOTE: Don't process queue on abort - user is still speaking or interrupted
+        // The new/complete message will arrive through normal flow
+        return;
+      }
+
+      console.error('[Speechmatics] ❌ Error processing user message:', error);
+      this.lastSentUserMessage = '';
+      this.onErrorCallback?.(error instanceof Error ? error : new Error(String(error)));
+
+      // CRITICAL: Even on error, try to process queued messages so we don't get stuck
+      if (this.userMessageQueue.length > 0) {
+        console.log(`[Speechmatics] 🔄 Error occurred but processing ${this.userMessageQueue.length} queued messages`);
+        const nextMessage = this.userMessageQueue.shift();
+        if (nextMessage) {
+          // Reset flag before recursive call (it will be set to true again in processUserMessage)
+          this.isGeneratingResponse = false;
+          // Use setTimeout to avoid deep recursion and allow event loop to process
+          setTimeout(() => {
+            this.processUserMessage(nextMessage.content).catch(err => {
+              console.error('[Speechmatics] ❌ Error processing queued message:', err);
+            });
+          }, 100);
         } else {
           this.isGeneratingResponse = false;
         }
       } else {
         this.isGeneratingResponse = false;
       }
-    } catch (error) {
-      // Check if error was caused by user aborting (barge-in)
-      if (error instanceof Error && error.name === 'AbortError') {
-        console.log(`[${getTimestamp()}] [Speechmatics] 🛑 LLM request aborted by user (barge-in)`);
-        // Don't treat abort as error - it's expected behavior
-        this.isGeneratingResponse = false;
-        return;
-      }
-
-      console.error('[Speechmatics] ❌ Error processing user message:', error);
-      this.isGeneratingResponse = false;
-      this.onErrorCallback?.(error instanceof Error ? error : new Error(String(error)));
     } finally {
       // Clear abort controller
       this.llmAbortController = null;
@@ -690,6 +802,8 @@ export class SpeechmaticsVoiceAgent {
       this.conversationHistory = [];
       this.userMessageQueue = [];
       this.audioDedupe.reset();
+      this.lastSentUserMessage = '';
+      this.responseAbortedDueToUserContinuation = false;
 
       this.onConnectionCallback?.(false);
       
@@ -731,6 +845,54 @@ export class SpeechmaticsVoiceAgent {
   }
 
   /**
+   * Check if new transcript contains significant new content beyond what was already sent
+   * Used to detect when user continues speaking after we started generating a response
+   */
+  private hasSignificantNewContent(newTranscript: string, sentMessage: string): boolean {
+    // Normalize both for comparison
+    const normalizeText = (text: string) => text
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '') // Remove accents
+      .replace(/[.,!?;:'"«»\-–—…()[\]{}]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    const normalizedNew = normalizeText(newTranscript);
+    const normalizedSent = normalizeText(sentMessage);
+
+    // If new is shorter or same length, likely just a variation/repetition
+    if (normalizedNew.length <= normalizedSent.length) {
+      return false;
+    }
+
+    // Check if new content starts with sent content (continuation)
+    if (normalizedNew.startsWith(normalizedSent)) {
+      // Calculate new words added
+      const newPortion = normalizedNew.substring(normalizedSent.length).trim();
+      const newWords = newPortion.split(/\s+/).filter(w => w.length > 1);
+      // Require at least 3 new words to consider it significant continuation
+      if (newWords.length >= 3) {
+        console.log('[Speechmatics] 📝 Detected continuation:', newWords.length, 'new words');
+        return true;
+      }
+    }
+
+    // Check word-based: count new words not in sent message
+    const sentWords = new Set(normalizedSent.split(/\s+/).filter(w => w.length > 1));
+    const newWords = normalizedNew.split(/\s+/).filter(w => w.length > 1);
+    const genuinelyNewWords = newWords.filter(w => !sentWords.has(w));
+
+    // If 3+ genuinely new words, user is continuing
+    if (genuinelyNewWords.length >= 3) {
+      console.log('[Speechmatics] 📝 Detected new words:', genuinelyNewWords.slice(0, 5).join(', '));
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
    * Abort current assistant response (called when user interrupts)
    * Stops ElevenLabs playback, clears assistant interim message, and cancels in-flight LLM request
    */
@@ -760,4 +922,5 @@ export class SpeechmaticsVoiceAgent {
     // Reset generation state
     this.isGeneratingResponse = false;
   }
+
 }

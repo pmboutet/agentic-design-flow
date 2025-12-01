@@ -29,10 +29,19 @@ export class SpeechmaticsAudio {
   
   private lastUserSpeechTimestamp: number = 0;
   private lastBargeInTime: number = 0;
-  private readonly BARGE_IN_COOLDOWN_MS = 750;
+  private readonly BARGE_IN_COOLDOWN_MS = 1500; // Increased from 750ms to prevent echo-triggered barge-ins
   private readonly BASE_VAD_RMS_THRESHOLD = 0.015; // ~-36 dB threshold (base)
   private vadRmsThreshold: number = 0.015; // Dynamic threshold based on sensitivity
   private readonly VAD_SAMPLE_STRIDE = 4;
+
+  // Grace period after audio playback ends to prevent echo-triggered barge-ins
+  // The microphone may still pick up residual echo for 1-2 seconds after playback stops
+  private lastAudioPlaybackEndTime: number = 0;
+  private readonly AUDIO_PLAYBACK_GRACE_PERIOD_MS = 2000; // 2 seconds grace period after audio ends
+
+  // Timer to clear currentAssistantSpeech after grace period
+  // We keep the assistant speech text for echo detection even after audio stops
+  private clearAssistantSpeechTimer: NodeJS.Timeout | null = null;
 
   // Semantic barge-in detection state
   private bargeInPendingValidation: boolean = false;
@@ -229,10 +238,11 @@ export class SpeechmaticsAudio {
         if (this.recentVoiceActivity.length > this.VAD_WINDOW_SIZE) {
           this.recentVoiceActivity.shift();
         }
-        
-        // Calculate if we have recent voice activity (at least 2 out of last 5 chunks)
+
+        // Calculate if we have recent voice activity
+        // Increased from 2 to 3 out of 5 chunks to reduce false positives from brief noise/echo
         const activeChunks = this.recentVoiceActivity.filter(v => v).length;
-        this.hasRecentVoiceActivity = activeChunks >= 2;
+        this.hasRecentVoiceActivity = activeChunks >= 3;
         
         // Adaptive noise gate: Only send audio chunks if we have recent voice activity
         // This filters out background noise and distant conversations while allowing
@@ -287,6 +297,13 @@ export class SpeechmaticsAudio {
 
     // Clear barge-in validation state
     this.cancelBargeInValidation();
+
+    // Clear assistant speech clearing timer
+    if (this.clearAssistantSpeechTimer) {
+      clearTimeout(this.clearAssistantSpeechTimer);
+      this.clearAssistantSpeechTimer = null;
+    }
+    this.currentAssistantSpeech = '';
 
     console.log('[Speechmatics] ✅ Flags set: isMicrophoneActive=false, isMuted=false');
 
@@ -547,6 +564,10 @@ export class SpeechmaticsAudio {
       } else {
         this.isPlayingAudio = false;
         this.nextStartTime = this.audioContext ? this.audioContext.currentTime : 0;
+        // Record when audio playback ended for grace period tracking
+        // This helps prevent echo-triggered barge-ins right after audio stops
+        this.lastAudioPlaybackEndTime = Date.now();
+        console.log(`[Speechmatics Audio #${this.instanceId}] 🔊 Audio playback ended - grace period started (${this.AUDIO_PLAYBACK_GRACE_PERIOD_MS}ms)`);
       }
     };
 
@@ -554,19 +575,24 @@ export class SpeechmaticsAudio {
   }
 
   stopAgentSpeech(applyFade: boolean = true): void {
+    // Record when audio stopped for grace period tracking
+    this.lastAudioPlaybackEndTime = Date.now();
+
     if (!this.audioContext) {
       this.audioPlaybackQueue = [];
       this.isPlayingAudio = false;
       this.currentAudioSource = null;
       this.currentGainNode = null;
-      this.currentAssistantSpeech = ''; // Clear current speech
+      // Schedule clearing of assistant speech after grace period (for echo detection)
+      this.scheduleClearAssistantSpeech();
       return;
     }
 
     if (!this.currentAudioSource) {
       this.audioPlaybackQueue = [];
       this.isPlayingAudio = false;
-      this.currentAssistantSpeech = ''; // Clear current speech
+      // Schedule clearing of assistant speech after grace period (for echo detection)
+      this.scheduleClearAssistantSpeech();
       return;
     }
 
@@ -606,8 +632,28 @@ export class SpeechmaticsAudio {
       source.disconnect();
       this.currentAudioSource = null;
       this.currentGainNode = null;
-      this.currentAssistantSpeech = ''; // Clear current speech
+      // DON'T clear currentAssistantSpeech immediately - keep it for echo detection
+      // Schedule clearing after grace period instead
+      this.scheduleClearAssistantSpeech();
     }
+  }
+
+  /**
+   * Schedule clearing of currentAssistantSpeech after grace period
+   * This keeps the text available for echo detection while residual echo may still be captured
+   */
+  private scheduleClearAssistantSpeech(): void {
+    // Clear any existing timer
+    if (this.clearAssistantSpeechTimer) {
+      clearTimeout(this.clearAssistantSpeechTimer);
+    }
+
+    // Schedule clearing after grace period
+    this.clearAssistantSpeechTimer = setTimeout(() => {
+      console.log(`[Speechmatics Audio #${this.instanceId}] 🧹 Grace period ended - clearing assistant speech for echo detection`);
+      this.currentAssistantSpeech = '';
+      this.clearAssistantSpeechTimer = null;
+    }, this.AUDIO_PLAYBACK_GRACE_PERIOD_MS);
   }
 
   private detectVoiceActivity(chunk: Int16Array): boolean {
@@ -641,6 +687,7 @@ export class SpeechmaticsAudio {
   /**
    * Hybrid voice activity detection using RMS + spectral energy
    * More accurate than RMS-only detection
+   * Uses stricter criteria when audio is playing to prevent echo detection
    */
   private detectVoiceActivityHybrid(chunk: Int16Array): boolean {
     if (!chunk.length) {
@@ -661,29 +708,38 @@ export class SpeechmaticsAudio {
     }
 
     const rms = Math.sqrt(sumSquares / samples);
-    
+
     // Calculate spectral energy in vocal frequency range (300-3400 Hz)
     // Simple approximation: use high-frequency content as proxy
     const spectralEnergy = this.calculateSpectralEnergy(chunk);
-    
+
     // Update spectral energy history
     this.spectralEnergyHistory.push(spectralEnergy);
     if (this.spectralEnergyHistory.length > this.SPECTRAL_HISTORY_SIZE) {
       this.spectralEnergyHistory.shift();
     }
-    
+
     // Use adaptive threshold if enabled
-    const threshold = this.enableAdaptiveSensitivity 
-      ? this.getAdaptiveThreshold() 
+    const threshold = this.enableAdaptiveSensitivity
+      ? this.getAdaptiveThreshold()
       : this.vadRmsThreshold;
-    
+
     // Multi-criteria decision:
     // 1. RMS above threshold (basic energy)
     // 2. Spectral energy indicates voice frequencies
     const rmsCheck = rms > threshold;
-    const spectralCheck = spectralEnergy > threshold * 0.5; // Lower threshold for spectral
-    
-    // Voice detected if either criterion is met (OR logic)
+    // Increased spectral threshold from 0.5 to 0.75 to reduce false positives from echo
+    const spectralCheck = spectralEnergy > threshold * 0.75;
+
+    // When audio is playing, use STRICTER criteria (AND logic) to prevent echo detection
+    // The speaker output creates both RMS and spectral energy that can trigger false positives
+    if (this.isPlayingAudio) {
+      // Both conditions must be met when audio is playing
+      // This significantly reduces echo-triggered barge-ins
+      return rmsCheck && spectralCheck;
+    }
+
+    // When no audio is playing, use standard criteria (OR logic)
     // This allows detection of quiet speech with good spectral characteristics
     return rmsCheck || spectralCheck;
   }
@@ -776,6 +832,15 @@ export class SpeechmaticsAudio {
       return;
     }
 
+    // CRITICAL: Check if we're in the grace period after audio playback ended
+    // This prevents echo-triggered barge-ins when residual audio is still in the room
+    const timeSincePlaybackEnded = now - this.lastAudioPlaybackEndTime;
+    if (this.lastAudioPlaybackEndTime > 0 && timeSincePlaybackEnded < this.AUDIO_PLAYBACK_GRACE_PERIOD_MS) {
+      const timestamp = new Date().toISOString().split('T')[1].replace('Z', '');
+      console.log(`[${timestamp}] [Speechmatics Audio] ⏸️ Within grace period (${timeSincePlaybackEnded}ms/${this.AUDIO_PLAYBACK_GRACE_PERIOD_MS}ms) - ignoring potential echo`);
+      return;
+    }
+
     // If barge-in is already pending validation, don't trigger again
     if (this.bargeInPendingValidation) {
       return;
@@ -837,14 +902,23 @@ export class SpeechmaticsAudio {
       return false;
     }
 
+    // CRITICAL: Check if we're in the grace period after audio playback ended
+    // Even if barge-in is pending, we should be extra cautious during this period
+    const now = Date.now();
+    const timeSincePlaybackEnded = now - this.lastAudioPlaybackEndTime;
+    const inGracePeriod = this.lastAudioPlaybackEndTime > 0 && timeSincePlaybackEnded < this.AUDIO_PLAYBACK_GRACE_PERIOD_MS;
+
     const cleanedTranscript = transcript.trim();
     const words = cleanedTranscript.split(/\s+/).filter(Boolean);
 
-    // Quick check: Need at least 10 words for validation to be meaningful
-    // This prevents false positives from short echo fragments
-    if (words.length < 10) {
+    // During grace period, require slightly more words to be safe against echo
+    // REDUCED from 15/20 to 5/8 to allow legitimate interruptions
+    const requiredWords = inGracePeriod ? 8 : 5;
+
+    // Quick check: Need minimum words for validation to be meaningful
+    if (words.length < requiredWords) {
       const timestamp = new Date().toISOString().split('T')[1].replace('Z', '');
-      console.log(`[${timestamp}] [Speechmatics Audio] ⏸️ Transcript too short (${words.length}/10 words) - waiting for more...`);
+      console.log(`[${timestamp}] [Speechmatics Audio] ⏸️ Transcript too short (${words.length}/${requiredWords} words${inGracePeriod ? ' - grace period active' : ''}) - waiting for more...`);
       return false;
     }
 
@@ -902,10 +976,10 @@ export class SpeechmaticsAudio {
     }
 
     // Fallback: Simple validation if AI is disabled or failed
-    // Require minimum 10 words for fallback mode (same as main validation)
-    if (words.length < 10) {
+    // Use same reduced word count threshold (5/8 words) as main validation
+    if (words.length < requiredWords) {
       const timestamp = new Date().toISOString().split('T')[1].replace('Z', '');
-      console.log(`[${timestamp}] [Speechmatics Audio] ⏸️ Fallback mode: Need 10+ words (${words.length}/10)`);
+      console.log(`[${timestamp}] [Speechmatics Audio] ⏸️ Fallback mode: Need ${requiredWords}+ words (${words.length}/${requiredWords})`);
       return false;
     }
 
@@ -954,20 +1028,28 @@ export class SpeechmaticsAudio {
 
     const similarity = matchedWords / transcriptWords.length;
 
-    // If 60% or more of the transcript words are in the assistant speech, it's likely an echo
-    // This threshold catches partial echoes while allowing genuine user interruptions
-    if (similarity >= 0.6) {
+    // If 40% or more of the transcript words are in the assistant speech, it's likely an echo
+    // Lowered from 60% to catch more partial echoes - the microphone often only captures
+    // fragments of what the speaker is saying due to acoustic conditions
+    if (similarity >= 0.4) {
       return { isEcho: true, similarity, matchType: 'fuzzy-words' };
     }
 
     // Check 3: Sliding window - check if any consecutive sequence of transcript words
     // appears in the assistant speech (catches fragmented echoes)
-    const windowSize = Math.min(5, Math.floor(transcriptWords.length / 2));
-    if (windowSize >= 3) {
+    // Use multiple window sizes from 2 to 7 words to catch various echo patterns
+    const maxWindowSize = Math.min(7, Math.floor(transcriptWords.length / 2));
+    const minWindowSize = 2; // Detect even 2-word sequences that match
+
+    for (let windowSize = maxWindowSize; windowSize >= minWindowSize; windowSize--) {
+      if (windowSize > transcriptWords.length) continue;
+
       for (let i = 0; i <= transcriptWords.length - windowSize; i++) {
         const windowPhrase = transcriptWords.slice(i, i + windowSize).join(' ');
         if (normalizedAssistant.includes(windowPhrase)) {
-          return { isEcho: true, similarity: 0.7, matchType: 'fuzzy-words' };
+          // Larger windows = higher confidence of echo
+          const windowConfidence = 0.5 + (windowSize * 0.1); // 0.7 for 2 words, up to 1.2 for 7 words
+          return { isEcho: true, similarity: Math.min(1.0, windowConfidence), matchType: 'fuzzy-words' };
         }
       }
     }
@@ -1049,6 +1131,14 @@ export class SpeechmaticsAudio {
 
   updateWebSocket(ws: WebSocket | null): void {
     this.ws = ws;
+  }
+
+  /**
+   * Check if audio is currently playing (TTS playback)
+   * Used for barge-in detection and echo filtering
+   */
+  isPlaying(): boolean {
+    return this.isPlayingAudio;
   }
 
   /**
