@@ -145,7 +145,8 @@ interface ForceGraphData {
 function buildForceGraphData(payload: GraphPayload): ForceGraphData {
   const nodes: ForceGraphNode[] = payload.nodes.map((node) => {
     const color = nodeColors[node.type] || nodeColors.default;
-    const val = node.type === "insight" ? 8 : node.type === "challenge" ? 6 : node.type === "synthesis" ? 7 : 4;
+    // Smaller node sizes
+    const val = node.type === "insight" ? 4 : node.type === "challenge" ? 3.5 : node.type === "synthesis" ? 3.5 : 2.5;
 
     return {
       id: node.id,
@@ -365,11 +366,11 @@ export function ProjectGraphVisualization({ projectId, refreshKey }: ProjectGrap
     // Draw label
     if (showLabel) {
       const label = node.name;
-      // Smaller font size, capped between 8 and 14 pixels
-      const fontSize = Math.min(14, Math.max(8, 10 / globalScale));
+      // Much smaller font size, capped between 3 and 6 pixels
+      const fontSize = Math.min(6, Math.max(3, 5 / globalScale));
       ctx.font = `${fontSize}px Sans-Serif`;
       const textWidth = ctx.measureText(label).width;
-      const bckgDimensions = [textWidth + fontSize * 0.3, fontSize + fontSize * 0.3];
+      const bckgDimensions = [textWidth + fontSize * 0.2, fontSize + fontSize * 0.2];
 
       // Background
       ctx.fillStyle = `rgba(15, 23, 42, ${alpha * 0.85})`;
@@ -551,6 +552,16 @@ export function ProjectGraphVisualization({ projectId, refreshKey }: ProjectGrap
                   width={dimensions.width}
                   height={dimensions.height}
                   cooldownTicks={100}
+                  d3AlphaDecay={0.02}
+                  d3VelocityDecay={0.3}
+                  d3Force={(engine: any) => {
+                    // Increase repulsion between nodes
+                    engine.force('charge')?.strength(-150);
+                    // Increase link distance
+                    engine.force('link')?.distance(80);
+                    // Add collision detection to prevent overlap
+                    engine.force('collide', null);
+                  }}
                   onEngineStop={() => fgRef.current?.zoomToFit(400, 50)}
                 />
               )}
