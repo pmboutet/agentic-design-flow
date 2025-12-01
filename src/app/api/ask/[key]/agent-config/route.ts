@@ -5,7 +5,6 @@ import { isValidAskKey } from '@/lib/utils';
 import { normaliseMessageMetadata } from '@/lib/messages';
 import { buildConversationAgentVariables } from '@/lib/ai/conversation-agent';
 import { getConversationPlanWithSteps } from '@/lib/ai/conversation-plan';
-import { getOrCreateConversationThread } from '@/lib/asks';
 
 interface AskSessionRow {
   id: string;
@@ -355,10 +354,15 @@ export async function GET(
     // Fetch conversation plan with steps (for step-aware prompt variables)
     let conversationPlan = null;
     try {
-      // Get or create conversation thread to find plan
-      const thread = await getOrCreateConversationThread(supabase, askSession.id, null);
-      if (thread?.id) {
-        conversationPlan = await getConversationPlanWithSteps(supabase, thread.id);
+      // Get conversation thread for this ask session
+      const { data: threadData } = await supabase
+        .from('conversation_threads')
+        .select('id')
+        .eq('ask_session_id', askSession.id)
+        .maybeSingle();
+
+      if (threadData?.id) {
+        conversationPlan = await getConversationPlanWithSteps(supabase, threadData.id);
       }
     } catch (planError) {
       console.warn('[agent-config] Could not load conversation plan:', planError);
