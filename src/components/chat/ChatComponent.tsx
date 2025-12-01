@@ -815,7 +815,7 @@ function MessageBubble({
                   )}
                 </Button>
               </div>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-xs text-white/80">
                 Les messages suivants seront supprimés et la conversation reprendra depuis ce point.
               </p>
             </div>
