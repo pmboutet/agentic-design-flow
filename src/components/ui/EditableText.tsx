@@ -11,6 +11,8 @@ interface EditableTextProps {
   className?: string;
   textClassName?: string;
   disabled?: boolean;
+  /** Start in edit mode immediately */
+  autoFocus?: boolean;
 }
 
 export function EditableText({
@@ -20,8 +22,9 @@ export function EditableText({
   className,
   textClassName,
   disabled = false,
+  autoFocus = false,
 }: EditableTextProps) {
-  const [isEditing, setIsEditing] = useState(false);
+  const [isEditing, setIsEditing] = useState(autoFocus);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const adjustHeight = () => {

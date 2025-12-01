@@ -160,6 +160,7 @@ function SuggestionCard({
   onDismissNewSubChallenge,
 }: SuggestionCardProps) {
   const [draft, setDraft] = useState<AiChallengeUpdateSuggestion>(() => cloneChallengeSuggestion(suggestion));
+  const [isEditingDescription, setIsEditingDescription] = useState(false);
 
   useEffect(() => {
     setDraft(cloneChallengeSuggestion(suggestion));
@@ -366,14 +367,23 @@ function SuggestionCard({
         {updatedDescription && updatedDescription !== originalDescription ? (
           <div>
             <SectionTitle>Description</SectionTitle>
-            <AiDiffView previous={originalDescription} next={updatedDescription} className="mt-2" />
-            <EditableText
-              value={updatedDescription ?? ""}
-              onChange={value => handleUpdateField("description", value)}
-              placeholder="Description mise à jour"
-              className="mt-3 border-slate-700 bg-slate-900/80 text-slate-100"
-              disabled={applyingChallengeUpdate}
-            />
+            {isEditingDescription ? (
+              <EditableText
+                value={updatedDescription ?? ""}
+                onChange={value => handleUpdateField("description", value)}
+                placeholder="Description mise à jour"
+                className="mt-2 border-slate-700 bg-slate-900/80 text-slate-100"
+                disabled={applyingChallengeUpdate}
+                autoFocus
+              />
+            ) : (
+              <AiDiffView
+                previous={originalDescription}
+                next={updatedDescription}
+                className="mt-2"
+                onEdit={() => setIsEditingDescription(true)}
+              />
+            )}
           </div>
         ) : null}
 
