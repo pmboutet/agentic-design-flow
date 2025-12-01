@@ -2,10 +2,11 @@
 
 import { useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Lightbulb, Filter, Link2, MessageSquareQuote } from "lucide-react";
+import { Lightbulb, Filter, Link2, MessageSquareQuote, Pencil, Check, X, Loader2 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import type { Components } from "react-markdown";
-import { InsightPanelProps, Insight } from "@/types";
+import { InsightPanelProps, Insight, ApiResponse } from "@/types";
+import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { cn, formatRelativeDate, getInsightTypeLabel } from "@/lib/utils";
@@ -59,7 +60,19 @@ const INSIGHT_GROUPS: InsightGroup[] = [
   { label: "Idées", value: "idea" }
 ];
 
-function InsightCard({ insight, onLink }: { insight: Insight; onLink?: (insightId: string) => void }) {
+function InsightCard({
+  insight,
+  onLink,
+  onUpdate,
+}: {
+  insight: Insight;
+  onLink?: (insightId: string) => void;
+  onUpdate?: (insightId: string, newContent: string) => void;
+}) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [editContent, setEditContent] = useState(insight.content);
+  const [isSaving, setIsSaving] = useState(false);
+
   const authorNames = (insight.authors ?? [])
     .map((author) => (author?.name ?? '').trim())
     .filter((name): name is string => name.length > 0);
@@ -68,6 +81,42 @@ function InsightCard({ insight, onLink }: { insight: Insight; onLink?: (insightI
     const raw = (insight.category ?? '').trim();
     return raw.length > 0 ? raw : "Analyse IA";
   })();
+
+  const handleStartEdit = () => {
+    setEditContent(insight.summary || insight.content || "");
+    setIsEditing(true);
+  };
+
+  const handleCancelEdit = () => {
+    setEditContent(insight.content);
+    setIsEditing(false);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editContent.trim()) return;
+
+    setIsSaving(true);
+    try {
+      const response = await fetch(`/api/insights/${insight.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: editContent.trim() }),
+      });
+
+      const result: ApiResponse<{ id: string; content: string; updatedAt: string }> = await response.json();
+
+      if (result.success && result.data) {
+        onUpdate?.(insight.id, result.data.content);
+        setIsEditing(false);
+      } else {
+        console.error("Failed to save insight:", result.error);
+      }
+    } catch (error) {
+      console.error("Error saving insight:", error);
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   return (
     <motion.div
@@ -79,7 +128,7 @@ function InsightCard({ insight, onLink }: { insight: Insight; onLink?: (insightI
       className="neumorphic-shadow rounded-lg border border-border/60 bg-white/70 px-3 py-2"
     >
       <div className="flex items-start justify-between gap-2">
-        <div className="space-y-1.5">
+        <div className="flex-1 space-y-1.5">
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="inline-flex items-center rounded-full border border-primary/50 bg-white/80 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
               {getInsightTypeLabel(insight.type)}
@@ -93,20 +142,66 @@ function InsightCard({ insight, onLink }: { insight: Insight; onLink?: (insightI
               </span>
             )}
           </div>
-          {(() => {
-            const insightContent = (insight.summary || insight.content || "").trim();
-            if (!insightContent) {
-              return null;
-            }
-            return (
-              <ReactMarkdown
-                className="space-y-2"
-                components={insightMarkdownComponents}
-              >
-                {insightContent}
-              </ReactMarkdown>
-            );
-          })()}
+          {isEditing ? (
+            <div className="space-y-2">
+              <Textarea
+                value={editContent}
+                onChange={(e) => setEditContent(e.target.value)}
+                className="min-h-[60px] w-full resize-none text-xs leading-relaxed bg-white/90 border-primary/30 focus:border-primary"
+                style={{ height: "auto", overflow: "hidden" }}
+                onInput={(e) => {
+                  const target = e.target as HTMLTextAreaElement;
+                  target.style.height = "auto";
+                  target.style.height = `${target.scrollHeight}px`;
+                }}
+                autoFocus
+                disabled={isSaving}
+              />
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6"
+                  onClick={handleSaveEdit}
+                  disabled={isSaving || !editContent.trim()}
+                  title="Enregistrer"
+                >
+                  {isSaving ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <Check className="h-3 w-3 text-emerald-600" />
+                  )}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6"
+                  onClick={handleCancelEdit}
+                  disabled={isSaving}
+                  title="Annuler"
+                >
+                  <X className="h-3 w-3 text-red-500" />
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <>
+              {(() => {
+                const insightContent = (insight.summary || insight.content || "").trim();
+                if (!insightContent) {
+                  return null;
+                }
+                return (
+                  <ReactMarkdown
+                    className="space-y-2"
+                    components={insightMarkdownComponents}
+                  >
+                    {insightContent}
+                  </ReactMarkdown>
+                );
+              })()}
+            </>
+          )}
           {insight.kpis?.length ? (
             <div className="rounded-md bg-slate-50 px-2 py-1.5">
               <p className="mb-0.5 text-[10px] font-semibold text-slate-600">KPIs associés</p>
@@ -131,23 +226,36 @@ function InsightCard({ insight, onLink }: { insight: Insight; onLink?: (insightI
             ) : null}
           </div>
         </div>
-        {onLink && (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-6 w-6 shrink-0"
-            onClick={() => onLink(insight.id)}
-            title="Associer à un challenge"
-          >
-            <Link2 className="h-3 w-3" />
-          </Button>
-        )}
+        <div className="flex flex-col gap-1 shrink-0">
+          {!isEditing && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6"
+              onClick={handleStartEdit}
+              title="Modifier l'insight"
+            >
+              <Pencil className="h-3 w-3 text-slate-500 hover:text-primary" />
+            </Button>
+          )}
+          {onLink && !isEditing && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6"
+              onClick={() => onLink(insight.id)}
+              title="Associer à un challenge"
+            >
+              <Link2 className="h-3 w-3" />
+            </Button>
+          )}
+        </div>
       </div>
     </motion.div>
   );
 }
 
-export function InsightPanel({ insights, askKey, onRequestChallengeLink, isDetectingInsights = false }: InsightPanelProps) {
+export function InsightPanel({ insights, askKey, onRequestChallengeLink, onInsightUpdate, isDetectingInsights = false }: InsightPanelProps) {
   const [activeFilter, setActiveFilter] = useState<InsightGroup["value"]>("all");
 
   const filteredInsights = useMemo(() => {
@@ -207,7 +315,7 @@ export function InsightPanel({ insights, askKey, onRequestChallengeLink, isDetec
               </motion.div>
             ) : (
               filteredInsights.map((insight) => (
-                <InsightCard key={insight.id} insight={insight} onLink={onRequestChallengeLink} />
+                <InsightCard key={insight.id} insight={insight} onLink={onRequestChallengeLink} onUpdate={onInsightUpdate} />
               ))
             )}
           </AnimatePresence>
