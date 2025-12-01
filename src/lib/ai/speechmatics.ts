@@ -347,6 +347,12 @@ export class SpeechmaticsVoiceAgent {
                 this.conversationHistory[this.conversationHistory.length - 1]?.role === 'user') {
               this.conversationHistory.pop();
             }
+            // CRITICAL: Clear the message queue since those are now stale fragments
+            // The transcription manager will send the complete message when user finishes
+            if (this.userMessageQueue.length > 0) {
+              console.log(`[Speechmatics] 🧹 Clearing ${this.userMessageQueue.length} stale queued messages`);
+              this.userMessageQueue = [];
+            }
           }
         }
 

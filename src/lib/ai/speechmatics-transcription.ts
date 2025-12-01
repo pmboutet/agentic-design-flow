@@ -77,9 +77,10 @@ export class TranscriptionManager {
   private readonly SILENCE_DETECTION_TIMEOUT = 2000;
   // Timeout plus rapide (800ms) quand les partials sont désactivés
   private readonly SILENCE_DETECTION_TIMEOUT_NO_PARTIALS = 800;
-  // Délai de finalisation de l'énoncé (600ms) - réduit grâce à la fonctionnalité abort-on-continue
+  // Délai de finalisation de l'énoncé (800ms) - réduit grâce à la fonctionnalité abort-on-continue
   // Si l'utilisateur continue de parler après ce délai, la réponse sera annulée
-  private readonly UTTERANCE_FINALIZATION_DELAY = 600;
+  // 800ms is a good balance: fast enough for responsive feel, slow enough to avoid fragmentation
+  private readonly UTTERANCE_FINALIZATION_DELAY = 800;
   // Longueur minimale d'un énoncé en caractères (pour éviter les fragments trop courts)
   private readonly MIN_UTTERANCE_CHAR_LENGTH = 20;
   // Nombre minimal de mots dans un énoncé (pour éviter les fragments trop courts)
