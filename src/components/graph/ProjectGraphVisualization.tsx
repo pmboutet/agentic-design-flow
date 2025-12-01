@@ -366,12 +366,12 @@ export function ProjectGraphVisualization({ projectId, refreshKey }: ProjectGrap
     // Draw label
     if (showLabel) {
       const label = node.name;
-      // Much smaller font size, capped between 3 and 6 pixels
-      const fontSize = Math.min(6, Math.max(3, 5 / globalScale));
+      // Very small font size, capped between 1.5 and 3.5 pixels
+      const fontSize = Math.min(3.5, Math.max(1.5, 2.5 / globalScale));
       ctx.font = `${fontSize}px Sans-Serif`;
 
-      // Word wrap for long labels
-      const maxWidth = 60 / globalScale;
+      // Word wrap for long labels - wider to show more text
+      const maxWidth = 120 / globalScale;
       const words = label.split(' ');
       const lines: string[] = [];
       let currentLine = '';
@@ -388,10 +388,10 @@ export function ProjectGraphVisualization({ projectId, refreshKey }: ProjectGrap
       }
       if (currentLine) lines.push(currentLine);
 
-      // Limit to 3 lines max
-      const displayLines = lines.slice(0, 3);
-      if (lines.length > 3) {
-        displayLines[2] = displayLines[2].slice(0, -3) + '...';
+      // Limit to 5 lines max
+      const displayLines = lines.slice(0, 5);
+      if (lines.length > 5) {
+        displayLines[4] = displayLines[4].slice(0, -3) + '...';
       }
 
       const lineHeight = fontSize * 1.2;
@@ -591,13 +591,13 @@ export function ProjectGraphVisualization({ projectId, refreshKey }: ProjectGrap
                   width={dimensions.width}
                   height={dimensions.height}
                   cooldownTicks={100}
-                  d3AlphaDecay={0.02}
-                  d3VelocityDecay={0.3}
+                  d3AlphaDecay={0.01}
+                  d3VelocityDecay={0.2}
                   d3Force={(engine: any) => {
-                    // Strong repulsion between nodes for long labels
-                    engine.force('charge')?.strength(-500);
-                    // Increase link distance
-                    engine.force('link')?.distance(120);
+                    // Very strong repulsion between nodes
+                    engine.force('charge')?.strength(-2000);
+                    // Much larger link distance
+                    engine.force('link')?.distance(250);
                   }}
                 />
               )}
