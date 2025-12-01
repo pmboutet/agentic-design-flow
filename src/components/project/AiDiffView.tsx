@@ -4,8 +4,6 @@ import { useMemo } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Pencil } from "lucide-react";
-import ReactMarkdown from "react-markdown";
-import type { Components } from "react-markdown";
 
 type DiffTokenType = "added" | "removed" | "unchanged";
 
@@ -179,19 +177,6 @@ function computeLineThenWordDiff(previous: string, next: string): DiffToken[] {
   return merged;
 }
 
-// Markdown components for rendering the final text
-const markdownComponents: Components = {
-  p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
-  ul: ({ children }) => <ul className="mb-2 list-disc pl-4">{children}</ul>,
-  ol: ({ children }) => <ol className="mb-2 list-decimal pl-4">{children}</ol>,
-  li: ({ children }) => <li className="mb-1">{children}</li>,
-  strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
-  em: ({ children }) => <em className="italic">{children}</em>,
-  code: ({ children }) => (
-    <code className="rounded bg-slate-800 px-1 py-0.5 text-xs">{children}</code>
-  ),
-};
-
 interface AiDiffViewProps {
   previous: string;
   next: string;
@@ -222,57 +207,45 @@ export function AiDiffView({ previous, next, className, onEdit }: AiDiffViewProp
           variant="ghost"
           size="icon"
           onClick={onEdit}
-          className="absolute right-2 top-2 h-6 w-6 text-slate-500 opacity-0 transition-opacity group-hover:opacity-100 hover:text-slate-200"
+          className="absolute right-2 top-2 h-6 w-6 text-slate-500 opacity-0 transition-opacity group-hover:opacity-100 hover:text-slate-200 z-10"
           title="Modifier"
         >
           <Pencil className="h-3.5 w-3.5" />
         </Button>
       )}
 
-      {/* Final text with markdown rendering */}
-      <div className="p-3 pr-10 text-slate-200 leading-relaxed">
-        <ReactMarkdown components={markdownComponents}>
-          {next ?? ""}
-        </ReactMarkdown>
-      </div>
+      {/* Diff with colored changes */}
+      <div className="p-3 pr-10 whitespace-pre-wrap leading-relaxed">
+        {tokens.map((token, index) => {
+          if (token.type === "unchanged") {
+            return (
+              <span key={index} className="text-slate-200">
+                {token.value}
+              </span>
+            );
+          }
 
-      {/* Diff section showing changes */}
-      <div className="border-t border-slate-700 bg-slate-950/40 p-3">
-        <div className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">
-          Modifications
-        </div>
-        <div className="whitespace-pre-wrap leading-relaxed text-xs">
-          {tokens.map((token, index) => {
-            if (token.type === "unchanged") {
-              return (
-                <span key={index} className="text-slate-400">
-                  {token.value}
-                </span>
-              );
-            }
-
-            if (token.type === "removed") {
-              return (
-                <span
-                  key={index}
-                  className="bg-rose-500/20 text-rose-300 line-through decoration-rose-400/60"
-                >
-                  {token.value}
-                </span>
-              );
-            }
-
-            // added
+          if (token.type === "removed") {
             return (
               <span
                 key={index}
-                className="bg-emerald-500/20 text-emerald-300"
+                className="bg-rose-500/20 text-rose-300 line-through decoration-rose-400/60"
               >
                 {token.value}
               </span>
             );
-          })}
-        </div>
+          }
+
+          // added
+          return (
+            <span
+              key={index}
+              className="bg-emerald-500/20 text-emerald-300"
+            >
+              {token.value}
+            </span>
+          );
+        })}
       </div>
     </div>
   );
