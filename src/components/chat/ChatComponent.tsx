@@ -570,9 +570,9 @@ export function ChatComponent({
 
         {/* Input area */}
         {!isVoiceMode && (
-          <div 
+          <div
             className={cn(
-              "relative border rounded-lg p-3 transition-colors min-w-0 max-w-full",
+              "relative border rounded-lg p-2 sm:p-3 transition-colors min-w-0 max-w-full box-border",
               isDragOver && "border-primary bg-primary/5"
             )}
             onDragOver={handleDragOver}
@@ -585,7 +585,7 @@ export function ChatComponent({
                   value={inputValue}
                   onChange={(e) => handleInputChange(e.target.value)}
                   placeholder="Type your response..."
-                  className="border-0 shadow-none resize-none min-h-[60px] focus-visible:ring-0 w-full max-w-full min-w-0"
+                  className="border-0 shadow-none resize-none min-h-[60px] focus-visible:ring-0 focus-visible:ring-offset-0 w-full max-w-full min-w-0 box-border text-base"
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && !e.shiftKey) {
                       e.preventDefault();
