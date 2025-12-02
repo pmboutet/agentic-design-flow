@@ -548,7 +548,7 @@ export function ChatComponent({
                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary/30" />
                 <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-primary/40" />
               </span>
-              <span className="italic">L'agent est en train de répondre</span>
+              <span className="italic">Génération de la réponse en cours...</span>
             </motion.div>
           )}
         </AnimatePresence>
