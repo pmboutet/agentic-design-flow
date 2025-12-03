@@ -79,7 +79,8 @@ export class SpeechmaticsAudio {
     private audioDedupe: AudioChunkDedupe,
     private onAudioChunk: (chunk: Int16Array) => void,
     private ws: WebSocket | null,
-    private onBargeIn?: () => void
+    private onBargeIn?: () => void,
+    private onAudioPlaybackEnd?: () => void
   ) {
     this.instanceId = ++SpeechmaticsAudio.instanceCounter;
     this.isFirefox = typeof navigator !== 'undefined' && navigator.userAgent.includes('Firefox');
@@ -568,6 +569,8 @@ export class SpeechmaticsAudio {
         // This helps prevent echo-triggered barge-ins right after audio stops
         this.lastAudioPlaybackEndTime = Date.now();
         console.log(`[Speechmatics Audio #${this.instanceId}] 🔊 Audio playback ended - grace period started (${this.AUDIO_PLAYBACK_GRACE_PERIOD_MS}ms)`);
+        // Notify parent that audio playback has ended (for inactivity timer)
+        this.onAudioPlaybackEnd?.();
       }
     };
 

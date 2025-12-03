@@ -227,6 +227,9 @@ export function useInactivityMonitor(
   /**
    * Record assistant activity
    * @param isFinal - Whether this is the final message (not interim)
+   * Note: For final messages, the timer stays paused until onAudioPlaybackEnd is called
+   * from the TTS system. This ensures the inactivity timer only starts after the
+   * user has had a chance to hear the full response.
    */
   const recordAssistantActivity = useCallback((isFinal: boolean = false) => {
     const timestamp = new Date().toISOString().split('T')[1].replace('Z', '');
@@ -234,15 +237,11 @@ export function useInactivityMonitor(
     setLastSpeaker('assistant');
     setLastActivityTimestamp(Date.now());
 
-    if (!isFinal) {
-      // Interim message: pause the timer while assistant is speaking
-      pauseTimer();
-    } else {
-      // Final message: resume timer after a delay to account for TTS playback
-      // Estimate ~3 seconds for TTS to finish playing
-      resumeTimerAfterDelay(3000);
-    }
-  }, [pauseTimer, resumeTimerAfterDelay]);
+    // Both interim and final messages keep the timer paused while assistant is speaking
+    // For final messages, the timer will be resumed by onAudioPlaybackEnd callback
+    // when TTS audio actually finishes playing
+    pauseTimer();
+  }, [pauseTimer]);
 
   /**
    * Manually set inactive state

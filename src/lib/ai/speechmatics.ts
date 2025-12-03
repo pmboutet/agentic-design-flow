@@ -131,6 +131,8 @@ export class SpeechmaticsVoiceAgent {
   private onAudioCallback: SpeechmaticsAudioCallback | null = null;
   // Callback pour les événements de détection sémantique
   private onSemanticTurnCallback: ((event: SemanticTurnTelemetryEvent) => void) | null = null;
+  // Callback appelé quand le TTS audio a fini de jouer (pour le timer d'inactivité)
+  private onAudioPlaybackEndCallback: (() => void) | null = null;
 
   /**
    * Constructeur - Initialise les modules core
@@ -152,12 +154,14 @@ export class SpeechmaticsVoiceAgent {
     onConnection?: SpeechmaticsConnectionCallback;
     onAudio?: SpeechmaticsAudioCallback;
     onSemanticTurn?: (event: SemanticTurnTelemetryEvent) => void;
+    onAudioPlaybackEnd?: () => void;
   }) {
     this.onMessageCallback = callbacks.onMessage || null;
     this.onErrorCallback = callbacks.onError || null;
     this.onConnectionCallback = callbacks.onConnection || null;
     this.onAudioCallback = callbacks.onAudio || null;
     this.onSemanticTurnCallback = callbacks.onSemanticTurn || null;
+    this.onAudioPlaybackEndCallback = callbacks.onAudioPlaybackEnd || null;
   }
 
   /**
@@ -275,7 +279,8 @@ export class SpeechmaticsVoiceAgent {
       this.audioDedupe,
       () => {}, // onAudioChunk not needed, handled internally
       this.websocket.getWebSocket(),
-      () => this.abortResponse() // Barge-in callback
+      () => this.abortResponse(), // Barge-in callback
+      () => this.onAudioPlaybackEndCallback?.() // Audio playback end callback (for inactivity timer)
     );
     
     // Update audio with WebSocket reference
