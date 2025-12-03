@@ -1,11 +1,11 @@
 import type { Metadata, Viewport } from "next";
-import { Inter } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/components/auth/AuthProvider";
 import { DevUserSwitcher } from "@/components/dev/DevUserSwitcher";
 import { DevUserSwitcherSpacer } from "@/components/dev/DevUserSwitcherSpacer";
 
-const inter = Inter({ subsets: ["latin"] });
+// Use system font stack as fallback when Google Fonts is unavailable
+const fontClassName = "font-sans";
 
 export const metadata: Metadata = {
   title: "Agentic Design Flow",
@@ -33,7 +33,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={inter.className}>
+      <body className={fontClassName}>
         <AuthProvider>
           <DevUserSwitcher />
           <DevUserSwitcherSpacer />
