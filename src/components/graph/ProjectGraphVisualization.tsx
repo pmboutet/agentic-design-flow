@@ -142,33 +142,92 @@ interface ForceGraphData {
   links: ForceGraphLink[];
 }
 
+/**
+ * Normalize entity label for frontend deduplication
+ * This is a safety net in case API deduplication misses something
+ */
+function normalizeLabel(label: string): string {
+  return label
+    .toLowerCase()
+    .trim()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/^(l'|la |le |les |un |une |des |du |de la |de l')/i, "")
+    .replace(/ (de la |de l'|du |des |d')/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function buildForceGraphData(payload: GraphPayload): ForceGraphData {
-  const nodes: ForceGraphNode[] = payload.nodes.map((node) => {
-    const color = nodeColors[node.type] || nodeColors.default;
-    // Smaller node sizes
-    const val = node.type === "insight" ? 4 : node.type === "challenge" ? 3.5 : node.type === "synthesis" ? 3.5 : 2.5;
+  // Deduplicate nodes by normalized label (safety net)
+  const seenLabels = new Map<string, string>(); // normalized label -> canonical node id
+  const nodeIdMapping = new Map<string, string>(); // original id -> canonical id
 
-    return {
-      id: node.id,
-      name: node.label,
-      type: node.type,
-      label: node.label,
-      subtitle: node.subtitle,
-      color,
-      val,
-    };
-  });
+  // First pass: identify duplicates and map to canonical nodes
+  for (const node of payload.nodes) {
+    // Only deduplicate entity nodes
+    if (node.type === "entity") {
+      const normalizedLabel = normalizeLabel(node.label);
+      const key = `${normalizedLabel}:${node.subtitle || ""}`; // Include subtype
 
-  const links: ForceGraphLink[] = payload.edges.map((edge) => {
+      if (seenLabels.has(key)) {
+        // This is a duplicate, map to canonical
+        nodeIdMapping.set(node.id, seenLabels.get(key)!);
+      } else {
+        // This is the canonical node for this label
+        seenLabels.set(key, node.id);
+        nodeIdMapping.set(node.id, node.id);
+      }
+    } else {
+      // Non-entity nodes are always canonical
+      nodeIdMapping.set(node.id, node.id);
+    }
+  }
+
+  // Build deduplicated nodes
+  const uniqueNodeIds = new Set(nodeIdMapping.values());
+  const nodes: ForceGraphNode[] = payload.nodes
+    .filter((node) => uniqueNodeIds.has(node.id) && nodeIdMapping.get(node.id) === node.id)
+    .map((node) => {
+      const color = nodeColors[node.type] || nodeColors.default;
+      // Smaller node sizes
+      const val = node.type === "insight" ? 4 : node.type === "challenge" ? 3.5 : node.type === "synthesis" ? 3.5 : 2.5;
+
+      return {
+        id: node.id,
+        name: node.label,
+        type: node.type,
+        label: node.label,
+        subtitle: node.subtitle,
+        color,
+        val,
+      };
+    });
+
+  // Build deduplicated links with remapped node IDs
+  const seenLinkKeys = new Set<string>();
+  const links: ForceGraphLink[] = [];
+
+  for (const edge of payload.edges) {
+    const remappedSource = nodeIdMapping.get(edge.source) || edge.source;
+    const remappedTarget = nodeIdMapping.get(edge.target) || edge.target;
+
+    // Skip self-loops and duplicates
+    if (remappedSource === remappedTarget) continue;
+
+    const linkKey = `${remappedSource}-${remappedTarget}-${edge.relationshipType}`;
+    if (seenLinkKeys.has(linkKey)) continue;
+    seenLinkKeys.add(linkKey);
+
     const color = edgeColors[edge.relationshipType] || "rgba(148, 163, 184, 0.6)";
-    return {
-      source: edge.source,
-      target: edge.target,
+    links.push({
+      source: remappedSource,
+      target: remappedTarget,
       label: edge.label || edge.relationshipType,
       color,
       width: Math.max(1, (edge.weight ?? 0.4) * 2),
-    };
-  });
+    });
+  }
 
   return { nodes, links };
 }
