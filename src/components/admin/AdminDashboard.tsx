@@ -2264,7 +2264,11 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
         router.replace("/auth/login?redirectTo=/admin");
       }
     }
-  }, [accessState, router, isDevMode, status, hasProfile, hasLoadingTimeout]);
+  // Note: router is intentionally excluded from dependencies as it's only used
+  // in the server-side fallback (typeof window === "undefined") and including it
+  // causes infinite re-renders since useRouter() returns a new object each render
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accessState, isDevMode, status, hasProfile, hasLoadingTimeout]);
 
   // All hooks must be called before any conditional returns
   // Calculate values that depend on filteredUsers and other data
