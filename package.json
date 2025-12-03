@@ -11,6 +11,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
     "migrate": "node scripts/migrate.js up",
     "migrate:status": "node scripts/migrate.js status",
     "clean": "rm -rf .next node_modules/.cache tsconfig.tsbuildinfo",
@@ -61,6 +64,7 @@
     "zod": "^3.22.4"
   },
   "devDependencies": {
+    "@types/jest": "^29.5.14",
     "@types/node": "^20",
     "@types/react": "^18",
     "@types/react-dom": "^18",
@@ -68,8 +72,10 @@
     "autoprefixer": "^10.0.1",
     "eslint": "^9",
     "eslint-config-next": "^16.0.0",
+    "jest": "^29.7.0",
     "postcss": "^8",
     "tailwindcss": "^3.3.0",
+    "ts-jest": "^29.4.6",
     "typescript": "^5"
   },
   "keywords": [
