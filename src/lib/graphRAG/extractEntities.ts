@@ -22,14 +22,38 @@ export interface ExtractedEntitiesResponse {
 
 /**
  * Normalize entity name for deduplication
+ * Handles: accents, articles, plurals, common variations
  */
 function normalizeEntityName(name: string): string {
-  return name
+  let normalized = name
     .toLowerCase()
     .trim()
-    .replace(/\s+/g, " ")
+    // Normalize unicode
     .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, ""); // Remove accents for better matching
+    .replace(/[\u0300-\u036f]/g, "") // Remove accents
+    // Remove French articles at the start
+    .replace(/^(l'|la |le |les |un |une |des |du |de la |de l')/i, "")
+    // Remove French articles in the middle (e.g., "reduction de la charge")
+    .replace(/ (de la |de l'|du |des |d')/g, " ")
+    // Remove English articles
+    .replace(/^(the |a |an )/i, "")
+    // Normalize whitespace
+    .replace(/\s+/g, " ")
+    .trim()
+    // Remove trailing 's' for basic plural handling (French/English)
+    .replace(/s$/, "")
+    // Remove common suffixes that create variations
+    .replace(/tion$/, "")
+    .replace(/tions$/, "")
+    .replace(/ment$/, "")
+    .replace(/ments$/, "");
+
+  // If normalized becomes empty, use the original trimmed lowercased name
+  if (!normalized) {
+    normalized = name.toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  }
+
+  return normalized;
 }
 
 /**

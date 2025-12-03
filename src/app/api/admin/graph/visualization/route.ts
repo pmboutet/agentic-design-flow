@@ -4,6 +4,34 @@ import type { ApiResponse } from "@/types";
 
 type GraphNodeType = "insight" | "entity" | "challenge" | "synthesis" | string;
 
+/**
+ * Normalize entity name for deduplication in visualization
+ * Must match the normalization in extractEntities.ts
+ */
+function normalizeEntityNameForVisualization(name: string): string {
+  let normalized = name
+    .toLowerCase()
+    .trim()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/^(l'|la |le |les |un |une |des |du |de la |de l')/i, "")
+    .replace(/ (de la |de l'|du |des |d')/g, " ")
+    .replace(/^(the |a |an )/i, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/s$/, "")
+    .replace(/tion$/, "")
+    .replace(/tions$/, "")
+    .replace(/ment$/, "")
+    .replace(/ments$/, "");
+
+  if (!normalized) {
+    normalized = name.toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  }
+
+  return normalized;
+}
+
 interface GraphNode {
   id: string;
   type: GraphNodeType;
@@ -195,7 +223,10 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Entities
+    // Entities - with deduplication by normalized name
+    // Maps original entity IDs to their canonical (deduplicated) ID
+    const entityIdMapping = new Map<string, string>();
+
     if (entityIds.size > 0) {
       const { data: entities, error: entityError } = await supabase
         .from("knowledge_entities")
@@ -206,19 +237,73 @@ export async function GET(request: NextRequest) {
         throw entityError;
       }
 
+      // Group entities by normalized name to find duplicates
+      const normalizedNameToEntities = new Map<string, typeof entities>();
       for (const entity of entities ?? []) {
-        nodes.set(entity.id, {
-          id: entity.id,
+        const normalizedName = normalizeEntityNameForVisualization(entity.name || "");
+        const key = `${normalizedName}:${entity.type}`; // Include type in key to avoid merging different types
+
+        if (!normalizedNameToEntities.has(key)) {
+          normalizedNameToEntities.set(key, []);
+        }
+        normalizedNameToEntities.get(key)!.push(entity);
+      }
+
+      // For each group, select the canonical entity (highest frequency or first)
+      // and create mapping from all IDs to the canonical ID
+      for (const [, entityGroup] of normalizedNameToEntities) {
+        if (!entityGroup || entityGroup.length === 0) continue;
+
+        // Sort by frequency (desc) to pick the most used entity as canonical
+        entityGroup.sort((a, b) => (b.frequency || 0) - (a.frequency || 0));
+        const canonicalEntity = entityGroup[0];
+
+        // Map all IDs in this group to the canonical ID
+        for (const entity of entityGroup) {
+          entityIdMapping.set(entity.id, canonicalEntity.id);
+        }
+
+        // Add only the canonical entity to nodes
+        // Combine frequencies from all duplicates for accurate representation
+        const totalFrequency = entityGroup.reduce((sum, e) => sum + (e.frequency || 0), 0);
+
+        nodes.set(canonicalEntity.id, {
+          id: canonicalEntity.id,
           type: "entity",
-          label: entity.name || "Entité",
-          subtitle: entity.type || undefined,
+          label: canonicalEntity.name || "Entité",
+          subtitle: canonicalEntity.type || undefined,
           meta: {
-            description: entity.description,
-            frequency: entity.frequency,
+            description: canonicalEntity.description,
+            frequency: totalFrequency,
+            mergedCount: entityGroup.length > 1 ? entityGroup.length : undefined,
           },
         });
-        nodeTypes.set(entity.id, "entity");
+        nodeTypes.set(canonicalEntity.id, "entity");
       }
+    }
+
+    // Update edges to use canonical entity IDs
+    const deduplicatedEdges: GraphEdge[] = [];
+    const seenEdgeKeys = new Set<string>();
+
+    for (const edge of edges) {
+      // Remap source and target if they are deduplicated entities
+      const remappedSource = entityIdMapping.get(edge.source) || edge.source;
+      const remappedTarget = entityIdMapping.get(edge.target) || edge.target;
+
+      // Skip self-loops created by deduplication
+      if (remappedSource === remappedTarget) continue;
+
+      // Create unique key for deduplication after remapping
+      const edgeKey = `${remappedSource}-${remappedTarget}-${edge.relationshipType}`;
+      if (seenEdgeKeys.has(edgeKey)) continue;
+      seenEdgeKeys.add(edgeKey);
+
+      deduplicatedEdges.push({
+        ...edge,
+        source: remappedSource,
+        target: remappedTarget,
+      });
     }
 
     // Challenges
@@ -269,28 +354,41 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Ensure every node touched by an edge exists
-    nodeTypes.forEach((type, id) => {
-      if (!nodes.has(id)) {
-        nodes.set(id, {
-          id,
+    // Ensure every node touched by a deduplicated edge exists
+    for (const edge of deduplicatedEdges) {
+      if (!nodes.has(edge.source)) {
+        const type = nodeTypes.get(edge.source) || "entity";
+        nodes.set(edge.source, {
+          id: edge.source,
           type,
-          label: `${type} ${id.slice(0, 6)}…`,
+          label: `${type} ${edge.source.slice(0, 6)}…`,
         });
       }
-    });
+      if (!nodes.has(edge.target)) {
+        const type = nodeTypes.get(edge.target) || "entity";
+        nodes.set(edge.target, {
+          id: edge.target,
+          type,
+          label: `${type} ${edge.target.slice(0, 6)}…`,
+        });
+      }
+    }
+
+    // Count unique entities after deduplication
+    const uniqueEntityIds = new Set<string>();
+    entityIdMapping.forEach((canonicalId) => uniqueEntityIds.add(canonicalId));
 
     return NextResponse.json<ApiResponse<GraphVisualizationResponse>>({
       success: true,
       data: {
         nodes: Array.from(nodes.values()),
-        edges,
+        edges: deduplicatedEdges,
         stats: {
           insights: (insights ?? []).length,
-          entities: Array.from(entityIds).length,
+          entities: uniqueEntityIds.size,
           challenges: Array.from(challengeIds).length,
           syntheses: Array.from(synthesisIds).length,
-          edges: edges.length,
+          edges: deduplicatedEdges.length,
         },
       },
     });
