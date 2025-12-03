@@ -98,44 +98,115 @@ function JsonSyntaxHighlighter({ children }: { children: string }) {
 /**
  * Extract variable values from merged prompt by comparing with template
  * Returns a map of variable name to its resolved value
+ *
+ * More robust approach: uses template segments between variables as anchors
  */
 function extractVariableValues(template: string, merged: string): Record<string, string> {
   const variables: Record<string, string> = {};
 
-  // Extract all {{variable}} patterns from template
-  const varPattern = /\{\{([^{}]+)\}\}/g;
-  const matches = [...template.matchAll(varPattern)];
+  // Pattern to match simple {{variable}} (not block helpers like {{#if}}, {{/if}}, {{else}})
+  const simpleVarPattern = /\{\{(?!#|\/|else)([^{}]+)\}\}/g;
+  const matches = [...template.matchAll(simpleVarPattern)];
 
   if (matches.length === 0) return variables;
 
-  // For each variable, try to find its value by looking at surrounding context
+  // For each variable, find its value using more careful context matching
   for (const match of matches) {
     const varName = match[1].trim();
     const varStart = match.index!;
     const varEnd = varStart + match[0].length;
 
-    // Get text before and after the variable (up to 50 chars for context)
-    const beforeContext = template.slice(Math.max(0, varStart - 50), varStart);
-    const afterContext = template.slice(varEnd, Math.min(template.length, varEnd + 50));
+    // Find a unique "before" anchor - start with longer context
+    let beforeContext = '';
+    let beforeContextLen = 100;
+    while (beforeContextLen >= 10) {
+      const candidate = template.slice(Math.max(0, varStart - beforeContextLen), varStart);
+      // Check if this context is unique enough (appears only once in template before this position)
+      const occurrences = template.slice(0, varEnd).split(candidate).length - 1;
+      if (occurrences === 1 && candidate.length > 0) {
+        beforeContext = candidate;
+        break;
+      }
+      beforeContextLen -= 20;
+    }
 
-    // Find these contexts in the merged string
+    // Fallback to shorter context if needed
+    if (!beforeContext) {
+      beforeContext = template.slice(Math.max(0, varStart - 30), varStart);
+    }
+
+    // Find a unique "after" anchor
+    let afterContext = '';
+    let afterContextLen = 100;
+    while (afterContextLen >= 10) {
+      const candidate = template.slice(varEnd, Math.min(template.length, varEnd + afterContextLen));
+      // Remove any Handlebars patterns from the beginning of after context for matching
+      const cleanCandidate = candidate.replace(/^\{\{[^}]+\}\}/, '').slice(0, 50);
+      if (cleanCandidate.length >= 5) {
+        afterContext = cleanCandidate;
+        break;
+      }
+      afterContextLen -= 20;
+    }
+
+    // Fallback
+    if (!afterContext) {
+      const rawAfter = template.slice(varEnd, Math.min(template.length, varEnd + 50));
+      // Try to get text after any Handlebars block
+      afterContext = rawAfter.replace(/^\{\{[^}]+\}\}/, '').slice(0, 30);
+    }
+
+    // Find the before context in merged string
     const beforeIdx = merged.indexOf(beforeContext);
     if (beforeIdx === -1) continue;
 
     const valueStart = beforeIdx + beforeContext.length;
 
-    // Find where the after context starts
-    let valueEnd = merged.length;
-    if (afterContext.length > 0) {
+    // Find the after context, starting from valueStart
+    let valueEnd = -1;
+    if (afterContext.length >= 3) {
       const afterIdx = merged.indexOf(afterContext, valueStart);
-      if (afterIdx !== -1) {
+      if (afterIdx !== -1 && afterIdx > valueStart) {
         valueEnd = afterIdx;
       }
     }
 
+    // If after context not found, try to find the next static text segment
+    if (valueEnd === -1) {
+      // Look for the next significant static text in the template after this variable
+      const remainingTemplate = template.slice(varEnd);
+      // Skip Handlebars blocks and find plain text
+      const nextStaticMatch = remainingTemplate.match(/\}\}([^{]{10,})/);
+      if (nextStaticMatch && nextStaticMatch[1]) {
+        const nextStatic = nextStaticMatch[1].slice(0, 30).trim();
+        if (nextStatic.length >= 5) {
+          const staticIdx = merged.indexOf(nextStatic, valueStart);
+          if (staticIdx !== -1 && staticIdx > valueStart) {
+            valueEnd = staticIdx;
+          }
+        }
+      }
+    }
+
+    // Still not found? Skip this variable to avoid grabbing too much
+    if (valueEnd === -1 || valueEnd <= valueStart) {
+      continue;
+    }
+
     const value = merged.slice(valueStart, valueEnd);
-    if (value.length > 0 && value.length < 10000) { // Reasonable limit
-      variables[varName] = value;
+
+    // Validate the extracted value
+    if (value.length > 0 && value.length < 50000) {
+      // Additional sanity check: value shouldn't contain obvious template markers
+      if (!value.includes('{{') && !value.includes('}}')) {
+        variables[varName] = value;
+      } else {
+        // If it contains markers, it might be partially correct - trim at first marker
+        const markerIdx = value.indexOf('{{');
+        if (markerIdx > 0) {
+          variables[varName] = value.slice(0, markerIdx);
+        }
+      }
     }
   }
 
@@ -775,7 +846,7 @@ export default function AiLogsPage() {
                                               </span>
                                             )}
                                           </h4>
-                                          <div className="overflow-x-auto max-h-64 overflow-y-auto rounded border border-slate-200">
+                                          <div className="overflow-x-auto rounded border border-slate-200">
                                             <HighlightedPrompt
                                               text={systemPrompt}
                                               template={systemPromptTemplate}
@@ -800,7 +871,7 @@ export default function AiLogsPage() {
                                               </span>
                                             )}
                                           </h4>
-                                          <div className="overflow-x-auto max-h-64 overflow-y-auto rounded border border-slate-200">
+                                          <div className="overflow-x-auto rounded border border-slate-200">
                                             <HighlightedPrompt
                                               text={userPrompt}
                                               template={userPromptTemplate}
@@ -825,7 +896,7 @@ export default function AiLogsPage() {
                                       {log.responsePayload && (
                                         <div>
                                           <h4 className="mb-2 text-sm font-medium text-slate-700">Payload de réponse</h4>
-                                          <div className="overflow-x-auto max-h-64 overflow-y-auto rounded border border-slate-200">
+                                          <div className="overflow-x-auto rounded border border-slate-200">
                                             <JsonSyntaxHighlighter>
                                               {JSON.stringify(log.responsePayload, null, 2)}
                                             </JsonSyntaxHighlighter>
