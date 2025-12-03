@@ -306,27 +306,30 @@ export function AdminPageLayout({ children }: AdminPageLayoutProps) {
   }, [pathname]);
 
   const sidebarContent = (
-    <div className="flex h-full flex-col gap-6">
-      <div className="flex items-center justify-between gap-3">
+    <div className="flex h-full flex-col gap-6 overflow-hidden">
+      <div className={cn(
+        "flex items-center gap-3 overflow-hidden",
+        isSidebarCollapsed ? "flex-col" : "justify-between"
+      )}>
         <div
           className={cn(
-            "flex items-center gap-2 text-left",
+            "flex items-center gap-2 text-left flex-shrink-0",
             isSidebarCollapsed ? "justify-center" : ""
           )}
         >
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 text-sm font-semibold">
+          <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 text-sm font-semibold">
             AD
           </div>
           {!isSidebarCollapsed && (
-            <div>
-              <div className="text-sm font-semibold text-white">Agentic Admin</div>
-              <p className="text-xs text-slate-400">Control center</p>
+            <div className="overflow-hidden">
+              <div className="text-sm font-semibold text-white truncate">Agentic Admin</div>
+              <p className="text-xs text-slate-400 truncate">Control center</p>
             </div>
           )}
         </div>
         <button
           type="button"
-          className="hidden rounded-xl border border-white/10 bg-white/10 p-2 text-slate-200 transition hover:bg-white/20 md:inline-flex"
+          className="hidden rounded-xl border border-white/10 bg-white/10 p-2 text-slate-200 transition hover:bg-white/20 md:inline-flex flex-shrink-0"
           onClick={() => setIsSidebarCollapsed(value => !value)}
           aria-label={isSidebarCollapsed ? "Expand navigation" : "Collapse navigation"}
         >
@@ -334,7 +337,7 @@ export function AdminPageLayout({ children }: AdminPageLayoutProps) {
         </button>
       </div>
 
-      <nav className="flex flex-1 flex-col gap-1">
+      <nav className="flex flex-1 flex-col gap-1 overflow-hidden">
         {navigationItems.map(item => {
           const Icon = item.icon;
           const isActive = activeHref === item.href;
@@ -343,7 +346,7 @@ export function AdminPageLayout({ children }: AdminPageLayoutProps) {
               key={item.href}
               href={item.href}
               className={cn(
-                "flex items-center gap-3 rounded-xl px-3 py-2 text-sm transition",
+                "flex items-center gap-3 rounded-xl px-3 py-2 text-sm transition overflow-hidden",
                 isActive
                   ? "bg-white/10 text-white shadow-lg"
                   : "text-slate-300 hover:bg-white/5 hover:text-foreground",
@@ -351,8 +354,8 @@ export function AdminPageLayout({ children }: AdminPageLayoutProps) {
               )}
               onClick={() => setIsMobileSidebarOpen(false)}
             >
-              <Icon className="h-4 w-4" />
-              {!isSidebarCollapsed && <span>{item.label}</span>}
+              <Icon className="h-4 w-4 flex-shrink-0" />
+              {!isSidebarCollapsed && <span className="truncate">{item.label}</span>}
             </Link>
           );
         })}
