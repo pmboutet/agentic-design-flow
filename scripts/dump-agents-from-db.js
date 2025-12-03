@@ -1,28 +1,25 @@
-const { createClient } = require('@supabase/supabase-js');
-require('dotenv').config({ path: '.env.local' });
+const { Pool } = require('pg');
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+// Remove quotes if present (some environments include them)
+const databaseUrl = (process.env.DATABASE_URL || '').replace(/^"|"$/g, '');
 
-if (!supabaseUrl || !supabaseServiceKey) {
-  console.error('Missing required environment variables');
+if (!databaseUrl) {
+  console.error('Missing DATABASE_URL environment variable');
   process.exit(1);
 }
 
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
+const pool = new Pool({ connectionString: databaseUrl });
 
 async function dumpAgents() {
   console.log('Fetching agents from database...\n');
 
-  const { data: agents, error } = await supabase
-    .from('ai_agents')
-    .select('slug, name, description, system_prompt, user_prompt, available_variables, voice')
-    .order('slug');
+  const result = await pool.query(`
+    SELECT slug, name, description, system_prompt, user_prompt, available_variables, voice
+    FROM ai_agents
+    ORDER BY slug
+  `);
 
-  if (error) {
-    console.error('Error fetching agents:', error);
-    process.exit(1);
-  }
+  const agents = result.rows;
 
   console.log(`Found ${agents.length} agents:\n`);
 
@@ -47,6 +44,12 @@ async function dumpAgents() {
   console.log('JSON OUTPUT (for programmatic use):');
   console.log('='.repeat(80));
   console.log(JSON.stringify(agents, null, 2));
+
+  await pool.end();
 }
 
-dumpAgents();
+dumpAgents().catch(err => {
+  console.error('Error:', err);
+  pool.end();
+  process.exit(1);
+});
