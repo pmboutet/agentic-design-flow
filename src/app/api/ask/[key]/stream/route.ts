@@ -387,18 +387,6 @@ export async function POST(
       messageRows = data ?? [];
     }
 
-    // Debug: Log raw messages from database
-    console.log('📥 Messages bruts de la DB:');
-    console.log(`   Total: ${messageRows.length} messages`);
-    const dbUserMsgCount = messageRows.filter(m => m.sender_type === 'user').length;
-    const dbAiMsgCount = messageRows.filter(m => m.sender_type === 'ai').length;
-    console.log(`   👤 User messages in DB: ${dbUserMsgCount}`);
-    console.log(`   🤖 AI messages in DB: ${dbAiMsgCount}`);
-    if (conversationThread) {
-      const withThread = messageRows.filter(m => m.conversation_thread_id === conversationThread.id).length;
-      console.log(`   🧵 Messages avec thread ID ${conversationThread.id.substring(0, 8)}...: ${withThread}`);
-    }
-
     const messageUserIds = (messageRows ?? [])
       .map(row => row.user_id)
       .filter((value): value is string => Boolean(value));
@@ -512,9 +500,6 @@ export async function POST(
     let conversationPlan = null;
     if (conversationThread) {
       conversationPlan = await getConversationPlanWithSteps(dataClient, conversationThread.id);
-      if (conversationPlan && conversationPlan.plan_data) {
-        console.log('📋 POST /api/ask/[key]/stream: Loaded conversation plan with', conversationPlan.plan_data.steps.length, 'steps');
-      }
     }
 
     // Parse the request body to get the new user message
@@ -523,19 +508,7 @@ export async function POST(
       const body = await request.json();
       newUserMessage = body.message || body.content || '';
     } catch (error) {
-      console.warn('⚠️ Could not parse request body for new user message:', error);
-    }
-
-    // Debug: Log message counts
-    console.log('📊 Messages récupérés pour messages_json:');
-    console.log(`   Total: ${messages.length} messages`);
-    const userMsgCount = messages.filter(m => m.senderType === 'user').length;
-    const aiMsgCount = messages.filter(m => m.senderType === 'ai').length;
-    console.log(`   👤 User messages: ${userMsgCount}`);
-    console.log(`   🤖 AI messages: ${aiMsgCount}`);
-    if (messages.length > 0) {
-      console.log(`   Premier message: ${messages[0].senderType} - "${messages[0].content.substring(0, 50)}..."`);
-      console.log(`   Dernier message: ${messages[messages.length - 1].senderType} - "${messages[messages.length - 1].content.substring(0, 50)}..."`);
+      // Ignore parsing errors - may not have a body
     }
 
     const agentVariables = buildConversationAgentVariables({
@@ -554,30 +527,14 @@ export async function POST(
 
     let agentConfig: AgentConfigResult;
     try {
-      console.log('🔍 Loading chat agent configuration...');
-      console.log('Agent slug:', DEFAULT_CHAT_AGENT_SLUG);
-      console.log('Variables:', agentVariables);
-
       // Utiliser getAgentConfigForAsk qui gère correctement les system_prompt depuis la base
       agentConfig = await getAgentConfigForAsk(dataClient, askRow.id, agentVariables);
-
-      console.log('✅ Chat agent config loaded successfully');
-      console.log('System prompt length:', agentConfig.systemPrompt?.length || 0);
-      console.log('User prompt length:', agentConfig.userPrompt?.length || 0);
-      console.log('Model config:', agentConfig.modelConfig.provider);
-      console.log('Agent object exists:', !!agentConfig.agent);
-      console.log('Agent availableVariables:', agentConfig.agent?.availableVariables ?? 'NOT FOUND');
     } catch (error) {
       if (isPermissionDenied(error)) {
         return permissionDeniedResponse();
       }
-      console.error('❌ Error getting chat agent config:', error);
-      console.error('Error details:', {
-        message: error instanceof Error ? error.message : String(error),
-        stack: error instanceof Error ? error.stack : undefined,
-        name: error instanceof Error ? error.name : 'Unknown'
-      });
-      
+      console.error('Error getting chat agent config:', error);
+
       return new Response(JSON.stringify({
         type: 'error',
         error: `Configuration de l'agent introuvable: ${error instanceof Error ? error.message : String(error)}. Vérifiez la table ai_agents.`,
@@ -608,8 +565,6 @@ export async function POST(
       user: resolvedUserPrompt,
     };
 
-    console.log('Using agent config:', agentConfig.modelConfig.provider);
-
     // Vibe Coding: Les variables sont déjà compilées dans les prompts via Handlebars
     // Le payload ne contient que les prompts finaux (system et user)
     const agentRequestPayload = {
@@ -633,11 +588,6 @@ export async function POST(
       console.error('Unable to create agent log for streaming response:', error);
     }
 
-    console.log('System prompt:', prompts.system);
-    console.log('User prompt:', prompts.user);
-    console.log('Agent variables:', agentVariables);
-    console.log('Model config:', agentConfig.modelConfig);
-
     // Create streaming response
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
@@ -645,9 +595,7 @@ export async function POST(
         try {
           let fullContent = '';
           const startTime = Date.now();
-          
-          console.log('Starting streaming with model:', agentConfig.modelConfig.provider);
-          
+
           // Mark log as processing
           if (log) {
             try {
@@ -666,7 +614,6 @@ export async function POST(
                 maxOutputTokens: DEFAULT_MAX_OUTPUT_TOKENS,
               }
             )) {
-            console.log('Received chunk:', chunk.content, 'done:', chunk.done);
             if (chunk.content) {
               fullContent += chunk.content;
               
@@ -761,7 +708,6 @@ export async function POST(
                     if (conversationThread) {
                       const detectedStepId = detectStepCompletion(fullContent.trim());
                       if (detectedStepId) {
-                        console.log('🎯 Step completion detected in stream:', detectedStepId);
                         try {
                           const plan = await getConversationPlanWithSteps(dataClient, conversationThread.id);
                           if (plan) {
@@ -789,17 +735,10 @@ export async function POST(
                                 undefined, // No pre-generated summary - let the async agent generate it
                                 askRow.id // Pass askSessionId to trigger async summary generation
                               );
-
-                              console.log('✅ Conversation plan updated in stream - step completed:', stepIdToComplete);
-                            } else {
-                              console.warn('⚠️ Step completion marker does not match current step:', {
-                                detectedStep: detectedStepId,
-                                currentStep: currentStepIdentifier,
-                              });
                             }
                           }
                         } catch (planError) {
-                          console.error('⚠️ Failed to update conversation plan in stream:', planError);
+                          console.error('Failed to update conversation plan in stream:', planError);
                           // Don't fail the stream if plan update fails
                         }
                       }

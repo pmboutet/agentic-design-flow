@@ -182,7 +182,6 @@ export class SpeechmaticsVoiceAgent {
     // Using static counter ensures tokens are unique across ALL agent instances
     SpeechmaticsVoiceAgent.globalConnectionToken++;
     this.myConnectionToken = SpeechmaticsVoiceAgent.globalConnectionToken;
-    console.log(`[Speechmatics] 🔌 connect() called with token #${this.myConnectionToken}`);
 
     // Réinitialiser le flag de déconnexion
     this.isDisconnected = false;
@@ -191,13 +190,6 @@ export class SpeechmaticsVoiceAgent {
     this.semanticTurnConfig = resolveSemanticTurnDetectorConfig();
     this.semanticTurnDetector = createSemanticTurnDetector(this.semanticTurnConfig);
 
-    if (this.semanticTurnConfig.enabled) {
-      console.log('[Speechmatics] ✅ Semantic turn detector enabled:', {
-        provider: this.semanticTurnConfig.provider,
-        model: this.semanticTurnConfig.model,
-        threshold: this.semanticTurnConfig.probabilityThreshold,
-      });
-    }
 
     // ===== INITIALISATION D'ELEVENLABS TTS =====
     // Initialiser ElevenLabs seulement si TTS n'est pas désactivé
@@ -220,8 +212,6 @@ export class SpeechmaticsVoiceAgent {
         modelId: config.elevenLabsModelId,
       };
       this.elevenLabsTTS = new ElevenLabsTTS(elevenLabsConfig);
-    } else {
-      console.log('[Speechmatics] 🔊 ElevenLabs TTS is disabled - only STT will work');
     }
 
     // Reset dedupe cache
@@ -261,17 +251,13 @@ export class SpeechmaticsVoiceAgent {
     // If a newer connect() call has incremented the global counter beyond our token,
     // it means this connection is orphaned and should be aborted
     if (this.myConnectionToken !== SpeechmaticsVoiceAgent.globalConnectionToken) {
-      console.log(`[Speechmatics] ⚠️ Connection token mismatch (mine: ${this.myConnectionToken}, current: ${SpeechmaticsVoiceAgent.globalConnectionToken}), aborting audio initialization`);
       return;
     }
 
     // Also check isDisconnected flag as a secondary safety check
     if (this.isDisconnected) {
-      console.log(`[Speechmatics] ⚠️ Disconnected during connect (token: ${this.myConnectionToken}), aborting audio initialization`);
       return;
     }
-
-    console.log(`[Speechmatics] ✅ Connection token #${this.myConnectionToken} is active and creating Audio instance`);
 
 
     // Initialize audio manager (will be updated with WebSocket reference after connection)
@@ -345,8 +331,6 @@ export class SpeechmaticsVoiceAgent {
         if (this.isGeneratingResponse && this.lastSentUserMessage) {
           const hasSignificantNewContent = this.hasSignificantNewContent(trimmedTranscript, this.lastSentUserMessage);
           if (hasSignificantNewContent) {
-            console.log('[Speechmatics] 🛑 User continues speaking during response - aborting response');
-            console.log('[Speechmatics] New content:', trimmedTranscript.substring(0, 100));
             this.responseAbortedDueToUserContinuation = true;
             this.abortResponse();
             // Remove the incomplete user message from conversation history
@@ -358,7 +342,6 @@ export class SpeechmaticsVoiceAgent {
             // CRITICAL: Clear the message queue since those are now stale fragments
             // The transcription manager will send the complete message when user finishes
             if (this.userMessageQueue.length > 0) {
-              console.log(`[Speechmatics] 🧹 Clearing ${this.userMessageQueue.length} stale queued messages`);
               this.userMessageQueue = [];
             }
           }
@@ -408,7 +391,6 @@ export class SpeechmaticsVoiceAgent {
     // Instead, we just mark it and let the silence timeout handle the processing
     // This gives the user more time to continue speaking if they want
     if (data.message === "EndOfUtterance") {
-      console.log('[Speechmatics] 🎯 EndOfUtterance received - will wait for silence timeout');
       // Just mark that we received it, but don't process yet
       // The silence timeout will handle processing after the configured delay
       this.transcriptionManager?.markEndOfUtterance();
@@ -419,7 +401,6 @@ export class SpeechmaticsVoiceAgent {
     // According to Speechmatics API, the server may send EndOfStream back
     // This indicates the server has processed our EndOfStream and is ready to close
     if (data.message === "EndOfStream") {
-      console.log('[Speechmatics] 📨 Server sent EndOfStream response - server has processed our EndOfStream');
       this.transcriptionManager?.processPendingTranscript(true);
       return;
     }
@@ -452,33 +433,18 @@ export class SpeechmaticsVoiceAgent {
 
   private async processUserMessage(transcript: string): Promise<void> {
     const processStartedAt = Date.now();
-    const processTimestamp = new Date().toISOString();
     const normalizedTranscript = transcript.trim().toLowerCase();
-
-    console.log('[Speechmatics] 📨 Received finalized user chunk', {
-      timestamp: processTimestamp,
-      inProgress: this.isGeneratingResponse,
-      queuedMessages: this.userMessageQueue.length,
-      transcriptPreview: transcript.slice(0, 120),
-      transcriptLength: transcript.length,
-      wasAbortedDueToContinuation: this.responseAbortedDueToUserContinuation,
-    });
 
     // DEDUPLICATION: Skip if this is identical to what we just processed (within 5 seconds)
     if (this.lastProcessedMessage &&
         this.lastProcessedMessage.content === normalizedTranscript &&
         processStartedAt - this.lastProcessedMessage.timestamp < 5000) {
-      console.log('[Speechmatics] 🔁 Skipping duplicate message (same as recently processed)', {
-        transcript: transcript.slice(0, 50),
-        timeSinceLastProcess: processStartedAt - this.lastProcessedMessage.timestamp,
-      });
       return;
     }
 
     // If we were aborted due to user continuation, clear the flag and proceed
     // The new transcript should contain the complete user input
     if (this.responseAbortedDueToUserContinuation) {
-      console.log('[Speechmatics] ✅ Processing complete user input after abort');
       this.responseAbortedDueToUserContinuation = false;
     }
 
@@ -488,20 +454,10 @@ export class SpeechmaticsVoiceAgent {
       const isCurrentlyProcessing = this.lastSentUserMessage.trim().toLowerCase() === normalizedTranscript;
 
       if (isInQueue || isCurrentlyProcessing) {
-        console.log('[Speechmatics] 🔁 Skipping duplicate - already in queue or being processed', {
-          isInQueue,
-          isCurrentlyProcessing,
-          transcript: transcript.slice(0, 50),
-          queueSize: this.userMessageQueue.length,
-        });
         return;
       }
 
       this.userMessageQueue.push({ content: transcript, timestamp: new Date().toISOString() });
-      console.log('[Speechmatics] ⏳ Agent busy - queued user chunk', {
-        queueSize: this.userMessageQueue.length,
-        timestamp: new Date().toISOString(),
-      });
       return;
     }
 
@@ -549,19 +505,9 @@ export class SpeechmaticsVoiceAgent {
         };
         // Render template with all variables (same as text mode)
         userMessageContent = renderTemplate(userPrompt, variables);
-        console.log('[Speechmatics] 📝 User prompt rendered:', {
-          hasUserPrompt: true,
-          originalTranscript: transcript.substring(0, 50) + '...',
-          renderedContent: userMessageContent.substring(0, 50) + '...',
-          variablesCount: Object.keys(variables).length,
-        });
       } else {
         // Fallback: use transcript directly
         userMessageContent = transcript;
-        console.log('[Speechmatics] 📝 No user prompt, using transcript directly:', {
-          hasUserPrompt: false,
-          transcript: transcript.substring(0, 50) + '...',
-        });
       }
       
       const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
@@ -572,15 +518,6 @@ export class SpeechmaticsVoiceAgent {
         })),
         { role: 'user', content: userMessageContent },
       ];
-
-      // Log conversation state for debugging
-      console.log('[Speechmatics] 🧠 LLM context state:', {
-        hasSystemPrompt: !!this.config?.systemPrompt,
-        systemPromptLength: this.config?.systemPrompt?.length || 0,
-        conversationHistoryLength: this.conversationHistory.length,
-        recentHistoryLength: recentHistory.length,
-        totalMessagesForLLM: messages.length,
-      });
 
       // Call LLM with abort signal
       const llmResponse = await this.llm.callLLM(
@@ -607,13 +544,6 @@ export class SpeechmaticsVoiceAgent {
         this.audio.updateConversationHistory(historyForDetection);
       }
 
-      console.log(`[${getTimestamp()}] [Speechmatics] 📥 LLM response ready`, {
-        timestamp: new Date().toISOString(),
-        elapsedMs: Date.now() - processStartedAt,
-        contentPreview: llmResponse.slice(0, 120),
-        contentLength: llmResponse.length,
-      });
-
       // Notify callback
       this.onMessageCallback?.({
         role: 'agent',
@@ -637,11 +567,9 @@ export class SpeechmaticsVoiceAgent {
             });
           }
         } catch (error) {
-          console.error('[Speechmatics] ❌ Error generating TTS audio:', error);
+          console.error('[Speechmatics] Error generating TTS audio:', error);
           // Don't fail the whole message processing if TTS fails
         }
-      } else if (this.config?.disableElevenLabsTTS) {
-        console.log('[Speechmatics] 🔊 TTS disabled - skipping audio generation');
       }
 
       // DEDUPLICATION: Track the successfully processed message to prevent re-processing
@@ -655,25 +583,19 @@ export class SpeechmaticsVoiceAgent {
 
       // Process queued messages
       if (this.userMessageQueue.length > 0) {
-        console.log(`[Speechmatics] 📋 Processing queue after response (${this.userMessageQueue.length} pending)`);
         const nextMessage = this.userMessageQueue.shift();
         if (nextMessage) {
-          console.log(`[Speechmatics] ▶️ Dequeued message: "${nextMessage.content.slice(0, 50)}..."`);
           // Process next message (will reset isGeneratingResponse when done)
           await this.processUserMessage(nextMessage.content);
         } else {
-          console.log('[Speechmatics] ✅ Queue empty after shift, response cycle complete');
           this.isGeneratingResponse = false;
         }
       } else {
-        console.log('[Speechmatics] ✅ No queued messages, response cycle complete');
         this.isGeneratingResponse = false;
       }
     } catch (error) {
       // Check if error was caused by user aborting (barge-in or continuation)
       if (error instanceof Error && error.name === 'AbortError') {
-        const reason = this.responseAbortedDueToUserContinuation ? 'user continuation' : 'barge-in';
-        console.log(`[${getTimestamp()}] [Speechmatics] 🛑 LLM request aborted (${reason})`);
         // Don't treat abort as error - it's expected behavior
         this.isGeneratingResponse = false;
         // Keep lastSentUserMessage if aborted due to continuation
@@ -686,13 +608,12 @@ export class SpeechmaticsVoiceAgent {
         return;
       }
 
-      console.error('[Speechmatics] ❌ Error processing user message:', error);
+      console.error('[Speechmatics] Error processing user message:', error);
       this.lastSentUserMessage = '';
       this.onErrorCallback?.(error instanceof Error ? error : new Error(String(error)));
 
       // CRITICAL: Even on error, try to process queued messages so we don't get stuck
       if (this.userMessageQueue.length > 0) {
-        console.log(`[Speechmatics] 🔄 Error occurred but processing ${this.userMessageQueue.length} queued messages`);
         const nextMessage = this.userMessageQueue.shift();
         if (nextMessage) {
           // Reset flag before recursive call (it will be set to true again in processUserMessage)
@@ -700,7 +621,7 @@ export class SpeechmaticsVoiceAgent {
           // Use setTimeout to avoid deep recursion and allow event loop to process
           setTimeout(() => {
             this.processUserMessage(nextMessage.content).catch(err => {
-              console.error('[Speechmatics] ❌ Error processing queued message:', err);
+              console.error('[Speechmatics] Error processing queued message:', err);
             });
           }, 100);
         } else {
@@ -746,7 +667,6 @@ export class SpeechmaticsVoiceAgent {
       // CRITICAL: Increment global token to invalidate any in-flight connect() attempts
       // This ensures orphaned connections will be aborted when they finish
       SpeechmaticsVoiceAgent.globalConnectionToken++;
-      console.log(`[Speechmatics] 🔌 disconnect() called (my token: ${this.myConnectionToken}, global token now: ${SpeechmaticsVoiceAgent.globalConnectionToken})`);
       this.isDisconnected = true;
 
       // CRITICAL: According to Speechmatics API docs:
@@ -754,32 +674,20 @@ export class SpeechmaticsVoiceAgent {
       // 2. Send EndOfStream message
       // 3. Wait for server to process
       // 4. Close WebSocket
-      
-      const disconnectStartTime = Date.now();
-      console.log('[Speechmatics] 🔌 Agent disconnect() called', {
-        timestamp: new Date().toISOString(),
-        hasAudio: !!this.audio,
-        hasWebSocket: !!this.websocket,
-        websocketConnected: this.websocket?.isConnected(),
-      });
-      
+
       if (this.audio) {
-        console.log('[Speechmatics] 🎤 Step 1: Stopping microphone...');
         // Stop microphone input completely - this stops all AddAudio messages
         this.audio.setMicrophoneMuted(true);
         try {
           await this.audio.stopMicrophone();
-          console.log('[Speechmatics] ✅ Microphone stopped');
         } catch (error) {
-          console.error('[Speechmatics] ❌ Error stopping microphone:', error);
+          console.error('[Speechmatics] Error stopping microphone:', error);
         }
-        
+
         // CRITICAL: Wait to ensure NO audio chunks are in flight
         // According to docs: "Protocol specification doesn't allow adding audio after EndOfStream"
         // We must ensure all audio has been sent before sending EndOfStream
-        console.log('[Speechmatics] ⏳ Waiting 800ms to ensure no audio chunks in flight...');
         await new Promise(resolve => setTimeout(resolve, 800)); // Increased to ensure all chunks are processed
-        console.log('[Speechmatics] ✅ Audio flush complete');
       }
 
       // Now disconnect WebSocket (this will send EndOfStream and close properly)
@@ -789,19 +697,10 @@ export class SpeechmaticsVoiceAgent {
       // 3. Close WebSocket with code 1000
       // 4. Wait additional time for server to release session
       if (this.websocket) {
-        console.log('[Speechmatics] 🔌 Step 2: Disconnecting WebSocket...');
-        const wsDisconnectStart = Date.now();
         await this.websocket.disconnect(this.isDisconnected);
-        console.log('[Speechmatics] ✅ WebSocket disconnected', {
-          elapsed: Date.now() - wsDisconnectStart,
-          totalElapsed: Date.now() - disconnectStartTime,
-        });
-      } else {
-        console.log('[Speechmatics] ⚠️ No WebSocket to disconnect');
       }
 
       // Cleanup transcription manager
-      console.log('[Speechmatics] 🧹 Step 3: Cleaning up...');
       this.transcriptionManager?.cleanup();
 
       // Clear state
@@ -812,27 +711,19 @@ export class SpeechmaticsVoiceAgent {
       this.responseAbortedDueToUserContinuation = false;
 
       this.onConnectionCallback?.(false);
-      
+
       // CRITICAL: Force browser to release any ghost microphone permissions
       // This must be called AFTER everything is disconnected (WebSocket + audio)
       // Wait a bit to ensure all resources are fully released before forcing cleanup
-      console.log('[Speechmatics] 🧹 Step 4: Forcing browser to release microphone permissions...');
       await new Promise(resolve => setTimeout(resolve, 500)); // Small delay to ensure cleanup is complete
-      
+
       if (typeof navigator !== 'undefined' && navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
         try {
           await navigator.mediaDevices.enumerateDevices();
-          console.log('[Speechmatics] ✅ Called enumerateDevices() to release ghost permissions');
         } catch (error) {
           // Ignore errors - this is just a cleanup trick
-          console.log('[Speechmatics] ℹ️ enumerateDevices() call completed (may have failed silently)');
         }
       }
-      
-      console.log('[Speechmatics] ✅ Agent disconnect() complete', {
-        totalTime: Date.now() - disconnectStartTime,
-        timestamp: new Date().toISOString(),
-      });
     })();
 
     try {
@@ -879,7 +770,6 @@ export class SpeechmaticsVoiceAgent {
       const newWords = newPortion.split(/\s+/).filter(w => w.length > 1);
       // Require at least 3 new words to consider it significant continuation
       if (newWords.length >= 3) {
-        console.log('[Speechmatics] 📝 Detected continuation:', newWords.length, 'new words');
         return true;
       }
     }
@@ -891,7 +781,6 @@ export class SpeechmaticsVoiceAgent {
 
     // If 3+ genuinely new words, user is continuing
     if (genuinelyNewWords.length >= 3) {
-      console.log('[Speechmatics] 📝 Detected new words:', genuinelyNewWords.slice(0, 5).join(', '));
       return true;
     }
 
@@ -904,8 +793,6 @@ export class SpeechmaticsVoiceAgent {
    * TTS playback being picked up by the microphone (not real user speech)
    */
   private handleEchoDetected(): void {
-    console.log(`[${getTimestamp()}] [Speechmatics] 🔇 Echo detected - discarding pending transcript`);
-
     // Discard any pending transcript in the transcription manager
     // This prevents sending echo as user input to the LLM
     this.transcriptionManager?.discardPendingTranscript();
@@ -916,7 +803,6 @@ export class SpeechmaticsVoiceAgent {
    * Stops ElevenLabs playback, clears assistant interim message, and cancels in-flight LLM request
    */
   abortResponse(): void {
-    console.log(`[${getTimestamp()}] [Speechmatics] 🛑 Aborting current assistant response`);
 
     // Stop ElevenLabs TTS playback
     if (this.audio) {
@@ -954,37 +840,20 @@ export class SpeechmaticsVoiceAgent {
     promptVariables?: Record<string, string | null | undefined>;
   }): void {
     if (!this.config) {
-      console.warn('[Speechmatics] ⚠️ Cannot update prompts: no config available (not connected)');
+      console.warn('[Speechmatics] Cannot update prompts: no config available (not connected)');
       return;
     }
 
-    const updates: string[] = [];
-
     if (prompts.systemPrompt !== undefined) {
       this.config.systemPrompt = prompts.systemPrompt;
-      updates.push('systemPrompt');
     }
 
     if (prompts.userPrompt !== undefined) {
       this.config.userPrompt = prompts.userPrompt;
-      updates.push('userPrompt');
     }
 
     if (prompts.promptVariables !== undefined) {
       this.config.promptVariables = prompts.promptVariables;
-      updates.push(`promptVariables (${Object.keys(prompts.promptVariables).length} vars)`);
-    }
-
-    console.log(`[Speechmatics] 📝 Prompts updated dynamically:`, updates.join(', '));
-
-    // Log key variables for debugging step changes
-    if (prompts.promptVariables) {
-      const vars = prompts.promptVariables;
-      console.log('[Speechmatics] 📋 Key variables after update:', {
-        current_step_id: vars.current_step_id ?? '(not set)',
-        current_step: vars.current_step ? `${String(vars.current_step).substring(0, 50)}...` : '(not set)',
-        completed_steps_summary: vars.completed_steps_summary ? `${String(vars.completed_steps_summary).substring(0, 50)}...` : '(not set)',
-      });
     }
   }
 

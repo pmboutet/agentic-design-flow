@@ -795,30 +795,12 @@ async function persistInsights(
 
   const processedKeys = new Set<string>();
 
-  console.log('💾 persistInsights called with:', {
-    incomingInsightsCount: incomingInsights.length,
-    askSessionId,
-    conversationThreadId,
-    existingInsightsCount: insightRows.length,
-  });
-
   for (const incoming of incomingInsights) {
     const nowIso = new Date().toISOString();
     const dedupeKey = [normaliseKey(incoming.content), normaliseKey(incoming.summary), incoming.type ?? ''].join('|');
-    
-    console.log('💾 Processing insight:', {
-      id: incoming.id,
-      hasContent: !!incoming.content,
-      hasSummary: !!incoming.summary,
-      type: incoming.type,
-      contentPreview: incoming.content?.substring(0, 100),
-      summaryPreview: incoming.summary?.substring(0, 100),
-      dedupeKey,
-    });
-    
+
     if (dedupeKey.trim().length > 0) {
       if (processedKeys.has(dedupeKey)) {
-        console.log('⏭️  Skipping duplicate insight:', dedupeKey);
         continue;
       }
       processedKeys.add(dedupeKey);
@@ -1147,38 +1129,20 @@ function resolveInsightAgentPayload(result: AgentExecutionResult): unknown | nul
     }
   }
 
-  console.log('🔍 Resolving insight payload:', {
-    hasContent: !!result.content,
-    contentLength: typeof result.content === 'string' ? result.content.length : 0,
-    hasRaw: !!result.raw,
-    extractedTextLength: extractedText?.length || 0,
-    candidatesCount: candidates.size,
-  });
-
   const candidateList = Array.from(candidates);
   for (let i = 0; i < candidateList.length; i += 1) {
     const parsed = parseAgentJsonSafely(candidateList[i]);
     if (parsed !== null) {
-      console.log(`✅ Parsed candidate ${i + 1}/${candidateList.length}:`, {
-        isObject: typeof parsed === 'object',
-        isArray: Array.isArray(parsed),
-        keys: typeof parsed === 'object' && parsed !== null ? Object.keys(parsed) : [],
-        hasInsights: typeof parsed === 'object' && parsed !== null && 'insights' in parsed,
-        hasItems: typeof parsed === 'object' && parsed !== null && 'items' in parsed,
-      });
-      
       // Verify that the parsed result has the expected structure
       if (typeof parsed === 'object' && parsed !== null) {
         const obj = parsed as Record<string, unknown>;
         // Accept if it has insights, items, or is an array (for direct array of insights)
         if ('insights' in obj || 'items' in obj || Array.isArray(parsed)) {
-          console.log('✅ Returning parsed payload with expected structure');
           return parsed;
         }
         // Also accept if it looks like a valid insight structure (has content or summary)
         if ('content' in obj || 'summary' in obj) {
           // Wrap single insight in an array
-          console.log('✅ Found single insight-like object, wrapping in array');
           return { insights: [parsed] };
         }
       }
@@ -1189,20 +1153,17 @@ function resolveInsightAgentPayload(result: AgentExecutionResult): unknown | nul
   if (result.raw && typeof result.raw === 'object') {
     const rawRecord = result.raw as Record<string, unknown>;
     if ('insights' in rawRecord || 'items' in rawRecord) {
-      console.log('✅ Found insights/items in raw record');
       return rawRecord;
     }
     // Some providers might nest the content differently
     if ('content' in rawRecord && typeof rawRecord.content === 'object') {
       const contentObj = rawRecord.content as Record<string, unknown>;
       if ('insights' in contentObj || 'items' in contentObj) {
-        console.log('✅ Found insights/items in nested content');
         return contentObj;
       }
     }
   }
 
-  console.log('❌ No valid payload found');
   return null;
 }
 
@@ -1341,25 +1302,10 @@ async function triggerInsightDetection(
       const hasInsights = 'insights' in payloadObj;
       const hasItems = 'items' in payloadObj;
       const isArray = Array.isArray(payload);
-      
-      console.log('✅ Insight agent payload parsed successfully:', {
-        hasInsights,
-        hasItems,
-        isArray,
-        payloadKeys: Object.keys(payloadObj),
-        insightsCount: hasInsights && Array.isArray(payloadObj.insights) ? payloadObj.insights.length : 'not an array',
-        itemsCount: hasItems && Array.isArray(payloadObj.items) ? payloadObj.items.length : 'not an array',
-      });
-      
+
       // Check if the payload has the wrong structure (keywords/concepts/themes instead of insights)
       if (!hasInsights && !hasItems && !isArray && ('keywords' in payloadObj || 'concepts' in payloadObj || 'themes' in payloadObj)) {
-        console.error('⚠️  Agent returned entity extraction format (keywords/concepts/themes) instead of insights format. This suggests the wrong agent was called or the agent prompt is incorrect.');
-        console.error('Payload structure:', {
-          hasKeywords: 'keywords' in payloadObj,
-          hasConcepts: 'concepts' in payloadObj,
-          hasThemes: 'themes' in payloadObj,
-          allKeys: Object.keys(payloadObj),
-        });
+        console.error('Agent returned entity extraction format instead of insights format');
         // Return empty insights since we can't convert entity extraction to insights
         parsedPayload = { insights: [] };
         parsingFailed = true;
@@ -1367,30 +1313,10 @@ async function triggerInsightDetection(
         parsedPayload = payload;
       }
     } else {
-      // If payload is null or invalid, log detailed information for debugging
+      // If payload is null or invalid
       parsingFailed = true;
-      console.error('❌ Insight agent returned invalid JSON payload. Details:', {
-        hasContent: !!result.content,
-        contentType: typeof result.content,
-        contentLength: typeof result.content === 'string' ? result.content.length : 0,
-        contentPreview: typeof result.content === 'string' 
-          ? result.content.substring(0, 500) 
-          : 'N/A',
-        hasRaw: !!result.raw,
-        rawType: typeof result.raw,
-        rawKeys: result.raw && typeof result.raw === 'object' 
-          ? Object.keys(result.raw as Record<string, unknown>)
-          : [],
-        logId: result.logId
-      });
-      
-      // Log the full content for debugging
-      if (typeof result.content === 'string' && result.content.length > 0) {
-        console.error('Full agent response content:', result.content);
-      } else {
-        console.error('No content in agent response. Raw response:', JSON.stringify(result.raw, null, 2));
-      }
-      
+      console.error('Insight agent returned invalid JSON payload');
+
       // Return an empty insights structure instead of throwing
       // This allows the function to continue without throwing, which is important
       // for voice messages where insight detection is non-blocking
@@ -1401,39 +1327,15 @@ async function triggerInsightDetection(
       ? (parsedPayload as Record<string, unknown>).insights
       : parsedPayload;
 
-    console.log('📊 Processing insights source:', {
-      isObject: typeof insightsSource === 'object',
-      isArray: Array.isArray(insightsSource),
-      hasInsights: typeof parsedPayload === 'object' && parsedPayload !== null && 'insights' in parsedPayload,
-      insightsSourceType: typeof insightsSource,
-      insightsSourceKeys: typeof insightsSource === 'object' && insightsSource !== null && !Array.isArray(insightsSource)
-        ? Object.keys(insightsSource as Record<string, unknown>)
-        : Array.isArray(insightsSource)
-        ? `Array with ${insightsSource.length} items`
-        : 'not an object/array',
-    });
-
     const incoming = normaliseIncomingInsights(insightsSource, currentUserId);
-    const newInsightsCount = incoming.items.length;
-    
-    console.log('📊 Normalised insights:', {
-      newInsightsCount,
-      items: incoming.items.map(item => ({
-        hasContent: !!item.content,
-        hasSummary: !!item.summary,
-        type: item.type,
-        contentPreview: item.content?.substring(0, 100),
-      })),
-    });
-    
-    // If parsing failed, log a warning but continue processing
+
+    // If parsing failed, continue processing
     // This allows the system to continue even if the agent response format is unexpected
     if (parsingFailed) {
-      console.warn('⚠️ Insight detection parsing failed, but continuing with existing insights. New insights detected:', newInsightsCount);
       // Don't persist insights if parsing failed, as we can't trust the data
       // But still mark job as completed to avoid blocking future detections
       // This is important for voice messages and non-critical insight detection
-      await completeInsightJob(supabase, job.id, { 
+      await completeInsightJob(supabase, job.id, {
         modelConfigId: result.modelConfig.id,
       });
     } else {
@@ -1455,15 +1357,8 @@ async function triggerInsightDetection(
         }
       }
 
-      console.log('💾 Persisting insights:', {
-        count: incoming.items.length,
-        askSessionId: options.askSessionId,
-        conversationThreadId: options.conversationThreadId,
-        planStepId,
-      });
       await persistInsights(supabase, options.askSessionId, incoming.items, existingInsights, currentUserId, options.conversationThreadId, planStepId, options.challengeId ?? null, options.messageId ?? null);
       await completeInsightJob(supabase, job.id, { modelConfigId: result.modelConfig.id });
-      console.log('✅ Insights persisted successfully');
     }
 
     // Get refreshed insights filtered by thread if thread is provided
@@ -1484,12 +1379,7 @@ async function triggerInsightDetection(
     }
     
     const mappedInsights = refreshedInsights.map(mapInsightRowToInsight);
-    console.log('📤 Returning insights:', {
-      count: mappedInsights.length,
-      insightIds: mappedInsights.map(i => i.id),
-      conversationThreadId: options.conversationThreadId,
-    });
-    
+
     return mappedInsights;
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error during insight detection';
@@ -1682,13 +1572,6 @@ export async function POST(
       // If no user_id found, threadUserId remains null (will use shared thread)
     }
 
-    console.log('🔍 POST /respond: Determining conversation thread:', {
-      currentUserId,
-      threadUserId,
-      askSessionId: askRow.id,
-      askConfig,
-    });
-
     // Get or create the appropriate thread
     const { thread: conversationThread, error: threadError } = await getOrCreateConversationThread(
       supabase,
@@ -1696,12 +1579,6 @@ export async function POST(
       threadUserId,
       askConfig
     );
-
-    console.log('🔍 POST /respond: Conversation thread determined:', {
-      threadId: conversationThread?.id ?? null,
-      threadUserId,
-      isShared: conversationThread?.is_shared ?? null,
-    });
 
     if (threadError) {
       throw threadError;
@@ -1865,9 +1742,6 @@ export async function POST(
     let conversationPlan = null;
     if (conversationThread) {
       conversationPlan = await getConversationPlanWithSteps(supabase, conversationThread.id);
-      if (conversationPlan && conversationPlan.plan_data) {
-        console.log('📋 POST /api/ask/[key]/respond: Loaded conversation plan with', conversationPlan.plan_data.steps.length, 'steps');
-      }
     }
 
     if (detectInsightsOnly) {
@@ -2067,7 +1941,6 @@ export async function POST(
         if (conversationThread) {
           const detectedStepId = detectStepCompletion(latestAiResponse);
           if (detectedStepId) {
-            console.log('🎯 Step completion detected:', detectedStepId);
             try {
               const plan = await getConversationPlanWithSteps(supabase, conversationThread.id);
               if (plan) {
@@ -2095,17 +1968,10 @@ export async function POST(
                     undefined, // No pre-generated summary - let the async agent generate it
                     askRow.id // Pass askSessionId to trigger async summary generation
                   );
-
-                  console.log('✅ Conversation plan updated - step completed:', stepIdToComplete);
-                } else {
-                  console.warn('⚠️ Step completion marker does not match current step:', {
-                    detectedStep: detectedStepId,
-                    currentStep: currentStepIdentifier,
-                  });
                 }
               }
             } catch (planError) {
-              console.error('⚠️ Failed to update conversation plan:', planError);
+              console.error('Failed to update conversation plan:', planError);
               // Don't fail the request if plan update fails
             }
           }

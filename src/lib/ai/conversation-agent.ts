@@ -78,7 +78,6 @@ function formatStepMessages(
   // Find the step record that matches the current step identifier
   const currentStepRecord = planSteps.find(step => step.step_identifier === currentStepId);
   if (!currentStepRecord) {
-    console.log('📋 step_messages: Could not find step record for', currentStepId);
     return formatMessageHistory(messages);
   }
 
@@ -88,8 +87,6 @@ function formatStepMessages(
   if (stepMessages.length === 0) {
     return 'Aucun message pour cette étape.';
   }
-
-  console.log(`📋 step_messages: Filtered ${stepMessages.length}/${messages.length} messages for step ${currentStepId}`);
 
   return stepMessages
     .map(message => {
@@ -176,15 +173,6 @@ export function buildConversationAgentVariables(context: ConversationAgentContex
   // Find the last user message
   const lastUserMessage = [...context.messages].reverse().find(message => message.senderType === 'user');
 
-  // Debug: Log messages_json content
-  console.log('🔧 buildConversationAgentVariables - Création de messages_json:');
-  console.log(`   Input messages: ${context.messages.length}`);
-  console.log(`   Payload messages: ${conversationMessagesPayload.length}`);
-  const payloadUserCount = conversationMessagesPayload.filter(m => m.senderType === 'user').length;
-  const payloadAiCount = conversationMessagesPayload.filter(m => m.senderType === 'ai').length;
-  console.log(`   👤 User in payload: ${payloadUserCount}`);
-  console.log(`   🤖 AI in payload: ${payloadAiCount}`);
-
   // Add conversation plan variables if plan is available
   let conversationPlanFormatted = '';
   let currentStepFormatted = '';
@@ -244,20 +232,7 @@ export function buildConversationAgentVariables(context: ConversationAgentContex
       }
     }
 
-    console.log('📋 Conversation plan available:', {
-      planId: context.conversationPlan.id,
-      stepsCount,
-      currentStepId,
-      completedSteps: context.conversationPlan.completed_steps,
-      totalSteps: context.conversationPlan.total_steps,
-      completedStepsSummaryLength: completedStepsSummaryFormatted.length,
-      stepMessagesCount: planSteps ? context.messages.filter(m => {
-        const stepRecord = planSteps!.find(s => s.step_identifier === currentStepId);
-        return stepRecord && m.planStepId === stepRecord.id;
-      }).length : 0,
-    });
   } else {
-    console.log('📋 No conversation plan available - using default completed_steps_summary');
     // Fallback: use all messages as step_messages when no plan exists
     stepMessagesFormatted = formatMessageHistory(context.messages);
     stepMessagesJson = JSON.stringify(conversationMessagesPayload);
