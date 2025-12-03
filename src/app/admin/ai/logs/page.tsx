@@ -257,6 +257,11 @@ function HighlightedPrompt({
   );
 }
 
+interface AgentTemplates {
+  systemPrompt: string;
+  userPrompt: string;
+}
+
 interface LogsResponse {
   success: boolean;
   data?: {
@@ -292,6 +297,8 @@ export default function AiLogsPage() {
     dateTo: ""
   });
   const [expandedLogs, setExpandedLogs] = useState<Set<string>>(new Set());
+  const [agentTemplatesCache, setAgentTemplatesCache] = useState<Record<string, AgentTemplates | null>>({});
+  const [loadingTemplates, setLoadingTemplates] = useState<Set<string>>(new Set());
 
   // Initialiser avec la date du jour par défaut
   useEffect(() => {
@@ -357,12 +364,54 @@ export default function AiLogsPage() {
     return true;
   });
 
-  const toggleLogExpansion = (logId: string) => {
+  const fetchAgentTemplates = async (agentSlug: string): Promise<AgentTemplates | null> => {
+    // Check cache first
+    if (agentTemplatesCache[agentSlug] !== undefined) {
+      return agentTemplatesCache[agentSlug];
+    }
+
+    // Mark as loading
+    setLoadingTemplates(prev => new Set(prev).add(agentSlug));
+
+    try {
+      const response = await fetch(`/api/admin/ai/agents/${encodeURIComponent(agentSlug)}`);
+      const data = await response.json();
+
+      if (data.success && data.data) {
+        const templates: AgentTemplates = {
+          systemPrompt: data.data.systemPrompt || '',
+          userPrompt: data.data.userPrompt || '',
+        };
+        setAgentTemplatesCache(prev => ({ ...prev, [agentSlug]: templates }));
+        return templates;
+      }
+
+      // Cache null to avoid re-fetching
+      setAgentTemplatesCache(prev => ({ ...prev, [agentSlug]: null }));
+      return null;
+    } catch (err) {
+      console.error('Error fetching agent templates:', err);
+      setAgentTemplatesCache(prev => ({ ...prev, [agentSlug]: null }));
+      return null;
+    } finally {
+      setLoadingTemplates(prev => {
+        const next = new Set(prev);
+        next.delete(agentSlug);
+        return next;
+      });
+    }
+  };
+
+  const toggleLogExpansion = async (logId: string, agentSlug?: string) => {
     const newExpanded = new Set(expandedLogs);
     if (newExpanded.has(logId)) {
       newExpanded.delete(logId);
     } else {
       newExpanded.add(logId);
+      // Fetch agent templates if not already cached and agentSlug is provided
+      if (agentSlug && agentTemplatesCache[agentSlug] === undefined) {
+        fetchAgentTemplates(agentSlug);
+      }
     }
     setExpandedLogs(newExpanded);
   };
@@ -647,7 +696,11 @@ export default function AiLogsPage() {
                             <Card className="border-l-4 border-l-slate-200 transition-colors hover:border-l-slate-300">
                               <CardContent
                                 className="cursor-pointer p-4 transition-colors hover:bg-slate-50"
-                                onClick={() => toggleLogExpansion(log.id)}
+                                onClick={() => {
+                                  const payload = log.requestPayload as Record<string, unknown>;
+                                  const agentSlug = typeof payload.agentSlug === 'string' ? payload.agentSlug : undefined;
+                                  toggleLogExpansion(log.id, agentSlug);
+                                }}
                               >
                                 <div className="flex items-center justify-between">
                                   <div className="flex items-center gap-4">
@@ -688,8 +741,17 @@ export default function AiLogsPage() {
                                 const payload = log.requestPayload as Record<string, unknown>;
                                 const systemPrompt = typeof payload.systemPrompt === 'string' ? payload.systemPrompt : null;
                                 const userPrompt = typeof payload.userPrompt === 'string' ? payload.userPrompt : null;
-                                const systemPromptTemplate = typeof payload.systemPromptTemplate === 'string' ? payload.systemPromptTemplate : undefined;
-                                const userPromptTemplate = typeof payload.userPromptTemplate === 'string' ? payload.userPromptTemplate : undefined;
+                                const agentSlug = typeof payload.agentSlug === 'string' ? payload.agentSlug : undefined;
+
+                                // Get templates: prefer stored templates, fallback to fetched from agent
+                                const storedSystemTemplate = typeof payload.systemPromptTemplate === 'string' ? payload.systemPromptTemplate : undefined;
+                                const storedUserTemplate = typeof payload.userPromptTemplate === 'string' ? payload.userPromptTemplate : undefined;
+
+                                // Use cached agent templates if stored ones are not available
+                                const cachedTemplates = agentSlug ? agentTemplatesCache[agentSlug] : null;
+                                const systemPromptTemplate = storedSystemTemplate || cachedTemplates?.systemPrompt;
+                                const userPromptTemplate = storedUserTemplate || cachedTemplates?.userPrompt;
+                                const isLoadingTemplates = agentSlug ? loadingTemplates.has(agentSlug) : false;
 
                                 // Create a payload without the prompts for the JSON display
                                 const { systemPrompt: _sp, userPrompt: _up, systemPromptTemplate: _spt, userPromptTemplate: _upt, ...otherPayload } = payload;
@@ -702,7 +764,12 @@ export default function AiLogsPage() {
                                         <div>
                                           <h4 className="mb-2 text-sm font-medium text-slate-700">
                                             System Prompt
-                                            {systemPromptTemplate && (
+                                            {isLoadingTemplates && (
+                                              <span className="ml-2 text-xs font-normal text-blue-600">
+                                                (chargement des templates...)
+                                              </span>
+                                            )}
+                                            {!isLoadingTemplates && systemPromptTemplate && (
                                               <span className="ml-2 text-xs font-normal text-orange-600">
                                                 (variables colorées)
                                               </span>
@@ -722,7 +789,12 @@ export default function AiLogsPage() {
                                         <div>
                                           <h4 className="mb-2 text-sm font-medium text-slate-700">
                                             User Prompt
-                                            {userPromptTemplate && (
+                                            {isLoadingTemplates && (
+                                              <span className="ml-2 text-xs font-normal text-blue-600">
+                                                (chargement des templates...)
+                                              </span>
+                                            )}
+                                            {!isLoadingTemplates && userPromptTemplate && (
                                               <span className="ml-2 text-xs font-normal text-orange-600">
                                                 (variables colorées)
                                               </span>
