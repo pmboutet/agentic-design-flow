@@ -19,6 +19,7 @@ interface TestResult {
   metadata?: {
     messagesCount?: number;
     participantsCount?: number;
+    insightsCount?: number;
     hasProject?: boolean;
     hasChallenge?: boolean;
   };
@@ -513,6 +514,14 @@ export function AgentTestMode({ agentId, agentSlug, onClose }: AgentTestModeProp
                       <span className="text-blue-400 dark:text-blue-600">•</span>
                       <span className="text-xs text-blue-600 dark:text-blue-400">
                         {testResult.metadata.participantsCount} participant{testResult.metadata.participantsCount !== 1 ? 's' : ''}
+                      </span>
+                    </>
+                  )}
+                  {testResult.metadata.insightsCount !== undefined && (
+                    <>
+                      <span className="text-blue-400 dark:text-blue-600">•</span>
+                      <span className="text-xs text-purple-600 dark:text-purple-400">
+                        {testResult.metadata.insightsCount} insight{testResult.metadata.insightsCount !== 1 ? 's' : ''} existant{testResult.metadata.insightsCount !== 1 ? 's' : ''}
                       </span>
                     </>
                   )}

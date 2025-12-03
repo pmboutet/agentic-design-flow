@@ -5,9 +5,10 @@ import { executeAgent } from '@/lib/ai/service';
 import { renderTemplate } from '@/lib/ai/templates';
 import { parseErrorMessage } from '@/lib/utils';
 import { buildConversationAgentVariables } from '@/lib/ai/conversation-agent';
-import { getAskSessionByKey, getOrCreateConversationThread, getMessagesForThread } from '@/lib/asks';
+import { getAskSessionByKey, getOrCreateConversationThread, getMessagesForThread, getInsightsForThread } from '@/lib/asks';
 import { normaliseMessageMetadata } from '@/lib/messages';
-import { fetchInsightTypesForPrompt } from '@/lib/insightQueries';
+import { fetchInsightTypesForPrompt, fetchInsightsForSession } from '@/lib/insightQueries';
+import { mapInsightRowToInsight } from '@/lib/insights';
 
 interface TestRequest {
   askSessionId?: string;
@@ -229,6 +230,19 @@ export async function POST(
       // Fetch insight types for prompt (same as production route)
       const insightTypes = await fetchInsightTypesForPrompt(supabase);
 
+      // Fetch existing insights for the session (for insight detection agent)
+      let existingInsights: any[] = [];
+      if (conversationThread) {
+        const { insights: threadInsights } = await getInsightsForThread(supabase, conversationThread.id);
+        existingInsights = (threadInsights ?? []).map(mapInsightRowToInsight);
+      } else {
+        const insightRows = await fetchInsightsForSession(supabase, askRow.id);
+        existingInsights = insightRows.map(mapInsightRowToInsight);
+      }
+
+      // Find the last AI response for latestAiResponse variable
+      const lastAiMessage = [...messages].reverse().find(m => m.senderType === 'ai');
+
       // Build variables using THE SAME function as streaming route
       const agentVariables = buildConversationAgentVariables({
         ask: askRow,
@@ -237,6 +251,8 @@ export async function POST(
         messages,
         participants,
         insightTypes,
+        insights: existingInsights,
+        latestAiResponse: lastAiMessage?.content ?? '',
       });
 
       // For ask-conversation-response agent, use getAgentConfigForAsk
@@ -267,8 +283,36 @@ export async function POST(
         });
       }
 
-      // For other agents, assign variables for rendering
+      // For other agents (like insight-detection), assign variables for rendering
       Object.assign(variables, agentVariables);
+
+      // Build resolved variables for highlighting
+      const resolvedVariables: Record<string, string> = {};
+      for (const [key, value] of Object.entries(agentVariables)) {
+        if (value !== undefined && value !== null && String(value).trim().length > 0) {
+          resolvedVariables[key] = String(value);
+        }
+      }
+
+      // Render templates with agent variables
+      const systemPrompt = renderTemplate(agent.systemPrompt, agentVariables);
+      const userPrompt = renderTemplate(agent.userPrompt, agentVariables);
+
+      return NextResponse.json({
+        success: true,
+        data: {
+          systemPrompt,
+          userPrompt,
+          resolvedVariables,
+          metadata: {
+            messagesCount: messages.length,
+            participantsCount: participants.length,
+            insightsCount: existingInsights.length,
+            hasProject: !!projectData,
+            hasChallenge: !!challengeData,
+          },
+        },
+      });
     } else if (body.challengeId) {
       // Build variables for challenge context (ask-generator or challenge-builder)
       const { data: challenge, error: challengeError } = await supabase
