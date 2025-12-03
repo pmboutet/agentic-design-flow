@@ -42,3 +42,27 @@ npm run build
 - Fix all TypeScript errors before committing
 - Ensure no security vulnerabilities (keep dependencies updated)
 - Follow existing code patterns and conventions
+
+## Critical Architecture Notes
+
+### Conversation Modes & Thread Handling
+
+The ASK system supports three conversation modes defined by `conversation_mode`:
+
+1. **`individual_parallel`**: Each participant gets their own thread (is_shared = false)
+   - Separate conversation plans per participant
+   - No cross-visibility between participants
+
+2. **`collaborative`**: All participants share one thread (is_shared = true)
+   - Single conversation plan shared by all
+   - Everyone sees all messages
+
+3. **`group_reporter`**: All participants share one thread with designated spokesperson
+
+**IMPORTANT**: When modifying API routes that handle ASK sessions:
+- Always include `conversation_mode` in SELECT queries for ask_sessions
+- Always pass `conversation_mode` to `askConfig` when calling `getOrCreateConversationThread()`
+- The `shouldUseSharedThread()` function in `src/lib/asks.ts` determines thread behavior
+- Tests for this logic are in `src/lib/__tests__/asks.test.ts`
+
+Legacy fields (`audience_scope`, `response_mode`) are deprecated but supported for backward compatibility.
