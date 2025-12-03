@@ -197,8 +197,11 @@ export class TranscriptionManager {
    * Schedule utterance finalisation after a short debounce period
    * This prevents sending multiple fragments when user pauses briefly
    * IMPORTANT: Uses semantic detection if available to avoid sending incomplete utterances
+   *
+   * @param force If true, reduces delay and relaxes min char/word requirements
+   * @param absoluteFailsafe If true, bypasses ALL checks including fragment endings (maxHoldMs only)
    */
-  private scheduleUtteranceFinalization(force: boolean = false): void {
+  private scheduleUtteranceFinalization(force: boolean = false, absoluteFailsafe: boolean = false): void {
     if (this.utteranceDebounceTimeout) {
       clearTimeout(this.utteranceDebounceTimeout);
       this.utteranceDebounceTimeout = null;
@@ -212,18 +215,21 @@ export class TranscriptionManager {
     this.utteranceDebounceTimeout = setTimeout(() => {
       // CRITICAL FIX: Use semantic detection if enabled instead of sending directly
       // This ensures incomplete utterances are held until user truly finishes
-      if (this.semanticOptions?.detector && !force) {
+      if (this.semanticOptions?.detector && !force && !absoluteFailsafe) {
         this.triggerSemanticEvaluation('utterance_debounce');
       } else {
-        this.processPendingTranscript(force);
+        this.processPendingTranscript(force, absoluteFailsafe);
       }
     }, delay);
   }
 
   /**
    * Process pending transcript when silence is detected
+   *
+   * @param force If true, relaxes min char/word requirements but still checks fragment endings
+   * @param absoluteFailsafe If true, bypasses ALL checks (only used for maxHoldMs timeout)
    */
-  async processPendingTranscript(force: boolean = false): Promise<void> {
+  async processPendingTranscript(force: boolean = false, absoluteFailsafe: boolean = false): Promise<void> {
     // Clear silence timeout
     if (this.silenceTimeout) {
       clearTimeout(this.silenceTimeout);
@@ -234,10 +240,10 @@ export class TranscriptionManager {
       this.utteranceDebounceTimeout = null;
     }
     this.clearSemanticHold();
-    
+
     // Reset EndOfUtterance flag after processing
     this.receivedEndOfUtterance = false;
-    
+
     // Process pending transcript if we have one
     if (this.pendingFinalTranscript && this.pendingFinalTranscript.trim()) {
       let finalMessage = this.cleanTranscript(this.pendingFinalTranscript.trim());
@@ -245,10 +251,10 @@ export class TranscriptionManager {
       // Trim overlap with the previous user message to avoid duplicated openings
       finalMessage = this.removeOverlapWithPreviousMessage(finalMessage);
 
-      if (!this.isUtteranceComplete(finalMessage, force)) {
-        // Not enough content yet - keep waiting unless forced by failsafe
+      if (!this.isUtteranceComplete(finalMessage, force, absoluteFailsafe)) {
+        // Not enough content yet - keep waiting unless forced by absolute failsafe
         this.pendingFinalTranscript = finalMessage;
-        if (!force) {
+        if (!force && !absoluteFailsafe) {
           // DON'T reschedule utteranceDebounceTimeout here!
           // It would create an infinite loop where utteranceDebounceTimeout
           // keeps cancelling silenceTimeout before it can trigger.
@@ -256,9 +262,15 @@ export class TranscriptionManager {
           console.log('[Transcription] ⏳ Waiting for complete utterance, resetting silence timeout');
           this.resetSilenceTimeout();
           return;
+        } else if (absoluteFailsafe) {
+          // Absolute failsafe mode (maxHoldMs timeout) - send anyway
+          console.warn('[Transcription] ⚠️ ABSOLUTE FAILSAFE (maxHoldMs): Forcing incomplete utterance send:', finalMessage);
         } else {
-          // Force mode (failsafe timeout) - but still log warning
-          console.warn('[Transcription] ⚠️ FAILSAFE: Forcing incomplete utterance send:', finalMessage);
+          // Force mode but not absolute - continue waiting if ends with fragment
+          // This happens when semantic model says "end of turn" but message ends with fragment
+          console.log('[Transcription] ⏳ Semantic detected EOT but message ends with fragment, waiting...');
+          this.resetSilenceTimeout();
+          return;
         }
       }
       
@@ -510,14 +522,17 @@ export class TranscriptionManager {
       if (typeof probability === 'number' && probability >= options.threshold) {
         this.emitSemanticTelemetry('dispatch', trigger, probability);
         this.clearSemanticHold();
-        this.scheduleUtteranceFinalization(true);
+        // DO NOT use absoluteFailsafe here - we want to check fragment endings
+        // even when semantic model says "end of turn". User might still be talking.
+        this.scheduleUtteranceFinalization(true, false);
         return;
       }
 
       if (probability === null) {
         this.emitSemanticTelemetry('fallback', trigger, probability, 'detector-null');
         this.clearSemanticHold();
-        this.scheduleUtteranceFinalization(true);
+        // DO NOT use absoluteFailsafe here - still check fragment endings
+        this.scheduleUtteranceFinalization(true, false);
         return;
       }
 
@@ -526,14 +541,17 @@ export class TranscriptionManager {
         return;
       }
 
+      // maxHoldMs exceeded - use absoluteFailsafe to FORCE send the message
+      // This is the safety valve that prevents infinite waiting
       this.emitSemanticTelemetry('fallback', trigger, probability, 'max-hold-exceeded');
       this.clearSemanticHold();
-      this.scheduleUtteranceFinalization(true);
+      this.scheduleUtteranceFinalization(true, true); // absoluteFailsafe=true
     } catch (error) {
       console.error('[Transcription] ❌ Semantic detector error', error);
       this.emitSemanticTelemetry('fallback', trigger, null, 'detector-error');
       this.clearSemanticHold();
-      this.scheduleUtteranceFinalization(true);
+      // On error, use absoluteFailsafe to ensure message is sent
+      this.scheduleUtteranceFinalization(true, true); // absoluteFailsafe=true
     } finally {
       this.semanticEvaluationInFlight = false;
       if (this.pendingSemanticTrigger) {
@@ -1045,16 +1063,42 @@ export class TranscriptionManager {
     return message;
   }
 
-  private isUtteranceComplete(text: string, force: boolean): boolean {
+  /**
+   * Check if an utterance is complete and ready to be sent.
+   *
+   * @param text The transcript text to check
+   * @param force If true, relaxes min char/word requirements but STILL checks fragment endings
+   * @param absoluteFailsafe If true, bypasses ALL checks (only used for maxHoldMs timeout)
+   * @returns true if the utterance is ready to be sent
+   */
+  private isUtteranceComplete(text: string, force: boolean, absoluteFailsafe: boolean = false): boolean {
     if (!text) return false;
     const cleaned = text.trim();
     if (!cleaned) return false;
+
+    // ABSOLUTE FAILSAFE: Only bypass all checks when maxHoldMs is exceeded
+    // This prevents infinite loops when the user keeps talking with fragment endings
+    if (absoluteFailsafe) {
+      return true;
+    }
+
+    const words = cleaned.split(/\s+/).filter(Boolean);
+    const lastWord = words[words.length - 1]?.toLowerCase().replace(/[.,!?;:…\-—–'"]+$/g, '');
+
+    // CRITICAL: ALWAYS check fragment endings, even with force=true
+    // This prevents sending incomplete phrases like "En fait je pense que" when user is still talking.
+    // The semantic model may return high probability for the preceding sentence,
+    // but the user is continuing with a connector word.
+    // Only absoluteFailsafe (maxHoldMs timeout) can bypass this.
+    if (this.FRAGMENT_ENDINGS.has(lastWord)) {
+      console.log('[Transcription] ⏸️ Utterance incomplete - ends with fragment word:', lastWord);
+      return false;
+    }
 
     if (force) {
       return true;
     }
 
-    const words = cleaned.split(/\s+/).filter(Boolean);
     const relaxedMode = !this.enablePartials;
 
     const minChars = relaxedMode
@@ -1066,15 +1110,6 @@ export class TranscriptionManager {
 
     if (cleaned.length < minChars) return false;
     if (words.length < minWords) return false;
-
-    const lastWord = words[words.length - 1]?.toLowerCase().replace(/[.,!?;:…\-—–'"]+$/g, '');
-
-    // CRITIQUE : Vérifier si le dernier mot (sans ponctuation) est un mot de fragment
-    // Cela empêche l'envoi prématuré de "si je ne me" (se termine par "me")
-    if (this.FRAGMENT_ENDINGS.has(lastWord)) {
-      console.log('[Transcription] ⏸️ Utterance incomplete - ends with fragment word:', lastWord);
-      return false;
-    }
 
     if (relaxedMode) {
       // In total transcription mode we can accept shorter chunks,
