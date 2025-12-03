@@ -989,6 +989,12 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
           onError: handleError,
           onConnection: handleConnectionChange,
           onSemanticTurn: handleSemanticTelemetry,
+          onAudioPlaybackEnd: () => {
+            // Resume inactivity timer after TTS audio finishes playing
+            const timestamp = new Date().toISOString().split('T')[1].replace('Z', '');
+            console.log(`[${timestamp}] [PremiumVoiceInterface] 🔊 TTS audio playback ended - resuming inactivity timer`);
+            inactivityMonitor.resumeTimerAfterDelay(0);
+          },
         });
 
         // Configuration de l'agent Speechmatics (plus de paramètres que Hybrid)

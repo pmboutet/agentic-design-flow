@@ -80,6 +80,7 @@ export class SpeechmaticsAudio {
     private onAudioChunk: (chunk: Int16Array) => void,
     private ws: WebSocket | null,
     private onBargeIn?: () => void,
+    private onAudioPlaybackEnd?: () => void,
     private onEchoDetected?: () => void // Called when transcript is detected as echo and should be discarded
   ) {
     this.instanceId = ++SpeechmaticsAudio.instanceCounter;
@@ -569,6 +570,8 @@ export class SpeechmaticsAudio {
         // This helps prevent echo-triggered barge-ins right after audio stops
         this.lastAudioPlaybackEndTime = Date.now();
         console.log(`[Speechmatics Audio #${this.instanceId}] 🔊 Audio playback ended - grace period started (${this.AUDIO_PLAYBACK_GRACE_PERIOD_MS}ms)`);
+        // Notify parent that audio playback has ended (for inactivity timer)
+        this.onAudioPlaybackEnd?.();
       }
     };
 
