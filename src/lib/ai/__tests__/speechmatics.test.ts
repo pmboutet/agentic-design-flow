@@ -1,0 +1,1136 @@
+/**
+ * Unit tests for Speechmatics Voice Agent modules
+ * Tests all core modules: Auth, Audio Dedupe, LLM, and Transcription Manager
+ */
+
+import { SpeechmaticsAuth } from '../speechmatics-auth';
+import { AudioChunkDedupe } from '../speechmatics-audio-dedupe';
+import { SpeechmaticsLLM } from '../speechmatics-llm';
+import { TranscriptionManager } from '../speechmatics-transcription';
+import type { SpeechmaticsMessageEvent } from '../speechmatics-types';
+
+// ============================================================================
+// MOCK SETUP
+// ============================================================================
+
+// Mock fetch globally
+const mockFetch = jest.fn();
+global.fetch = mockFetch;
+
+// Suppress console logs during tests
+beforeEach(() => {
+  jest.spyOn(console, 'log').mockImplementation(() => {});
+  jest.spyOn(console, 'warn').mockImplementation(() => {});
+  jest.spyOn(console, 'error').mockImplementation(() => {});
+  mockFetch.mockReset();
+});
+
+afterEach(() => {
+  jest.restoreAllMocks();
+  jest.useRealTimers();
+});
+
+// ============================================================================
+// SPEECHMATICS AUTH TESTS
+// ============================================================================
+
+describe('SpeechmaticsAuth', () => {
+  describe('authenticate', () => {
+    test('should return JWT token when /api/speechmatics-jwt succeeds', async () => {
+      const auth = new SpeechmaticsAuth();
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ jwt: 'test-jwt-token', ttl: 60 }),
+      });
+
+      const result = await auth.authenticate();
+
+      expect(result).toBe('test-jwt-token');
+      expect(auth.hasJWT()).toBe(true);
+      expect(auth.getJWT()).toBe('test-jwt-token');
+    });
+
+    test('should fall back to API key when JWT endpoint fails', async () => {
+      const auth = new SpeechmaticsAuth();
+
+      // JWT endpoint fails
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        text: async () => 'JWT generation failed',
+      });
+
+      // API key endpoint succeeds
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ apiKey: 'test-api-key' }),
+      });
+
+      const result = await auth.authenticate();
+
+      expect(result).toBe('test-api-key');
+      expect(auth.getApiKey()).toBe('test-api-key');
+      expect(auth.hasJWT()).toBe(false);
+    });
+
+    test('should throw error when both JWT and API key endpoints fail', async () => {
+      const auth = new SpeechmaticsAuth();
+
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        text: async () => 'JWT failed',
+      });
+
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        text: async () => 'API key failed',
+      });
+
+      await expect(auth.authenticate()).rejects.toThrow('Speechmatics authentication failed');
+    });
+
+    test('should throw error when API key is empty', async () => {
+      const auth = new SpeechmaticsAuth();
+
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        text: async () => 'JWT failed',
+      });
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ apiKey: '' }),
+      });
+
+      await expect(auth.authenticate()).rejects.toThrow('Failed to get Speechmatics API key');
+    });
+
+    test('should reuse cached JWT token if not expired', async () => {
+      const auth = new SpeechmaticsAuth();
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ jwt: 'cached-jwt', ttl: 60 }),
+      });
+
+      // First call
+      const result1 = await auth.authenticate();
+      expect(result1).toBe('cached-jwt');
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+
+      // Second call should use cache
+      const result2 = await auth.authenticate();
+      expect(result2).toBe('cached-jwt');
+      expect(mockFetch).toHaveBeenCalledTimes(1); // No additional fetch
+    });
+
+    test('should refresh expired JWT token', async () => {
+      jest.useFakeTimers();
+      const auth = new SpeechmaticsAuth();
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ jwt: 'first-jwt', ttl: 1 }), // 1 second TTL
+      });
+
+      // First call
+      await auth.authenticate();
+      expect(auth.getJWT()).toBe('first-jwt');
+
+      // Advance time past expiry (JWT expiry is set to 90% of TTL)
+      jest.advanceTimersByTime(2000);
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ jwt: 'refreshed-jwt', ttl: 60 }),
+      });
+
+      // Second call should refresh
+      const result = await auth.authenticate();
+      expect(result).toBe('refreshed-jwt');
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('getElevenLabsApiKey', () => {
+    test('should return ElevenLabs API key successfully', async () => {
+      const auth = new SpeechmaticsAuth();
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ apiKey: 'elevenlabs-key-123' }),
+      });
+
+      const result = await auth.getElevenLabsApiKey();
+
+      expect(result).toBe('elevenlabs-key-123');
+      expect(mockFetch).toHaveBeenCalledWith('/api/elevenlabs-token', {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+    });
+
+    test('should throw error when ElevenLabs endpoint fails', async () => {
+      const auth = new SpeechmaticsAuth();
+
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        text: async () => 'Unauthorized',
+      });
+
+      await expect(auth.getElevenLabsApiKey()).rejects.toThrow('Failed to get ElevenLabs API key');
+    });
+
+    test('should throw error when ElevenLabs returns empty key', async () => {
+      const auth = new SpeechmaticsAuth();
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ apiKey: null }),
+      });
+
+      await expect(auth.getElevenLabsApiKey()).rejects.toThrow('Failed to get ElevenLabs API key');
+    });
+  });
+
+  describe('hasJWT', () => {
+    test('should return false when no JWT is set', () => {
+      const auth = new SpeechmaticsAuth();
+      expect(auth.hasJWT()).toBe(false);
+    });
+
+    test('should return true when valid JWT is set', async () => {
+      const auth = new SpeechmaticsAuth();
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ jwt: 'valid-jwt', ttl: 60 }),
+      });
+
+      await auth.authenticate();
+      expect(auth.hasJWT()).toBe(true);
+    });
+  });
+});
+
+// ============================================================================
+// AUDIO CHUNK DEDUPE TESTS
+// ============================================================================
+
+describe('AudioChunkDedupe', () => {
+  describe('computeChunkSignature', () => {
+    test('should return "empty" for empty array', () => {
+      const dedupe = new AudioChunkDedupe();
+      const chunk = new Int16Array(0);
+
+      expect(dedupe.computeChunkSignature(chunk)).toBe('empty');
+    });
+
+    test('should return consistent signature for same data', () => {
+      const dedupe = new AudioChunkDedupe();
+      const chunk = new Int16Array([100, 200, 300, 400, 500]);
+
+      const sig1 = dedupe.computeChunkSignature(chunk);
+      const sig2 = dedupe.computeChunkSignature(chunk);
+
+      expect(sig1).toBe(sig2);
+    });
+
+    test('should return different signatures for different data', () => {
+      const dedupe = new AudioChunkDedupe();
+      const chunk1 = new Int16Array([100, 200, 300, 400, 500]);
+      const chunk2 = new Int16Array([500, 400, 300, 200, 100]);
+
+      const sig1 = dedupe.computeChunkSignature(chunk1);
+      const sig2 = dedupe.computeChunkSignature(chunk2);
+
+      expect(sig1).not.toBe(sig2);
+    });
+
+    test('should include length in signature', () => {
+      const dedupe = new AudioChunkDedupe();
+      const chunk = new Int16Array([100, 200, 300]);
+
+      const signature = dedupe.computeChunkSignature(chunk);
+
+      expect(signature).toMatch(/^3-/); // Starts with length
+    });
+
+    test('should handle large arrays efficiently', () => {
+      const dedupe = new AudioChunkDedupe();
+      const chunk = new Int16Array(10000);
+      for (let i = 0; i < 10000; i++) {
+        chunk[i] = Math.floor(Math.random() * 32767);
+      }
+
+      const start = Date.now();
+      const signature = dedupe.computeChunkSignature(chunk);
+      const duration = Date.now() - start;
+
+      expect(signature).toBeTruthy();
+      expect(duration).toBeLessThan(10); // Should be very fast (O(1))
+    });
+  });
+
+  describe('shouldSkipChunk', () => {
+    test('should not skip first occurrence of a signature', () => {
+      const dedupe = new AudioChunkDedupe();
+
+      const result = dedupe.shouldSkipChunk('test-sig-1');
+
+      expect(result).toBe(false);
+    });
+
+    test('should skip duplicate within dedupe window', () => {
+      const dedupe = new AudioChunkDedupe();
+
+      dedupe.shouldSkipChunk('test-sig-2');
+      const result = dedupe.shouldSkipChunk('test-sig-2');
+
+      expect(result).toBe(true);
+    });
+
+    test('should not skip after dedupe window expires', () => {
+      jest.useFakeTimers();
+      const dedupe = new AudioChunkDedupe();
+
+      dedupe.shouldSkipChunk('test-sig-3');
+
+      // Advance time past 3 second window
+      jest.advanceTimersByTime(3500);
+
+      const result = dedupe.shouldSkipChunk('test-sig-3');
+
+      expect(result).toBe(false);
+    });
+
+    test('should handle multiple different signatures', () => {
+      const dedupe = new AudioChunkDedupe();
+
+      expect(dedupe.shouldSkipChunk('sig-a')).toBe(false);
+      expect(dedupe.shouldSkipChunk('sig-b')).toBe(false);
+      expect(dedupe.shouldSkipChunk('sig-c')).toBe(false);
+
+      expect(dedupe.shouldSkipChunk('sig-a')).toBe(true);
+      expect(dedupe.shouldSkipChunk('sig-b')).toBe(true);
+    });
+
+    test('should clean up cache when it exceeds max size', () => {
+      const dedupe = new AudioChunkDedupe();
+
+      // Add more than DEDUPE_CACHE_MAX_SIZE (100) entries
+      for (let i = 0; i < 150; i++) {
+        dedupe.shouldSkipChunk(`sig-${i}`);
+      }
+
+      // Cache should have been cleaned up
+      // Old entries should be removed
+      expect(dedupe.shouldSkipChunk('sig-0')).toBe(false); // Should be cleaned
+    });
+  });
+
+  describe('reset', () => {
+    test('should clear all cached signatures', () => {
+      const dedupe = new AudioChunkDedupe();
+
+      dedupe.shouldSkipChunk('sig-1');
+      dedupe.shouldSkipChunk('sig-2');
+
+      dedupe.reset();
+
+      expect(dedupe.shouldSkipChunk('sig-1')).toBe(false);
+      expect(dedupe.shouldSkipChunk('sig-2')).toBe(false);
+    });
+  });
+
+  describe('integration: full deduplication flow', () => {
+    test('should detect and skip duplicate audio chunks', () => {
+      const dedupe = new AudioChunkDedupe();
+
+      const chunk1 = new Int16Array([100, 200, 300, 400, 500, 600, 700, 800]);
+      const chunk2 = new Int16Array([100, 200, 300, 400, 500, 600, 700, 800]); // Same
+      const chunk3 = new Int16Array([800, 700, 600, 500, 400, 300, 200, 100]); // Different
+
+      const sig1 = dedupe.computeChunkSignature(chunk1);
+      const sig2 = dedupe.computeChunkSignature(chunk2);
+      const sig3 = dedupe.computeChunkSignature(chunk3);
+
+      expect(dedupe.shouldSkipChunk(sig1)).toBe(false);
+      expect(dedupe.shouldSkipChunk(sig2)).toBe(true); // Duplicate
+      expect(dedupe.shouldSkipChunk(sig3)).toBe(false);
+    });
+  });
+});
+
+// ============================================================================
+// SPEECHMATICS LLM TESTS
+// ============================================================================
+
+describe('SpeechmaticsLLM', () => {
+  describe('getLLMApiKey', () => {
+    test('should fetch Anthropic API key', async () => {
+      const llm = new SpeechmaticsLLM();
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ apiKey: 'anthropic-key-123' }),
+      });
+
+      const result = await llm.getLLMApiKey('anthropic');
+
+      expect(result).toBe('anthropic-key-123');
+      expect(mockFetch).toHaveBeenCalledWith('/api/llm-token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider: 'anthropic' }),
+      });
+    });
+
+    test('should fetch OpenAI API key', async () => {
+      const llm = new SpeechmaticsLLM();
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ apiKey: 'openai-key-456' }),
+      });
+
+      const result = await llm.getLLMApiKey('openai');
+
+      expect(result).toBe('openai-key-456');
+      expect(mockFetch).toHaveBeenCalledWith('/api/llm-token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider: 'openai' }),
+      });
+    });
+
+    test('should throw error when API key fetch fails', async () => {
+      const llm = new SpeechmaticsLLM();
+
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        text: async () => 'Unauthorized',
+      });
+
+      await expect(llm.getLLMApiKey('anthropic')).rejects.toThrow('Failed to get LLM API key');
+    });
+  });
+
+  describe('callLLM', () => {
+    test('should call LLM API successfully', async () => {
+      const llm = new SpeechmaticsLLM();
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ content: 'AI response text' }),
+      });
+
+      const messages = [
+        { role: 'system' as const, content: 'You are a helpful assistant' },
+        { role: 'user' as const, content: 'Hello' },
+      ];
+
+      const result = await llm.callLLM('anthropic', 'api-key', 'claude-3', messages);
+
+      expect(result).toBe('AI response text');
+      expect(mockFetch).toHaveBeenCalledWith('/api/speechmatics-llm', expect.objectContaining({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      }));
+    });
+
+    test('should include thinking options when enabled', async () => {
+      const llm = new SpeechmaticsLLM();
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ content: 'Response with thinking' }),
+      });
+
+      const messages = [{ role: 'user' as const, content: 'Think about this' }];
+
+      await llm.callLLM('anthropic', 'api-key', 'claude-3', messages, {
+        enableThinking: true,
+        thinkingBudgetTokens: 1000,
+      });
+
+      const callBody = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(callBody.enableThinking).toBe(true);
+      expect(callBody.thinkingBudgetTokens).toBe(1000);
+    });
+
+    test('should pass abort signal to fetch', async () => {
+      const llm = new SpeechmaticsLLM();
+      const controller = new AbortController();
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ content: 'Response' }),
+      });
+
+      const messages = [{ role: 'user' as const, content: 'Hello' }];
+
+      await llm.callLLM('anthropic', 'api-key', 'claude-3', messages, {
+        signal: controller.signal,
+      });
+
+      expect(mockFetch).toHaveBeenCalledWith('/api/speechmatics-llm', expect.objectContaining({
+        signal: controller.signal,
+      }));
+    });
+
+    test('should throw error when LLM API returns error', async () => {
+      const llm = new SpeechmaticsLLM();
+
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        statusText: 'Internal Server Error',
+        json: async () => ({ error: 'Model overloaded' }),
+      });
+
+      const messages = [{ role: 'user' as const, content: 'Hello' }];
+
+      await expect(llm.callLLM('anthropic', 'api-key', 'claude-3', messages))
+        .rejects.toThrow('LLM API error: Model overloaded');
+    });
+
+    test('should extract system prompt from messages', async () => {
+      const llm = new SpeechmaticsLLM();
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ content: 'Response' }),
+      });
+
+      const messages = [
+        { role: 'system' as const, content: 'System instructions' },
+        { role: 'user' as const, content: 'User message' },
+      ];
+
+      await llm.callLLM('openai', 'api-key', 'gpt-4', messages);
+
+      const callBody = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(callBody.systemPrompt).toBe('System instructions');
+    });
+
+    test('should return empty string when content is missing', async () => {
+      const llm = new SpeechmaticsLLM();
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({}), // No content field
+      });
+
+      const messages = [{ role: 'user' as const, content: 'Hello' }];
+      const result = await llm.callLLM('anthropic', 'api-key', 'claude-3', messages);
+
+      expect(result).toBe('');
+    });
+  });
+});
+
+// ============================================================================
+// TRANSCRIPTION MANAGER TESTS
+// ============================================================================
+
+describe('TranscriptionManager', () => {
+  let mockMessageCallback: jest.Mock<void, [SpeechmaticsMessageEvent]>;
+  let mockProcessUserMessage: jest.Mock<Promise<void>, [string]>;
+  let conversationHistory: Array<{ role: 'user' | 'agent'; content: string }>;
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    mockMessageCallback = jest.fn();
+    mockProcessUserMessage = jest.fn().mockResolvedValue(undefined);
+    conversationHistory = [];
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  describe('handlePartialTranscript', () => {
+    test('should ignore empty transcripts', () => {
+      const manager = new TranscriptionManager(
+        mockMessageCallback,
+        mockProcessUserMessage,
+        conversationHistory,
+        true
+      );
+
+      manager.handlePartialTranscript('');
+      manager.handlePartialTranscript('   ');
+
+      expect(mockMessageCallback).not.toHaveBeenCalled();
+    });
+
+    test('should skip duplicate partial transcripts', () => {
+      const manager = new TranscriptionManager(
+        mockMessageCallback,
+        mockProcessUserMessage,
+        conversationHistory,
+        true
+      );
+
+      manager.handlePartialTranscript('Hello world');
+      mockMessageCallback.mockClear();
+
+      manager.handlePartialTranscript('Hello world');
+
+      expect(mockMessageCallback).not.toHaveBeenCalled();
+    });
+
+    test('should call message callback with interim message', () => {
+      const manager = new TranscriptionManager(
+        mockMessageCallback,
+        mockProcessUserMessage,
+        conversationHistory,
+        true
+      );
+
+      manager.handlePartialTranscript('Hello world');
+
+      expect(mockMessageCallback).toHaveBeenCalledWith(expect.objectContaining({
+        role: 'user',
+        content: 'Hello world',
+        isInterim: true,
+      }));
+    });
+
+    test('should not call callback when partials are disabled', () => {
+      const manager = new TranscriptionManager(
+        mockMessageCallback,
+        mockProcessUserMessage,
+        conversationHistory,
+        false // Partials disabled
+      );
+
+      manager.handlePartialTranscript('Hello world');
+
+      expect(mockMessageCallback).not.toHaveBeenCalled();
+    });
+
+    test('should update content with longer transcript', () => {
+      const manager = new TranscriptionManager(
+        mockMessageCallback,
+        mockProcessUserMessage,
+        conversationHistory,
+        true
+      );
+
+      manager.handlePartialTranscript('Hello');
+
+      // Advance past rate limit
+      jest.advanceTimersByTime(150);
+
+      manager.handlePartialTranscript('Hello world');
+
+      expect(mockMessageCallback).toHaveBeenLastCalledWith(expect.objectContaining({
+        content: 'Hello world',
+      }));
+    });
+
+    test('should respect rate limiting for partial updates', () => {
+      const manager = new TranscriptionManager(
+        mockMessageCallback,
+        mockProcessUserMessage,
+        conversationHistory,
+        true
+      );
+
+      manager.handlePartialTranscript('Hello');
+      mockMessageCallback.mockClear();
+
+      // Immediately send another (within rate limit)
+      manager.handlePartialTranscript('Hello world');
+
+      expect(mockMessageCallback).not.toHaveBeenCalled();
+
+      // Advance past rate limit
+      jest.advanceTimersByTime(150);
+      manager.handlePartialTranscript('Hello world again');
+
+      expect(mockMessageCallback).toHaveBeenCalled();
+    });
+  });
+
+  describe('handleFinalTranscript', () => {
+    test('should ignore empty transcripts', () => {
+      const manager = new TranscriptionManager(
+        mockMessageCallback,
+        mockProcessUserMessage,
+        conversationHistory,
+        true
+      );
+
+      manager.handleFinalTranscript('');
+      manager.handleFinalTranscript('   ');
+
+      jest.runAllTimers();
+
+      expect(mockProcessUserMessage).not.toHaveBeenCalled();
+    });
+
+    test('should accumulate transcript segments', () => {
+      const manager = new TranscriptionManager(
+        mockMessageCallback,
+        mockProcessUserMessage,
+        conversationHistory,
+        true
+      );
+
+      manager.handleFinalTranscript('Hello');
+      manager.handleFinalTranscript('Hello world');
+
+      // Trigger processing
+      jest.runAllTimers();
+
+      expect(mockProcessUserMessage).toHaveBeenCalledWith('Hello world');
+    });
+
+    test('should merge separate transcript segments', () => {
+      const manager = new TranscriptionManager(
+        mockMessageCallback,
+        mockProcessUserMessage,
+        conversationHistory,
+        true
+      );
+
+      manager.handleFinalTranscript('First part');
+      manager.handleFinalTranscript('Second part');
+
+      jest.runAllTimers();
+
+      expect(mockProcessUserMessage).toHaveBeenCalledWith(expect.stringContaining('First part'));
+    });
+  });
+
+  describe('markEndOfUtterance', () => {
+    test('should trigger utterance finalization', () => {
+      const manager = new TranscriptionManager(
+        mockMessageCallback,
+        mockProcessUserMessage,
+        conversationHistory,
+        true
+      );
+
+      manager.handleFinalTranscript('This is a complete sentence.');
+      manager.markEndOfUtterance();
+
+      jest.runAllTimers();
+
+      expect(mockProcessUserMessage).toHaveBeenCalled();
+    });
+  });
+
+  describe('processPendingTranscript', () => {
+    test('should skip messages that are too short', async () => {
+      const manager = new TranscriptionManager(
+        mockMessageCallback,
+        mockProcessUserMessage,
+        conversationHistory,
+        true
+      );
+
+      manager.handleFinalTranscript('Hi');
+      // Without force and absoluteFailsafe, short messages should be skipped
+      await manager.processPendingTranscript(false, false);
+
+      expect(mockProcessUserMessage).not.toHaveBeenCalled();
+    });
+
+    test('should skip duplicate messages', async () => {
+      const manager = new TranscriptionManager(
+        mockMessageCallback,
+        mockProcessUserMessage,
+        conversationHistory,
+        true
+      );
+
+      manager.handleFinalTranscript('This is a complete message for testing.');
+      await manager.processPendingTranscript(true, true);
+
+      mockProcessUserMessage.mockClear();
+
+      // Same message again
+      manager.handleFinalTranscript('This is a complete message for testing.');
+      await manager.processPendingTranscript(true, true);
+
+      expect(mockProcessUserMessage).not.toHaveBeenCalled();
+    });
+
+    test('should add message to conversation history', async () => {
+      const manager = new TranscriptionManager(
+        mockMessageCallback,
+        mockProcessUserMessage,
+        conversationHistory,
+        true
+      );
+
+      manager.handleFinalTranscript('This is a complete test message.');
+      await manager.processPendingTranscript(true, true);
+
+      expect(conversationHistory).toContainEqual({
+        role: 'user',
+        content: 'This is a complete test message.',
+      });
+    });
+
+    test('should call processUserMessage with final content', async () => {
+      const manager = new TranscriptionManager(
+        mockMessageCallback,
+        mockProcessUserMessage,
+        conversationHistory,
+        true
+      );
+
+      manager.handleFinalTranscript('Hello, this is my message to the AI assistant.');
+      await manager.processPendingTranscript(true, true);
+
+      expect(mockProcessUserMessage).toHaveBeenCalledWith('Hello, this is my message to the AI assistant.');
+    });
+
+    test('should clean transcript before processing', async () => {
+      const manager = new TranscriptionManager(
+        mockMessageCallback,
+        mockProcessUserMessage,
+        conversationHistory,
+        true
+      );
+
+      // Message with extra spaces and repeated words
+      manager.handleFinalTranscript('Hello   world   world');
+      await manager.processPendingTranscript(true, true);
+
+      // Should be cleaned
+      expect(mockProcessUserMessage).toHaveBeenCalledWith('Hello world');
+    });
+  });
+
+  describe('discardPendingTranscript', () => {
+    test('should clear all pending state', () => {
+      const manager = new TranscriptionManager(
+        mockMessageCallback,
+        mockProcessUserMessage,
+        conversationHistory,
+        true
+      );
+
+      manager.handleFinalTranscript('This will be discarded');
+      manager.discardPendingTranscript();
+
+      jest.runAllTimers();
+
+      expect(mockProcessUserMessage).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('cleanup', () => {
+    test('should clear all timers and state', () => {
+      const manager = new TranscriptionManager(
+        mockMessageCallback,
+        mockProcessUserMessage,
+        conversationHistory,
+        true
+      );
+
+      manager.handleFinalTranscript('Test message');
+      manager.cleanup();
+
+      jest.runAllTimers();
+
+      expect(mockProcessUserMessage).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('utterance completeness', () => {
+    test('should not process incomplete utterances ending with connectors', async () => {
+      const manager = new TranscriptionManager(
+        mockMessageCallback,
+        mockProcessUserMessage,
+        conversationHistory,
+        true
+      );
+
+      // French connector words that indicate incomplete utterance
+      manager.handleFinalTranscript('Je pense que');
+      await manager.processPendingTranscript(false, false);
+
+      expect(mockProcessUserMessage).not.toHaveBeenCalled();
+    });
+
+    test('should process complete utterances', async () => {
+      const manager = new TranscriptionManager(
+        mockMessageCallback,
+        mockProcessUserMessage,
+        conversationHistory,
+        true
+      );
+
+      manager.handleFinalTranscript('Je pense que c\'est une bonne idée.');
+      await manager.processPendingTranscript(true, true);
+
+      expect(mockProcessUserMessage).toHaveBeenCalled();
+    });
+
+    test('should force send with absoluteFailsafe even if incomplete', async () => {
+      const manager = new TranscriptionManager(
+        mockMessageCallback,
+        mockProcessUserMessage,
+        conversationHistory,
+        true
+      );
+
+      manager.handleFinalTranscript('Je pense que');
+      await manager.processPendingTranscript(true, true); // absoluteFailsafe = true
+
+      expect(mockProcessUserMessage).toHaveBeenCalledWith('Je pense que');
+    });
+  });
+
+  describe('deduplication', () => {
+    test('should detect orphan word repeats', async () => {
+      const manager = new TranscriptionManager(
+        mockMessageCallback,
+        mockProcessUserMessage,
+        conversationHistory,
+        true
+      );
+
+      // First message
+      manager.handleFinalTranscript('Je suis reparti de mon côté');
+      await manager.processPendingTranscript(true, true);
+
+      mockProcessUserMessage.mockClear();
+
+      // Orphan word from previous message
+      manager.handleFinalTranscript('côté');
+      await manager.processPendingTranscript(true, true);
+
+      expect(mockProcessUserMessage).not.toHaveBeenCalled();
+    });
+
+    test('should detect fuzzy end duplicates', async () => {
+      const manager = new TranscriptionManager(
+        mockMessageCallback,
+        mockProcessUserMessage,
+        conversationHistory,
+        true
+      );
+
+      manager.handleFinalTranscript('Elle est allée à la fête');
+      await manager.processPendingTranscript(true, true);
+
+      mockProcessUserMessage.mockClear();
+
+      // Variation of last part
+      manager.handleFinalTranscript('fête.');
+      await manager.processPendingTranscript(true, true);
+
+      expect(mockProcessUserMessage).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('similarity calculation', () => {
+    test('should skip very similar transcripts', () => {
+      const manager = new TranscriptionManager(
+        mockMessageCallback,
+        mockProcessUserMessage,
+        conversationHistory,
+        true
+      );
+
+      manager.handlePartialTranscript('Hello world this is a test');
+      mockMessageCallback.mockClear();
+
+      // Advance past rate limit
+      jest.advanceTimersByTime(150);
+
+      // Very similar (word order preserved, minor variation)
+      manager.handlePartialTranscript('Hello world this is a test!');
+
+      // Should be skipped due to high similarity
+      expect(mockMessageCallback).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('silence detection', () => {
+    test('should process message after silence timeout', () => {
+      const manager = new TranscriptionManager(
+        mockMessageCallback,
+        mockProcessUserMessage,
+        conversationHistory,
+        true
+      );
+
+      manager.handleFinalTranscript('This is a complete sentence for testing purposes.');
+
+      // Advance past silence timeout (2 seconds)
+      jest.advanceTimersByTime(2500);
+
+      expect(mockProcessUserMessage).toHaveBeenCalled();
+    });
+
+    test('should reset silence timeout on new transcript', () => {
+      const manager = new TranscriptionManager(
+        mockMessageCallback,
+        mockProcessUserMessage,
+        conversationHistory,
+        true
+      );
+
+      // Use partial transcripts to test timeout reset
+      // Partials don't trigger utterance debounce as aggressively
+      manager.handlePartialTranscript('First part of');
+
+      // Advance partial time (less than silence timeout of 2000ms)
+      jest.advanceTimersByTime(500);
+
+      manager.handlePartialTranscript('First part of message');
+
+      // Advance partial time again
+      jest.advanceTimersByTime(500);
+
+      // Should not have processed yet (no final transcript yet)
+      expect(mockProcessUserMessage).not.toHaveBeenCalled();
+
+      // Now add a final transcript
+      manager.handleFinalTranscript('First part of message continued here');
+
+      // Advance past timeout (2000ms + debounce)
+      jest.advanceTimersByTime(3000);
+
+      expect(mockProcessUserMessage).toHaveBeenCalled();
+    });
+  });
+
+  describe('transcript cleaning', () => {
+    test('should remove consecutive word duplicates', async () => {
+      const manager = new TranscriptionManager(
+        mockMessageCallback,
+        mockProcessUserMessage,
+        conversationHistory,
+        true
+      );
+
+      manager.handleFinalTranscript('Hello hello world world world');
+      await manager.processPendingTranscript(true, true);
+
+      expect(mockProcessUserMessage).toHaveBeenCalledWith('Hello world');
+    });
+
+    test('should normalize punctuation spacing', async () => {
+      const manager = new TranscriptionManager(
+        mockMessageCallback,
+        mockProcessUserMessage,
+        conversationHistory,
+        true
+      );
+
+      manager.handleFinalTranscript('Hello , world .Test');
+      await manager.processPendingTranscript(true, true);
+
+      expect(mockProcessUserMessage).toHaveBeenCalledWith('Hello, world. Test');
+    });
+
+    test('should normalize multiple spaces', async () => {
+      const manager = new TranscriptionManager(
+        mockMessageCallback,
+        mockProcessUserMessage,
+        conversationHistory,
+        true
+      );
+
+      // The cleanTranscript normalizes multiple spaces to single space
+      manager.handleFinalTranscript('Hello    world   test');
+      await manager.processPendingTranscript(true, true);
+
+      expect(mockProcessUserMessage).toHaveBeenCalledWith('Hello world test');
+    });
+  });
+
+  describe('message ID tracking', () => {
+    test('should maintain consistent message ID for streaming updates', () => {
+      const manager = new TranscriptionManager(
+        mockMessageCallback,
+        mockProcessUserMessage,
+        conversationHistory,
+        true
+      );
+
+      manager.handlePartialTranscript('Hello');
+      const firstId = mockMessageCallback.mock.calls[0][0].messageId;
+
+      jest.advanceTimersByTime(150);
+
+      manager.handlePartialTranscript('Hello world');
+      const secondId = mockMessageCallback.mock.calls[1][0].messageId;
+
+      expect(firstId).toBe(secondId);
+    });
+
+    test('should generate new message ID for new turn', async () => {
+      const manager = new TranscriptionManager(
+        mockMessageCallback,
+        mockProcessUserMessage,
+        conversationHistory,
+        true
+      );
+
+      // First turn
+      manager.handlePartialTranscript('First message here.');
+      const firstId = mockMessageCallback.mock.calls[0][0].messageId;
+
+      await manager.processPendingTranscript(true, true);
+
+      // Advance time to clear rate limiting
+      jest.advanceTimersByTime(200);
+
+      // Clear mock and start new turn
+      const callCountBefore = mockMessageCallback.mock.calls.length;
+
+      // New turn - the message ID will be reset after processPendingTranscript
+      manager.handlePartialTranscript('Second message here.');
+
+      // Check that a new call was made
+      const newCalls = mockMessageCallback.mock.calls.slice(callCountBefore);
+      expect(newCalls.length).toBeGreaterThan(0);
+
+      const secondId = newCalls[0][0].messageId;
+      expect(secondId).toBeDefined();
+      expect(firstId).not.toBe(secondId);
+    });
+  });
+});
+
+// ============================================================================
+// SPEECHMATICS TYPES TESTS
+// ============================================================================
+
+describe('SpeechmaticsTypes', () => {
+  test('SpeechmaticsMessageEvent should have correct structure', () => {
+    const event: SpeechmaticsMessageEvent = {
+      role: 'user',
+      content: 'Test message',
+      timestamp: new Date().toISOString(),
+      isInterim: true,
+      messageId: 'msg-123',
+    };
+
+    expect(event.role).toBe('user');
+    expect(event.content).toBe('Test message');
+    expect(event.isInterim).toBe(true);
+    expect(event.messageId).toBe('msg-123');
+  });
+
+  test('SpeechmaticsMessageEvent should support agent role', () => {
+    const event: SpeechmaticsMessageEvent = {
+      role: 'agent',
+      content: 'Agent response',
+      timestamp: new Date().toISOString(),
+    };
+
+    expect(event.role).toBe('agent');
+    expect(event.isInterim).toBeUndefined();
+  });
+});
