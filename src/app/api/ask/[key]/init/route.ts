@@ -18,6 +18,8 @@ interface AskSessionRow {
   system_prompt?: string | null;
   project_id?: string | null;
   challenge_id?: string | null;
+  conversation_mode?: string | null;
+  // DEPRECATED: Use conversation_mode instead
   audience_scope?: string | null;
   response_mode?: string | null;
 }
@@ -130,7 +132,7 @@ export async function POST(
     const { row: askRow, error: askError } = await getAskSessionByKey<AskSessionRow>(
       dataClient,
       key,
-      'id, ask_key, question, description, status, system_prompt, project_id, challenge_id, audience_scope, response_mode'
+      'id, ask_key, question, description, status, system_prompt, project_id, challenge_id, conversation_mode, audience_scope, response_mode'
     );
 
     if (askError || !askRow) {
@@ -151,6 +153,8 @@ export async function POST(
 
     // Get or create conversation thread
     const askConfig = {
+      conversation_mode: askRow.conversation_mode ?? null,
+      // DEPRECATED: Use conversation_mode instead
       audience_scope: askRow.audience_scope ?? null,
       response_mode: askRow.response_mode ?? null,
     };

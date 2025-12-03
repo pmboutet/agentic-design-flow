@@ -369,10 +369,12 @@ export async function GET(
 
     // Get or create conversation thread for this user/ASK
     const askConfig = {
+      conversation_mode: askRow.conversation_mode ?? null,
+      // DEPRECATED: Use conversation_mode instead
       audience_scope: askRow.audience_scope ?? null,
       response_mode: askRow.response_mode ?? null,
     };
-    
+
     console.log('🔍 GET /api/ask/[key]: Determining conversation thread:', {
       askSessionId,
       profileId,
@@ -1000,10 +1002,10 @@ export async function POST(
       authMethod: participantId ? 'invite_token' : 'regular_auth'
     });
 
-    const { row: askRow, error: askError } = await getAskSessionByKey<Pick<AskSessionRow, 'id' | 'ask_key' | 'is_anonymous' | 'audience_scope' | 'response_mode'>>(
+    const { row: askRow, error: askError } = await getAskSessionByKey<Pick<AskSessionRow, 'id' | 'ask_key' | 'is_anonymous' | 'conversation_mode' | 'audience_scope' | 'response_mode'>>(
       dataClient,
       key,
-      'id, ask_key, is_anonymous, audience_scope, response_mode'
+      'id, ask_key, is_anonymous, conversation_mode, audience_scope, response_mode'
     );
 
     if (askError) {
@@ -1082,10 +1084,12 @@ export async function POST(
 
     // Get or create conversation thread for this user/ASK
     const askConfig = {
+      conversation_mode: askRow.conversation_mode ?? null,
+      // DEPRECATED: Use conversation_mode instead
       audience_scope: askRow.audience_scope ?? null,
       response_mode: askRow.response_mode ?? null,
     };
-    
+
     console.log('🔍 POST /api/ask/[key]: Creating/getting conversation thread', {
       askSessionId: askRow.id,
       profileId: finalProfileId,
