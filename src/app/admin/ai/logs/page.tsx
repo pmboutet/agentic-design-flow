@@ -96,10 +96,23 @@ function JsonSyntaxHighlighter({ children }: { children: string }) {
 }
 
 /**
+ * Remove Handlebars block markers from text ({{#if}}, {{/if}}, {{else}}, etc.)
+ * Keep only the static text that would appear in the merged output
+ */
+function stripHandlebarsBlocks(text: string): string {
+  // Remove block helpers: {{#if ...}}, {{#each ...}}, {{#unless ...}}, {{/if}}, {{/each}}, {{else}}, etc.
+  return text
+    .replace(/\{\{#[^}]+\}\}/g, '')
+    .replace(/\{\{\/[^}]+\}\}/g, '')
+    .replace(/\{\{else\}\}/g, '')
+    .replace(/\{\{else [^}]+\}\}/g, '');
+}
+
+/**
  * Extract variable values from merged prompt by comparing with template
  * Returns a map of variable name to its resolved value
  *
- * More robust approach: uses template segments between variables as anchors
+ * Robust approach: strips Handlebars blocks from context before matching
  */
 function extractVariableValues(template: string, merged: string): Record<string, string> {
   const variables: Record<string, string> = {};
@@ -110,50 +123,63 @@ function extractVariableValues(template: string, merged: string): Record<string,
 
   if (matches.length === 0) return variables;
 
-  // For each variable, find its value using more careful context matching
+  // For each variable, find its value using careful context matching
   for (const match of matches) {
     const varName = match[1].trim();
     const varStart = match.index!;
     const varEnd = varStart + match[0].length;
 
-    // Find a unique "before" anchor - start with longer context
+    // Get raw context from template
+    const rawBeforeContext = template.slice(Math.max(0, varStart - 150), varStart);
+    const rawAfterContext = template.slice(varEnd, Math.min(template.length, varEnd + 150));
+
+    // Strip Handlebars blocks from context - they won't be in merged output
+    const cleanedBefore = stripHandlebarsBlocks(rawBeforeContext);
+    const cleanedAfter = stripHandlebarsBlocks(rawAfterContext);
+
+    // Find the best "before" anchor from cleaned context
     let beforeContext = '';
-    let beforeContextLen = 100;
-    while (beforeContextLen >= 10) {
-      const candidate = template.slice(Math.max(0, varStart - beforeContextLen), varStart);
-      // Check if this context is unique enough (appears only once in template before this position)
-      const occurrences = template.slice(0, varEnd).split(candidate).length - 1;
-      if (occurrences === 1 && candidate.length > 0) {
+    // Try progressively shorter contexts until we find one that exists in merged
+    for (let len = Math.min(cleanedBefore.length, 80); len >= 5; len -= 10) {
+      const candidate = cleanedBefore.slice(-len);
+      if (candidate.trim().length >= 3 && merged.includes(candidate)) {
         beforeContext = candidate;
         break;
       }
-      beforeContextLen -= 20;
     }
 
-    // Fallback to shorter context if needed
+    // If still not found, try the last line or segment
     if (!beforeContext) {
-      beforeContext = template.slice(Math.max(0, varStart - 30), varStart);
+      const lines = cleanedBefore.split('\n').filter(l => l.trim().length > 0);
+      if (lines.length > 0) {
+        const lastLine = lines[lines.length - 1];
+        if (merged.includes(lastLine)) {
+          beforeContext = lastLine;
+        }
+      }
     }
 
-    // Find a unique "after" anchor
+    if (!beforeContext) continue;
+
+    // Find the best "after" anchor from cleaned context
     let afterContext = '';
-    let afterContextLen = 100;
-    while (afterContextLen >= 10) {
-      const candidate = template.slice(varEnd, Math.min(template.length, varEnd + afterContextLen));
-      // Remove any Handlebars patterns from the beginning of after context for matching
-      const cleanCandidate = candidate.replace(/^\{\{[^}]+\}\}/, '').slice(0, 50);
-      if (cleanCandidate.length >= 5) {
-        afterContext = cleanCandidate;
+    for (let len = Math.min(cleanedAfter.length, 80); len >= 5; len -= 10) {
+      const candidate = cleanedAfter.slice(0, len);
+      if (candidate.trim().length >= 3 && merged.includes(candidate)) {
+        afterContext = candidate;
         break;
       }
-      afterContextLen -= 20;
     }
 
-    // Fallback
+    // If still not found, try the first line or segment
     if (!afterContext) {
-      const rawAfter = template.slice(varEnd, Math.min(template.length, varEnd + 50));
-      // Try to get text after any Handlebars block
-      afterContext = rawAfter.replace(/^\{\{[^}]+\}\}/, '').slice(0, 30);
+      const lines = cleanedAfter.split('\n').filter(l => l.trim().length > 0);
+      if (lines.length > 0) {
+        const firstLine = lines[0];
+        if (merged.includes(firstLine)) {
+          afterContext = firstLine;
+        }
+      }
     }
 
     // Find the before context in merged string
@@ -164,31 +190,14 @@ function extractVariableValues(template: string, merged: string): Record<string,
 
     // Find the after context, starting from valueStart
     let valueEnd = -1;
-    if (afterContext.length >= 3) {
+    if (afterContext && afterContext.length >= 3) {
       const afterIdx = merged.indexOf(afterContext, valueStart);
       if (afterIdx !== -1 && afterIdx > valueStart) {
         valueEnd = afterIdx;
       }
     }
 
-    // If after context not found, try to find the next static text segment
-    if (valueEnd === -1) {
-      // Look for the next significant static text in the template after this variable
-      const remainingTemplate = template.slice(varEnd);
-      // Skip Handlebars blocks and find plain text
-      const nextStaticMatch = remainingTemplate.match(/\}\}([^{]{10,})/);
-      if (nextStaticMatch && nextStaticMatch[1]) {
-        const nextStatic = nextStaticMatch[1].slice(0, 30).trim();
-        if (nextStatic.length >= 5) {
-          const staticIdx = merged.indexOf(nextStatic, valueStart);
-          if (staticIdx !== -1 && staticIdx > valueStart) {
-            valueEnd = staticIdx;
-          }
-        }
-      }
-    }
-
-    // Still not found? Skip this variable to avoid grabbing too much
+    // Skip if we couldn't find reliable bounds
     if (valueEnd === -1 || valueEnd <= valueStart) {
       continue;
     }
@@ -197,11 +206,10 @@ function extractVariableValues(template: string, merged: string): Record<string,
 
     // Validate the extracted value
     if (value.length > 0 && value.length < 50000) {
-      // Additional sanity check: value shouldn't contain obvious template markers
+      // Sanity check: value shouldn't contain template markers
       if (!value.includes('{{') && !value.includes('}}')) {
         variables[varName] = value;
       } else {
-        // If it contains markers, it might be partially correct - trim at first marker
         const markerIdx = value.indexOf('{{');
         if (markerIdx > 0) {
           variables[varName] = value.slice(0, markerIdx);
