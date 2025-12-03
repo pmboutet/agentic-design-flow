@@ -6,7 +6,7 @@ import { parseErrorMessage } from '@/lib/utils';
 import { normaliseMessageMetadata } from '@/lib/messages';
 import type { ApiResponse, Message } from '@/types';
 import { buildConversationAgentVariables } from '@/lib/ai/conversation-agent';
-import { generateConversationPlan, createConversationPlan, getConversationPlanWithSteps } from '@/lib/ai/conversation-plan';
+import { generateConversationPlan, createConversationPlan, getConversationPlanWithSteps, getActiveStep } from '@/lib/ai/conversation-plan';
 import { getAdminSupabaseClient } from '@/lib/supabaseAdmin';
 
 interface AskSessionRow {
@@ -389,7 +389,21 @@ export async function POST(
     }
 
     const aiResponse = agentResult.content.trim();
-    
+
+    // Get the currently active plan step to link this message
+    let initialPlanStepId: string | null = null;
+    if (conversationPlan) {
+      try {
+        const adminClient = getAdminSupabaseClient();
+        const activeStep = await getActiveStep(adminClient, conversationPlan.id);
+        if (activeStep) {
+          initialPlanStepId = activeStep.id;
+        }
+      } catch (stepError) {
+        console.warn('⚠️ POST /api/ask/[key]/init: Failed to get active step for message linking:', stepError);
+      }
+    }
+
     // Insert the initial AI message
     const { data: insertedRows, error: insertError } = await dataClient
       .from('messages')
@@ -400,6 +414,7 @@ export async function POST(
         message_type: 'text',
         metadata: { senderName: 'Agent' },
         conversation_thread_id: conversationThread?.id ?? null,
+        plan_step_id: initialPlanStepId,
       })
       .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at, conversation_thread_id')
       .limit(1);

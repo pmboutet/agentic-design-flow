@@ -1806,6 +1806,19 @@ export async function POST(
         const lastUserMessage = [...messages].reverse().find(msg => msg.senderType === 'user');
         const parentMessageId = lastUserMessage?.id ?? null;
 
+        // Get the currently active plan step to link this voice message
+        let voicePlanStepId: string | null = null;
+        if (conversationPlan) {
+          try {
+            const activeStep = await getActiveStep(supabase, conversationPlan.id);
+            if (activeStep) {
+              voicePlanStepId = activeStep.id;
+            }
+          } catch (error) {
+            console.warn('⚠️ Failed to get active step for voice message linking:', error);
+          }
+        }
+
         const { data: insertedRows, error: insertError } = await supabase
           .from('messages')
           .insert({
@@ -1816,6 +1829,7 @@ export async function POST(
             metadata: { senderName: 'Agent', ...metadata },
             parent_message_id: parentMessageId,
             conversation_thread_id: conversationThread?.id ?? null,
+            plan_step_id: voicePlanStepId,
           })
           .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at')
           .limit(1);
