@@ -759,9 +759,9 @@ export async function POST(
 
                     // Check for step completion markers
                     if (conversationThread) {
-                      const completedStepId = detectStepCompletion(fullContent.trim());
-                      if (completedStepId) {
-                        console.log('🎯 Step completion detected in stream:', completedStepId);
+                      const detectedStepId = detectStepCompletion(fullContent.trim());
+                      if (detectedStepId) {
+                        console.log('🎯 Step completion detected in stream:', detectedStepId);
                         try {
                           const plan = await getConversationPlanWithSteps(dataClient, conversationThread.id);
                           if (plan) {
@@ -772,22 +772,28 @@ export async function POST(
                               ? currentStep.step_identifier
                               : currentStep?.id;
 
-                            if (currentStep && currentStepIdentifier === completedStepId) {
+                            // If 'CURRENT' was returned, use the current step identifier
+                            // Otherwise validate that detected ID matches current step
+                            const stepIdToComplete = detectedStepId === 'CURRENT'
+                              ? currentStepIdentifier
+                              : detectedStepId;
+
+                            if (currentStep && (detectedStepId === 'CURRENT' || currentStepIdentifier === detectedStepId)) {
                               // Complete the step (summary will be generated asynchronously)
                               // Use admin client for RLS bypass
                               const adminForStepUpdate = await getAdminClient();
                               await completeStep(
                                 adminForStepUpdate,
                                 conversationThread.id,
-                                completedStepId,
+                                stepIdToComplete!,
                                 undefined, // No pre-generated summary - let the async agent generate it
                                 askRow.id // Pass askSessionId to trigger async summary generation
                               );
 
-                              console.log('✅ Conversation plan updated in stream - step completed:', completedStepId);
+                              console.log('✅ Conversation plan updated in stream - step completed:', stepIdToComplete);
                             } else {
                               console.warn('⚠️ Step completion marker does not match current step:', {
-                                detectedStep: completedStepId,
+                                detectedStep: detectedStepId,
                                 currentStep: currentStepIdentifier,
                               });
                             }

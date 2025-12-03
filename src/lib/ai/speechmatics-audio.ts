@@ -80,7 +80,8 @@ export class SpeechmaticsAudio {
     private onAudioChunk: (chunk: Int16Array) => void,
     private ws: WebSocket | null,
     private onBargeIn?: () => void,
-    private onAudioPlaybackEnd?: () => void
+    private onAudioPlaybackEnd?: () => void,
+    private onEchoDetected?: () => void // Called when transcript is detected as echo and should be discarded
   ) {
     this.instanceId = ++SpeechmaticsAudio.instanceCounter;
     this.isFirefox = typeof navigator !== 'undefined' && navigator.userAgent.includes('Firefox');
@@ -918,28 +919,33 @@ export class SpeechmaticsAudio {
     // REDUCED from 15/20 to 5/8 to allow legitimate interruptions
     const requiredWords = inGracePeriod ? 8 : 5;
 
-    // Quick check: Need minimum words for validation to be meaningful
-    if (words.length < requiredWords) {
-      const timestamp = new Date().toISOString().split('T')[1].replace('Z', '');
-      console.log(`[${timestamp}] [Speechmatics Audio] ⏸️ Transcript too short (${words.length}/${requiredWords} words${inGracePeriod ? ' - grace period active' : ''}) - waiting for more...`);
-      return false;
-    }
-
-    // LOCAL ECHO DETECTION: Check if transcript is contained in or similar to assistant speech
+    // LOCAL ECHO DETECTION: Check FIRST, even for short transcripts
+    // This catches cases where the TTS starts with "Très bien" and the microphone picks it up
+    // Short transcripts that match the beginning of assistant speech are almost certainly echo
     // This is a fast local check before calling the AI validation API
     if (this.currentAssistantSpeech && this.currentAssistantSpeech.trim()) {
       const echoCheckResult = this.detectLocalEcho(cleanedTranscript, this.currentAssistantSpeech);
       if (echoCheckResult.isEcho) {
         const timestamp = new Date().toISOString().split('T')[1].replace('Z', '');
-        console.log(`[${timestamp}] [Speechmatics Audio] 🔁 Local echo detected - ignoring barge-in`, {
+        console.log(`[${timestamp}] [Speechmatics Audio] 🔁 Local echo detected - ignoring barge-in and discarding transcript`, {
           similarity: echoCheckResult.similarity.toFixed(2),
           matchType: echoCheckResult.matchType,
           transcriptPreview: cleanedTranscript.substring(0, 50),
           assistantPreview: this.currentAssistantSpeech.substring(0, 50),
         });
         this.cancelBargeInValidation();
+        // CRITICAL: Notify parent to discard the pending transcript (it's echo, not user speech)
+        this.onEchoDetected?.();
         return false;
       }
+    }
+
+    // Quick check: Need minimum words for AI validation to be meaningful
+    // (Local echo check above runs for ALL transcripts, even short ones)
+    if (words.length < requiredWords) {
+      const timestamp = new Date().toISOString().split('T')[1].replace('Z', '');
+      console.log(`[${timestamp}] [Speechmatics Audio] ⏸️ Transcript too short (${words.length}/${requiredWords} words${inGracePeriod ? ' - grace period active' : ''}) - waiting for more...`);
+      return false;
     }
 
     // Use AI-powered start-of-turn detection
@@ -954,9 +960,11 @@ export class SpeechmaticsAudio {
         const timestamp = new Date().toISOString().split('T')[1].replace('Z', '');
 
         if (result.isEcho) {
-          console.log(`[${timestamp}] [Speechmatics Audio] 🔁 AI detected echo - ignoring (confidence: ${result.confidence.toFixed(2)})`);
+          console.log(`[${timestamp}] [Speechmatics Audio] 🔁 AI detected echo - ignoring and discarding transcript (confidence: ${result.confidence.toFixed(2)})`);
           console.log(`[${timestamp}] [Speechmatics Audio] Reason: ${result.reason}`);
           this.cancelBargeInValidation();
+          // CRITICAL: Notify parent to discard the pending transcript (it's echo, not user speech)
+          this.onEchoDetected?.();
           return false;
         }
 

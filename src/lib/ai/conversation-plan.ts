@@ -775,9 +775,34 @@ export function formatPlanProgress(plan: ConversationPlan): string {
 
 /**
  * Detect if a message contains a step completion marker
- * Format: STEP_COMPLETE:<step_id>
+ * Supported formats:
+ * - STEP_COMPLETE:step_1
+ * - STEP_COMPLETE: step_1 (with space)
+ * - **STEP_COMPLETE:step_1** (with markdown bold)
+ * - **STEP_COMPLETE:** (markdown bold, no step_id - returns 'CURRENT')
+ * - STEP_COMPLETE: (no step_id - returns 'CURRENT')
+ *
+ * Returns:
+ * - step_id string if explicitly provided
+ * - 'CURRENT' if marker detected but no step_id (use current step)
+ * - null if no marker detected
  */
 export function detectStepCompletion(content: string): string | null {
-  const match = content.match(/STEP_COMPLETE:(\w+)/);
-  return match ? match[1] : null;
+  // Remove markdown formatting (**, *, __, _) around STEP_COMPLETE
+  // This handles cases like **STEP_COMPLETE:step_1** or *STEP_COMPLETE:*
+  const cleanedContent = content.replace(/(\*{1,2}|_{1,2})(STEP_COMPLETE:?\s*\w*)(\*{1,2}|_{1,2})/gi, '$2');
+
+  // Try to match with step_id (with optional space after colon)
+  const matchWithId = cleanedContent.match(/STEP_COMPLETE:\s*(\w+)/i);
+  if (matchWithId) {
+    return matchWithId[1];
+  }
+
+  // Check for marker without step_id (e.g., "STEP_COMPLETE:" or "STEP_COMPLETE")
+  const matchWithoutId = cleanedContent.match(/STEP_COMPLETE:?\s*(?!\w)/i);
+  if (matchWithoutId) {
+    return 'CURRENT';
+  }
+
+  return null;
 }
