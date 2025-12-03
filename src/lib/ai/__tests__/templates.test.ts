@@ -46,10 +46,12 @@ describe('Template Rendering System', () => {
     });
 
     test('should handle variables with dots and underscores', () => {
+      // In Handlebars, {{system.prompt}} accesses system.prompt (nested property)
+      // Variables with underscores work as-is
       const template = '{{project_name}} - {{system.prompt}}';
-      const variables = { 
+      const variables = {
         project_name: 'MyProject',
-        'system.prompt': 'Be helpful' 
+        system: { prompt: 'Be helpful' }
       };
       expect(renderTemplate(template, variables)).toBe('MyProject - Be helpful');
     });

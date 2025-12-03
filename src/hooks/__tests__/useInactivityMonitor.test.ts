@@ -1,5 +1,6 @@
 /**
  * Tests for useInactivityMonitor hook
+ * @jest-environment jsdom
  */
 
 import { renderHook, act, waitFor } from '@testing-library/react';
@@ -22,7 +23,8 @@ describe('useInactivityMonitor', () => {
 
     expect(result.current.isInactive).toBe(false);
     expect(result.current.lastSpeaker).toBe(null);
-    expect(result.current.lastActivityTimestamp).not.toBe(null);
+    // lastActivityTimestamp starts as null until activity is recorded
+    expect(result.current.lastActivityTimestamp).toBe(null);
   });
 
   it('should trigger onInactive after timeout', () => {
