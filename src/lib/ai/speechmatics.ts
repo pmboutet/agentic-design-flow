@@ -275,7 +275,8 @@ export class SpeechmaticsVoiceAgent {
       this.audioDedupe,
       () => {}, // onAudioChunk not needed, handled internally
       this.websocket.getWebSocket(),
-      () => this.abortResponse() // Barge-in callback
+      () => this.abortResponse(), // Barge-in callback
+      () => this.handleEchoDetected() // Echo detection callback - discard pending transcript
     );
     
     // Update audio with WebSocket reference
@@ -890,6 +891,19 @@ export class SpeechmaticsVoiceAgent {
     }
 
     return false;
+  }
+
+  /**
+   * Handle echo detection - discard pending transcript
+   * Called when the audio module detects that the transcribed audio is actually
+   * TTS playback being picked up by the microphone (not real user speech)
+   */
+  private handleEchoDetected(): void {
+    console.log(`[${getTimestamp()}] [Speechmatics] 🔇 Echo detected - discarding pending transcript`);
+
+    // Discard any pending transcript in the transcription manager
+    // This prevents sending echo as user input to the LLM
+    this.transcriptionManager?.discardPendingTranscript();
   }
 
   /**
