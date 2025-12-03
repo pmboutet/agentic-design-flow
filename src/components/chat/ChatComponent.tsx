@@ -724,23 +724,36 @@ function MessageBubble({
   // Check if this is an interim message (streaming update)
   const isInterim = message.metadata?.isInterim === true;
   
-  // Detect and extract step completion marker
-  const stepCompleteMatch = message.content.match(/STEP_COMPLETE:(\w+)/);
-  const hasStepComplete = stepCompleteMatch !== null;
+  // Detect and extract step completion marker (handles markdown formatting like **STEP_COMPLETE:**)
+  // First, clean markdown formatting around STEP_COMPLETE
+  const cleanedForDetection = message.content.replace(
+    /(\*{1,2}|_{1,2})(STEP_COMPLETE:?\s*\w*)(\*{1,2}|_{1,2})/gi,
+    '$2'
+  );
+  const stepCompleteMatch = cleanedForDetection.match(/STEP_COMPLETE:\s*(\w+)/i);
+  const hasStepCompleteWithId = stepCompleteMatch !== null;
+  // Also detect STEP_COMPLETE without ID (e.g., "STEP_COMPLETE:" or "**STEP_COMPLETE:**")
+  const hasStepCompleteWithoutId = !hasStepCompleteWithId && /STEP_COMPLETE:?\s*(?!\w)/i.test(cleanedForDetection);
+  const hasStepComplete = hasStepCompleteWithId || hasStepCompleteWithoutId;
   const completedStepId = stepCompleteMatch?.[1];
 
   // Find the completed step in conversation plan
+  // If no step_id in marker, use the current active step
   const completedStep = hasStepComplete && conversationPlan
-    ? conversationPlan.plan_data.steps.find(step => step.id === completedStepId)
+    ? completedStepId
+      ? conversationPlan.plan_data.steps.find(step => step.id === completedStepId)
+      : conversationPlan.plan_data.steps.find(step => step.status === 'active')
     : undefined;
 
   // Find step number (1-based index)
   const stepNumber = completedStep
-    ? conversationPlan?.plan_data.steps.findIndex(step => step.id === completedStepId)! + 1
+    ? conversationPlan?.plan_data.steps.findIndex(step => step.id === completedStep.id)! + 1
     : undefined;
 
-  // Remove the marker from display
-  const cleanContent = message.content.replace(/STEP_COMPLETE:\w+/g, '').trim();
+  // Remove the marker from display (handles all formats including markdown)
+  const cleanContent = message.content
+    .replace(/(\*{1,2}|_{1,2})?(STEP_COMPLETE:?\s*\w*)(\*{1,2}|_{1,2})?/gi, '')
+    .trim();
   
   return (
     <motion.div
