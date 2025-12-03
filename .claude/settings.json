@@ -1,0 +1,11 @@
+{
+  "hooks": {
+    "PreCommit": [
+      {
+        "matcher": "",
+        "command": "npm test && npm run build",
+        "description": "Run tests and build before commit"
+      }
+    ]
+  }
+}
