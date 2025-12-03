@@ -20,11 +20,11 @@ module.exports = {
     },
     extend: {
       fontFamily: {
-        sans: ["var(--font-geist-sans)"],
-        mono: ["var(--font-geist-mono)"],
-        body: ['Inter', 'sans-serif'],
-        headline: ['Inter', 'sans-serif'],
-        code: ['monospace'],
+        sans: ["Inter", "system-ui", "-apple-system", "BlinkMacSystemFont", "Segoe UI", "Roboto", "sans-serif"],
+        mono: ["monospace"],
+        body: ["Inter", "system-ui", "sans-serif"],
+        headline: ["Inter", "system-ui", "sans-serif"],
+        code: ["monospace"],
       },
       colors: {
         border: "hsl(var(--border))",

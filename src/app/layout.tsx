@@ -4,9 +4,6 @@ import { AuthProvider } from "@/components/auth/AuthProvider";
 import { DevUserSwitcher } from "@/components/dev/DevUserSwitcher";
 import { DevUserSwitcherSpacer } from "@/components/dev/DevUserSwitcherSpacer";
 
-// Use system font stack as fallback when Google Fonts is unavailable
-const fontClassName = "font-sans";
-
 export const metadata: Metadata = {
   title: "Agentic Design Flow",
   description: "Collective idea emergence and specification system with AI-driven chat and challenge management",
@@ -33,7 +30,15 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={fontClassName}>
+      <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link
+          href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap"
+          rel="stylesheet"
+        />
+      </head>
+      <body className="font-sans antialiased">
         <AuthProvider>
           <DevUserSwitcher />
           <DevUserSwitcherSpacer />
