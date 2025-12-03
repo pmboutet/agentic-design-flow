@@ -839,6 +839,36 @@ export class TranscriptionManager {
   }
 
   /**
+   * Discard pending transcript - called when echo is detected
+   * This prevents sending transcribed audio that is actually TTS playback
+   * being picked up by the microphone
+   */
+  discardPendingTranscript(): void {
+    const hadPending = !!this.pendingFinalTranscript;
+    const pendingPreview = this.pendingFinalTranscript?.substring(0, 50) || '';
+
+    // Clear all pending state
+    if (this.silenceTimeout) {
+      clearTimeout(this.silenceTimeout);
+      this.silenceTimeout = null;
+    }
+    if (this.utteranceDebounceTimeout) {
+      clearTimeout(this.utteranceDebounceTimeout);
+      this.utteranceDebounceTimeout = null;
+    }
+    this.clearSemanticHold();
+    this.pendingFinalTranscript = null;
+    this.lastPartialUserContent = null;
+    this.lastFinalUserContent = null;
+    this.currentStreamingMessageId = null;
+    this.lastPreviewContent = null;
+
+    if (hadPending) {
+      console.log(`[${getTimestamp()}] [Transcription] 🗑️ Discarded pending transcript (echo detected): "${pendingPreview}..."`);
+    }
+  }
+
+  /**
    * Cleanup on disconnect
    */
   cleanup(): void {
