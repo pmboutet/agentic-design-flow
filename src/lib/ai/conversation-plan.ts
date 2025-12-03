@@ -82,31 +82,13 @@ export async function generateConversationPlan(
   askSessionId: string,
   variables: PromptVariables
 ): Promise<LegacyConversationPlanData> {
-  console.log('🎯 Generating conversation plan for ASK session:', askSessionId);
-  console.log('🔍 Plan generation variables:', {
-    ask_key: variables.ask_key,
-    ask_question: variables.ask_question?.substring(0, 100),
-    hasDescription: !!variables.ask_description,
-    hasSystemPromptAsk: !!variables.system_prompt_ask,
-    hasSystemPromptProject: !!variables.system_prompt_project,
-    hasSystemPromptChallenge: !!variables.system_prompt_challenge,
-  });
-
   try {
-    console.log('📡 Calling executeAgent with ask-conversation-plan-generator...');
     const agentResult = await executeAgent({
       supabase,
       agentSlug: 'ask-conversation-plan-generator',
       askSessionId,
       interactionType: 'ask.plan.generation',
       variables,
-    });
-    console.log('✅ executeAgent returned successfully');
-
-    console.log('📥 Plan generation result:', {
-      hasContent: !!agentResult.content,
-      contentType: typeof agentResult.content,
-      contentPreview: agentResult.content ? String(agentResult.content).substring(0, 200) : null,
     });
 
     if (typeof agentResult.content !== 'string' || agentResult.content.trim().length === 0) {
@@ -123,8 +105,7 @@ export async function generateConversationPlan(
 
       planData = JSON.parse(jsonString);
     } catch (parseError) {
-      console.error('❌ Failed to parse plan JSON:', parseError);
-      console.error('Raw content:', agentResult.content);
+      console.error('Failed to parse plan JSON:', parseError);
       throw new Error('Failed to parse plan data from agent response');
     }
 
@@ -144,14 +125,9 @@ export async function generateConversationPlan(
       }
     }
 
-    console.log('✅ Generated plan with', planData.steps.length, 'steps');
     return planData;
   } catch (error) {
-    console.error('❌ Error generating conversation plan:', {
-      message: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : undefined,
-      name: error instanceof Error ? error.name : undefined,
-    });
+    console.error('Error generating conversation plan:', error instanceof Error ? error.message : String(error));
     throw error;
   }
 }
@@ -165,8 +141,6 @@ export async function createConversationPlan(
   conversationThreadId: string,
   planData: LegacyConversationPlanData
 ): Promise<ConversationPlanWithSteps> {
-  console.log('💾 Creating conversation plan for thread:', conversationThreadId);
-
   const currentStepId = planData.steps.length > 0 ? planData.steps[0].id : null;
   const totalSteps = planData.steps.length;
 
@@ -185,11 +159,9 @@ export async function createConversationPlan(
     .single();
 
   if (planError || !planRecord) {
-    console.error('❌ Failed to create conversation plan:', planError);
+    console.error('Failed to create conversation plan:', planError);
     throw new Error(`Failed to create conversation plan: ${planError?.message}`);
   }
-
-  console.log('✅ Created conversation plan:', planRecord.id);
 
   // Create step records in normalized table
   const now = new Date().toISOString();
@@ -213,11 +185,9 @@ export async function createConversationPlan(
     .select();
 
   if (stepsError || !insertedSteps) {
-    console.error('❌ Failed to create plan steps:', stepsError);
+    console.error('Failed to create plan steps:', stepsError);
     throw new Error(`Failed to create plan steps: ${stepsError?.message}`);
   }
-
-  console.log('✅ Created', insertedSteps.length, 'plan steps');
 
   return {
     ...planRecord,
@@ -239,7 +209,7 @@ export async function getConversationPlan(
     .maybeSingle();
 
   if (error) {
-    console.error('❌ Failed to fetch conversation plan:', error);
+    console.error('Failed to fetch conversation plan:', error);
     return null;
   }
 
@@ -267,7 +237,7 @@ export async function getConversationPlanWithSteps(
     .order('step_order', { ascending: true });
 
   if (stepsError) {
-    console.error('❌ Failed to fetch plan steps:', stepsError);
+    console.error('Failed to fetch plan steps:', stepsError);
     return null;
   }
 
@@ -310,7 +280,7 @@ export async function getPlanStep(
     .maybeSingle();
 
   if (error) {
-    console.error('❌ Failed to fetch plan step:', error);
+    console.error('Failed to fetch plan step:', error);
     return null;
   }
 
@@ -334,7 +304,7 @@ export async function getActiveStep(
     .maybeSingle();
 
   if (error) {
-    console.error('❌ Failed to fetch active step:', error);
+    console.error('Failed to fetch active step:', error);
     return null;
   }
 
@@ -353,19 +323,17 @@ export async function completeStep(
   stepSummary?: string,
   askSessionId?: string
 ): Promise<ConversationPlan | null> {
-  console.log('🔄 Completing step:', { conversationThreadId, completedStepIdentifier, stepSummary });
-
   // Get the plan
   const plan = await getConversationPlan(supabase, conversationThreadId);
   if (!plan) {
-    console.error('❌ No plan found for thread:', conversationThreadId);
+    console.error('No plan found for thread:', conversationThreadId);
     return null;
   }
 
   // Get the step to complete
   const completedStep = await getPlanStep(supabase, plan.id, completedStepIdentifier);
   if (!completedStep) {
-    console.error('❌ Step not found:', completedStepIdentifier);
+    console.error('Step not found:', completedStepIdentifier);
     return null;
   }
 
@@ -382,7 +350,7 @@ export async function completeStep(
     .eq('id', completedStep.id);
 
   if (completeError) {
-    console.error('❌ Failed to complete step:', completeError);
+    console.error('Failed to complete step:', completeError);
     return null;
   }
 
@@ -406,9 +374,7 @@ export async function completeStep(
       })
       .eq('id', nextStep.id);
 
-    if (activateError) {
-      console.error('❌ Failed to activate next step:', activateError);
-    } else {
+    if (!activateError) {
       nextStepIdentifier = (nextStep as ConversationPlanStep).step_identifier;
     }
   }
@@ -426,23 +392,16 @@ export async function completeStep(
     .single();
 
   if (updateError) {
-    console.error('❌ Failed to update plan:', updateError);
+    console.error('Failed to update plan:', updateError);
     return null;
   }
-
-  console.log(
-    '✅ Completed step:',
-    completedStepIdentifier,
-    'next step:',
-    nextStepIdentifier || 'none (plan complete)'
-  );
 
   // Trigger async summary generation if askSessionId is provided
   if (askSessionId) {
     // Execute summary generation via a dedicated API endpoint
     // This ensures execution even if the current request context ends
     const stepIdToSummarize = completedStep.id;
-    
+
     const triggerSummaryGeneration = async () => {
       try {
         // Get the ask_session_id from the conversation thread
@@ -451,9 +410,8 @@ export async function completeStep(
           .select('ask_session_id')
           .eq('id', conversationThreadId)
           .single();
-        
+
         if (!thread?.ask_session_id) {
-          console.warn('⚠️ [ASYNC] Could not find ask_session_id for thread:', conversationThreadId);
           return;
         }
 
@@ -463,20 +421,17 @@ export async function completeStep(
           .select('ask_key')
           .eq('id', thread.ask_session_id)
           .single();
-        
+
         if (!askSession?.ask_key) {
-          console.warn('⚠️ [ASYNC] Could not find ask_key for session:', thread.ask_session_id);
           return;
         }
 
         // Build absolute URL for the endpoint
-        const baseUrl = process.env.NEXT_PUBLIC_APP_URL 
+        const baseUrl = process.env.NEXT_PUBLIC_APP_URL
           || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null)
           || 'http://localhost:3000';
         const endpoint = `${baseUrl}/api/ask/${askSession.ask_key}/step-summary`;
-        
-        console.log('📝 [ASYNC] Triggering summary generation via API:', endpoint, 'stepId:', stepIdToSummarize);
-        
+
         // Call the endpoint without waiting for response (fire and forget)
         fetch(endpoint, {
           method: 'POST',
@@ -487,20 +442,18 @@ export async function completeStep(
             stepId: stepIdToSummarize,
             askSessionId: askSessionId,
           }),
-        }).catch((error) => {
-          console.error('❌ [ASYNC] Failed to trigger summary generation endpoint:', error);
+        }).catch(() => {
+          // Ignore errors - fire and forget
         });
       } catch (error) {
-        console.error('❌ [ASYNC] Error setting up summary generation:', error);
+        // Ignore errors - fire and forget
       }
     };
 
     // Execute in background without blocking
-    Promise.resolve().then(triggerSummaryGeneration).catch((error) => {
-      console.error('❌ [ASYNC] Unhandled error triggering summary generation:', error);
+    Promise.resolve().then(triggerSummaryGeneration).catch(() => {
+      // Ignore errors
     });
-    
-    console.log('📝 [ASYNC] Summary generation task queued for step:', stepIdToSummarize);
   }
 
   return updatedPlan as ConversationPlan;
@@ -527,8 +480,6 @@ export async function generateStepSummary(
   stepId: string,
   askSessionId: string
 ): Promise<string | null> {
-  console.log('📝 Generating AI summary for step:', stepId);
-
   // Get the step details
   const { data: step, error: stepError } = await supabase
     .from('ask_conversation_plan_steps')
@@ -537,7 +488,7 @@ export async function generateStepSummary(
     .single();
 
   if (stepError || !step) {
-    console.error('❌ Failed to fetch step for summary:', stepError);
+    console.error('Failed to fetch step for summary:', stepError);
     return null;
   }
 
@@ -551,7 +502,7 @@ export async function generateStepSummary(
     .order('created_at', { ascending: true });
 
   if (messagesError) {
-    console.error('❌ Failed to fetch messages for summary:', messagesError);
+    console.error('Failed to fetch messages for summary:', messagesError);
     return null;
   }
 
@@ -596,14 +547,10 @@ export async function generateStepSummary(
   });
 
   if (typeof agentResult.content !== 'string' || agentResult.content.trim().length === 0) {
-    const error = new Error('Summarizer agent returned empty content');
-    console.error('❌ Summarizer agent returned empty content for step:', stepId);
-    throw error;
+    throw new Error('Summarizer agent returned empty content');
   }
 
-  const summary = agentResult.content.trim();
-  console.log('✅ Generated AI summary:', summary.substring(0, 100) + '...');
-  return summary;
+  return agentResult.content.trim();
 }
 
 /**
@@ -616,12 +563,6 @@ export async function summarizeStepMessages(
   stepStartTime: string,
   stepEndTime: string
 ): Promise<string> {
-  console.log('📝 [LEGACY] Summarizing messages for step:', {
-    conversationThreadId,
-    stepStartTime,
-    stepEndTime,
-  });
-
   // Fetch messages in the time range
   const { data: messages, error } = await supabase
     .from('messages')
@@ -632,7 +573,7 @@ export async function summarizeStepMessages(
     .order('created_at', { ascending: true });
 
   if (error) {
-    console.error('❌ Failed to fetch messages for summary:', error);
+    console.error('Failed to fetch messages for summary:', error);
     return 'Failed to generate summary';
   }
 

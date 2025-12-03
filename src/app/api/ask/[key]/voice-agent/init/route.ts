@@ -122,7 +122,6 @@ export async function POST(
       }
     } catch (error) {
       // Ignore auth errors - will use shared thread if needed
-      console.log('⚠️ Voice agent init: Could not get user profile, will use shared thread if needed');
     }
 
     const { thread: conversationThread } = await getOrCreateConversationThread(
@@ -154,8 +153,6 @@ export async function POST(
     // If no messages exist, initiate conversation with agent
     if (!hasMessages) {
       try {
-        console.log('💬 Voice agent init: No messages found, initiating conversation with agent');
-        
         const { data: participantRows, error: participantError } = await supabase
           .from('ask_participants')
           .select('*')
@@ -163,7 +160,6 @@ export async function POST(
           .order('joined_at', { ascending: true });
 
         if (participantError) {
-          console.error('❌ Voice agent init: Failed to fetch participants:', participantError);
           throw participantError;
         }
 
@@ -179,7 +175,6 @@ export async function POST(
             .in('id', participantUserIds);
 
           if (userError) {
-            console.error('❌ Voice agent init: Failed to fetch participant profiles:', userError);
             throw userError;
           }
 
@@ -211,9 +206,7 @@ export async function POST(
             .eq('id', askRow.project_id)
             .maybeSingle<ProjectRow>();
 
-          if (error) {
-            console.error('❌ Voice agent init: Failed to fetch project:', error);
-          } else {
+          if (!error) {
             projectData = data ?? null;
           }
         }
@@ -226,9 +219,7 @@ export async function POST(
             .eq('id', askRow.challenge_id)
             .maybeSingle<ChallengeRow>();
 
-          if (error) {
-            console.error('❌ Voice agent init: Failed to fetch challenge:', error);
-          } else {
+          if (!error) {
             challengeData = data ?? null;
           }
         }
@@ -237,9 +228,6 @@ export async function POST(
         let conversationPlan = null;
         if (conversationThread) {
           conversationPlan = await getConversationPlanWithSteps(supabase, conversationThread.id);
-          if (conversationPlan && conversationPlan.plan_data) {
-            console.log('📋 Voice agent init: Loaded conversation plan with', conversationPlan.plan_data.steps.length, 'steps');
-          }
         }
 
         const agentVariables = buildConversationAgentVariables({
@@ -278,15 +266,12 @@ export async function POST(
             .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at, conversation_thread_id')
             .limit(1);
 
-          if (!insertError && insertedRows && insertedRows.length > 0) {
-            console.log('✅ Voice agent init: Initial conversation message created:', insertedRows[0].id);
-          } else {
-            console.error('❌ Voice agent init: Failed to insert initial message:', insertError);
+          if (insertError) {
+            console.error('Voice agent init: Failed to insert initial message:', insertError);
           }
         }
       } catch (error) {
-        // Log error but don't fail the request - voice agent can still initialize
-        console.error('⚠️ Voice agent init: Failed to initiate conversation:', error);
+        // Don't fail the request - voice agent can still initialize
       }
     }
 
