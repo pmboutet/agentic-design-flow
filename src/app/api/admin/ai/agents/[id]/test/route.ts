@@ -7,6 +7,7 @@ import { parseErrorMessage } from '@/lib/utils';
 import { buildConversationAgentVariables } from '@/lib/ai/conversation-agent';
 import { getAskSessionByKey, getOrCreateConversationThread, getMessagesForThread } from '@/lib/asks';
 import { normaliseMessageMetadata } from '@/lib/messages';
+import { fetchInsightTypesForPrompt } from '@/lib/insightQueries';
 
 interface TestRequest {
   askSessionId?: string;
@@ -225,6 +226,9 @@ export async function POST(
         challengeData = data ?? null;
       }
 
+      // Fetch insight types for prompt (same as production route)
+      const insightTypes = await fetchInsightTypesForPrompt(supabase);
+
       // Build variables using THE SAME function as streaming route
       const agentVariables = buildConversationAgentVariables({
         ask: askRow,
@@ -232,18 +236,27 @@ export async function POST(
         challenge: challengeData,
         messages,
         participants,
+        insightTypes,
       });
 
       // For ask-conversation-response agent, use getAgentConfigForAsk
       if (agent.slug === 'ask-conversation-response') {
         const agentConfig = await getAgentConfigForAsk(supabase, body.askSessionId, agentVariables);
 
-        // Vibe Coding: Return only compiled prompts, no variables
+        // Build resolved variables for highlighting
+        const resolvedVariables: Record<string, string> = {};
+        for (const [key, value] of Object.entries(agentVariables)) {
+          if (value !== undefined && value !== null && String(value).trim().length > 0) {
+            resolvedVariables[key] = String(value);
+          }
+        }
+
         return NextResponse.json({
           success: true,
           data: {
             systemPrompt: agentConfig.systemPrompt,
             userPrompt: agentConfig.userPrompt || '',
+            resolvedVariables,
             metadata: {
               messagesCount: messages.length,
               participantsCount: participants.length,
@@ -311,12 +324,20 @@ export async function POST(
     const systemPrompt = renderTemplate(agent.systemPrompt, variables);
     const userPrompt = renderTemplate(agent.userPrompt, variables);
 
-    // Vibe Coding: Return only compiled prompts, no variables
+    // Build resolved variables for highlighting (only non-empty values)
+    const resolvedVariables: Record<string, string> = {};
+    for (const [key, value] of Object.entries(variables)) {
+      if (value !== undefined && value !== null && String(value).trim().length > 0) {
+        resolvedVariables[key] = String(value);
+      }
+    }
+
     return NextResponse.json({
       success: true,
       data: {
         systemPrompt,
         userPrompt,
+        resolvedVariables,
       },
     });
   } catch (error) {
