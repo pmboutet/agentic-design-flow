@@ -3,6 +3,7 @@ import { createServerSupabaseClient } from '@/lib/supabaseServer';
 import { executeAgent } from '@/lib/ai/service';
 import { buildChatAgentVariables, DEFAULT_CHAT_AGENT_SLUG, type PromptVariables } from '@/lib/ai/agent-config';
 import { getAskSessionByKey, getOrCreateConversationThread, getMessagesForThread } from '@/lib/asks';
+import { getConversationPlanWithSteps } from '@/lib/ai/conversation-plan';
 import { parseErrorMessage } from '@/lib/utils';
 import type { ApiResponse } from '@/types';
 import { buildConversationAgentVariables } from '@/lib/ai/conversation-agent';
@@ -232,12 +233,22 @@ export async function POST(
           }
         }
 
+        // Fetch conversation plan if thread exists
+        let conversationPlan = null;
+        if (conversationThread) {
+          conversationPlan = await getConversationPlanWithSteps(supabase, conversationThread.id);
+          if (conversationPlan && conversationPlan.plan_data) {
+            console.log('📋 Voice agent init: Loaded conversation plan with', conversationPlan.plan_data.steps.length, 'steps');
+          }
+        }
+
         const agentVariables = buildConversationAgentVariables({
           ask: askRow,
           project: projectData,
           challenge: challengeData,
           messages: [],
           participants: participantSummaries,
+          conversationPlan,
         });
         
         // Execute agent to get initial response

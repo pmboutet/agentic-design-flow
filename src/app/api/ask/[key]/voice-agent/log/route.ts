@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabaseServer';
 import { createAgentLog, completeAgentLog } from '@/lib/ai/logs';
 import { getAgentConfigForAsk, type PromptVariables } from '@/lib/ai/agent-config';
-import { getAskSessionByKey } from '@/lib/asks';
+import { getAskSessionByKey, getOrCreateConversationThread } from '@/lib/asks';
+import { getConversationPlanWithSteps } from '@/lib/ai/conversation-plan';
 import { parseErrorMessage } from '@/lib/utils';
 import { normaliseMessageMetadata } from '@/lib/messages';
 import type { ApiResponse } from '@/types';
@@ -273,12 +274,29 @@ export async function POST(
       timestamp: message.timestamp,
     }));
 
+    // Get conversation thread and plan
+    const { thread: conversationThread } = await getOrCreateConversationThread(
+      supabase,
+      askRow.id,
+      null, // profileId - not needed for fetching plan
+      { audience_scope: null, response_mode: null }
+    );
+
+    let conversationPlan = null;
+    if (conversationThread) {
+      conversationPlan = await getConversationPlanWithSteps(supabase, conversationThread.id);
+      if (conversationPlan && conversationPlan.plan_data) {
+        console.log('📋 Voice agent log: Loaded conversation plan with', conversationPlan.plan_data.steps.length, 'steps');
+      }
+    }
+
     const promptVariables = buildConversationAgentVariables({
       ask: askRow,
       project: projectData,
       challenge: challengeData,
       messages: conversationMessagesPayload,
       participants: participantSummaries,
+      conversationPlan,
     });
 
     // Build agent variables (same as agent-config/route.ts)
