@@ -32,7 +32,7 @@ function JsonSyntaxHighlighter({ children }: { children: string }) {
     import("react-syntax-highlighter/dist/esm/styles/prism").then((mod) => {
       setStyle(mod.vscDarkPlus);
     });
-    
+
     // Injecter des styles CSS globaux pour forcer le retour à la ligne
     const styleId = "json-syntax-highlighter-wrap";
     if (!document.getElementById(styleId)) {
@@ -54,7 +54,7 @@ function JsonSyntaxHighlighter({ children }: { children: string }) {
   if (!style) {
     // Fallback pendant le chargement
     return (
-      <pre 
+      <pre
         className="whitespace-pre-wrap break-words rounded border bg-slate-900 p-3 text-xs text-white"
         style={{ wordBreak: "break-word", overflowWrap: "anywhere" }}
       >
@@ -95,6 +95,252 @@ function JsonSyntaxHighlighter({ children }: { children: string }) {
   );
 }
 
+/**
+ * Remove Handlebars block markers from text ({{#if}}, {{/if}}, {{else}}, etc.)
+ * Keep only the static text that would appear in the merged output
+ */
+function stripHandlebarsBlocks(text: string): string {
+  // Remove block helpers: {{#if ...}}, {{#each ...}}, {{#unless ...}}, {{/if}}, {{/each}}, {{else}}, etc.
+  return text
+    .replace(/\{\{#[^}]+\}\}/g, '')
+    .replace(/\{\{\/[^}]+\}\}/g, '')
+    .replace(/\{\{else\}\}/g, '')
+    .replace(/\{\{else [^}]+\}\}/g, '');
+}
+
+/**
+ * Extract variable values from merged prompt by comparing with template
+ * Returns a map of variable name to its resolved value
+ *
+ * Robust approach: strips Handlebars blocks from context before matching
+ */
+function extractVariableValues(template: string, merged: string): Record<string, string> {
+  const variables: Record<string, string> = {};
+
+  // Pattern to match simple {{variable}} (not block helpers like {{#if}}, {{/if}}, {{else}})
+  const simpleVarPattern = /\{\{(?!#|\/|else)([^{}]+)\}\}/g;
+  const matches = [...template.matchAll(simpleVarPattern)];
+
+  if (matches.length === 0) return variables;
+
+  // For each variable, find its value using careful context matching
+  for (const match of matches) {
+    const varName = match[1].trim();
+    const varStart = match.index!;
+    const varEnd = varStart + match[0].length;
+
+    // Get raw context from template
+    const rawBeforeContext = template.slice(Math.max(0, varStart - 150), varStart);
+    const rawAfterContext = template.slice(varEnd, Math.min(template.length, varEnd + 150));
+
+    // Strip Handlebars blocks from context - they won't be in merged output
+    const cleanedBefore = stripHandlebarsBlocks(rawBeforeContext);
+    const cleanedAfter = stripHandlebarsBlocks(rawAfterContext);
+
+    // Find the best "before" anchor from cleaned context
+    let beforeContext = '';
+    // Try progressively shorter contexts until we find one that exists in merged
+    for (let len = Math.min(cleanedBefore.length, 80); len >= 5; len -= 10) {
+      const candidate = cleanedBefore.slice(-len);
+      if (candidate.trim().length >= 3 && merged.includes(candidate)) {
+        beforeContext = candidate;
+        break;
+      }
+    }
+
+    // If still not found, try the last line or segment
+    if (!beforeContext) {
+      const lines = cleanedBefore.split('\n').filter(l => l.trim().length > 0);
+      if (lines.length > 0) {
+        const lastLine = lines[lines.length - 1];
+        if (merged.includes(lastLine)) {
+          beforeContext = lastLine;
+        }
+      }
+    }
+
+    if (!beforeContext) continue;
+
+    // Find the best "after" anchor from cleaned context
+    let afterContext = '';
+    for (let len = Math.min(cleanedAfter.length, 80); len >= 5; len -= 10) {
+      const candidate = cleanedAfter.slice(0, len);
+      if (candidate.trim().length >= 3 && merged.includes(candidate)) {
+        afterContext = candidate;
+        break;
+      }
+    }
+
+    // If still not found, try the first line or segment
+    if (!afterContext) {
+      const lines = cleanedAfter.split('\n').filter(l => l.trim().length > 0);
+      if (lines.length > 0) {
+        const firstLine = lines[0];
+        if (merged.includes(firstLine)) {
+          afterContext = firstLine;
+        }
+      }
+    }
+
+    // Find the before context in merged string
+    const beforeIdx = merged.indexOf(beforeContext);
+    if (beforeIdx === -1) continue;
+
+    const valueStart = beforeIdx + beforeContext.length;
+
+    // Find the after context, starting from valueStart
+    let valueEnd = -1;
+    if (afterContext && afterContext.length >= 3) {
+      const afterIdx = merged.indexOf(afterContext, valueStart);
+      if (afterIdx !== -1 && afterIdx > valueStart) {
+        valueEnd = afterIdx;
+      }
+    }
+
+    // Skip if we couldn't find reliable bounds
+    if (valueEnd === -1 || valueEnd <= valueStart) {
+      continue;
+    }
+
+    const value = merged.slice(valueStart, valueEnd);
+
+    // Validate the extracted value
+    if (value.length > 0 && value.length < 50000) {
+      // Sanity check: value shouldn't contain template markers
+      if (!value.includes('{{') && !value.includes('}}')) {
+        variables[varName] = value;
+      } else {
+        const markerIdx = value.indexOf('{{');
+        if (markerIdx > 0) {
+          variables[varName] = value.slice(0, markerIdx);
+        }
+      }
+    }
+  }
+
+  return variables;
+}
+
+/**
+ * Highlights variable values in the prompt text with colored spans
+ * Similar to n8n style variable highlighting
+ */
+function HighlightedPrompt({
+  text,
+  template
+}: {
+  text: string;
+  template?: string;
+}) {
+  // If no template, just show raw text
+  if (!template) {
+    return (
+      <pre className="whitespace-pre-wrap break-words rounded border bg-slate-900 p-3 text-xs text-white">
+        {text}
+      </pre>
+    );
+  }
+
+  // Extract variable values by comparing template and merged text
+  const resolvedVariables = extractVariableValues(template, text);
+
+  if (Object.keys(resolvedVariables).length === 0) {
+    return (
+      <pre className="whitespace-pre-wrap break-words rounded border bg-slate-900 p-3 text-xs text-white">
+        {text}
+      </pre>
+    );
+  }
+
+  // Sort variables by value length (longest first) to avoid partial matches
+  const sortedVars = Object.entries(resolvedVariables)
+    .filter(([_, value]) => value && value.trim().length > 0)
+    .sort((a, b) => b[1].length - a[1].length);
+
+  if (sortedVars.length === 0) {
+    return (
+      <pre className="whitespace-pre-wrap break-words rounded border bg-slate-900 p-3 text-xs text-white">
+        {text}
+      </pre>
+    );
+  }
+
+  // Create segments with highlighting
+  interface Segment {
+    text: string;
+    isVariable: boolean;
+    variableName?: string;
+  }
+
+  const segments: Segment[] = [];
+  let remainingText = text;
+
+  while (remainingText.length > 0) {
+    let earliestMatch: { index: number; variable: string; value: string } | null = null;
+
+    // Find the earliest match among all variables
+    for (const [variable, value] of sortedVars) {
+      // Skip very short values to avoid false positives
+      if (value.length < 3) continue;
+
+      const index = remainingText.indexOf(value);
+      if (index !== -1) {
+        if (!earliestMatch || index < earliestMatch.index) {
+          earliestMatch = { index, variable, value };
+        }
+      }
+    }
+
+    if (earliestMatch) {
+      // Add text before the match
+      if (earliestMatch.index > 0) {
+        segments.push({
+          text: remainingText.substring(0, earliestMatch.index),
+          isVariable: false,
+        });
+      }
+      // Add the matched variable
+      segments.push({
+        text: earliestMatch.value,
+        isVariable: true,
+        variableName: earliestMatch.variable,
+      });
+      remainingText = remainingText.substring(earliestMatch.index + earliestMatch.value.length);
+    } else {
+      // No more matches, add remaining text
+      segments.push({
+        text: remainingText,
+        isVariable: false,
+      });
+      break;
+    }
+  }
+
+  return (
+    <pre className="whitespace-pre-wrap break-words rounded border bg-slate-900 p-3 text-xs text-white">
+      {segments.map((segment, index) => {
+        if (segment.isVariable) {
+          return (
+            <span
+              key={index}
+              className="bg-orange-500/30 text-orange-300 rounded px-0.5 border border-orange-500/50"
+              title={`Variable: {{${segment.variableName}}}`}
+            >
+              {segment.text}
+            </span>
+          );
+        }
+        return <span key={index}>{segment.text}</span>;
+      })}
+    </pre>
+  );
+}
+
+interface AgentTemplates {
+  systemPrompt: string;
+  userPrompt: string;
+}
+
 interface LogsResponse {
   success: boolean;
   data?: {
@@ -130,6 +376,8 @@ export default function AiLogsPage() {
     dateTo: ""
   });
   const [expandedLogs, setExpandedLogs] = useState<Set<string>>(new Set());
+  const [agentTemplatesCache, setAgentTemplatesCache] = useState<Record<string, AgentTemplates | null>>({});
+  const [loadingTemplates, setLoadingTemplates] = useState<Set<string>>(new Set());
 
   // Initialiser avec la date du jour par défaut
   useEffect(() => {
@@ -195,12 +443,54 @@ export default function AiLogsPage() {
     return true;
   });
 
-  const toggleLogExpansion = (logId: string) => {
+  const fetchAgentTemplates = async (agentSlug: string): Promise<AgentTemplates | null> => {
+    // Check cache first
+    if (agentTemplatesCache[agentSlug] !== undefined) {
+      return agentTemplatesCache[agentSlug];
+    }
+
+    // Mark as loading
+    setLoadingTemplates(prev => new Set(prev).add(agentSlug));
+
+    try {
+      const response = await fetch(`/api/admin/ai/agents/${encodeURIComponent(agentSlug)}`);
+      const data = await response.json();
+
+      if (data.success && data.data) {
+        const templates: AgentTemplates = {
+          systemPrompt: data.data.systemPrompt || '',
+          userPrompt: data.data.userPrompt || '',
+        };
+        setAgentTemplatesCache(prev => ({ ...prev, [agentSlug]: templates }));
+        return templates;
+      }
+
+      // Cache null to avoid re-fetching
+      setAgentTemplatesCache(prev => ({ ...prev, [agentSlug]: null }));
+      return null;
+    } catch (err) {
+      console.error('Error fetching agent templates:', err);
+      setAgentTemplatesCache(prev => ({ ...prev, [agentSlug]: null }));
+      return null;
+    } finally {
+      setLoadingTemplates(prev => {
+        const next = new Set(prev);
+        next.delete(agentSlug);
+        return next;
+      });
+    }
+  };
+
+  const toggleLogExpansion = async (logId: string, agentSlug?: string) => {
     const newExpanded = new Set(expandedLogs);
     if (newExpanded.has(logId)) {
       newExpanded.delete(logId);
     } else {
       newExpanded.add(logId);
+      // Fetch agent templates if not already cached and agentSlug is provided
+      if (agentSlug && agentTemplatesCache[agentSlug] === undefined) {
+        fetchAgentTemplates(agentSlug);
+      }
     }
     setExpandedLogs(newExpanded);
   };
@@ -485,7 +775,11 @@ export default function AiLogsPage() {
                             <Card className="border-l-4 border-l-slate-200 transition-colors hover:border-l-slate-300">
                               <CardContent
                                 className="cursor-pointer p-4 transition-colors hover:bg-slate-50"
-                                onClick={() => toggleLogExpansion(log.id)}
+                                onClick={() => {
+                                  const payload = log.requestPayload as Record<string, unknown>;
+                                  const agentSlug = typeof payload.agentSlug === 'string' ? payload.agentSlug : undefined;
+                                  toggleLogExpansion(log.id, agentSlug);
+                                }}
                               >
                                 <div className="flex items-center justify-between">
                                   <div className="flex items-center gap-4">
@@ -522,31 +816,105 @@ export default function AiLogsPage() {
                                 )}
                               </CardContent>
 
-                              {isExpanded && (
-                                <div className="border-t bg-slate-50 px-4 pb-4">
-                                  <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
-                                    <div>
-                                      <h4 className="mb-2 text-sm font-medium text-slate-700">Payload de requête</h4>
-                                      <div className="overflow-x-auto rounded border border-slate-200">
-                                        <JsonSyntaxHighlighter>
-                                          {JSON.stringify(log.requestPayload, null, 2)}
-                                        </JsonSyntaxHighlighter>
-                                      </div>
-                                    </div>
+                              {isExpanded && (() => {
+                                const payload = log.requestPayload as Record<string, unknown>;
+                                const systemPrompt = typeof payload.systemPrompt === 'string' ? payload.systemPrompt : null;
+                                const userPrompt = typeof payload.userPrompt === 'string' ? payload.userPrompt : null;
+                                const agentSlug = typeof payload.agentSlug === 'string' ? payload.agentSlug : undefined;
 
-                                    {log.responsePayload && (
-                                      <div>
-                                        <h4 className="mb-2 text-sm font-medium text-slate-700">Payload de réponse</h4>
-                                        <div className="overflow-x-auto rounded border border-slate-200">
-                                          <JsonSyntaxHighlighter>
-                                            {JSON.stringify(log.responsePayload, null, 2)}
-                                          </JsonSyntaxHighlighter>
+                                // Get templates: prefer stored templates, fallback to fetched from agent
+                                const storedSystemTemplate = typeof payload.systemPromptTemplate === 'string' ? payload.systemPromptTemplate : undefined;
+                                const storedUserTemplate = typeof payload.userPromptTemplate === 'string' ? payload.userPromptTemplate : undefined;
+
+                                // Use cached agent templates if stored ones are not available
+                                const cachedTemplates = agentSlug ? agentTemplatesCache[agentSlug] : null;
+                                const systemPromptTemplate = storedSystemTemplate || cachedTemplates?.systemPrompt;
+                                const userPromptTemplate = storedUserTemplate || cachedTemplates?.userPrompt;
+                                const isLoadingTemplates = agentSlug ? loadingTemplates.has(agentSlug) : false;
+
+                                // Create a payload without the prompts for the JSON display
+                                const { systemPrompt: _sp, userPrompt: _up, systemPromptTemplate: _spt, userPromptTemplate: _upt, ...otherPayload } = payload;
+
+                                return (
+                                  <div className="border-t bg-slate-50 px-4 pb-4">
+                                    <div className="mt-4 space-y-4">
+                                      {/* System Prompt with highlighting */}
+                                      {systemPrompt && (
+                                        <div>
+                                          <h4 className="mb-2 text-sm font-medium text-slate-700">
+                                            System Prompt
+                                            {isLoadingTemplates && (
+                                              <span className="ml-2 text-xs font-normal text-blue-600">
+                                                (chargement des templates...)
+                                              </span>
+                                            )}
+                                            {!isLoadingTemplates && systemPromptTemplate && (
+                                              <span className="ml-2 text-xs font-normal text-orange-600">
+                                                (variables colorées)
+                                              </span>
+                                            )}
+                                          </h4>
+                                          <div className="overflow-x-auto rounded border border-slate-200">
+                                            <HighlightedPrompt
+                                              text={systemPrompt}
+                                              template={systemPromptTemplate}
+                                            />
+                                          </div>
                                         </div>
-                                      </div>
-                                    )}
+                                      )}
+
+                                      {/* User Prompt with highlighting */}
+                                      {userPrompt && (
+                                        <div>
+                                          <h4 className="mb-2 text-sm font-medium text-slate-700">
+                                            User Prompt
+                                            {isLoadingTemplates && (
+                                              <span className="ml-2 text-xs font-normal text-blue-600">
+                                                (chargement des templates...)
+                                              </span>
+                                            )}
+                                            {!isLoadingTemplates && userPromptTemplate && (
+                                              <span className="ml-2 text-xs font-normal text-orange-600">
+                                                (variables colorées)
+                                              </span>
+                                            )}
+                                          </h4>
+                                          <div className="overflow-x-auto rounded border border-slate-200">
+                                            <HighlightedPrompt
+                                              text={userPrompt}
+                                              template={userPromptTemplate}
+                                            />
+                                          </div>
+                                        </div>
+                                      )}
+
+                                      {/* Other payload data */}
+                                      {Object.keys(otherPayload).length > 0 && (
+                                        <div>
+                                          <h4 className="mb-2 text-sm font-medium text-slate-700">Autres données</h4>
+                                          <div className="overflow-x-auto rounded border border-slate-200">
+                                            <JsonSyntaxHighlighter>
+                                              {JSON.stringify(otherPayload, null, 2)}
+                                            </JsonSyntaxHighlighter>
+                                          </div>
+                                        </div>
+                                      )}
+
+                                      {/* Response payload */}
+                                      {log.responsePayload && (
+                                        <div>
+                                          <h4 className="mb-2 text-sm font-medium text-slate-700">Payload de réponse</h4>
+                                          <div className="overflow-x-auto rounded border border-slate-200">
+                                            <JsonSyntaxHighlighter>
+                                              {JSON.stringify(log.responsePayload, null, 2)}
+                                            </JsonSyntaxHighlighter>
+                                          </div>
+                                        </div>
+                                      )}
+                                    </div>
                                   </div>
-                                </div>
-                              )}
+                                );
+                              })()}
                             </Card>
                           </motion.div>
                         );

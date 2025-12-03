@@ -15,9 +15,11 @@ interface AgentTestModeProps {
 interface TestResult {
   systemPrompt: string;
   userPrompt: string;
+  resolvedVariables?: Record<string, string>;
   metadata?: {
     messagesCount?: number;
     participantsCount?: number;
+    insightsCount?: number;
     hasProject?: boolean;
     hasChallenge?: boolean;
   };
@@ -44,6 +46,101 @@ interface Participant {
   user_id: string | null;
   participant_name: string | null;
   participant_email: string | null;
+}
+
+/**
+ * Highlights variable values in the prompt text with colored spans
+ * Uses a similar style to n8n for variable highlighting
+ */
+function HighlightedPrompt({
+  text,
+  resolvedVariables
+}: {
+  text: string;
+  resolvedVariables?: Record<string, string>;
+}) {
+  if (!resolvedVariables || Object.keys(resolvedVariables).length === 0) {
+    return <pre className="text-xs whitespace-pre-wrap break-words">{text}</pre>;
+  }
+
+  // Sort variables by value length (longest first) to avoid partial matches
+  const sortedVars = Object.entries(resolvedVariables)
+    .filter(([_, value]) => value && value.trim().length > 0)
+    .sort((a, b) => b[1].length - a[1].length);
+
+  if (sortedVars.length === 0) {
+    return <pre className="text-xs whitespace-pre-wrap break-words">{text}</pre>;
+  }
+
+  // Create segments with highlighting
+  interface Segment {
+    text: string;
+    isVariable: boolean;
+    variableName?: string;
+  }
+
+  const segments: Segment[] = [];
+  let remainingText = text;
+
+  while (remainingText.length > 0) {
+    let earliestMatch: { index: number; variable: string; value: string } | null = null;
+
+    // Find the earliest match among all variables
+    for (const [variable, value] of sortedVars) {
+      // Skip very short values to avoid false positives
+      if (value.length < 3) continue;
+
+      const index = remainingText.indexOf(value);
+      if (index !== -1) {
+        if (!earliestMatch || index < earliestMatch.index) {
+          earliestMatch = { index, variable, value };
+        }
+      }
+    }
+
+    if (earliestMatch) {
+      // Add text before the match
+      if (earliestMatch.index > 0) {
+        segments.push({
+          text: remainingText.substring(0, earliestMatch.index),
+          isVariable: false,
+        });
+      }
+      // Add the matched variable
+      segments.push({
+        text: earliestMatch.value,
+        isVariable: true,
+        variableName: earliestMatch.variable,
+      });
+      remainingText = remainingText.substring(earliestMatch.index + earliestMatch.value.length);
+    } else {
+      // No more matches, add remaining text
+      segments.push({
+        text: remainingText,
+        isVariable: false,
+      });
+      break;
+    }
+  }
+
+  return (
+    <pre className="text-xs whitespace-pre-wrap break-words">
+      {segments.map((segment, index) => {
+        if (segment.isVariable) {
+          return (
+            <span
+              key={index}
+              className="bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300 rounded px-0.5 border border-orange-200 dark:border-orange-700/50"
+              title={`Variable: {{${segment.variableName}}}`}
+            >
+              {segment.text}
+            </span>
+          );
+        }
+        return <span key={index}>{segment.text}</span>;
+      })}
+    </pre>
+  );
 }
 
 export function AgentTestMode({ agentId, agentSlug, onClose }: AgentTestModeProps) {
@@ -420,6 +517,14 @@ export function AgentTestMode({ agentId, agentSlug, onClose }: AgentTestModeProp
                       </span>
                     </>
                   )}
+                  {testResult.metadata.insightsCount !== undefined && (
+                    <>
+                      <span className="text-blue-400 dark:text-blue-600">•</span>
+                      <span className="text-xs text-purple-600 dark:text-purple-400">
+                        {testResult.metadata.insightsCount} insight{testResult.metadata.insightsCount !== 1 ? 's' : ''} existant{testResult.metadata.insightsCount !== 1 ? 's' : ''}
+                      </span>
+                    </>
+                  )}
                   {testResult.metadata.hasProject && (
                     <>
                       <span className="text-blue-400 dark:text-blue-600">•</span>
@@ -439,13 +544,19 @@ export function AgentTestMode({ agentId, agentSlug, onClose }: AgentTestModeProp
             <div className="space-y-2">
               <Label>System Prompt (fusionné avec données réelles)</Label>
               <div className="rounded-lg border bg-muted/30 p-3 max-h-64 overflow-y-auto overflow-x-hidden">
-                <pre className="text-xs whitespace-pre-wrap break-words">{testResult.systemPrompt}</pre>
+                <HighlightedPrompt
+                  text={testResult.systemPrompt}
+                  resolvedVariables={testResult.resolvedVariables}
+                />
               </div>
             </div>
             <div className="space-y-2">
               <Label>User Prompt (fusionné avec données réelles)</Label>
               <div className="rounded-lg border bg-muted/30 p-3 max-h-64 overflow-y-auto overflow-x-hidden">
-                <pre className="text-xs whitespace-pre-wrap break-words">{testResult.userPrompt}</pre>
+                <HighlightedPrompt
+                  text={testResult.userPrompt}
+                  resolvedVariables={testResult.resolvedVariables}
+                />
               </div>
             </div>
           </div>

@@ -55,6 +55,9 @@ function buildRequestPayload(agent: AiAgentRecord, prompts: { system: string; us
     fallbackModelConfigId: agent.fallbackModelConfigId,
     systemPrompt: prompts.system,
     userPrompt: prompts.user,
+    // Store original templates for variable highlighting in logs
+    systemPromptTemplate: agent.systemPrompt,
+    userPromptTemplate: agent.userPrompt,
   } satisfies Record<string, unknown>;
 }
 

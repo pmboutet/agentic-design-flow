@@ -2,6 +2,60 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAdminSupabaseClient } from '@/lib/supabaseAdmin';
 import { parseErrorMessage } from '@/lib/utils';
 import { extractTemplateVariables } from '@/lib/ai/templates';
+import { mapAgentRow, type AiAgentRow } from '@/lib/ai/agents';
+
+export async function GET(
+  _request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params;
+    const supabase = getAdminSupabaseClient();
+
+    // Try to fetch by ID first, then by slug
+    let agent: AiAgentRow | null = null;
+
+    // Check if it looks like a UUID
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+
+    if (isUuid) {
+      const { data } = await supabase
+        .from('ai_agents')
+        .select('*')
+        .eq('id', id)
+        .maybeSingle<AiAgentRow>();
+      agent = data;
+    }
+
+    // If not found by ID, try by slug
+    if (!agent) {
+      const { data } = await supabase
+        .from('ai_agents')
+        .select('*')
+        .eq('slug', id)
+        .maybeSingle<AiAgentRow>();
+      agent = data;
+    }
+
+    if (!agent) {
+      return NextResponse.json({
+        success: false,
+        error: 'Agent not found',
+      }, { status: 404 });
+    }
+
+    return NextResponse.json({
+      success: true,
+      data: mapAgentRow(agent),
+    });
+  } catch (error) {
+    console.error('Unable to fetch AI agent', error);
+    return NextResponse.json({
+      success: false,
+      error: parseErrorMessage(error),
+    }, { status: 500 });
+  }
+}
 
 interface AgentUpdatePayload {
   name?: string;
