@@ -32,7 +32,7 @@ function JsonSyntaxHighlighter({ children }: { children: string }) {
     import("react-syntax-highlighter/dist/esm/styles/prism").then((mod) => {
       setStyle(mod.vscDarkPlus);
     });
-    
+
     // Injecter des styles CSS globaux pour forcer le retour à la ligne
     const styleId = "json-syntax-highlighter-wrap";
     if (!document.getElementById(styleId)) {
@@ -54,7 +54,7 @@ function JsonSyntaxHighlighter({ children }: { children: string }) {
   if (!style) {
     // Fallback pendant le chargement
     return (
-      <pre 
+      <pre
         className="whitespace-pre-wrap break-words rounded border bg-slate-900 p-3 text-xs text-white"
         style={{ wordBreak: "break-word", overflowWrap: "anywhere" }}
       >
@@ -92,6 +92,168 @@ function JsonSyntaxHighlighter({ children }: { children: string }) {
         {children}
       </SyntaxHighlighter>
     </div>
+  );
+}
+
+/**
+ * Extract variable values from merged prompt by comparing with template
+ * Returns a map of variable name to its resolved value
+ */
+function extractVariableValues(template: string, merged: string): Record<string, string> {
+  const variables: Record<string, string> = {};
+
+  // Extract all {{variable}} patterns from template
+  const varPattern = /\{\{([^{}]+)\}\}/g;
+  const matches = [...template.matchAll(varPattern)];
+
+  if (matches.length === 0) return variables;
+
+  // For each variable, try to find its value by looking at surrounding context
+  for (const match of matches) {
+    const varName = match[1].trim();
+    const varStart = match.index!;
+    const varEnd = varStart + match[0].length;
+
+    // Get text before and after the variable (up to 50 chars for context)
+    const beforeContext = template.slice(Math.max(0, varStart - 50), varStart);
+    const afterContext = template.slice(varEnd, Math.min(template.length, varEnd + 50));
+
+    // Find these contexts in the merged string
+    const beforeIdx = merged.indexOf(beforeContext);
+    if (beforeIdx === -1) continue;
+
+    const valueStart = beforeIdx + beforeContext.length;
+
+    // Find where the after context starts
+    let valueEnd = merged.length;
+    if (afterContext.length > 0) {
+      const afterIdx = merged.indexOf(afterContext, valueStart);
+      if (afterIdx !== -1) {
+        valueEnd = afterIdx;
+      }
+    }
+
+    const value = merged.slice(valueStart, valueEnd);
+    if (value.length > 0 && value.length < 10000) { // Reasonable limit
+      variables[varName] = value;
+    }
+  }
+
+  return variables;
+}
+
+/**
+ * Highlights variable values in the prompt text with colored spans
+ * Similar to n8n style variable highlighting
+ */
+function HighlightedPrompt({
+  text,
+  template
+}: {
+  text: string;
+  template?: string;
+}) {
+  // If no template, just show raw text
+  if (!template) {
+    return (
+      <pre className="whitespace-pre-wrap break-words rounded border bg-slate-900 p-3 text-xs text-white">
+        {text}
+      </pre>
+    );
+  }
+
+  // Extract variable values by comparing template and merged text
+  const resolvedVariables = extractVariableValues(template, text);
+
+  if (Object.keys(resolvedVariables).length === 0) {
+    return (
+      <pre className="whitespace-pre-wrap break-words rounded border bg-slate-900 p-3 text-xs text-white">
+        {text}
+      </pre>
+    );
+  }
+
+  // Sort variables by value length (longest first) to avoid partial matches
+  const sortedVars = Object.entries(resolvedVariables)
+    .filter(([_, value]) => value && value.trim().length > 0)
+    .sort((a, b) => b[1].length - a[1].length);
+
+  if (sortedVars.length === 0) {
+    return (
+      <pre className="whitespace-pre-wrap break-words rounded border bg-slate-900 p-3 text-xs text-white">
+        {text}
+      </pre>
+    );
+  }
+
+  // Create segments with highlighting
+  interface Segment {
+    text: string;
+    isVariable: boolean;
+    variableName?: string;
+  }
+
+  const segments: Segment[] = [];
+  let remainingText = text;
+
+  while (remainingText.length > 0) {
+    let earliestMatch: { index: number; variable: string; value: string } | null = null;
+
+    // Find the earliest match among all variables
+    for (const [variable, value] of sortedVars) {
+      // Skip very short values to avoid false positives
+      if (value.length < 3) continue;
+
+      const index = remainingText.indexOf(value);
+      if (index !== -1) {
+        if (!earliestMatch || index < earliestMatch.index) {
+          earliestMatch = { index, variable, value };
+        }
+      }
+    }
+
+    if (earliestMatch) {
+      // Add text before the match
+      if (earliestMatch.index > 0) {
+        segments.push({
+          text: remainingText.substring(0, earliestMatch.index),
+          isVariable: false,
+        });
+      }
+      // Add the matched variable
+      segments.push({
+        text: earliestMatch.value,
+        isVariable: true,
+        variableName: earliestMatch.variable,
+      });
+      remainingText = remainingText.substring(earliestMatch.index + earliestMatch.value.length);
+    } else {
+      // No more matches, add remaining text
+      segments.push({
+        text: remainingText,
+        isVariable: false,
+      });
+      break;
+    }
+  }
+
+  return (
+    <pre className="whitespace-pre-wrap break-words rounded border bg-slate-900 p-3 text-xs text-white">
+      {segments.map((segment, index) => {
+        if (segment.isVariable) {
+          return (
+            <span
+              key={index}
+              className="bg-orange-500/30 text-orange-300 rounded px-0.5 border border-orange-500/50"
+              title={`Variable: {{${segment.variableName}}}`}
+            >
+              {segment.text}
+            </span>
+          );
+        }
+        return <span key={index}>{segment.text}</span>;
+      })}
+    </pre>
   );
 }
 
@@ -522,31 +684,86 @@ export default function AiLogsPage() {
                                 )}
                               </CardContent>
 
-                              {isExpanded && (
-                                <div className="border-t bg-slate-50 px-4 pb-4">
-                                  <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
-                                    <div>
-                                      <h4 className="mb-2 text-sm font-medium text-slate-700">Payload de requête</h4>
-                                      <div className="overflow-x-auto rounded border border-slate-200">
-                                        <JsonSyntaxHighlighter>
-                                          {JSON.stringify(log.requestPayload, null, 2)}
-                                        </JsonSyntaxHighlighter>
-                                      </div>
-                                    </div>
+                              {isExpanded && (() => {
+                                const payload = log.requestPayload as Record<string, unknown>;
+                                const systemPrompt = typeof payload.systemPrompt === 'string' ? payload.systemPrompt : null;
+                                const userPrompt = typeof payload.userPrompt === 'string' ? payload.userPrompt : null;
+                                const systemPromptTemplate = typeof payload.systemPromptTemplate === 'string' ? payload.systemPromptTemplate : undefined;
+                                const userPromptTemplate = typeof payload.userPromptTemplate === 'string' ? payload.userPromptTemplate : undefined;
 
-                                    {log.responsePayload && (
-                                      <div>
-                                        <h4 className="mb-2 text-sm font-medium text-slate-700">Payload de réponse</h4>
-                                        <div className="overflow-x-auto rounded border border-slate-200">
-                                          <JsonSyntaxHighlighter>
-                                            {JSON.stringify(log.responsePayload, null, 2)}
-                                          </JsonSyntaxHighlighter>
+                                // Create a payload without the prompts for the JSON display
+                                const { systemPrompt: _sp, userPrompt: _up, systemPromptTemplate: _spt, userPromptTemplate: _upt, ...otherPayload } = payload;
+
+                                return (
+                                  <div className="border-t bg-slate-50 px-4 pb-4">
+                                    <div className="mt-4 space-y-4">
+                                      {/* System Prompt with highlighting */}
+                                      {systemPrompt && (
+                                        <div>
+                                          <h4 className="mb-2 text-sm font-medium text-slate-700">
+                                            System Prompt
+                                            {systemPromptTemplate && (
+                                              <span className="ml-2 text-xs font-normal text-orange-600">
+                                                (variables colorées)
+                                              </span>
+                                            )}
+                                          </h4>
+                                          <div className="overflow-x-auto max-h-64 overflow-y-auto rounded border border-slate-200">
+                                            <HighlightedPrompt
+                                              text={systemPrompt}
+                                              template={systemPromptTemplate}
+                                            />
+                                          </div>
                                         </div>
-                                      </div>
-                                    )}
+                                      )}
+
+                                      {/* User Prompt with highlighting */}
+                                      {userPrompt && (
+                                        <div>
+                                          <h4 className="mb-2 text-sm font-medium text-slate-700">
+                                            User Prompt
+                                            {userPromptTemplate && (
+                                              <span className="ml-2 text-xs font-normal text-orange-600">
+                                                (variables colorées)
+                                              </span>
+                                            )}
+                                          </h4>
+                                          <div className="overflow-x-auto max-h-64 overflow-y-auto rounded border border-slate-200">
+                                            <HighlightedPrompt
+                                              text={userPrompt}
+                                              template={userPromptTemplate}
+                                            />
+                                          </div>
+                                        </div>
+                                      )}
+
+                                      {/* Other payload data */}
+                                      {Object.keys(otherPayload).length > 0 && (
+                                        <div>
+                                          <h4 className="mb-2 text-sm font-medium text-slate-700">Autres données</h4>
+                                          <div className="overflow-x-auto rounded border border-slate-200">
+                                            <JsonSyntaxHighlighter>
+                                              {JSON.stringify(otherPayload, null, 2)}
+                                            </JsonSyntaxHighlighter>
+                                          </div>
+                                        </div>
+                                      )}
+
+                                      {/* Response payload */}
+                                      {log.responsePayload && (
+                                        <div>
+                                          <h4 className="mb-2 text-sm font-medium text-slate-700">Payload de réponse</h4>
+                                          <div className="overflow-x-auto max-h-64 overflow-y-auto rounded border border-slate-200">
+                                            <JsonSyntaxHighlighter>
+                                              {JSON.stringify(log.responsePayload, null, 2)}
+                                            </JsonSyntaxHighlighter>
+                                          </div>
+                                        </div>
+                                      )}
+                                    </div>
                                   </div>
-                                </div>
-                              )}
+                                );
+                              })()}
                             </Card>
                           </motion.div>
                         );
