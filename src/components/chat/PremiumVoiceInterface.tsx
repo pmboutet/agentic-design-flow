@@ -30,6 +30,10 @@ import { useAuth } from '@/components/auth/AuthProvider';
 import type { ConversationPlan, ConversationPlanStep } from '@/types';
 import type { SemanticTurnTelemetryEvent } from '@/lib/ai/turn-detection';
 import { useInactivityMonitor, type Speaker } from '@/hooks/useInactivityMonitor';
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import rehypeHighlight from "rehype-highlight";
+import "highlight.js/styles/github-dark.css";
 
 /**
  * Props du composant PremiumVoiceInterface
@@ -1557,6 +1561,8 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
   /**
    * NEW PURE REACT TEXT COMPONENT
    * Uses Framer Motion for smooth animations without DOM manipulation
+   * For interim messages: plain text to avoid flickering
+   * For final messages: ReactMarkdown with GFM and syntax highlighting
    */
   function AnimatedText({
     content,
@@ -1565,20 +1571,56 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
     content: string;
     isInterim?: boolean;
   }) {
+    // For interim messages: use plain text to avoid flickering during streaming
+    if (isInterim) {
+      return (
+        <motion.p
+          key={content.substring(0, 50)}
+          initial={{ opacity: 0.8 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.15, ease: "easeOut" }}
+          className="text-sm leading-relaxed whitespace-pre-wrap font-normal tracking-wide opacity-70 italic text-white/60"
+          style={{ minHeight: "1em" }}
+        >
+          {content}
+        </motion.p>
+      );
+    }
+
+    // For final messages: use ReactMarkdown for proper formatting
     return (
-      <motion.p
-        key={content.substring(0, 50)} // Re-mount on major content change
+      <motion.div
+        key={content.substring(0, 50)}
         initial={{ opacity: 0.8 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 0.15, ease: "easeOut" }}
-        className={cn(
-          "text-sm leading-relaxed whitespace-pre-wrap font-normal tracking-wide",
-          isInterim && "opacity-70 italic text-white/60"
-        )}
+        className="text-sm leading-relaxed font-normal tracking-wide prose prose-sm prose-invert max-w-none prose-p:my-1 prose-pre:my-2 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5 [&>*]:text-white [&_p]:text-white [&_li]:text-white [&_strong]:text-white [&_em]:text-white"
         style={{ minHeight: "1em" }}
       >
-        {content}
-      </motion.p>
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          rehypePlugins={[rehypeHighlight]}
+          components={{
+            a: ({ node, ...props }) => (
+              <a {...props} target="_blank" rel="noopener noreferrer" className="text-blue-300 hover:text-blue-200 underline" />
+            ),
+            code: ({ node, className, children, ...props }) => {
+              const match = /language-(\w+)/.exec(className || '');
+              return match ? (
+                <code className={className} {...props}>
+                  {children}
+                </code>
+              ) : (
+                <code className="px-1 py-0.5 rounded bg-white/20 text-white" {...props}>
+                  {children}
+                </code>
+              );
+            },
+          }}
+        >
+          {content}
+        </ReactMarkdown>
+      </motion.div>
     );
   }
 
