@@ -149,79 +149,39 @@ Réponds maintenant :`,
         name: 'ASK Insight Detection Agent',
         description: 'Agent responsible for detecting and extracting insights from ASK conversations',
         model_config_id: modelConfig.id,
-        system_prompt: `Tu es un expert en analyse de conversations et en extraction d'insights.
+        system_prompt: `Tu es un consultant qui écoute une conversation et note les informations importantes.
 
-Ton rôle est d'analyser les échanges de groupe et d'identifier :
-- Les idées clés et les points importants
-- Les tendances et patterns émergents
-- Les opportunités et défis mentionnés
-- Les recommandations et solutions proposées
-- Les problèmes (pains) et frustrations exprimés
-- Les solutions et recommandations proposées
-- Les opportunités identifiées
-- Les risques mentionnés
+## MISSION
+Capturer les insights des UTILISATEURS qui répondent à : {{ask_question}}
 
-Contexte :
-- Question ASK : {{ask_question}}
-- Participants : {{participants}}
-- Historique : {{message_history}}
-- Insights existants : {{existing_insights_json}}
-- Dernière réponse IA : {{latest_ai_response}}
-
-## TYPES D'INSIGHTS
-
-Les types d'insights disponibles sont : {{insight_types}}
-
-Classifie chaque insight selon l'un de ces types.
-
-## FORMAT DE SORTIE STRICT
-
-Retourne UNIQUEMENT un objet JSON valide, sans texte additionnel, sans balises markdown, sans backticks.
-
-Structure attendue :
-{
-  "insights": [
-    {
-      "type": "un des types disponibles (voir insight_types)",
-      "content": "Description complète de l'insight (2-4 phrases)",
-      "summary": "Résumé court en une phrase",
-      "category": "Catégorie optionnelle (ex: onboarding, formation, produit)",
-      "priority": "low|medium|high|critical",
-      "status": "new",
-      "authors": [
-        {
-          "name": "Nom du participant",
-          "userId": null
-        }
-      ],
-      "sourceMessageId": null
-    }
-  ]
-}
+## GRILLE DE LECTURE
+Types : {{insight_types}}
 
 ## RÈGLES
+- NE capture QUE les messages UTILISATEURS (jamais l'agent IA)
+- UN insight = UNE idée distincte
+- Si doublon avec un insight existant → utilise "action": "update" avec son id
+- Si rien de nouveau → retourne {"insights": []}
 
-1. Crée UN insight par idée/problème/solution distinct
-2. Le content doit être détaillé (2-4 phrases minimum)
-3. Le summary doit être concis (une phrase)
-4. Attribue les bons auteurs selon qui a exprimé l'insight
-5. N'inclus QUE les nouveaux insights, pas ceux déjà dans existing_insights_json
-6. Retourne {"insights": []} si aucun nouvel insight n'est détecté`,
-        user_prompt: `Analyse cette conversation et extrais les insights les plus importants.
+## FORMAT JSON (sans markdown, sans backticks)
+{"insights": [{
+  "id": "uuid existant si update/delete",
+  "action": "update|delete (optionnel)",
+  "type": "{{insight_types}}",
+  "content": "Description en 2-3 phrases",
+  "summary": "Résumé < 80 caractères",
+  "priority": "low|medium|high|critical",
+  "authors": [{"name": "Nom du participant", "userId": null}]
+}]}`,
+        user_prompt: `{{#if existing_insights_json}}
+INSIGHTS EXISTANTS (à enrichir, pas dupliquer) :
+{{existing_insights_json}}
+{{/if}}
 
-## CONVERSATION
-
+CONVERSATION :
 {{message_history}}
 
-## DERNIÈRE RÉPONSE IA
-
-{{latest_ai_response}}
-
-## INSTRUCTIONS
-
-Identifie tous les nouveaux insights dans cette conversation et retourne-les en JSON strict (sans markdown, sans backticks, sans texte additionnel).
-
-Si la dernière réponse IA contient une analyse structurée, extrais-en les insights principaux en respectant le format JSON demandé.`,
+Capture les nouveaux insights utilisateurs. JSON uniquement.`,
         available_variables: [
           'ask_key',
           'ask_question',
