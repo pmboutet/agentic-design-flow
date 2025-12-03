@@ -6,6 +6,7 @@ import { renderTemplate } from '@/lib/ai/templates';
 import { parseErrorMessage } from '@/lib/utils';
 import { buildConversationAgentVariables } from '@/lib/ai/conversation-agent';
 import { getAskSessionByKey, getOrCreateConversationThread, getMessagesForThread, getInsightsForThread } from '@/lib/asks';
+import { getConversationPlanWithSteps } from '@/lib/ai/conversation-plan';
 import { normaliseMessageMetadata } from '@/lib/messages';
 import { fetchInsightTypesForPrompt, fetchInsightsForSession } from '@/lib/insightQueries';
 import { mapInsightRowToInsight } from '@/lib/insights';
@@ -243,6 +244,15 @@ export async function POST(
       // Find the last AI response for latestAiResponse variable
       const lastAiMessage = [...messages].reverse().find(m => m.senderType === 'ai');
 
+      // Fetch conversation plan if thread exists
+      let conversationPlan = null;
+      if (conversationThread) {
+        conversationPlan = await getConversationPlanWithSteps(supabase, conversationThread.id);
+        if (conversationPlan && conversationPlan.plan_data) {
+          console.log('📋 Test mode: Loaded conversation plan with', conversationPlan.plan_data.steps.length, 'steps');
+        }
+      }
+
       // Build variables using THE SAME function as streaming route
       const agentVariables = buildConversationAgentVariables({
         ask: askRow,
@@ -250,6 +260,7 @@ export async function POST(
         challenge: challengeData,
         messages,
         participants,
+        conversationPlan,
         insightTypes,
         insights: existingInsights,
         latestAiResponse: lastAiMessage?.content ?? '',
