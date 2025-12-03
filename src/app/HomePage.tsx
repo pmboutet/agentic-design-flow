@@ -735,6 +735,14 @@ export default function HomePage() {
     previousMessageCountRef.current = sessionData.messages.length;
   }, [sessionData.messages]);
 
+  // Auto-collapse details when reply box gets focus
+  useEffect(() => {
+    if (isReplyBoxFocused && !isDetailsCollapsed) {
+      setIsDetailsCollapsed(true);
+      autoCollapseTriggeredRef.current = true;
+    }
+  }, [isReplyBoxFocused, isDetailsCollapsed]);
+
   // Initialize session from URL parameters
   useEffect(() => {
     // Try multiple ways to get the key or token
