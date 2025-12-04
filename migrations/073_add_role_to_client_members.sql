@@ -1,7 +1,7 @@
 BEGIN;
 
 -- ============================================================================
--- MIGRATION 073: Add Role to Client Members
+-- MIGRATION 073: Add Role to Client Members + Fix RLS Permissions
 -- ============================================================================
 --
 -- This migration adds a role column to the client_members table to support
@@ -14,50 +14,90 @@ BEGIN;
 --
 -- Users can now have different roles in different clients.
 
--- Step 1: Create the client_role enum type
-DO $$
-BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'client_role') THEN
-        CREATE TYPE client_role AS ENUM (
-            'client_admin',
-            'facilitator',
-            'manager',
-            'participant'
-        );
-    END IF;
-END$$;
-
--- Step 2: Add role column to client_members table
+-- Step 1: Add role column to client_members table
 ALTER TABLE public.client_members
   ADD COLUMN IF NOT EXISTS role VARCHAR(50) DEFAULT 'participant';
 
--- Step 3: Create index for faster role-based lookups
+-- Step 2: Create index for faster role-based lookups
 CREATE INDEX IF NOT EXISTS client_members_role_idx
   ON public.client_members (role);
 
--- Step 4: Create index for user-client-role lookups
+-- Step 3: Create index for user-client-role lookups
 CREATE INDEX IF NOT EXISTS client_members_user_role_idx
   ON public.client_members (user_id, role);
 
--- Step 5: Update profiles role enum to include client_admin and remove duplicates
--- Note: We keep the existing enum but add client_admin if needed
--- The profiles.role is the GLOBAL role, while client_members.role is per-client
-DO $$
-BEGIN
-    -- Check if client_admin exists in the enum, add if not
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_enum
-        WHERE enumtypid = 'profile_role'::regtype
-        AND enumlabel = 'client_admin'
-    ) THEN
-        ALTER TYPE profile_role ADD VALUE IF NOT EXISTS 'client_admin';
-    END IF;
-END$$;
+-- Step 4: Grant permissions to authenticated and service_role
+GRANT ALL ON public.client_members TO authenticated;
+GRANT ALL ON public.client_members TO service_role;
+
+-- Step 5: Drop existing RLS policies and recreate with new roles
+DROP POLICY IF EXISTS "Users can view accessible client members" ON public.client_members;
+DROP POLICY IF EXISTS "Admins can manage client members" ON public.client_members;
+DROP POLICY IF EXISTS "Users can view own client memberships" ON public.client_members;
+DROP POLICY IF EXISTS "Service role full access to client_members" ON public.client_members;
+
+-- Step 6: Service role bypass for admin API operations
+CREATE POLICY "Service role full access to client_members"
+  ON public.client_members FOR ALL
+  TO service_role
+  USING (true)
+  WITH CHECK (true);
+
+-- Step 7: Users can view client memberships for clients they have access to
+CREATE POLICY "Users can view accessible client members"
+  ON public.client_members FOR SELECT
+  TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.profiles
+      WHERE auth_id = auth.uid()
+      AND (
+        role IN ('full_admin', 'admin', 'client_admin', 'facilitator', 'manager')
+        OR client_id = client_members.client_id
+        OR id = client_members.user_id
+      )
+    )
+  );
+
+-- Step 8: Admins and managers can manage client memberships
+CREATE POLICY "Admins can manage client members"
+  ON public.client_members FOR ALL
+  TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.profiles
+      WHERE auth_id = auth.uid()
+      AND role IN ('full_admin', 'admin', 'client_admin', 'facilitator', 'manager')
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM public.profiles
+      WHERE auth_id = auth.uid()
+      AND role IN ('full_admin', 'admin', 'client_admin', 'facilitator', 'manager')
+    )
+  );
+
+-- Step 9: Users can view their own client memberships
+CREATE POLICY "Users can view own client memberships"
+  ON public.client_members FOR SELECT
+  TO authenticated
+  USING (
+    user_id IN (
+      SELECT id FROM public.profiles WHERE auth_id = auth.uid()
+    )
+  );
 
 COMMIT;
 
 -- //@UNDO
 BEGIN;
+
+-- Drop new policies
+DROP POLICY IF EXISTS "Service role full access to client_members" ON public.client_members;
+DROP POLICY IF EXISTS "Users can view accessible client members" ON public.client_members;
+DROP POLICY IF EXISTS "Admins can manage client members" ON public.client_members;
+DROP POLICY IF EXISTS "Users can view own client memberships" ON public.client_members;
 
 -- Drop indexes
 DROP INDEX IF EXISTS client_members_user_role_idx;
@@ -66,6 +106,42 @@ DROP INDEX IF EXISTS client_members_role_idx;
 -- Remove role column
 ALTER TABLE public.client_members DROP COLUMN IF EXISTS role;
 
--- Note: Cannot easily remove enum values, leaving client_role type
+-- Recreate original policies
+CREATE POLICY "Users can view accessible client members"
+  ON public.client_members FOR SELECT
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.profiles
+      WHERE auth_id = auth.uid()
+      AND (
+        role IN ('full_admin', 'admin')
+        OR (
+          id IN (
+            SELECT user_id FROM public.project_members pm
+            INNER JOIN public.projects p ON p.id = pm.project_id
+            WHERE p.client_id = client_members.client_id
+          )
+        )
+      )
+    )
+  );
+
+CREATE POLICY "Admins can manage client members"
+  ON public.client_members FOR ALL
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.profiles
+      WHERE auth_id = auth.uid()
+      AND role IN ('full_admin', 'admin')
+    )
+  );
+
+CREATE POLICY "Users can view own client memberships"
+  ON public.client_members FOR SELECT
+  USING (
+    user_id IN (
+      SELECT id FROM public.profiles WHERE auth_id = auth.uid()
+    )
+  );
 
 COMMIT;
