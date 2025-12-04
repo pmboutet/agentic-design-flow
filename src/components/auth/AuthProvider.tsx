@@ -289,9 +289,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setProfile(null);
       } catch (error) {
         console.error("[Auth] Init auth exception:", error);
+        // Only set signed-out if onAuthStateChange hasn't already handled auth
+        // This handles the race condition where onAuthStateChange fires before getUser completes
         if (isMounted && !authHandledRef.current) {
-          console.log("[Auth] Setting signed-out after error");
+          console.log("[Auth] Setting signed-out after timeout (auth not yet handled)");
           setStatus("signed-out");
+        } else {
+          console.log("[Auth] Ignoring timeout - auth already handled by onAuthStateChange");
         }
       }
     };
