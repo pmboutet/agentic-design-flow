@@ -357,6 +357,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const initAuth = async () => {
       try {
+        // First, try to hydrate from cookies to avoid waiting on getSession when network hangs
+        const cookieSession = parseSessionFromCookies();
+        if (cookieSession) {
+          console.log("[Auth] Cookie session found, processing immediately...");
+          authHandledRef.current = true;
+          setSession(cookieSession);
+          await processSession(cookieSession, "INITIAL_SESSION");
+          return;
+        }
+
         // Use getSession() first - it reads from cookies/storage without network call
         console.log("[Auth] Calling getSession() to read local session...");
         const { data: { session: localSession }, error: sessionError } = await supabase.auth.getSession();
