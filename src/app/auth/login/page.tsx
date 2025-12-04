@@ -15,6 +15,12 @@ function LoginPageContent() {
   // Track if we've already attempted a redirect to prevent loops
   const hasAttemptedRedirect = useRef(false);
   const [isStable, setIsStable] = useState(false);
+  const renderCount = useRef(0);
+  renderCount.current++;
+
+  console.log(`[Login] ========== Render #${renderCount.current} ==========`);
+  console.log(`[Login] status=${status}, isStable=${isStable}, hasAttemptedRedirect=${hasAttemptedRedirect.current}`);
+  console.log(`[Login] requestedRedirect=${requestedRedirect}`);
 
   const redirectTo = useMemo(() => {
     if (!requestedRedirect) {
@@ -42,9 +48,12 @@ function LoginPageContent() {
   // Wait for auth state to stabilize before allowing redirects
   // This prevents redirect loops when middleware and client disagree
   useEffect(() => {
+    console.log(`[Login] Stability effect: status=${status}`);
     if (status !== "loading") {
+      console.log("[Login] Status not loading, setting stability timeout (500ms)");
       // Give a small delay to ensure auth state is truly stable
       const timeout = setTimeout(() => {
+        console.log("[Login] Stability timeout fired, setting isStable=true");
         setIsStable(true);
       }, 500);
       return () => clearTimeout(timeout);
@@ -52,18 +61,23 @@ function LoginPageContent() {
   }, [status]);
 
   useEffect(() => {
+    console.log(`[Login] Redirect effect: status=${status}, isDevMode=${isDevMode}, isStable=${isStable}, hasAttemptedRedirect=${hasAttemptedRedirect.current}`);
+
     // In dev mode, don't auto-redirect - let user choose via DevUserSwitcher
     if (isDevMode) {
+      console.log("[Login] Dev mode - skipping redirect");
       return;
     }
 
     // Don't redirect until auth state is stable
     if (!isStable) {
+      console.log("[Login] Not stable yet - skipping redirect");
       return;
     }
 
     // Only redirect once to prevent loops
     if (hasAttemptedRedirect.current) {
+      console.log("[Login] Already attempted redirect - skipping");
       return;
     }
 
@@ -71,6 +85,8 @@ function LoginPageContent() {
       hasAttemptedRedirect.current = true;
       console.log("[Login] Auth stable and signed-in, redirecting to:", redirectTo);
       router.push(redirectTo);
+    } else {
+      console.log(`[Login] Status is ${status}, not redirecting`);
     }
   }, [status, router, redirectTo, isDevMode, isStable]);
 

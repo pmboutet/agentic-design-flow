@@ -235,18 +235,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     // Get initial session - use getUser() to validate JWT (same as middleware)
     // This ensures client and server have synchronized auth state
-    console.log("[Auth] Getting initial session...");
+    console.log("[Auth] ========== AuthProvider Init ==========");
+
+    // Log cookies visible to client
+    if (typeof document !== "undefined") {
+      console.log("[Auth] Document cookies:", document.cookie ? document.cookie.split(';').length + ' cookies' : 'none');
+    }
 
     const initAuth = async () => {
       try {
         // First, validate the user with getUser() - this contacts Supabase to verify JWT
+        console.log("[Auth] Calling getUser() to validate JWT...");
         const { data: { user: validatedUser }, error: userError } = await supabase.auth.getUser();
 
         if (!isMounted) return;
 
+        console.log(`[Auth] getUser result: user=${validatedUser?.email || 'null'}, error=${userError?.message || 'none'}`);
+
         if (userError || !validatedUser) {
           // No valid user - tokens may be expired
-          console.log("[Auth] No valid user (JWT validation failed):", userError?.message);
+          console.log("[Auth] No valid user - setting signed-out");
           setStatus("signed-out");
           setSession(null);
           setUser(null);
@@ -255,11 +263,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
 
         // User is valid, now get the session for tokens
+        console.log("[Auth] User validated, calling getSession()...");
         const { data: { session: initialSession } } = await supabase.auth.getSession();
 
         if (!isMounted) return;
 
-        console.log("[Auth] Initial session:", initialSession ? "exists" : "none");
+        console.log(`[Auth] getSession result: session=${initialSession ? 'exists' : 'null'}, access_token=${initialSession?.access_token ? 'exists' : 'none'}`);
         setSession(initialSession);
         await processSession(initialSession, "INITIAL_SESSION");
       } catch (error) {
