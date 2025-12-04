@@ -303,13 +303,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     };
 
-    initAuth();
-
-    // Listen for auth changes
+    // IMPORTANT: Set up auth state listener FIRST before calling initAuth
+    // This ensures we catch the INITIAL_SESSION event that fires synchronously on subscription
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, newSession) => {
       if (!isMounted) return;
 
-      console.log("[Auth] Auth state changed:", event);
+      console.log("[Auth] Auth state changed:", event, "session:", newSession ? "exists" : "null");
 
       // Handle SIGNED_OUT immediately
       if (event === "SIGNED_OUT") {
@@ -322,16 +321,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      // Mark auth as handled IMMEDIATELY when we get SIGNED_IN with a valid session
+      // Mark auth as handled IMMEDIATELY when we get a session
       // This prevents the getUser() timeout from incorrectly setting signed-out
-      if ((event === "SIGNED_IN" || event === "INITIAL_SESSION") && newSession) {
+      if (newSession) {
         console.log("[Auth] Marking auth as handled for event:", event);
         authHandledRef.current = true;
+        setSession(newSession);
+        await processSession(newSession, event);
+      } else if (event === "INITIAL_SESSION") {
+        // No session on initial load - set signed out
+        console.log("[Auth] No session on initial load");
+        setStatus("signed-out");
       }
-
-      setSession(newSession);
-      await processSession(newSession, event);
     });
+
+    // Now call initAuth as a backup validation
+    initAuth();
 
     return () => {
       isMounted = false;
