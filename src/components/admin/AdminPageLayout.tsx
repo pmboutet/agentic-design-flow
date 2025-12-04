@@ -49,6 +49,11 @@ const navigationItems: AdminNavItem[] = [
     icon: FolderKanban,
   },
   {
+    label: "Users",
+    href: "/admin/users",
+    icon: Users,
+  },
+  {
     label: "AI agents",
     href: "/admin/ai",
     icon: Bot,
