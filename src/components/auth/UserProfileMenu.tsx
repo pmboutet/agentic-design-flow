@@ -75,8 +75,10 @@ export function UserProfileMenu() {
               </div>
             ) : isSignedIn ? (
               <div className="space-y-1">
-                <p className="text-sm font-semibold text-foreground">{fullName}</p>
-                <p className="text-xs text-muted-foreground">{email}</p>
+                <p className="text-sm font-semibold text-foreground">{fullName || email || "Utilisateur"}</p>
+                {email && fullName !== email && (
+                  <p className="text-xs text-muted-foreground">{email}</p>
+                )}
                 {role && (
                   <span className="inline-flex items-center rounded-full bg-primary/10 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
                     {role}
