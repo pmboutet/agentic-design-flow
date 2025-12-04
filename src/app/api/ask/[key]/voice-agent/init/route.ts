@@ -3,7 +3,8 @@ import { createServerSupabaseClient } from '@/lib/supabaseServer';
 import { executeAgent } from '@/lib/ai/service';
 import { buildChatAgentVariables, DEFAULT_CHAT_AGENT_SLUG, type PromptVariables } from '@/lib/ai/agent-config';
 import { getAskSessionByKey, getOrCreateConversationThread, getMessagesForThread } from '@/lib/asks';
-import { getConversationPlanWithSteps } from '@/lib/ai/conversation-plan';
+import { getConversationPlanWithSteps, getActiveStep } from '@/lib/ai/conversation-plan';
+import { getAdminSupabaseClient } from '@/lib/supabaseAdmin';
 import { parseErrorMessage } from '@/lib/utils';
 import type { ApiResponse } from '@/types';
 import { buildConversationAgentVariables } from '@/lib/ai/conversation-agent';
@@ -251,7 +252,21 @@ export async function POST(
 
         if (typeof agentResult.content === 'string' && agentResult.content.trim().length > 0) {
           const aiResponse = agentResult.content.trim();
-          
+
+          // Get the currently active plan step to link this message
+          let initialPlanStepId: string | null = null;
+          if (conversationPlan) {
+            try {
+              const adminClient = getAdminSupabaseClient();
+              const activeStep = await getActiveStep(adminClient, conversationPlan.id);
+              if (activeStep) {
+                initialPlanStepId = activeStep.id;
+              }
+            } catch (stepError) {
+              console.warn('⚠️ Voice agent init: Failed to get active step for message linking:', stepError);
+            }
+          }
+
           // Insert the initial AI message
           const { data: insertedRows, error: insertError } = await supabase
             .from('messages')
@@ -262,6 +277,7 @@ export async function POST(
               message_type: 'text',
               metadata: { senderName: 'Agent' },
               conversation_thread_id: conversationThread?.id ?? null,
+              plan_step_id: initialPlanStepId,
             })
             .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at, conversation_thread_id')
             .limit(1);

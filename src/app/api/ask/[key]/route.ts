@@ -9,7 +9,7 @@ import { getAskSessionByKey, getOrCreateConversationThread, getMessagesForThread
 import { createServerSupabaseClient } from '@/lib/supabaseServer';
 import { executeAgent } from '@/lib/ai/service';
 import { buildConversationAgentVariables } from '@/lib/ai/conversation-agent';
-import { getConversationPlanWithSteps, type ConversationPlan } from '@/lib/ai/conversation-plan';
+import { getConversationPlanWithSteps, getActiveStep, type ConversationPlan } from '@/lib/ai/conversation-plan';
 
 interface AskSessionRow {
   id: string;
@@ -661,7 +661,20 @@ export async function GET(
 
         if (typeof agentResult.content === 'string' && agentResult.content.trim().length > 0) {
           const aiResponse = agentResult.content.trim();
-          
+
+          // Get the currently active plan step to link this message
+          let initialPlanStepId: string | null = null;
+          if (conversationPlan) {
+            try {
+              const activeStep = await getActiveStep(dataClient, conversationPlan.id);
+              if (activeStep) {
+                initialPlanStepId = activeStep.id;
+              }
+            } catch (stepError) {
+              console.warn('⚠️ GET /api/ask/[key]: Failed to get active step for initial message linking:', stepError);
+            }
+          }
+
           // Insert the initial AI message
           const { data: insertedRows, error: insertError } = await dataClient
             .from('messages')
@@ -672,6 +685,7 @@ export async function GET(
               message_type: 'text',
               metadata: { senderName: 'Agent' },
               conversation_thread_id: conversationThread?.id ?? null,
+              plan_step_id: initialPlanStepId,
             })
             .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at, conversation_thread_id')
             .limit(1);
@@ -1246,6 +1260,23 @@ export async function POST(
       ? body.parent_message_id
       : null;
 
+    // Get the currently active plan step to link this message
+    let planStepId: string | null = null;
+    if (conversationThread) {
+      try {
+        const plan = await getConversationPlanWithSteps(dataClient, conversationThread.id);
+        if (plan) {
+          const activeStep = await getActiveStep(dataClient, plan.id);
+          if (activeStep) {
+            planStepId = activeStep.id;
+          }
+        }
+      } catch (error) {
+        console.warn('⚠️ POST /api/ask/[key]: Failed to get active step for message linking:', error);
+        // Continue without linking to step
+      }
+    }
+
     const insertPayload = {
       ask_session_id: askRow.id,
       content: body.content,
@@ -1258,6 +1289,7 @@ export async function POST(
       // The user_id already identifies the participant via their profile
       parent_message_id: parentMessageId,
       conversation_thread_id: conversationThread?.id ?? null,
+      plan_step_id: planStepId,
     };
 
     console.log('🔍 POST /api/ask/[key]: Inserting message', {
