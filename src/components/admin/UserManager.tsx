@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { type ClientRecord, type ManagedUser } from "@/types";
 
-const roles = ["full_admin", "admin", "moderator", "facilitator", "participant", "sponsor", "observer", "guest"] as const;
+const roles = ["full_admin", "client_admin", "facilitator", "manager", "participant"] as const;
 
 const formSchema = z.object({
   email: z.string().trim().email("Invalid email").max(255),

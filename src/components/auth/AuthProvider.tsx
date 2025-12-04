@@ -36,7 +36,7 @@ const DEV_BYPASS_USER: AuthUser = {
   id: "dev-bypass-user",
   email: "dev@example.com",
   fullName: "Dev User",
-  role: "admin",
+  role: "full_admin",
   avatarUrl: null,
   profile: null,
 };

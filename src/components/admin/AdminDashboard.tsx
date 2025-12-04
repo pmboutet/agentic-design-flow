@@ -114,7 +114,7 @@ const askFormSchema = z.object({
   systemPrompt: z.string().trim().optional().or(z.literal(""))
 });
 
-const userRoles = ["full_admin", "admin", "moderator", "facilitator", "participant", "sponsor", "observer", "guest"] as const;
+const userRoles = ["full_admin", "client_admin", "facilitator", "manager", "participant"] as const;
 
 const userFormSchema = z.object({
   email: z.string().trim().email("Invalid email").max(255),
@@ -2069,8 +2069,8 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
       return users;
     }
     
-    // Project admins, facilitators, managers see only users from their client
-    if (["project_admin", "facilitator", "manager"].includes(profileRoleLower)) {
+    // Client admins, facilitators, managers see only users from their client
+    if (["client_admin", "facilitator", "manager"].includes(profileRoleLower)) {
       if (!profileClientId) return [];
       return users.filter(user => user.clientId === profileClientId);
     }
@@ -3624,11 +3624,10 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                                 disabled={isBusy}
                               >
                                 <option value="full_admin">Full Admin</option>
-                                <option value="project_admin">Project Admin</option>
+                                <option value="client_admin">Client Admin</option>
                                 <option value="facilitator">Facilitator</option>
                                 <option value="manager">Manager</option>
                                 <option value="participant">Participant</option>
-                                <option value="user">User</option>
                               </select>
                             </div>
                           </div>

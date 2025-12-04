@@ -1044,7 +1044,7 @@ export async function POST(
       const { data: devProfile } = await admin
         .from('profiles')
         .select('id')
-        .eq('role', 'admin')
+        .eq('role', 'full_admin')
         .eq('is_active', true)
         .limit(1)
         .maybeSingle();

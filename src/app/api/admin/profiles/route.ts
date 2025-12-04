@@ -7,7 +7,7 @@ import { parseErrorMessage } from "@/lib/utils";
 import { type ApiResponse, type ManagedUser } from "@/types";
 import { fetchProjectMemberships, fetchClientMemberships, fetchDetailedProjectMemberships, mapManagedUser } from "./helpers";
 
-const roleValues = ["full_admin", "admin", "moderator", "facilitator", "participant", "sponsor", "observer", "guest"] as const;
+const roleValues = ["full_admin", "client_admin", "facilitator", "manager", "participant"] as const;
 
 const userSchema = z.object({
   email: z.string().trim().min(3).max(255).email(),

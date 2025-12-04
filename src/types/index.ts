@@ -387,8 +387,13 @@ export interface ClientRecord {
 // Client-specific role for users within a client organization
 export type ClientRole = 'client_admin' | 'facilitator' | 'manager' | 'participant';
 
-// Global profile roles
-export type ProfileRole = 'full_admin' | 'admin' | 'client_admin' | 'moderator' | 'facilitator' | 'participant' | 'sponsor' | 'observer' | 'guest';
+// Global profile roles (matches Role System table)
+// - full_admin: All access across all clients/projects
+// - client_admin: Manages all projects/users for assigned clients
+// - facilitator: Manages projects, creates/updates contacts
+// - manager: Manages clients, creates/updates contacts
+// - participant: Basic user access
+export type ProfileRole = 'full_admin' | 'client_admin' | 'facilitator' | 'manager' | 'participant';
 
 export interface ClientMember {
   id: string;

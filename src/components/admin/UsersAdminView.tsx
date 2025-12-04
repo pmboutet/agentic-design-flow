@@ -159,7 +159,7 @@ export function UsersAdminView() {
       result = users.filter(u =>
         u.clientId === selectedClientId ||
         u.role === "full_admin" ||
-        u.role === "admin"
+        u.role === "client_admin"
       );
     }
 

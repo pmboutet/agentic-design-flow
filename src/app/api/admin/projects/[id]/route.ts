@@ -92,10 +92,10 @@ export async function PATCH(
       updateData.system_prompt = sanitizeOptional(payload.systemPrompt || null);
     }
     if (payload.graphRagScope !== undefined) {
-      // Verify permissions for client-level scope (requires admin/full_admin)
+      // Verify permissions for client-level scope (requires full_admin or client_admin)
       if (payload.graphRagScope === "client") {
         // requireAdmin already checked, but verify role explicitly
-        if (!profile || (profile.role !== "admin" && profile.role !== "full_admin")) {
+        if (!profile || (profile.role !== "client_admin" && profile.role !== "full_admin")) {
           return NextResponse.json<ApiResponse>({
             success: false,
             error: "Client-level Graph RAG scope requires admin permissions"

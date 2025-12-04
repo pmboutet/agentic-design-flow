@@ -11,7 +11,7 @@ interface AdminAuthGuardProps {
   allowedRoles?: string[];
 }
 
-const DEFAULT_ALLOWED_ROLES = ["full_admin", "project_admin", "facilitator", "manager", "admin"];
+const DEFAULT_ALLOWED_ROLES = ["full_admin", "client_admin", "facilitator", "manager"];
 
 /**
  * Simplified AdminAuthGuard

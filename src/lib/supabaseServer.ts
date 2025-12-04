@@ -132,9 +132,9 @@ export async function requireAdmin() {
     throw new Error('Profile not found')
   }
   
-  // Check if user has admin, project admin, facilitator, or manager role
+  // Check if user has admin-level role (full_admin, client_admin, facilitator, or manager)
   const normalizedRole = profile.role?.toLowerCase() ?? "";
-  const isAdmin = ['admin', 'full_admin', 'project_admin', 'facilitator', 'manager'].includes(normalizedRole);
+  const isAdmin = ['full_admin', 'client_admin', 'facilitator', 'manager'].includes(normalizedRole);
   
   if (!isAdmin || !profile.is_active) {
     throw new Error('Admin access required')
