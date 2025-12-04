@@ -66,6 +66,80 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const isSigningOutRef = useRef(false);
   const authHandledRef = useRef(false); // Track if auth was already handled by onAuthStateChange
 
+  // Best-effort session parser from Supabase auth cookies when getSession hangs
+  const parseSessionFromCookies = useCallback((): Session | null => {
+    if (typeof document === "undefined") return null;
+
+    const cookieStr = document.cookie;
+    if (!cookieStr) return null;
+
+    const cookies = cookieStr.split(";").map(c => c.trim());
+    const authCookies = cookies.filter(c => c.startsWith("sb-") && c.includes("auth-token"));
+    if (authCookies.length === 0) return null;
+
+    // Group chunks by base name (without .0/.1 suffix)
+    const chunkMap = new Map<string, { base?: string; chunks: Record<number, string> }>();
+
+    authCookies.forEach(cookie => {
+      const [name, ...valueParts] = cookie.split("=");
+      const value = valueParts.join("=") ?? "";
+      const baseMatch = name.match(/^(.*?)(?:\.(\d+))?$/);
+      if (!baseMatch) return;
+      const baseName = baseMatch[1];
+      const chunkIndex = baseMatch[2] ? Number(baseMatch[2]) : null;
+      if (!chunkMap.has(baseName)) {
+        chunkMap.set(baseName, { chunks: {} });
+      }
+      const entry = chunkMap.get(baseName)!;
+      if (chunkIndex === null) {
+        entry.base = value;
+      } else {
+        entry.chunks[chunkIndex] = value;
+      }
+    });
+
+    for (const [baseName, { base, chunks }] of chunkMap.entries()) {
+      // Prefer explicit base value, else combine chunks in order
+      let rawValue = base ?? "";
+      if (!rawValue) {
+        const orderedChunks = Object.keys(chunks)
+          .map(k => Number(k))
+          .sort((a, b) => a - b)
+          .map(idx => chunks[idx]);
+        rawValue = orderedChunks.join("");
+      }
+
+      if (!rawValue) continue;
+
+      let decoded = rawValue;
+      const BASE64_PREFIX = "base64-";
+      if (decoded.startsWith(BASE64_PREFIX)) {
+        try {
+          const b64 = decoded.slice(BASE64_PREFIX.length)
+            .replace(/-/g, "+")
+            .replace(/_/g, "/");
+          decoded = atob(b64);
+        } catch (error) {
+          console.warn("[Auth] Failed to decode base64 auth cookie", error);
+          continue;
+        }
+      }
+
+      try {
+        const parsed = JSON.parse(decoded) as any;
+        const sessionLike = parsed.currentSession || parsed.session || parsed;
+        if (sessionLike?.access_token && sessionLike?.user) {
+          console.log(`[Auth] Parsed session from cookies (${baseName})`);
+          return sessionLike as Session;
+        }
+      } catch (error) {
+        console.warn("[Auth] Failed to parse auth cookie JSON", error);
+      }
+    }
+
+    return null;
+  }, []);
+
   // Simple profile fetch
   const fetchProfile = useCallback(async (authUser: User): Promise<Profile | null> => {
     if (isDevBypass) return null;
@@ -320,9 +394,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
 
     // Safety timeout: if getSession hangs, avoid stuck "loading"
-    const loadingTimeout = setTimeout(() => {
+    const loadingTimeout = setTimeout(async () => {
       if (isMounted && !authHandledRef.current) {
-        console.warn("[Auth] getSession timeout fallback - forcing signed-out");
+        console.warn("[Auth] getSession timeout fallback - attempting cookie parse");
+        const cookieSession = parseSessionFromCookies();
+        if (cookieSession) {
+          authHandledRef.current = true;
+          setSession(cookieSession);
+          await processSession(cookieSession, "INITIAL_SESSION");
+          return;
+        }
+        console.warn("[Auth] Cookie parse failed - forcing signed-out");
         setStatus("signed-out");
       }
     }, 8000);
