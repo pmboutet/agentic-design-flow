@@ -319,6 +319,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     };
 
+    // Safety timeout: if getSession hangs, avoid stuck "loading"
+    const loadingTimeout = setTimeout(() => {
+      if (isMounted && !authHandledRef.current) {
+        console.warn("[Auth] getSession timeout fallback - forcing signed-out");
+        setStatus("signed-out");
+      }
+    }, 8000);
+
     // IMPORTANT: Set up auth state listener FIRST before calling initAuth
     // This ensures we catch the INITIAL_SESSION event that fires synchronously on subscription
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, newSession) => {
@@ -357,6 +365,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => {
       isMounted = false;
       subscription.unsubscribe();
+      clearTimeout(loadingTimeout);
     };
   }, [isDevBypass, processSession]);
 
