@@ -239,9 +239,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // This ensures client and server have synchronized auth state
     console.log("[Auth] ========== AuthProvider Init ==========");
 
-    // Log cookies visible to client
+    // Log cookies visible to client - detailed logging for debugging
     if (typeof document !== "undefined") {
-      console.log("[Auth] Document cookies:", document.cookie ? document.cookie.split(';').length + ' cookies' : 'none');
+      const cookieStr = document.cookie;
+      const cookies = cookieStr ? cookieStr.split(';').map(c => c.trim()) : [];
+      console.log("[Auth] Document cookies:", cookies.length + ' cookies');
+      // Log cookie names (not values for security)
+      cookies.forEach(c => {
+        const name = c.split('=')[0];
+        const valueLen = c.split('=')[1]?.length || 0;
+        console.log(`[Auth] Cookie: "${name}" (${valueLen} chars)`);
+      });
+      // Check for Supabase cookies specifically
+      const sbCookies = cookies.filter(c => c.startsWith('sb-'));
+      console.log(`[Auth] Supabase cookies found: ${sbCookies.length}`);
     }
 
     // Check if Supabase client is available
