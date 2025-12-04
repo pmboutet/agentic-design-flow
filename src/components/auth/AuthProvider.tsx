@@ -318,7 +318,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setProfile(null);
         setStatus("signed-out");
         lastProcessedSessionId.current = null;
+        authHandledRef.current = false; // Reset on sign out
         return;
+      }
+
+      // Mark auth as handled IMMEDIATELY when we get SIGNED_IN with a valid session
+      // This prevents the getUser() timeout from incorrectly setting signed-out
+      if ((event === "SIGNED_IN" || event === "INITIAL_SESSION") && newSession) {
+        console.log("[Auth] Marking auth as handled for event:", event);
+        authHandledRef.current = true;
       }
 
       setSession(newSession);
