@@ -1,5 +1,4 @@
-import { createServerClient, type CookieOptions } from '@supabase/ssr'
-import { cookies } from 'next/headers'
+import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
 /**
@@ -13,7 +12,7 @@ export async function GET(request: NextRequest) {
   const nextParam = requestUrl.searchParams.get('next')
   const redirectTo = requestUrl.searchParams.get('redirect_to') || nextParam
   const error_description = requestUrl.searchParams.get('error_description')
-  
+
   // Extract askKey or token from redirect URL (format: /?key=ASK_KEY or /?token=TOKEN)
   let askKey: string | null = null
   let token: string | null = null
@@ -43,27 +42,23 @@ export async function GET(request: NextRequest) {
     )
   }
 
-  if (code) {
-    const cookieStore = await cookies()
+  // Store cookies to be set on the response
+  const cookiesToSet: Array<{ name: string; value: string; options: Record<string, unknown> }> = []
 
+  if (code) {
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       {
         cookies: {
           getAll() {
-            return cookieStore.getAll()
+            return request.cookies.getAll()
           },
-          setAll(cookiesToSet) {
-            try {
-              cookiesToSet.forEach(({ name, value, options }) =>
-                cookieStore.set(name, value, options)
-              )
-            } catch {
-              // The `setAll` method was called from a Server Component.
-              // This can be ignored if you have middleware refreshing
-              // user sessions.
-            }
+          setAll(cookies) {
+            // Collect cookies to set on the redirect response
+            cookies.forEach(({ name, value, options }) => {
+              cookiesToSet.push({ name, value, options: options || {} })
+            })
           },
         },
       }
@@ -80,14 +75,24 @@ export async function GET(request: NextRequest) {
     }
   }
 
+  // Helper function to create redirect with cookies
+  const createRedirectWithCookies = (url: URL) => {
+    const response = NextResponse.redirect(url)
+    // Set all cookies collected during session exchange
+    cookiesToSet.forEach(({ name, value, options }) => {
+      response.cookies.set(name, value, options as Parameters<typeof response.cookies.set>[2])
+    })
+    return response
+  }
+
   // Priority: If token is present, redirect to ask session page with token
   if (token) {
-    return NextResponse.redirect(new URL(`/?token=${token}`, requestUrl.origin))
+    return createRedirectWithCookies(new URL(`/?token=${token}`, requestUrl.origin))
   }
 
   // Priority: If askKey is present, redirect to ask session page
   if (askKey) {
-    return NextResponse.redirect(new URL(`/?key=${askKey}`, requestUrl.origin))
+    return createRedirectWithCookies(new URL(`/?key=${askKey}`, requestUrl.origin))
   }
 
   const fallbackDestination = '/admin'
@@ -116,7 +121,7 @@ export async function GET(request: NextRequest) {
     }
   })()
 
-  // Redirect to the intended destination (default: admin)
-  return NextResponse.redirect(new URL(safeNext, requestUrl.origin))
+  // Redirect to the intended destination (default: admin) with cookies
+  return createRedirectWithCookies(new URL(safeNext, requestUrl.origin))
 }
 

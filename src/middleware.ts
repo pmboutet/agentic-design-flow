@@ -63,34 +63,35 @@ export async function middleware(request: NextRequest) {
     }
   )
 
-  // Use getUser() instead of getSession() to properly validate the JWT
-  // getSession() only reads cookies without validation, causing inconsistent results
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser()
-
-  // Check if user is authenticated (valid JWT)
-  const isAuthenticated = !userError && !!user
-
   // Allow /auth/callback to process the OAuth flow without redirecting
   if (request.nextUrl.pathname === '/auth/callback') {
     return response
   }
 
-  // Protect admin routes - only redirect if definitely not authenticated
+  // First, call getSession() which can refresh tokens if needed
+  // This also updates cookies with refreshed tokens
+  const { data: { session } } = await supabase.auth.getSession()
+
+  // For protected routes, we need to verify the user is actually authenticated
+  // getSession() just reads cookies, getUser() validates with Supabase
+  let isAuthenticated = false
+
+  if (session) {
+    // Session exists in cookies, try to validate it
+    const { data: { user }, error: userError } = await supabase.auth.getUser()
+    isAuthenticated = !userError && !!user
+
+    // If validation failed but we have a session, the token might be refreshing
+    // Let the request through - the client will handle token refresh
+    if (!isAuthenticated && session.refresh_token) {
+      // Has refresh token, let client-side handle the refresh
+      isAuthenticated = true
+    }
+  }
+
+  // Protect admin routes
   if (request.nextUrl.pathname.startsWith('/admin')) {
     if (!isAuthenticated) {
-      // Check for redirect loop protection - don't redirect if coming from login
-      const referer = request.headers.get('referer')
-      const isFromLogin = referer?.includes('/auth/login')
-
-      if (isFromLogin) {
-        // If coming from login, let the page render (client-side will handle)
-        // This prevents infinite redirect loops
-        return response
-      }
-
       const redirectUrl = new URL('/auth/login', request.url)
       const redirectPath = `${request.nextUrl.pathname}${request.nextUrl.search}`
       redirectUrl.searchParams.set('redirectTo', redirectPath)
@@ -101,15 +102,6 @@ export async function middleware(request: NextRequest) {
   // Redirect logged-in users away from auth pages (except callback)
   if (request.nextUrl.pathname.startsWith('/auth/') && request.nextUrl.pathname !== '/auth/callback') {
     if (isAuthenticated) {
-      // Check for redirect loop protection - don't redirect if coming from admin
-      const referer = request.headers.get('referer')
-      const isFromAdmin = referer?.includes('/admin')
-
-      if (isFromAdmin) {
-        // If coming from admin, let the page render (prevents loop)
-        return response
-      }
-
       // Get the redirectTo param if it exists, otherwise go to /admin
       const redirectTo = request.nextUrl.searchParams.get('redirectTo') || '/admin'
       return NextResponse.redirect(new URL(redirectTo, request.url))
