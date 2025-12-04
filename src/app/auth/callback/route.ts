@@ -1,5 +1,4 @@
-import { createServerClient, type CookieOptions } from '@supabase/ssr'
-import { cookies } from 'next/headers'
+import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
 /**
@@ -8,12 +7,21 @@ import { NextResponse, type NextRequest } from 'next/server'
  * Exchanges the code for a session and redirects to the app
  */
 export async function GET(request: NextRequest) {
+  console.log('[Callback] ========== OAuth Callback Started ==========')
+
   const requestUrl = new URL(request.url)
   const code = requestUrl.searchParams.get('code')
   const nextParam = requestUrl.searchParams.get('next')
   const redirectTo = requestUrl.searchParams.get('redirect_to') || nextParam
   const error_description = requestUrl.searchParams.get('error_description')
-  
+
+  console.log(`[Callback] Params: code=${code ? 'exists' : 'none'}, next=${nextParam}, redirectTo=${redirectTo}, error=${error_description}`)
+
+  // Log incoming cookies
+  const allCookies = request.cookies.getAll()
+  console.log(`[Callback] Incoming cookies: ${allCookies.length}`)
+  allCookies.forEach(c => console.log(`[Callback] Cookie IN: ${c.name}`))
+
   // Extract askKey or token from redirect URL (format: /?key=ASK_KEY or /?token=TOKEN)
   let askKey: string | null = null
   let token: string | null = null
@@ -43,8 +51,11 @@ export async function GET(request: NextRequest) {
     )
   }
 
+  // Store cookies to be set on the response
+  const cookiesToSet: Array<{ name: string; value: string; options: Record<string, unknown> }> = []
+
   if (code) {
-    const cookieStore = await cookies()
+    console.log('[Callback] Exchanging code for session...')
 
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -52,42 +63,63 @@ export async function GET(request: NextRequest) {
       {
         cookies: {
           getAll() {
-            return cookieStore.getAll()
+            const cookies = request.cookies.getAll()
+            console.log(`[Callback] getAll called, returning ${cookies.length} cookies`)
+            return cookies
           },
-          setAll(cookiesToSet) {
-            try {
-              cookiesToSet.forEach(({ name, value, options }) =>
-                cookieStore.set(name, value, options)
-              )
-            } catch {
-              // The `setAll` method was called from a Server Component.
-              // This can be ignored if you have middleware refreshing
-              // user sessions.
-            }
+          setAll(cookies) {
+            console.log(`[Callback] setAll called with ${cookies.length} cookies`)
+            // Collect cookies to set on the redirect response
+            cookies.forEach(({ name, value, options }) => {
+              console.log(`[Callback] Cookie to set: ${name} (${value.length} chars)`)
+              cookiesToSet.push({ name, value, options: options || {} })
+            })
           },
         },
       }
     )
 
-    const { error } = await supabase.auth.exchangeCodeForSession(code)
+    const { data, error } = await supabase.auth.exchangeCodeForSession(code)
 
     if (error) {
-      console.error('OAuth callback error:', error)
-      // Redirect to login with error
+      console.error('[Callback] exchangeCodeForSession ERROR:', error.message)
       return NextResponse.redirect(
         new URL(`/auth/login?error=${encodeURIComponent(error.message)}`, request.url)
       )
     }
+
+    console.log(`[Callback] exchangeCodeForSession SUCCESS: user=${data.session?.user?.email}, access_token=${data.session?.access_token ? 'exists' : 'none'}`)
+    console.log(`[Callback] Cookies collected for redirect: ${cookiesToSet.length}`)
+    cookiesToSet.forEach(c => console.log(`[Callback] Will set cookie: ${c.name}`))
+  } else {
+    console.log('[Callback] No code provided, skipping exchange')
+  }
+
+  // Helper function to create redirect with cookies
+  const createRedirectWithCookies = (url: URL) => {
+    console.log(`[Callback] Creating redirect to: ${url.toString()}`)
+    const response = NextResponse.redirect(url)
+    // Set all cookies collected during session exchange
+    console.log(`[Callback] Setting ${cookiesToSet.length} cookies on response`)
+    cookiesToSet.forEach(({ name, value, options }) => {
+      console.log(`[Callback] Setting cookie on response: ${name}`)
+      response.cookies.set(name, value, options as Parameters<typeof response.cookies.set>[2])
+    })
+    // Log response cookies
+    const responseCookies = response.cookies.getAll()
+    console.log(`[Callback] Response now has ${responseCookies.length} cookies`)
+    responseCookies.forEach(c => console.log(`[Callback] Response cookie: ${c.name}`))
+    return response
   }
 
   // Priority: If token is present, redirect to ask session page with token
   if (token) {
-    return NextResponse.redirect(new URL(`/?token=${token}`, requestUrl.origin))
+    return createRedirectWithCookies(new URL(`/?token=${token}`, requestUrl.origin))
   }
 
   // Priority: If askKey is present, redirect to ask session page
   if (askKey) {
-    return NextResponse.redirect(new URL(`/?key=${askKey}`, requestUrl.origin))
+    return createRedirectWithCookies(new URL(`/?key=${askKey}`, requestUrl.origin))
   }
 
   const fallbackDestination = '/admin'
@@ -116,7 +148,7 @@ export async function GET(request: NextRequest) {
     }
   })()
 
-  // Redirect to the intended destination (default: admin)
-  return NextResponse.redirect(new URL(safeNext, requestUrl.origin))
+  // Redirect to the intended destination (default: admin) with cookies
+  return createRedirectWithCookies(new URL(safeNext, requestUrl.origin))
 }
 

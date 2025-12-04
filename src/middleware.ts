@@ -2,8 +2,12 @@ import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
 export async function middleware(request: NextRequest) {
+  const pathname = request.nextUrl.pathname
+  console.log(`[Middleware] ========== REQUEST: ${request.method} ${pathname} ==========`)
+
   // Skip auth/session checks entirely in development when IS_DEV=true
   if (process.env.IS_DEV === 'true') {
+    console.log('[Middleware] DEV MODE - skipping auth checks')
     return NextResponse.next({
       request: {
         headers: request.headers,
@@ -17,15 +21,26 @@ export async function middleware(request: NextRequest) {
     },
   })
 
+  // Log all cookies for debugging
+  const allCookies = request.cookies.getAll()
+  const supabaseCookies = allCookies.filter(c => c.name.includes('supabase') || c.name.includes('sb-'))
+  console.log(`[Middleware] Cookies found: ${allCookies.length} total, ${supabaseCookies.length} Supabase-related`)
+  supabaseCookies.forEach(c => {
+    console.log(`[Middleware] Cookie: ${c.name} = ${c.value.substring(0, 50)}...`)
+  })
+
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
         get(name: string) {
-          return request.cookies.get(name)?.value
+          const value = request.cookies.get(name)?.value
+          console.log(`[Middleware] Cookie GET: ${name} = ${value ? 'exists' : 'undefined'}`)
+          return value
         },
         set(name: string, value: string, options: CookieOptions) {
+          console.log(`[Middleware] Cookie SET: ${name} (${value.length} chars)`)
           request.cookies.set({
             name,
             value,
@@ -43,6 +58,7 @@ export async function middleware(request: NextRequest) {
           })
         },
         remove(name: string, options: CookieOptions) {
+          console.log(`[Middleware] Cookie REMOVE: ${name}`)
           request.cookies.set({
             name,
             value: '',
@@ -63,35 +79,66 @@ export async function middleware(request: NextRequest) {
     }
   )
 
-  const {
-    data: { session },
-  } = await supabase.auth.getSession()
-
-  // Protect admin routes
-  if (request.nextUrl.pathname.startsWith('/admin')) {
-    if (!session) {
-      const redirectUrl = new URL('/auth/login', request.url)
-      const redirectPath = `${request.nextUrl.pathname}${request.nextUrl.search}`
-      redirectUrl.searchParams.set('redirectTo', redirectPath)
-      return NextResponse.redirect(redirectUrl)
-    }
-
-    // Optional: Check if user has admin role
-    // You can fetch the profile here to verify role
-  }
-
   // Allow /auth/callback to process the OAuth flow without redirecting
-  if (request.nextUrl.pathname === '/auth/callback') {
+  if (pathname === '/auth/callback') {
+    console.log('[Middleware] /auth/callback - allowing through')
     return response
   }
 
-  // Redirect logged-in users away from auth pages (except callback)
-  if (request.nextUrl.pathname.startsWith('/auth/')) {
-    if (session) {
-      return NextResponse.redirect(new URL('/admin', request.url))
+  // First, call getSession() which can refresh tokens if needed
+  console.log('[Middleware] Calling getSession()...')
+  const { data: { session }, error: sessionError } = await supabase.auth.getSession()
+  console.log(`[Middleware] getSession result: session=${session ? 'exists' : 'null'}, error=${sessionError?.message || 'none'}`)
+
+  if (session) {
+    console.log(`[Middleware] Session details: user=${session.user?.email}, expires_at=${session.expires_at}, refresh_token=${session.refresh_token ? 'exists' : 'none'}`)
+  }
+
+  // For protected routes, we need to verify the user is actually authenticated
+  let isAuthenticated = false
+
+  if (session) {
+    // Session exists in cookies, try to validate it
+    console.log('[Middleware] Calling getUser() to validate...')
+    const { data: { user }, error: userError } = await supabase.auth.getUser()
+    console.log(`[Middleware] getUser result: user=${user?.email || 'null'}, error=${userError?.message || 'none'}`)
+
+    isAuthenticated = !userError && !!user
+
+    // If validation failed but we have a session, the token might be refreshing
+    if (!isAuthenticated && session.refresh_token) {
+      console.log('[Middleware] getUser failed but has refresh_token - allowing through for client-side refresh')
+      isAuthenticated = true
     }
   }
 
+  console.log(`[Middleware] Final isAuthenticated: ${isAuthenticated}`)
+
+  // Protect admin routes
+  if (pathname.startsWith('/admin')) {
+    console.log(`[Middleware] Admin route check: isAuthenticated=${isAuthenticated}`)
+    if (!isAuthenticated) {
+      const redirectUrl = new URL('/auth/login', request.url)
+      const redirectPath = `${pathname}${request.nextUrl.search}`
+      redirectUrl.searchParams.set('redirectTo', redirectPath)
+      console.log(`[Middleware] REDIRECTING to ${redirectUrl.toString()}`)
+      return NextResponse.redirect(redirectUrl)
+    }
+    console.log('[Middleware] Admin route - ACCESS GRANTED')
+  }
+
+  // Redirect logged-in users away from auth pages (except callback)
+  if (pathname.startsWith('/auth/') && pathname !== '/auth/callback') {
+    console.log(`[Middleware] Auth page check: isAuthenticated=${isAuthenticated}`)
+    if (isAuthenticated) {
+      const redirectTo = request.nextUrl.searchParams.get('redirectTo') || '/admin'
+      console.log(`[Middleware] REDIRECTING authenticated user to ${redirectTo}`)
+      return NextResponse.redirect(new URL(redirectTo, request.url))
+    }
+    console.log('[Middleware] Auth page - allowing through (not authenticated)')
+  }
+
+  console.log('[Middleware] Passing through')
   return response
 }
 

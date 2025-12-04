@@ -23,6 +23,7 @@ import {
 import { cn } from "@/lib/utils";
 import { UserProfileMenu } from "@/components/auth/UserProfileMenu";
 import { AdminSearchProvider, useAdminSearch } from "./AdminSearchContext";
+import { AdminAuthGuard } from "./AdminAuthGuard";
 import { Input } from "@/components/ui/input";
 import { AnimatePresence, motion } from "framer-motion";
 
@@ -419,7 +420,9 @@ export function AdminPageLayout({ children }: AdminPageLayoutProps) {
             </header>
 
             <main className="flex-1 overflow-y-auto px-4 py-6 md:px-6 lg:px-10">
-              {children}
+              <AdminAuthGuard>
+                {children}
+              </AdminAuthGuard>
             </main>
           </div>
         </div>

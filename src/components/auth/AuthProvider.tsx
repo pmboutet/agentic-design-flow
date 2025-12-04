@@ -1,7 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, useMemo, useState, useEffect, useCallback, useRef } from "react";
-import { Session, User } from "@supabase/supabase-js";
+import { Session, User, AuthChangeEvent } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabaseClient";
 import type { Profile } from "@/types";
 
@@ -27,7 +27,7 @@ type AuthContextValue = {
   signInWithGoogle: (redirectTo?: string) => Promise<{ error?: string }>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
-  setDevUser?: (profile: Profile) => void; // Only available in dev mode
+  setDevUser?: (profile: Profile) => void;
 };
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -41,14 +41,11 @@ const DEV_BYPASS_USER: AuthUser = {
   profile: null,
 };
 
-// Constants for retry and cache logic
-const MAX_RETRIES = 3;
-const MAX_CACHE_FAILURES = 3; // Number of calls that can fail before showing error
-const MAX_TOTAL_FAILURES = MAX_CACHE_FAILURES * MAX_RETRIES; // 9 total failures
-
 /**
  * AuthProvider with Supabase Auth integration.
- * Manages authentication state, session, and user profile synchronization.
+ * - Manages authentication state and session
+ * - Debounces auth state changes to prevent rapid updates
+ * - Redirects after sign out
  */
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const isDevBypass = useMemo(() => {
@@ -62,532 +59,338 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
 
-  // Cache and failure tracking
-  const cachedProfileRef = useRef<Profile | null>(null);
-  const failureCountRef = useRef<number>(0);
-  const lastSuccessfulAuthIdRef = useRef<string | null>(null);
+  // Refs to prevent duplicate processing
+  const initRef = useRef(false);
+  const lastProcessedSessionId = useRef<string | null>(null);
+  const lastEventRef = useRef<{ event: AuthChangeEvent; timestamp: number } | null>(null);
+  const isSigningOutRef = useRef(false);
 
-  // Single attempt to fetch profile
-  const fetchProfileAttempt = useCallback(async (authUser: User): Promise<Profile | null> => {
-    if (isDevBypass) {
-      return null;
-    }
-    
-    const startTime = Date.now();
-    
+  // Simple profile fetch
+  const fetchProfile = useCallback(async (authUser: User): Promise<Profile | null> => {
+    if (isDevBypass) return null;
+
+    console.log("[Auth] Fetching profile for:", authUser.email);
+
     try {
-      // Add timeout to prevent indefinite hanging
-      // Use Promise.race to implement timeout
-      // Note: We fetch profile first, then client name separately to avoid slow joins
-      const profilePromise = supabase
+      const { data, error } = await supabase
         .from("profiles")
         .select("*")
         .eq("auth_id", authUser.id)
         .single();
 
-      const timeoutPromise = new Promise<{ data: null; error: { message: string } }>((resolve) => {
-        setTimeout(() => {
-          resolve({ data: null, error: { message: "Profile fetch timeout" } });
-        }, 15000); // Augmenté à 15s pour production
-      });
-
-      // Race between the actual request and timeout
-      const result = await Promise.race([profilePromise, timeoutPromise]);
-      const elapsed = Date.now() - startTime;
-
-      // Handle timeout
-      if (result.error?.message === "Profile fetch timeout") {
-        console.warn(`Profile fetch timed out after ${elapsed}ms`);
+      if (error) {
+        console.warn("[Auth] Profile fetch error:", error.message);
         return null;
       }
 
-      // Handle Supabase errors
-      if (result.error) {
-        console.error("[AuthProvider] Error fetching profile:", {
-          message: result.error.message,
-          code: 'code' in result.error ? result.error.code : undefined,
-          details: 'details' in result.error ? result.error.details : undefined,
-          hint: 'hint' in result.error ? result.error.hint : undefined,
-          authUserId: authUser.id,
-          elapsed
-        });
+      if (!data) {
+        console.warn("[Auth] No profile found");
         return null;
       }
 
-      // Handle missing data
-      if (!result.data) {
-        console.log(`Profile fetch completed in ${elapsed}ms, but no data returned`);
-        return null;
-      }
-
-      console.log(`Profile fetch completed successfully in ${elapsed}ms`);
-
-      // Fetch client name separately if needed (non-blocking)
+      // Fetch client name if needed
       let clientName: string | null = null;
-      if (result.data.client_id) {
-        try {
-          const clientResult = await supabase
-            .from("clients")
-            .select("name")
-            .eq("id", result.data.client_id)
-            .single();
-          clientName = clientResult.data?.name ?? null;
-        } catch (error) {
-          console.warn("Failed to fetch client name, continuing without it:", error);
-        }
+      if (data.client_id) {
+        const clientResult = await supabase
+          .from("clients")
+          .select("name")
+          .eq("id", data.client_id)
+          .single();
+        clientName = clientResult.data?.name ?? null;
       }
 
-      return {
-        id: result.data.id,
-        authId: result.data.auth_id,
-        email: result.data.email,
-        firstName: result.data.first_name,
-        lastName: result.data.last_name,
-        fullName: result.data.full_name,
-        role: result.data.role,
-        clientId: result.data.client_id,
+      const profileData: Profile = {
+        id: data.id,
+        authId: data.auth_id,
+        email: data.email,
+        firstName: data.first_name,
+        lastName: data.last_name,
+        fullName: data.full_name,
+        role: data.role,
+        clientId: data.client_id,
         clientName: clientName,
-        avatarUrl: result.data.avatar_url,
-        isActive: result.data.is_active,
-        lastLogin: result.data.last_login,
-        jobTitle: result.data.job_title ?? null,
-        createdAt: result.data.created_at,
-        updatedAt: result.data.updated_at,
+        avatarUrl: data.avatar_url,
+        isActive: data.is_active,
+        lastLogin: data.last_login,
+        jobTitle: data.job_title ?? null,
+        createdAt: data.created_at,
+        updatedAt: data.updated_at,
       };
-    } catch (error: any) {
-      const elapsed = Date.now() - startTime;
-      console.error(`Exception fetching profile after ${elapsed}ms:`, {
-        error: error?.message || error,
-        name: error?.name,
-      });
+
+      console.log("[Auth] Profile loaded:", profileData.role);
+      return profileData;
+    } catch (error) {
+      console.error("[Auth] Profile fetch exception:", error);
       return null;
     }
   }, [isDevBypass]);
 
-  // Fetch user profile with retry logic and cache
-  const fetchProfile = useCallback(async (authUser: User): Promise<Profile | null> => {
-    if (isDevBypass) {
-      return null;
-    }
-
-    // Reset failure count and cache if auth user changed
-    if (lastSuccessfulAuthIdRef.current !== null && lastSuccessfulAuthIdRef.current !== authUser.id) {
-      console.log(`Auth user changed from ${lastSuccessfulAuthIdRef.current} to ${authUser.id}, resetting cache and failure count`);
-      failureCountRef.current = 0;
-      cachedProfileRef.current = null;
-      lastSuccessfulAuthIdRef.current = null;
-    }
-
-    // Try up to MAX_RETRIES times
-    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-      const result = await fetchProfileAttempt(authUser);
-      
-      if (result) {
-        // Success! Reset failure count and update cache
-        failureCountRef.current = 0;
-        cachedProfileRef.current = result;
-        lastSuccessfulAuthIdRef.current = authUser.id;
-        console.log(`Profile fetch succeeded on attempt ${attempt}/${MAX_RETRIES}`);
-        return result;
-      }
-      
-      // If not the last attempt, wait a bit before retrying
-      if (attempt < MAX_RETRIES) {
-        const delay = attempt * 500; // Exponential backoff: 500ms, 1000ms
-        console.warn(`Profile fetch attempt ${attempt}/${MAX_RETRIES} failed, retrying in ${delay}ms...`);
-        await new Promise(resolve => setTimeout(resolve, delay));
-      }
-    }
-
-    // All retries failed - increment failure count
-    failureCountRef.current += 1;
-    console.warn(`Profile fetch failed after ${MAX_RETRIES} attempts. Failure count: ${failureCountRef.current}/${MAX_TOTAL_FAILURES}`);
-
-    // If we've exceeded the max failures, return null (will show error)
-    if (failureCountRef.current >= MAX_TOTAL_FAILURES) {
-      console.error(`Profile fetch failed ${failureCountRef.current} times. Clearing cache and showing error.`);
-      cachedProfileRef.current = null;
-      lastSuccessfulAuthIdRef.current = null;
-      return null;
-    }
-
-    // Otherwise, return cached profile if available and matches current user
-    if (cachedProfileRef.current && lastSuccessfulAuthIdRef.current === authUser.id) {
-      console.log(`Returning cached profile (failure count: ${failureCountRef.current}/${MAX_TOTAL_FAILURES})`);
-      return cachedProfileRef.current;
-    }
-
-    // No cache available, but we haven't hit the limit yet
-    console.warn(`No cached profile available, but failure count (${failureCountRef.current}) is below limit`);
-    return null;
-  }, [isDevBypass, fetchProfileAttempt]);
-
-  // Update user state from session
-  const updateUserFromSession = useCallback(
-    async (session: Session | null) => {
-      if (isDevBypass) {
-        setUser(DEV_BYPASS_USER);
-        setProfile(null);
-        setStatus("signed-in");
-        return;
-      }
-
-      if (!session?.user) {
-        console.log("[AuthProvider] No session/user, setting signed-out");
-        setUser(null);
-        setProfile(null);
-        setStatus("signed-out");
-        // Reset cache when signing out
-        cachedProfileRef.current = null;
-        failureCountRef.current = 0;
-        lastSuccessfulAuthIdRef.current = null;
-        return;
-      }
-
-      const authUser = session.user;
-      console.log("[AuthProvider] Fetching profile for user:", authUser.id, authUser.email);
-      const userProfile = await fetchProfile(authUser);
-
-      console.log("[AuthProvider] Profile fetch result:", {
-        hasProfile: !!userProfile,
-        profileRole: userProfile?.role,
-        profileIsActive: userProfile?.isActive,
-        profileEmail: userProfile?.email,
-        failureCount: failureCountRef.current,
-        hasCachedProfile: !!cachedProfileRef.current
-      });
-
-      // If profile is null and we've exceeded failures, we still set the user but without profile
-      // The AdminDashboard will check for profile and deny access if missing
-      setProfile(userProfile);
-      setUser({
-        id: authUser.id,
-        email: authUser.email ?? "",
-        fullName: userProfile?.fullName ?? authUser.user_metadata?.fullName ?? authUser.email ?? "Unknown",
-        avatarUrl: userProfile?.avatarUrl ?? authUser.user_metadata?.avatarUrl ?? null,
-        role: userProfile?.role ?? null,
-        profile: userProfile,
-      });
-
-      // Always set to signed-in even if profile is missing
-      // The access control will handle missing profile by denying access
-      console.log("[AuthProvider] Setting status to signed-in", {
-        hasProfile: !!userProfile,
-        userRole: userProfile?.role ?? null
-      });
-      setStatus("signed-in");
-    },
-    [fetchProfile, isDevBypass]
-  );
-
-  // Function to set dev user (only in dev mode)
-  const setDevUser = useCallback((profile: Profile) => {
-    if (!isDevBypass) return;
-    
-    setProfile(profile);
-    setUser({
-      id: profile.authId || profile.id,
-      email: profile.email,
-      fullName: profile.fullName || `${profile.firstName || ""} ${profile.lastName || ""}`.trim() || profile.email,
-      avatarUrl: profile.avatarUrl,
-      role: profile.role,
-      profile: profile,
-    });
-    setStatus("signed-in");
-    setSession(null);
-  }, [isDevBypass]);
-
-  // Initialize auth state
-  useEffect(() => {
-    if (isDevBypass) {
-      // Try to load user from localStorage
-      const storedUserId = typeof window !== "undefined" ? localStorage.getItem("dev_selected_user") : null;
-      
-      if (storedUserId) {
-        // User will be loaded by DevUserSwitcher component
-        // For now, use default dev user
-        setStatus("signed-in");
-        setUser(DEV_BYPASS_USER);
-        setProfile(null);
-        setSession(null);
-      } else {
-        setStatus("signed-in");
-        setUser(DEV_BYPASS_USER);
-        setProfile(null);
-        setSession(null);
-      }
-      setIsProcessing(false);
+  // Process session - with deduplication
+  const processSession = useCallback(async (newSession: Session | null, event?: AuthChangeEvent) => {
+    // Skip if signing out
+    if (isSigningOutRef.current) {
+      console.log("[Auth] Skipping processSession - signing out");
       return;
     }
 
-    let isMounted = true;
+    if (isDevBypass) {
+      setUser(DEV_BYPASS_USER);
+      setProfile(null);
+      setStatus("signed-in");
+      return;
+    }
 
-    // Verify Supabase configuration
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-    
-    if (!supabaseUrl || !supabaseAnonKey) {
-      console.error("Supabase configuration missing:", {
-        hasUrl: !!supabaseUrl,
-        hasAnonKey: !!supabaseAnonKey
-      });
-      setSession(null);
+    const sessionId = newSession?.access_token ?? null;
+
+    // Skip if same session (for TOKEN_REFRESHED events)
+    if (event === "TOKEN_REFRESHED" && sessionId === lastProcessedSessionId.current) {
+      console.log("[Auth] Skipping TOKEN_REFRESHED - same session");
+      return;
+    }
+
+    // Debounce rapid events (within 1 second)
+    const now = Date.now();
+    if (lastEventRef.current && event) {
+      const timeSinceLastEvent = now - lastEventRef.current.timestamp;
+      if (timeSinceLastEvent < 1000 && lastEventRef.current.event === event) {
+        console.log("[Auth] Debouncing rapid event:", event);
+        return;
+      }
+    }
+
+    if (event) {
+      lastEventRef.current = { event, timestamp: now };
+    }
+
+    lastProcessedSessionId.current = sessionId;
+
+    if (!newSession?.user) {
+      console.log("[Auth] No session, setting signed-out");
       setUser(null);
       setProfile(null);
       setStatus("signed-out");
       return;
     }
 
-    // Set a timeout to prevent indefinite loading state
-    const timeoutId = setTimeout(() => {
-      if (isMounted) {
-        console.warn("Session check timed out after 30s, treating as signed-out. This may indicate:", {
-          issue: "getSession() is not responding",
-          possibleCauses: [
-            "Network connectivity issues",
-            "Supabase URL/Key misconfiguration",
-            "CORS issues",
-            "Cookie/session storage problems"
-          ]
-        });
-        setSession(null);
-        setUser(null);
-        setProfile(null);
-        setStatus("signed-out");
+    // Only fetch profile for SIGNED_IN or INITIAL_SESSION events, not TOKEN_REFRESHED
+    const shouldFetchProfile = !event || event === "SIGNED_IN" || event === "INITIAL_SESSION";
+
+    const authUser = newSession.user;
+    let userProfile = profile; // Keep existing profile by default
+
+    if (shouldFetchProfile) {
+      userProfile = await fetchProfile(authUser);
+      setProfile(userProfile);
+    }
+
+    setUser({
+      id: authUser.id,
+      email: authUser.email ?? "",
+      fullName: userProfile?.fullName ?? authUser.user_metadata?.fullName ?? authUser.email ?? "Unknown",
+      avatarUrl: userProfile?.avatarUrl ?? authUser.user_metadata?.avatarUrl ?? null,
+      role: userProfile?.role ?? null,
+      profile: userProfile,
+    });
+
+    console.log("[Auth] Session processed, status: signed-in");
+    setStatus("signed-in");
+  }, [fetchProfile, isDevBypass, profile]);
+
+  // Dev user setter
+  const setDevUser = useCallback((devProfile: Profile) => {
+    if (!isDevBypass) return;
+
+    setProfile(devProfile);
+    setUser({
+      id: devProfile.authId || devProfile.id,
+      email: devProfile.email,
+      fullName: devProfile.fullName || `${devProfile.firstName || ""} ${devProfile.lastName || ""}`.trim() || devProfile.email,
+      avatarUrl: devProfile.avatarUrl,
+      role: devProfile.role,
+      profile: devProfile,
+    });
+    setStatus("signed-in");
+  }, [isDevBypass]);
+
+  // Initialize auth state - runs once
+  useEffect(() => {
+    if (initRef.current) return;
+    initRef.current = true;
+
+    if (isDevBypass) {
+      console.log("[Auth] Dev mode enabled");
+      setStatus("signed-in");
+      setUser(DEV_BYPASS_USER);
+      return;
+    }
+
+    // Verify Supabase configuration
+    if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+      console.error("[Auth] Supabase configuration missing");
+      setStatus("signed-out");
+      return;
+    }
+
+    let isMounted = true;
+
+    // Get initial session - use getUser() to validate JWT (same as middleware)
+    // This ensures client and server have synchronized auth state
+    console.log("[Auth] ========== AuthProvider Init ==========");
+
+    // Log cookies visible to client
+    if (typeof document !== "undefined") {
+      console.log("[Auth] Document cookies:", document.cookie ? document.cookie.split(';').length + ' cookies' : 'none');
+    }
+
+    const initAuth = async () => {
+      try {
+        // First, validate the user with getUser() - this contacts Supabase to verify JWT
+        console.log("[Auth] Calling getUser() to validate JWT...");
+        const { data: { user: validatedUser }, error: userError } = await supabase.auth.getUser();
+
+        if (!isMounted) return;
+
+        console.log(`[Auth] getUser result: user=${validatedUser?.email || 'null'}, error=${userError?.message || 'none'}`);
+
+        if (userError || !validatedUser) {
+          // No valid user - tokens may be expired
+          console.log("[Auth] No valid user - setting signed-out");
+          setStatus("signed-out");
+          setSession(null);
+          setUser(null);
+          setProfile(null);
+          return;
+        }
+
+        // User is valid, now get the session for tokens
+        console.log("[Auth] User validated, calling getSession()...");
+        const { data: { session: initialSession } } = await supabase.auth.getSession();
+
+        if (!isMounted) return;
+
+        console.log(`[Auth] getSession result: session=${initialSession ? 'exists' : 'null'}, access_token=${initialSession?.access_token ? 'exists' : 'none'}`);
+        setSession(initialSession);
+        await processSession(initialSession, "INITIAL_SESSION");
+      } catch (error) {
+        console.error("[Auth] Init auth exception:", error);
+        if (isMounted) setStatus("signed-out");
       }
-    }, 30000); // 30 seconds timeout (augmenté pour production)
+    };
 
-    // Get initial session with better error handling
-    const startTime = Date.now();
-    supabase.auth.getSession()
-      .then(async ({ data: { session }, error }) => {
-        const elapsed = Date.now() - startTime;
-        clearTimeout(timeoutId);
-        
-        if (!isMounted) {
-          return;
-        }
-
-        if (error) {
-          console.error("Error in getSession response:", error);
-          setSession(null);
-          setUser(null);
-          setProfile(null);
-          setStatus("signed-out");
-          return;
-        }
-
-        console.log(`Session check completed in ${elapsed}ms`, {
-          hasSession: !!session,
-          hasUser: !!session?.user
-        });
-
-        try {
-          setSession(session);
-          await updateUserFromSession(session);
-        } catch (error) {
-          console.error("Error updating user from session:", error);
-          if (!isMounted) {
-            return;
-          }
-          // On error, treat as signed-out
-          setSession(null);
-          setUser(null);
-          setProfile(null);
-          setStatus("signed-out");
-        }
-      })
-      .catch((error) => {
-        const elapsed = Date.now() - startTime;
-        clearTimeout(timeoutId);
-        console.error(`Error getting session after ${elapsed}ms:`, {
-          error,
-          message: error?.message,
-          stack: error?.stack
-        });
-        if (!isMounted) {
-          return;
-        }
-        // On error, treat as signed-out
-        setSession(null);
-        setUser(null);
-        setProfile(null);
-        setStatus("signed-out");
-      });
+    initAuth();
 
     // Listen for auth changes
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      if (!isMounted) {
-        return;
-      }
-      try {
-        setSession(session);
-        await updateUserFromSession(session);
-      } catch (error) {
-        console.error("Error in auth state change:", error);
-        if (!isMounted) {
-          return;
-        }
-        // On error, treat as signed-out
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, newSession) => {
+      if (!isMounted) return;
+
+      console.log("[Auth] Auth state changed:", event);
+
+      // Handle SIGNED_OUT immediately
+      if (event === "SIGNED_OUT") {
         setSession(null);
         setUser(null);
         setProfile(null);
         setStatus("signed-out");
+        lastProcessedSessionId.current = null;
+        return;
       }
+
+      setSession(newSession);
+      await processSession(newSession, event);
     });
 
     return () => {
       isMounted = false;
-      clearTimeout(timeoutId);
       subscription.unsubscribe();
     };
-  }, [isDevBypass, updateUserFromSession]);
+  }, [isDevBypass, processSession]);
 
   const signIn = useCallback(async (email: string, password: string) => {
     if (isDevBypass) {
       setStatus("signed-in");
       setUser(DEV_BYPASS_USER);
-      setProfile(null);
-      setSession(null);
       return {};
     }
 
     setIsProcessing(true);
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-
-      if (error) {
-        return { error: error.message };
-      }
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) return { error: error.message };
 
       if (data.session) {
         setSession(data.session);
-        await updateUserFromSession(data.session);
+        await processSession(data.session, "SIGNED_IN");
       }
-
       return {};
     } catch (error) {
-      return { error: error instanceof Error ? error.message : "An error occurred during sign in" };
+      return { error: error instanceof Error ? error.message : "Sign in failed" };
     } finally {
       setIsProcessing(false);
     }
-  }, [isDevBypass, updateUserFromSession]);
+  }, [isDevBypass, processSession]);
 
-  const signUp = useCallback(
-    async (
-      email: string,
-      password: string,
-      metadata?: { fullName?: string; firstName?: string; lastName?: string }
-    ) => {
-      if (isDevBypass) {
-        setStatus("signed-in");
-        setUser(DEV_BYPASS_USER);
-        setProfile(null);
-        setSession(null);
-        return {};
-      }
+  const signUp = useCallback(async (
+    email: string,
+    password: string,
+    metadata?: { fullName?: string; firstName?: string; lastName?: string }
+  ) => {
+    if (isDevBypass) {
+      setStatus("signed-in");
+      setUser(DEV_BYPASS_USER);
+      return {};
+    }
 
-      setIsProcessing(true);
-      try {
-        const { data, error } = await supabase.auth.signUp({
-          email,
-          password,
-          options: {
-            data: {
-              full_name: metadata?.fullName,
-              fullName: metadata?.fullName,
-              first_name: metadata?.firstName,
-              firstName: metadata?.firstName,
-              last_name: metadata?.lastName,
-              lastName: metadata?.lastName,
-            },
+    setIsProcessing(true);
+    try {
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            full_name: metadata?.fullName,
+            fullName: metadata?.fullName,
+            first_name: metadata?.firstName,
+            firstName: metadata?.firstName,
+            last_name: metadata?.lastName,
+            lastName: metadata?.lastName,
           },
-        });
+        },
+      });
 
-        if (error) {
-          return { error: error.message };
-        }
+      if (error) return { error: error.message };
 
-        // If email confirmation is disabled, the user will be signed in immediately
-        if (data.session) {
-          setSession(data.session);
-          await updateUserFromSession(data.session);
-        }
-
-        return {};
-      } catch (error) {
-        return { error: error instanceof Error ? error.message : "An error occurred during sign up" };
-      } finally {
-        setIsProcessing(false);
+      if (data.session) {
+        setSession(data.session);
+        await processSession(data.session, "SIGNED_IN");
       }
-    },
-    [isDevBypass, updateUserFromSession]
-  );
+      return {};
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : "Sign up failed" };
+    } finally {
+      setIsProcessing(false);
+    }
+  }, [isDevBypass, processSession]);
 
   const signInWithGoogle = useCallback(async (redirectTo?: string) => {
     if (isDevBypass) {
       setStatus("signed-in");
       setUser(DEV_BYPASS_USER);
-      setProfile(null);
-      setSession(null);
       return {};
     }
 
     setIsProcessing(true);
     try {
       if (typeof window === "undefined") {
-        setIsProcessing(false);
         return { error: "Google sign in is only available in the browser" };
       }
 
-      const url = new URL(window.location.href);
-      const searchParamRedirect = url.searchParams.get("redirectTo");
-      const nextParam = url.searchParams.get("next");
-
-      const fallbackDestination = "/admin";
-
-      const sanitizeDestination = (destination: string, { logOnError }: { logOnError: boolean }) => {
-        try {
-          const candidateUrl = new URL(destination, window.location.origin);
-          if (candidateUrl.origin !== window.location.origin) {
-            return null;
-          }
-
-          const normalizedDestination = `${candidateUrl.pathname}${candidateUrl.search}${candidateUrl.hash}`;
-          return normalizedDestination === "/" ? null : normalizedDestination;
-        } catch (error) {
-          if (logOnError) {
-            console.warn("Invalid redirect destination provided for Google sign-in", error);
-          }
-          return null;
-        }
-      };
-
-      const nextDestination = (
-        [
-          { value: redirectTo, logOnError: true },
-          { value: searchParamRedirect, logOnError: true },
-          { value: nextParam, logOnError: true },
-          { value: `${url.pathname}${url.search}${url.hash}`, logOnError: false },
-        ]
-          .map((candidate) => {
-            if (!candidate.value) {
-              return null;
-            }
-
-            return sanitizeDestination(candidate.value, { logOnError: candidate.logOnError });
-          })
-          .find((candidate) => candidate !== null)) ?? fallbackDestination;
+      const currentUrl = new URL(window.location.href);
+      const nextParam = redirectTo || currentUrl.searchParams.get("next") || "/admin";
 
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
-          redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(nextDestination)}`,
+          redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(nextParam)}`,
           skipBrowserRedirect: false,
           queryParams: {
             access_type: "offline",
@@ -600,50 +403,54 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setIsProcessing(false);
         return { error: error.message };
       }
-
-      // OAuth redirect will happen, no need to set isProcessing to false
       return {};
     } catch (error) {
       setIsProcessing(false);
-      return { error: error instanceof Error ? error.message : "An error occurred during Google sign in" };
+      return { error: error instanceof Error ? error.message : "Google sign in failed" };
     }
   }, [isDevBypass]);
 
   const signOut = useCallback(async () => {
     if (isDevBypass) {
-      console.info("Dev auth bypass enabled; skipping Supabase sign out.");
-      setStatus("signed-in");
-      setUser(DEV_BYPASS_USER);
-      setProfile(null);
-      setSession(null);
+      console.log("[Auth] Dev mode: skipping sign out");
       return;
     }
 
+    console.log("[Auth] Signing out...");
+    isSigningOutRef.current = true;
     setIsProcessing(true);
+
     try {
-      await supabase.auth.signOut();
+      // Clear state immediately
       setSession(null);
       setUser(null);
       setProfile(null);
       setStatus("signed-out");
-      // Reset cache on sign out
-      cachedProfileRef.current = null;
-      failureCountRef.current = 0;
-      lastSuccessfulAuthIdRef.current = null;
+      lastProcessedSessionId.current = null;
+
+      // Call Supabase signOut
+      await supabase.auth.signOut();
+      console.log("[Auth] Signed out successfully");
+
+      // Redirect to login page
+      if (typeof window !== "undefined") {
+        window.location.href = "/auth/login";
+      }
     } catch (error) {
-      console.error("Error signing out:", error);
+      console.error("[Auth] Sign out error:", error);
+      // Still redirect even if there's an error
+      if (typeof window !== "undefined") {
+        window.location.href = "/auth/login";
+      }
     } finally {
+      isSigningOutRef.current = false;
       setIsProcessing(false);
     }
   }, [isDevBypass]);
 
   const refreshProfile = useCallback(async () => {
-    if (isDevBypass) {
-      return;
-    }
-    if (!session?.user) {
-      return;
-    }
+    if (isDevBypass || !session?.user) return;
+
     const userProfile = await fetchProfile(session.user);
     setProfile(userProfile);
     if (user) {
@@ -657,22 +464,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [fetchProfile, isDevBypass, session, user]);
 
-  const value = useMemo<AuthContextValue>(
-    () => ({
-      status,
-      user,
-      session,
-      profile,
-      isProcessing,
-      signIn,
-      signUp,
-      signInWithGoogle,
-      signOut,
-      refreshProfile,
-      setDevUser: isDevBypass ? setDevUser : undefined,
-    }),
-    [status, user, session, profile, isProcessing, signIn, signUp, signInWithGoogle, signOut, refreshProfile, isDevBypass, setDevUser]
-  );
+  const value = useMemo<AuthContextValue>(() => ({
+    status,
+    user,
+    session,
+    profile,
+    isProcessing,
+    signIn,
+    signUp,
+    signInWithGoogle,
+    signOut,
+    refreshProfile,
+    setDevUser: isDevBypass ? setDevUser : undefined,
+  }), [status, user, session, profile, isProcessing, signIn, signUp, signInWithGoogle, signOut, refreshProfile, isDevBypass, setDevUser]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
