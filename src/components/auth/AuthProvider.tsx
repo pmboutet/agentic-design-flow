@@ -64,6 +64,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const lastProcessedSessionId = useRef<string | null>(null);
   const lastEventRef = useRef<{ event: AuthChangeEvent; timestamp: number } | null>(null);
   const isSigningOutRef = useRef(false);
+  const authHandledRef = useRef(false); // Track if auth was already handled by onAuthStateChange
 
   // Simple profile fetch
   const fetchProfile = useCallback(async (authUser: User): Promise<Profile | null> => {
@@ -193,6 +194,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
 
     console.log("[Auth] Session processed, status: signed-in");
+    authHandledRef.current = true; // Mark that auth was handled
     setStatus("signed-in");
   }, [fetchProfile, isDevBypass, profile]);
 
@@ -290,7 +292,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         await processSession(initialSession, "INITIAL_SESSION");
       } catch (error) {
         console.error("[Auth] Init auth exception:", error);
-        if (isMounted) setStatus("signed-out");
+        // Only set signed-out if onAuthStateChange hasn't already handled auth
+        // This handles the race condition where onAuthStateChange fires before getUser completes
+        if (isMounted && !authHandledRef.current) {
+          console.log("[Auth] Setting signed-out after timeout (auth not yet handled)");
+          setStatus("signed-out");
+        } else {
+          console.log("[Auth] Ignoring timeout - auth already handled by onAuthStateChange");
+        }
       }
     };
 
