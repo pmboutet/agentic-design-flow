@@ -1,4 +1,4 @@
-import { createServerClient, type CookieOptions } from '@supabase/ssr'
+import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
 export async function middleware(request: NextRequest) {
@@ -15,12 +15,6 @@ export async function middleware(request: NextRequest) {
     })
   }
 
-  let response = NextResponse.next({
-    request: {
-      headers: request.headers,
-    },
-  })
-
   // Log all cookies for debugging
   const allCookies = request.cookies.getAll()
   const supabaseCookies = allCookies.filter(c => c.name.includes('supabase') || c.name.includes('sb-'))
@@ -29,50 +23,40 @@ export async function middleware(request: NextRequest) {
     console.log(`[Middleware] Cookie: ${c.name} = ${c.value.substring(0, 50)}...`)
   })
 
+  // Create response that we'll modify with cookies
+  let response = NextResponse.next({
+    request: {
+      headers: request.headers,
+    },
+  })
+
+  // Use the modern getAll/setAll pattern for Supabase SSR
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        get(name: string) {
-          const value = request.cookies.get(name)?.value
-          console.log(`[Middleware] Cookie GET: ${name} = ${value ? 'exists' : 'undefined'}`)
-          return value
+        getAll() {
+          const cookies = request.cookies.getAll()
+          console.log(`[Middleware] getAll: ${cookies.length} cookies`)
+          return cookies
         },
-        set(name: string, value: string, options: CookieOptions) {
-          console.log(`[Middleware] Cookie SET: ${name} (${value.length} chars)`)
-          request.cookies.set({
-            name,
-            value,
-            ...options,
+        setAll(cookiesToSet) {
+          console.log(`[Middleware] setAll: ${cookiesToSet.length} cookies`)
+          // First set on request (for downstream middleware/routes)
+          cookiesToSet.forEach(({ name, value }) => {
+            console.log(`[Middleware] Setting cookie: ${name} (${value.length} chars)`)
+            request.cookies.set(name, value)
           })
+          // Recreate response with updated request
           response = NextResponse.next({
             request: {
               headers: request.headers,
             },
           })
-          response.cookies.set({
-            name,
-            value,
-            ...options,
-          })
-        },
-        remove(name: string, options: CookieOptions) {
-          console.log(`[Middleware] Cookie REMOVE: ${name}`)
-          request.cookies.set({
-            name,
-            value: '',
-            ...options,
-          })
-          response = NextResponse.next({
-            request: {
-              headers: request.headers,
-            },
-          })
-          response.cookies.set({
-            name,
-            value: '',
-            ...options,
+          // Set cookies on response (for browser)
+          cookiesToSet.forEach(({ name, value, options }) => {
+            response.cookies.set(name, value, options)
           })
         },
       },
