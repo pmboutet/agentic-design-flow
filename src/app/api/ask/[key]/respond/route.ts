@@ -1444,10 +1444,10 @@ export async function POST(
       console.warn('Could not retrieve current user for insight authors:', error);
     }
 
-    const { row: askRow, error: askError } = await getAskSessionByKey<AskSessionRow & { audience_scope?: string | null; response_mode?: string | null }>(
+    const { row: askRow, error: askError } = await getAskSessionByKey<AskSessionRow & { conversation_mode?: string | null }>(
       supabase,
       key,
-      'id, ask_key, question, description, status, system_prompt, project_id, challenge_id, audience_scope, response_mode'
+      'id, ask_key, question, description, status, system_prompt, project_id, challenge_id, conversation_mode'
     );
 
     if (askError) {
@@ -1524,8 +1524,7 @@ export async function POST(
     // Get or create conversation thread
     // Simplified logic: use currentUserId if available, otherwise use last user message's user_id
     const askConfig = {
-      audience_scope: askRow.audience_scope ?? null,
-      response_mode: askRow.response_mode ?? null,
+      conversation_mode: askRow.conversation_mode ?? null,
     };
 
     // Determine which user's thread to use

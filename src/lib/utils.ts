@@ -315,17 +315,17 @@ export function getDeliveryModeLabel(mode: string | undefined): string {
   return "Mode hybride";
 }
 
-export function getAudienceDescription(audience: string | undefined, responseMode: string | undefined): string {
-  const scope = audience === "individual" ? "1 personne" : "Plusieurs participants";
-  if (audience === "group") {
-    if (responseMode === "collective") {
-      return `${scope} avec un porte-parole`;
-    }
-    if (responseMode === "simultaneous") {
-      return `${scope} en réponses simultanées`;
-    }
+export function getConversationModeDescription(conversationMode: string | undefined): string {
+  switch (conversationMode) {
+    case 'individual_parallel':
+      return 'Réponses individuelles en parallèle';
+    case 'collaborative':
+      return 'Conversation collaborative';
+    case 'group_reporter':
+      return 'Groupe avec porte-parole';
+    default:
+      return 'Conversation collaborative';
   }
-  return scope;
 }
 
 /**

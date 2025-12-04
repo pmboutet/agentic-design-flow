@@ -9,9 +9,6 @@ import { randomBytes } from "crypto";
 const statusValues = ["active", "inactive", "draft", "closed"] as const;
 const deliveryModes = ["physical", "digital"] as const;
 const conversationModes = ["individual_parallel", "collaborative", "group_reporter"] as const;
-// DEPRECATED: Legacy values for backward compatibility
-const audienceScopes = ["individual", "group"] as const;
-const responseModes = ["collective", "simultaneous"] as const;
 const askSelect = "*, projects(name), ask_participants(id, user_id, role, participant_name, participant_email, is_spokesperson, invite_token)";
 
 const updateSchema = z.object({
@@ -26,9 +23,6 @@ const updateSchema = z.object({
   maxParticipants: z.number().int().positive().max(10000).optional(),
   deliveryMode: z.enum(deliveryModes).optional(),
   conversationMode: z.enum(conversationModes).optional(),
-  // DEPRECATED: Legacy fields for backward compatibility
-  audienceScope: z.enum(audienceScopes).optional(),
-  responseMode: z.enum(responseModes).optional(),
   participantIds: z.array(z.string().uuid()).optional(),
   spokespersonId: z.string().uuid().optional().or(z.literal("")),
   systemPrompt: z.union([z.string().trim(), z.literal(""), z.null()]).optional()
@@ -121,9 +115,6 @@ function mapAsk(row: any): AskSessionRecord {
     maxParticipants: row.max_participants,
     deliveryMode: row.delivery_mode ?? "digital",
     conversationMode: row.conversation_mode ?? "collaborative",
-    // Legacy fields for backward compatibility
-    audienceScope: row.audience_scope ?? undefined,
-    responseMode: row.response_mode ?? undefined,
     createdBy: row.created_by,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -226,21 +217,9 @@ export async function PATCH(
   if (payload.maxParticipants !== undefined) updateData.max_participants = payload.maxParticipants;
   if (payload.deliveryMode) updateData.delivery_mode = payload.deliveryMode;
 
-  // Handle conversation mode (new field or convert from legacy fields)
+  // Handle conversation mode
   if (payload.conversationMode) {
     updateData.conversation_mode = payload.conversationMode;
-  } else if (payload.audienceScope || payload.responseMode) {
-    // Convert legacy fields to conversation_mode if provided
-    const audienceScope = payload.audienceScope;
-    const responseMode = payload.responseMode;
-    const spokespersonId = payload.spokespersonId;
-
-    if (audienceScope === "individual" || responseMode === "simultaneous") {
-      updateData.conversation_mode = "individual_parallel";
-    } else if (audienceScope === "group" && responseMode === "collective") {
-      const hasSpokesperson = spokespersonId && spokespersonId !== "";
-      updateData.conversation_mode = hasSpokesperson ? "group_reporter" : "collaborative";
-    }
   }
 
   if (payload.systemPrompt !== undefined) updateData.system_prompt = sanitizeOptional(payload.systemPrompt || null);

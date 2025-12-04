@@ -27,8 +27,7 @@ type AskSessionRow = {
   is_anonymous: boolean;
   max_participants: number | null;
   delivery_mode: string;
-  audience_scope: string;
-  response_mode: string;
+  conversation_mode: string;
   project_id: string;
   challenge_id: string | null;
   created_by: string | null;
@@ -115,7 +114,7 @@ async function loadTokenDataWithAdmin(token: string): Promise<TokenDataBundle | 
     const { data: askRow, error: askError } = await admin
       .from("ask_sessions")
       .select(
-        "ask_session_id:id, ask_key, name, question, description, status, start_date, end_date, is_anonymous, max_participants, delivery_mode, audience_scope, response_mode, project_id, challenge_id, created_by, created_at, updated_at",
+        "ask_session_id:id, ask_key, name, question, description, status, start_date, end_date, is_anonymous, max_participants, delivery_mode, conversation_mode, project_id, challenge_id, created_by, created_at, updated_at",
       )
       .eq("id", askSessionId)
       .maybeSingle<AskSessionRow>();
@@ -562,8 +561,7 @@ export async function GET(
 
     try {
       const askConfig = {
-        audience_scope: askRow.audience_scope,
-        response_mode: askRow.response_mode,
+        conversation_mode: askRow.conversation_mode,
       };
 
       console.log('🔧 GET /api/ask/token/[token]: Getting admin client...');
@@ -760,8 +758,7 @@ export async function GET(
           createdAt: askRow.created_at,
           updatedAt: askRow.updated_at,
           deliveryMode: askRow.delivery_mode as "physical" | "digital",
-          audienceScope: askRow.audience_scope as "individual" | "group",
-          responseMode: askRow.response_mode as "collective" | "simultaneous",
+          conversationMode: (askRow.conversation_mode as "individual_parallel" | "collaborative" | "group_reporter") ?? 'collaborative',
           participants,
           askSessionId: askRow.ask_session_id,
         },

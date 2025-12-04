@@ -474,19 +474,11 @@ function AskDetailDialog({ ask, projectName, challengeName, onClose }: AskDetail
                   </p>
                 </div>
                 <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                  <p className="text-xs uppercase tracking-wide text-slate-400">Audience</p>
+                  <p className="text-xs uppercase tracking-wide text-slate-400">Mode de conversation</p>
                   <p className="mt-1 text-sm font-medium text-white">
-                    {ask.audienceScope === "individual" ? "Individual" : "Group"}
-                  </p>
-                </div>
-                <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                  <p className="text-xs uppercase tracking-wide text-slate-400">Response mode</p>
-                  <p className="mt-1 text-sm font-medium text-white">
-                    {ask.audienceScope === "group"
-                      ? ask.responseMode === "collective"
-                        ? "Spokesperson"
-                        : "Simultaneous"
-                      : "—"}
+                    {ask.conversationMode === "individual_parallel" ? "Individuel parallèle" :
+                     ask.conversationMode === "group_reporter" ? "Groupe avec rapporteur" :
+                     "Collaboratif"}
                   </p>
                 </div>
                 <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
@@ -3374,18 +3366,15 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                               {session.deliveryMode === "physical" ? "In-person" : "Digital"}
                             </span>
                             <span className="rounded-full bg-white/10 px-2 py-1">
-                              {session.audienceScope === "individual" ? "Individual" : "Group"}
+                              {session.conversationMode === "individual_parallel" ? "Individuel" :
+                               session.conversationMode === "group_reporter" ? "Groupe + rapporteur" :
+                               "Collaboratif"}
                             </span>
-                            {session.audienceScope === "group" && (
-                              <span className="rounded-full bg-white/10 px-2 py-1">
-                                {session.responseMode === "collective" ? "Spokesperson" : "Simultaneous"}
-                              </span>
-                            )}
                           </div>
                           <div className="mt-3 space-y-1 text-xs text-slate-300">
                             <p className="text-slate-200">
                               {(session.participants?.length ?? 0)} participant{session.participants && session.participants.length === 1 ? "" : "s"}
-                              {session.audienceScope === "group" && session.participants?.some(part => part.isSpokesperson)
+                              {session.conversationMode === "group_reporter" && session.participants?.some(part => part.isSpokesperson)
                                 ? " • spokesperson assigned"
                                 : ""}
                             </p>

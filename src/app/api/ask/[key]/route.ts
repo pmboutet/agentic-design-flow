@@ -23,9 +23,6 @@ interface AskSessionRow {
   end_date?: string | null;
   delivery_mode?: string | null;
   conversation_mode?: string | null;
-  // DEPRECATED: Use conversation_mode instead
-  audience_scope?: string | null;
-  response_mode?: string | null;
   is_anonymous?: boolean | null;
   created_at?: string | null;
   updated_at?: string | null;
@@ -370,15 +367,12 @@ export async function GET(
     // Get or create conversation thread for this user/ASK
     const askConfig = {
       conversation_mode: askRow.conversation_mode ?? null,
-      // DEPRECATED: Use conversation_mode instead
-      audience_scope: askRow.audience_scope ?? null,
-      response_mode: askRow.response_mode ?? null,
     };
 
     console.log('🔍 GET /api/ask/[key]: Determining conversation thread:', {
       askSessionId,
       profileId,
-      askConfig,
+      conversationMode: askConfig.conversation_mode,
       isDevBypass,
     });
     
@@ -769,8 +763,6 @@ export async function GET(
       updatedAt,
       deliveryMode: (askRow.delivery_mode as Ask['deliveryMode']) ?? 'digital',
       conversationMode: (askRow.conversation_mode as Ask['conversationMode']) ?? 'collaborative',
-      audienceScope: askRow.audience_scope as Ask['audienceScope'],
-      responseMode: askRow.response_mode as Ask['responseMode'],
       participants,
       askSessionId: askSessionId,
     };
@@ -1002,10 +994,10 @@ export async function POST(
       authMethod: participantId ? 'invite_token' : 'regular_auth'
     });
 
-    const { row: askRow, error: askError } = await getAskSessionByKey<Pick<AskSessionRow, 'id' | 'ask_key' | 'is_anonymous' | 'conversation_mode' | 'audience_scope' | 'response_mode'>>(
+    const { row: askRow, error: askError } = await getAskSessionByKey<Pick<AskSessionRow, 'id' | 'ask_key' | 'is_anonymous' | 'conversation_mode'>>(
       dataClient,
       key,
-      'id, ask_key, is_anonymous, conversation_mode, audience_scope, response_mode'
+      'id, ask_key, is_anonymous, conversation_mode'
     );
 
     if (askError) {
@@ -1085,15 +1077,12 @@ export async function POST(
     // Get or create conversation thread for this user/ASK
     const askConfig = {
       conversation_mode: askRow.conversation_mode ?? null,
-      // DEPRECATED: Use conversation_mode instead
-      audience_scope: askRow.audience_scope ?? null,
-      response_mode: askRow.response_mode ?? null,
     };
 
     console.log('🔍 POST /api/ask/[key]: Creating/getting conversation thread', {
       askSessionId: askRow.id,
       profileId: finalProfileId,
-      askConfig,
+      conversationMode: askConfig.conversation_mode,
       isDevBypass
     });
     

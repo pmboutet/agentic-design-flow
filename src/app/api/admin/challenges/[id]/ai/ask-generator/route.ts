@@ -26,8 +26,7 @@ const requestSchema = z
   .optional();
 
 const deliveryModes = ["physical", "digital"] as const;
-const audienceScopes = ["individual", "group"] as const;
-const responseModes = ["collective", "simultaneous"] as const;
+const conversationModes = ["individual_parallel", "collaborative", "group_reporter"] as const;
 const urgencyLevels = ["low", "medium", "high", "critical"] as const;
 const confidenceLevels = ["low", "medium", "high"] as const;
 
@@ -61,8 +60,7 @@ const askSuggestionSchema = z.object({
   maxParticipants: z.number().int().positive().optional().nullable(),
   isAnonymous: z.boolean().optional().nullable(),
   deliveryMode: z.enum(deliveryModes).optional().nullable(),
-  audienceScope: z.enum(audienceScopes).optional().nullable(),
-  responseMode: z.enum(responseModes).optional().nullable(),
+  conversationMode: z.enum(conversationModes).optional().nullable(),
   startDate: z.string().trim().min(4).optional().nullable(),
   endDate: z.string().trim().min(4).optional().nullable(),
 });
@@ -206,8 +204,7 @@ function normalizeSuggestionKeysDeep(value: unknown): unknown {
       follow_up_actions: 'followUpActions',
       is_spokesperson: 'isSpokesperson',
       delivery_mode: 'deliveryMode',
-      audience_scope: 'audienceScope',
-      response_mode: 'responseMode',
+      conversation_mode: 'conversationMode',
       start_date: 'startDate',
       end_date: 'endDate',
       insight_id: 'insightId',
@@ -241,11 +238,8 @@ function sanitizeSuggestionDomain(value: unknown): unknown {
     const dm = sanitizeEnum(v.deliveryMode, deliveryModes);
     if (dm) v.deliveryMode = dm; else delete v.deliveryMode;
 
-    const as = sanitizeEnum(v.audienceScope, audienceScopes);
-    if (as) v.audienceScope = as; else delete v.audienceScope;
-
-    const rm = sanitizeEnum(v.responseMode, responseModes);
-    if (rm) v.responseMode = rm; else delete v.responseMode;
+    const cm = sanitizeEnum(v.conversationMode, conversationModes);
+    if (cm) v.conversationMode = cm; else delete v.conversationMode;
 
     const urg = sanitizeEnum(v.urgency, urgencyLevels);
     if (urg) v.urgency = urg; else delete v.urgency;
@@ -455,8 +449,7 @@ function mapSuggestionToResponse(payload: ParsedSuggestion): AiAskSuggestion {
     maxParticipants: payload.maxParticipants ?? null,
     isAnonymous: payload.isAnonymous ?? null,
     deliveryMode: payload.deliveryMode ?? null,
-    audienceScope: payload.audienceScope ?? null,
-    responseMode: payload.responseMode ?? null,
+    conversationMode: payload.conversationMode ?? null,
     startDate: payload.startDate ?? null,
     endDate: payload.endDate ?? null,
   } satisfies AiAskSuggestion;

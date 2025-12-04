@@ -14,7 +14,7 @@ import {
   validateAskKey,
   parseErrorMessage,
   formatTimeRemaining,
-  getAudienceDescription,
+  getConversationModeDescription,
   getDeliveryModeLabel,
 } from "@/lib/utils";
 import { UserProfileMenu } from "@/components/auth/UserProfileMenu";
@@ -2379,7 +2379,7 @@ export default function HomePage() {
                                   {getDeliveryModeLabel(askDetails.deliveryMode)}
                                 </p>
                                 <p className="text-muted-foreground text-[10px]">
-                                  {getAudienceDescription(askDetails.audienceScope, askDetails.responseMode)}
+                                  {getConversationModeDescription(askDetails.conversationMode)}
                                 </p>
                               </div>
                             </div>

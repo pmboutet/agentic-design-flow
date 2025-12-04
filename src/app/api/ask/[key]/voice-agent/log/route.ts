@@ -279,7 +279,7 @@ export async function POST(
       supabase,
       askRow.id,
       null, // profileId - not needed for fetching plan
-      { audience_scope: null, response_mode: null }
+      { conversation_mode: null }
     );
 
     let conversationPlan = null;
