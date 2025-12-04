@@ -233,26 +233,42 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     let isMounted = true;
 
-    // Get initial session
+    // Get initial session - use getUser() to validate JWT (same as middleware)
+    // This ensures client and server have synchronized auth state
     console.log("[Auth] Getting initial session...");
-    supabase.auth.getSession()
-      .then(async ({ data: { session: initialSession }, error }) => {
+
+    const initAuth = async () => {
+      try {
+        // First, validate the user with getUser() - this contacts Supabase to verify JWT
+        const { data: { user: validatedUser }, error: userError } = await supabase.auth.getUser();
+
         if (!isMounted) return;
 
-        if (error) {
-          console.error("[Auth] getSession error:", error);
+        if (userError || !validatedUser) {
+          // No valid user - tokens may be expired
+          console.log("[Auth] No valid user (JWT validation failed):", userError?.message);
           setStatus("signed-out");
+          setSession(null);
+          setUser(null);
+          setProfile(null);
           return;
         }
+
+        // User is valid, now get the session for tokens
+        const { data: { session: initialSession } } = await supabase.auth.getSession();
+
+        if (!isMounted) return;
 
         console.log("[Auth] Initial session:", initialSession ? "exists" : "none");
         setSession(initialSession);
         await processSession(initialSession, "INITIAL_SESSION");
-      })
-      .catch((error) => {
-        console.error("[Auth] getSession exception:", error);
+      } catch (error) {
+        console.error("[Auth] Init auth exception:", error);
         if (isMounted) setStatus("signed-out");
-      });
+      }
+    };
+
+    initAuth();
 
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, newSession) => {

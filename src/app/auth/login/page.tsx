@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useMemo } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/components/auth/AuthProvider";
@@ -11,6 +11,10 @@ function LoginPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const requestedRedirect = searchParams?.get("redirectTo") ?? null;
+
+  // Track if we've already attempted a redirect to prevent loops
+  const hasAttemptedRedirect = useRef(false);
+  const [isStable, setIsStable] = useState(false);
 
   const redirectTo = useMemo(() => {
     if (!requestedRedirect) {
@@ -35,15 +39,40 @@ function LoginPageContent() {
     return rawValue === "true" || rawValue === "1";
   }, []);
 
+  // Wait for auth state to stabilize before allowing redirects
+  // This prevents redirect loops when middleware and client disagree
+  useEffect(() => {
+    if (status !== "loading") {
+      // Give a small delay to ensure auth state is truly stable
+      const timeout = setTimeout(() => {
+        setIsStable(true);
+      }, 500);
+      return () => clearTimeout(timeout);
+    }
+  }, [status]);
+
   useEffect(() => {
     // In dev mode, don't auto-redirect - let user choose via DevUserSwitcher
     if (isDevMode) {
       return;
     }
+
+    // Don't redirect until auth state is stable
+    if (!isStable) {
+      return;
+    }
+
+    // Only redirect once to prevent loops
+    if (hasAttemptedRedirect.current) {
+      return;
+    }
+
     if (status === "signed-in") {
+      hasAttemptedRedirect.current = true;
+      console.log("[Login] Auth stable and signed-in, redirecting to:", redirectTo);
       router.push(redirectTo);
     }
-  }, [status, router, redirectTo, isDevMode]);
+  }, [status, router, redirectTo, isDevMode, isStable]);
 
   if (status === "loading") {
     return (
