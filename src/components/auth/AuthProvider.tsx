@@ -264,52 +264,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const initAuth = async () => {
       try {
-        // First, validate the user with getUser() - this contacts Supabase to verify JWT
-        console.log("[Auth] Calling getUser() to validate JWT...");
-
-        // Add timeout to prevent infinite loading
-        const timeoutPromise = new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error("Auth timeout")), 10000)
-        );
-
-        const getUserPromise = supabase.auth.getUser();
-        const { data: { user: validatedUser }, error: userError } = await Promise.race([
-          getUserPromise,
-          timeoutPromise
-        ]) as Awaited<typeof getUserPromise>;
+        // Use getSession() first - it reads from cookies/storage without network call
+        console.log("[Auth] Calling getSession() to read local session...");
+        const { data: { session: localSession }, error: sessionError } = await supabase.auth.getSession();
 
         if (!isMounted) return;
 
-        console.log(`[Auth] getUser result: user=${validatedUser?.email || 'null'}, error=${userError?.message || 'none'}`);
+        console.log(`[Auth] getSession result: session=${localSession ? 'exists' : 'null'}, user=${localSession?.user?.email || 'none'}, error=${sessionError?.message || 'none'}`);
 
-        if (userError || !validatedUser) {
-          // No valid user - tokens may be expired
-          console.log("[Auth] No valid user - setting signed-out");
-          setStatus("signed-out");
-          setSession(null);
-          setUser(null);
-          setProfile(null);
+        if (localSession?.user) {
+          // We have a local session - trust it and process
+          console.log("[Auth] Local session found, processing...");
+          authHandledRef.current = true;
+          setSession(localSession);
+          await processSession(localSession, "INITIAL_SESSION");
           return;
         }
 
-        // User is valid, now get the session for tokens
-        console.log("[Auth] User validated, calling getSession()...");
-        const { data: { session: initialSession } } = await supabase.auth.getSession();
-
-        if (!isMounted) return;
-
-        console.log(`[Auth] getSession result: session=${initialSession ? 'exists' : 'null'}, access_token=${initialSession?.access_token ? 'exists' : 'none'}`);
-        setSession(initialSession);
-        await processSession(initialSession, "INITIAL_SESSION");
+        // No local session - set signed out
+        console.log("[Auth] No local session found - setting signed-out");
+        setStatus("signed-out");
+        setSession(null);
+        setUser(null);
+        setProfile(null);
       } catch (error) {
         console.error("[Auth] Init auth exception:", error);
-        // Only set signed-out if onAuthStateChange hasn't already handled auth
-        // This handles the race condition where onAuthStateChange fires before getUser completes
         if (isMounted && !authHandledRef.current) {
-          console.log("[Auth] Setting signed-out after timeout (auth not yet handled)");
+          console.log("[Auth] Setting signed-out after error");
           setStatus("signed-out");
-        } else {
-          console.log("[Auth] Ignoring timeout - auth already handled by onAuthStateChange");
         }
       }
     };
