@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -8,22 +8,16 @@ import { useAuth } from "@/components/auth/AuthProvider";
 
 interface AdminAuthGuardProps {
   children: ReactNode;
-  /**
-   * Optional: specific roles allowed. Defaults to admin roles.
-   */
   allowedRoles?: string[];
 }
 
 const DEFAULT_ALLOWED_ROLES = ["full_admin", "project_admin", "facilitator", "manager", "admin"];
 
 /**
- * AdminAuthGuard wraps admin pages to ensure proper authentication
- * and authorization before rendering content.
- *
- * This prevents:
- * - Unauthenticated access
- * - API calls before auth is ready
- * - "Lost profile" issues when navigating between admin pages
+ * Simplified AdminAuthGuard
+ * - Trusts middleware for session check (if page renders, user has session)
+ * - Only shows error states for specific issues (wrong role, inactive)
+ * - No redirects, no timeouts - let middleware handle protection
  */
 export function AdminAuthGuard({ children, allowedRoles = DEFAULT_ALLOWED_ROLES }: AdminAuthGuardProps) {
   const router = useRouter();
@@ -32,194 +26,58 @@ export function AdminAuthGuard({ children, allowedRoles = DEFAULT_ALLOWED_ROLES 
   const profileRole = profile?.role ?? user?.profile?.role ?? user?.role ?? "";
   const profileIsActive = profile?.isActive ?? user?.profile?.isActive ?? true;
   const hasProfile = !!profile || !!user?.profile;
+  const normalizedRole = profileRole.toLowerCase();
 
-  const normalizedRole = useMemo(() => {
-    return profileRole.toLowerCase();
-  }, [profileRole]);
-
-  // Timeout to prevent indefinite loading state
-  const [hasLoadingTimeout, setHasLoadingTimeout] = useState(false);
-  const [hasExtendedTimeout, setHasExtendedTimeout] = useState(false);
-  const verificationStartRef = useRef<number | null>(null);
-
-  // Check if we're in dev mode
-  const isDevMode = useMemo(() => {
-    if (typeof window === "undefined") return false;
-    const rawValue = (process.env.NEXT_PUBLIC_IS_DEV ?? "").toString().toLowerCase();
-    return rawValue === "true" || rawValue === "1";
-  }, []);
-
-  useEffect(() => {
-    // Track when verification started
-    if (status === "loading" && verificationStartRef.current === null) {
-      verificationStartRef.current = Date.now();
-    }
-
+  const accessState = useMemo<"loading" | "no-role" | "forbidden" | "inactive" | "granted">(() => {
+    // Trust middleware: if we're here, session was verified server-side
+    // Show content while client-side auth loads
     if (status === "loading") {
-      // Set a timeout of 5 seconds to trigger redirect attempt
-      const timeoutId = setTimeout(() => {
-        console.warn("[AdminAuthGuard] Auth loading timed out after 5s");
-        setHasLoadingTimeout(true);
-      }, 5000);
-
-      // Extended timeout of 8s to show retry options
-      const extendedTimeoutId = setTimeout(() => {
-        console.warn("[AdminAuthGuard] Extended timeout reached");
-        setHasExtendedTimeout(true);
-      }, 8000);
-
-      return () => {
-        clearTimeout(timeoutId);
-        clearTimeout(extendedTimeoutId);
-      };
-    } else {
-      // Reset timeout flags when status changes
-      setHasLoadingTimeout(false);
-      setHasExtendedTimeout(false);
-      verificationStartRef.current = null;
+      return "granted"; // Trust middleware
     }
-  }, [status]);
 
-  const accessState = useMemo<"checking" | "signed-out" | "inactive" | "forbidden" | "profile-missing" | "granted">(() => {
-    // Trust the middleware while auth loads
+    // If signed out client-side, show brief loading (middleware will redirect on next request)
     if (status === "signed-out") {
-      return "signed-out";
+      return "loading";
     }
 
-    // While loading, trust middleware (it already verified session server-side)
-    if (!hasLoadingTimeout) {
-      if (status === "loading") {
-        return "checking"; // Show loading UI while auth initializes
-      }
-      if (status === "signed-in" && (!hasProfile || !normalizedRole)) {
-        return "checking"; // Still loading profile
-      }
+    // Signed in but profile not loaded yet - trust middleware
+    if (status === "signed-in" && !hasProfile) {
+      return "granted"; // Profile still loading
     }
 
-    // If loading timed out
-    if (hasLoadingTimeout) {
-      if (status === "loading") {
-        return "signed-out";
-      }
-      if (status === "signed-in" && !hasProfile) {
-        return "profile-missing";
+    // Profile loaded - check role
+    if (hasProfile && normalizedRole) {
+      if (!allowedRoles.map(r => r.toLowerCase()).includes(normalizedRole)) {
+        return "forbidden";
       }
     }
 
-    // Role check
-    if (!normalizedRole || !allowedRoles.map(r => r.toLowerCase()).includes(normalizedRole)) {
-      return "forbidden";
-    }
-
-    if (!profileIsActive) {
+    // Check active status
+    if (hasProfile && !profileIsActive) {
       return "inactive";
     }
 
     return "granted";
-  }, [status, normalizedRole, profileIsActive, hasProfile, hasLoadingTimeout, allowedRoles]);
+  }, [status, hasProfile, normalizedRole, profileIsActive, allowedRoles]);
 
-  // Redirect if signed out
-  const hasRedirectedRef = useRef(false);
-  useEffect(() => {
-    if (isDevMode) return;
+  // Granted - show content immediately
+  if (accessState === "granted") {
+    return <>{children}</>;
+  }
 
-    if (accessState === "signed-out" && !hasRedirectedRef.current) {
-      hasRedirectedRef.current = true;
-      if (typeof window !== "undefined") {
-        window.location.href = "/auth/login?redirectTo=" + encodeURIComponent(window.location.pathname);
-      } else {
-        router.replace("/auth/login");
-      }
-    }
-  }, [accessState, isDevMode, router]);
-
-  // Render based on access state
-  if (accessState === "checking") {
-    if (hasExtendedTimeout) {
-      return (
-        <div className="flex min-h-[50vh] items-center justify-center p-4">
-          <div className="max-w-lg rounded-2xl border border-slate-700 bg-slate-900 p-8 text-center">
-            <div className="mb-4 flex justify-center">
-              <Loader2 className="h-10 w-10 animate-spin text-blue-500" />
-            </div>
-            <h2 className="text-xl font-semibold text-white">Vérification en cours...</h2>
-            <p className="mt-3 text-sm text-slate-400">
-              La vérification prend plus de temps que prévu.
-            </p>
-            <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-center">
-              <Button
-                onClick={() => window.location.reload()}
-                variant="secondary"
-              >
-                Actualiser la page
-              </Button>
-              <Button
-                onClick={async () => {
-                  await signOut();
-                  window.location.href = "/auth/login?redirectTo=" + encodeURIComponent(window.location.pathname);
-                }}
-                variant="outline"
-              >
-                Se reconnecter
-              </Button>
-            </div>
-          </div>
-        </div>
-      );
-    }
-
-    // Normal loading state
+  // Loading state (very brief, only when signed-out client-side)
+  if (accessState === "loading") {
     return (
       <div className="flex min-h-[50vh] items-center justify-center">
         <div className="text-center">
           <Loader2 className="mx-auto mb-3 h-6 w-6 animate-spin text-slate-400" />
-          <p className="text-slate-400">Vérification des accès...</p>
+          <p className="text-slate-400">Chargement...</p>
         </div>
       </div>
     );
   }
 
-  if (accessState === "signed-out") {
-    return (
-      <div className="flex min-h-[50vh] items-center justify-center">
-        <div className="text-center">
-          <Loader2 className="mx-auto mb-3 h-6 w-6 animate-spin text-slate-400" />
-          <p className="text-slate-400">Redirection vers la connexion...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (accessState === "profile-missing") {
-    return (
-      <div className="flex min-h-[50vh] items-center justify-center p-4">
-        <div className="max-w-lg rounded-2xl border border-yellow-500/40 bg-yellow-500/10 p-8 text-center">
-          <h2 className="text-xl font-semibold text-white">Profil non disponible</h2>
-          <p className="mt-4 text-sm text-slate-300">
-            Impossible de charger votre profil utilisateur.
-          </p>
-          <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-center">
-            <Button
-              onClick={() => window.location.reload()}
-              variant="secondary"
-            >
-              Réessayer
-            </Button>
-            <Button
-              onClick={async () => {
-                await signOut();
-                window.location.href = "/auth/login";
-              }}
-              variant="outline"
-            >
-              Se reconnecter
-            </Button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
+  // Forbidden - wrong role
   if (accessState === "forbidden") {
     return (
       <div className="flex min-h-[50vh] items-center justify-center p-4">
@@ -228,12 +86,13 @@ export function AdminAuthGuard({ children, allowedRoles = DEFAULT_ALLOWED_ROLES 
           <p className="mt-4 text-sm text-slate-300">
             Vous n&apos;avez pas les permissions nécessaires pour accéder à cette page.
           </p>
-          <div className="mt-6">
-            <Button
-              onClick={() => router.push("/")}
-              variant="secondary"
-            >
+          <p className="mt-2 text-xs text-slate-400">Rôle actuel: {normalizedRole || "aucun"}</p>
+          <div className="mt-6 flex gap-3 justify-center">
+            <Button onClick={() => router.push("/")} variant="secondary">
               Retour à l&apos;accueil
+            </Button>
+            <Button onClick={() => signOut().then(() => router.push("/auth/login"))} variant="outline">
+              Se déconnecter
             </Button>
           </div>
         </div>
@@ -241,6 +100,7 @@ export function AdminAuthGuard({ children, allowedRoles = DEFAULT_ALLOWED_ROLES 
     );
   }
 
+  // Inactive account
   if (accessState === "inactive") {
     return (
       <div className="flex min-h-[50vh] items-center justify-center p-4">
@@ -249,11 +109,15 @@ export function AdminAuthGuard({ children, allowedRoles = DEFAULT_ALLOWED_ROLES 
           <p className="mt-4 text-sm text-slate-300">
             Votre compte a été désactivé. Contactez un administrateur.
           </p>
+          <div className="mt-6">
+            <Button onClick={() => signOut().then(() => router.push("/auth/login"))} variant="outline">
+              Se déconnecter
+            </Button>
+          </div>
         </div>
       </div>
     );
   }
 
-  // accessState === "granted"
   return <>{children}</>;
 }
