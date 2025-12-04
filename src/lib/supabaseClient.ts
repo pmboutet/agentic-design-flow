@@ -3,7 +3,7 @@ import { createBrowserClient } from '@supabase/ssr'
 /**
  * Browser client for Supabase with authentication support.
  * Use this client in client-side components and pages.
- * 
+ *
  * For server-side operations and admin tasks, use getAdminSupabaseClient() from supabaseAdmin.ts
  */
 export function createClient() {
@@ -19,7 +19,47 @@ export function createClient() {
     throw new Error("Supabase configuration is missing. Please check NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY environment variables.");
   }
 
-  return createBrowserClient(url, key);
+  // Explicit cookie configuration to handle chunked cookies properly
+  return createBrowserClient(url, key, {
+    cookies: {
+      getAll() {
+        const cookies: { name: string; value: string }[] = [];
+        if (typeof document === 'undefined') return cookies;
+
+        const cookieStr = document.cookie;
+        if (!cookieStr) return cookies;
+
+        cookieStr.split(';').forEach(cookie => {
+          const [name, ...valueParts] = cookie.trim().split('=');
+          if (name) {
+            cookies.push({
+              name: name.trim(),
+              value: valueParts.join('=') // Handle values with = in them
+            });
+          }
+        });
+
+        console.log(`[SupabaseClient] getAll returning ${cookies.length} cookies`);
+        return cookies;
+      },
+      setAll(cookiesToSet) {
+        if (typeof document === 'undefined') return;
+
+        console.log(`[SupabaseClient] setAll called with ${cookiesToSet.length} cookies`);
+        cookiesToSet.forEach(({ name, value, options }) => {
+          let cookieString = `${name}=${value}`;
+
+          if (options?.path) cookieString += `; path=${options.path}`;
+          if (options?.maxAge) cookieString += `; max-age=${options.maxAge}`;
+          if (options?.domain) cookieString += `; domain=${options.domain}`;
+          if (options?.secure) cookieString += '; secure';
+          if (options?.sameSite) cookieString += `; samesite=${options.sameSite}`;
+
+          document.cookie = cookieString;
+        });
+      },
+    },
+  });
 }
 
 // Export a singleton instance for convenience
