@@ -3,10 +3,13 @@ import { z } from "zod";
 import { getAdminSupabaseClient } from "@/lib/supabaseAdmin";
 import { sanitizeOptional } from "@/lib/sanitize";
 import { parseErrorMessage } from "@/lib/utils";
-import { type ApiResponse, type ClientMember } from "@/types";
+import { type ApiResponse, type ClientMember, type ClientRole } from "@/types";
+
+const clientRoles = ["client_admin", "facilitator", "manager", "participant"] as const;
 
 const payloadSchema = z.object({
   userId: z.string().uuid("Invalid user id"),
+  role: z.enum(clientRoles).optional().default("participant"),
   jobTitle: z.string().trim().max(255).optional().or(z.literal(""))
 });
 
@@ -15,6 +18,7 @@ function mapClientMember(row: any): ClientMember {
     id: row.id,
     clientId: row.client_id,
     userId: row.user_id,
+    role: (row.role || 'participant') as ClientRole,
     jobTitle: row.job_title ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at
@@ -68,7 +72,8 @@ export async function POST(
 
     const upsertData: Record<string, unknown> = {
       client_id: clientId,
-      user_id: payload.userId
+      user_id: payload.userId,
+      role: payload.role || 'participant'
     };
 
     if (jobTitle !== undefined) {

@@ -4,9 +4,9 @@ import { createServerSupabaseClient, requireAdmin } from "@/lib/supabaseServer";
 import { sanitizeOptional, sanitizeText } from "@/lib/sanitize";
 import { parseErrorMessage } from "@/lib/utils";
 import { type ApiResponse, type ManagedUser } from "@/types";
-import { fetchProjectMemberships, mapManagedUser } from "../helpers";
+import { fetchProjectMemberships, fetchClientMemberships, fetchDetailedProjectMemberships, mapManagedUser } from "../helpers";
 
-const roleValues = ["full_admin", "project_admin", "facilitator", "manager", "participant", "user"] as const;
+const roleValues = ["full_admin", "client_admin", "facilitator", "manager", "participant"] as const;
 
 const updateSchema = z.object({
   email: z.string().trim().min(3).max(255).email().optional(),
@@ -115,11 +115,15 @@ export async function PATCH(
       throw error;
     }
 
-    const membershipMap = await fetchProjectMemberships(supabase, [data.id]);
+    const [membershipMap, clientMembershipMap, projectMembershipMap] = await Promise.all([
+      fetchProjectMemberships(supabase, [data.id]),
+      fetchClientMemberships(supabase, [data.id]),
+      fetchDetailedProjectMemberships(supabase, [data.id])
+    ]);
 
     return NextResponse.json<ApiResponse<ManagedUser>>({
       success: true,
-      data: mapManagedUser(data, membershipMap)
+      data: mapManagedUser(data, membershipMap, clientMembershipMap, projectMembershipMap)
     });
   } catch (error) {
     let status = 500;

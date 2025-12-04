@@ -17,9 +17,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { UserSearchCombobox } from "@/components/ui/user-search-combobox";
-import type { ClientRecord, ManagedUser, ProjectRecord } from "@/types";
+import { UserEditModal } from "@/components/admin/UserEditModal";
+import type { ClientRecord, ClientRole, ManagedUser, ProjectRecord } from "@/types";
 
-const userRoles = ["full_admin", "project_admin", "facilitator", "manager", "participant", "user"] as const;
+const userRoles = ["full_admin", "client_admin", "facilitator", "manager", "participant"] as const;
 
 const userFormSchema = z.object({
   email: z.string().trim().email("Invalid email").max(255),
@@ -90,6 +91,8 @@ export function UsersAdminView() {
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [selectedUserForProject, setSelectedUserForProject] = useState<ManagedUser | null>(null);
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [editingUser, setEditingUser] = useState<ManagedUser | null>(null);
 
   const userForm = useForm<UserFormInput>({
     resolver: zodResolver(userFormSchema),
@@ -349,6 +352,166 @@ export function UsersAdminView() {
 
   const viewingClientId = selectedProject?.clientId ?? selectedClientId;
 
+  // Modal handlers
+  const openEditModal = useCallback((user: ManagedUser) => {
+    setEditingUser(user);
+    setEditModalOpen(true);
+  }, []);
+
+  const handleModalSave = useCallback(async (userId: string, data: UserFormInput) => {
+    setIsBusy(true);
+    setFeedback(null);
+    try {
+      await request(`/api/admin/profiles/${userId}`, {
+        method: "PATCH",
+        body: JSON.stringify(data)
+      });
+      await refreshUsers();
+      setFeedback({ type: "success", message: "User updated successfully" });
+      // Update the editing user with fresh data
+      const updatedUsers = await request<ManagedUser[]>("/api/admin/profiles");
+      const updatedUser = updatedUsers.find(u => u.id === userId);
+      if (updatedUser) {
+        setEditingUser(updatedUser);
+      }
+    } catch (error) {
+      setFeedback({
+        type: "error",
+        message: error instanceof Error ? error.message : "An error occurred"
+      });
+    } finally {
+      setIsBusy(false);
+    }
+  }, [refreshUsers]);
+
+  const handleAddClientMembership = useCallback(async (userId: string, clientId: string, role: ClientRole) => {
+    setIsBusy(true);
+    setFeedback(null);
+    try {
+      await request(`/api/admin/clients/${clientId}/members`, {
+        method: "POST",
+        body: JSON.stringify({ userId, role })
+      });
+      await refreshUsers();
+      setFeedback({ type: "success", message: "User added to client" });
+      // Update the editing user with fresh data
+      const updatedUsers = await request<ManagedUser[]>("/api/admin/profiles");
+      const updatedUser = updatedUsers.find(u => u.id === userId);
+      if (updatedUser) {
+        setEditingUser(updatedUser);
+      }
+    } catch (error) {
+      setFeedback({
+        type: "error",
+        message: error instanceof Error ? error.message : "An error occurred"
+      });
+    } finally {
+      setIsBusy(false);
+    }
+  }, [refreshUsers]);
+
+  const handleUpdateClientMembership = useCallback(async (userId: string, clientId: string, role: ClientRole) => {
+    setIsBusy(true);
+    setFeedback(null);
+    try {
+      await request(`/api/admin/clients/${clientId}/members`, {
+        method: "POST",
+        body: JSON.stringify({ userId, role })
+      });
+      await refreshUsers();
+      setFeedback({ type: "success", message: "Client role updated" });
+      // Update the editing user with fresh data
+      const updatedUsers = await request<ManagedUser[]>("/api/admin/profiles");
+      const updatedUser = updatedUsers.find(u => u.id === userId);
+      if (updatedUser) {
+        setEditingUser(updatedUser);
+      }
+    } catch (error) {
+      setFeedback({
+        type: "error",
+        message: error instanceof Error ? error.message : "An error occurred"
+      });
+    } finally {
+      setIsBusy(false);
+    }
+  }, [refreshUsers]);
+
+  const handleRemoveClientMembership = useCallback(async (userId: string, clientId: string) => {
+    setIsBusy(true);
+    setFeedback(null);
+    try {
+      await request(`/api/admin/clients/${clientId}/members/${userId}`, {
+        method: "DELETE"
+      });
+      await refreshUsers();
+      setFeedback({ type: "success", message: "User removed from client" });
+      // Update the editing user with fresh data
+      const updatedUsers = await request<ManagedUser[]>("/api/admin/profiles");
+      const updatedUser = updatedUsers.find(u => u.id === userId);
+      if (updatedUser) {
+        setEditingUser(updatedUser);
+      }
+    } catch (error) {
+      setFeedback({
+        type: "error",
+        message: error instanceof Error ? error.message : "An error occurred"
+      });
+    } finally {
+      setIsBusy(false);
+    }
+  }, [refreshUsers]);
+
+  const handleModalAddProjectMembership = useCallback(async (userId: string, projectId: string) => {
+    setIsBusy(true);
+    setFeedback(null);
+    try {
+      await request(`/api/admin/projects/${projectId}/members`, {
+        method: "POST",
+        body: JSON.stringify({ userId })
+      });
+      await refreshUsers();
+      setFeedback({ type: "success", message: "User added to project" });
+      // Update the editing user with fresh data
+      const updatedUsers = await request<ManagedUser[]>("/api/admin/profiles");
+      const updatedUser = updatedUsers.find(u => u.id === userId);
+      if (updatedUser) {
+        setEditingUser(updatedUser);
+      }
+    } catch (error) {
+      setFeedback({
+        type: "error",
+        message: error instanceof Error ? error.message : "An error occurred"
+      });
+    } finally {
+      setIsBusy(false);
+    }
+  }, [refreshUsers]);
+
+  const handleModalRemoveProjectMembership = useCallback(async (userId: string, projectId: string) => {
+    setIsBusy(true);
+    setFeedback(null);
+    try {
+      await request(`/api/admin/projects/${projectId}/members/${userId}`, {
+        method: "DELETE"
+      });
+      await refreshUsers();
+      setFeedback({ type: "success", message: "User removed from project" });
+      // Update the editing user with fresh data
+      const updatedUsers = await request<ManagedUser[]>("/api/admin/profiles");
+      const updatedUser = updatedUsers.find(u => u.id === userId);
+      if (updatedUser) {
+        setEditingUser(updatedUser);
+      }
+    } catch (error) {
+      setFeedback({
+        type: "error",
+        message: error instanceof Error ? error.message : "An error occurred"
+      });
+    } finally {
+      setIsBusy(false);
+    }
+  }, [refreshUsers]);
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -532,11 +695,10 @@ export function UsersAdminView() {
                       disabled={isBusy}
                     >
                       <option value="full_admin">Full Admin</option>
-                      <option value="project_admin">Project Admin</option>
+                      <option value="client_admin">Client Admin</option>
                       <option value="facilitator">Facilitator</option>
                       <option value="manager">Manager</option>
                       <option value="participant">Participant</option>
-                      <option value="user">User</option>
                     </select>
                   </div>
                   <div className="flex flex-col gap-2">
@@ -646,11 +808,10 @@ export function UsersAdminView() {
                       disabled={isBusy}
                     >
                       <option value="full_admin">Full Admin</option>
-                      <option value="project_admin">Project Admin</option>
+                      <option value="client_admin">Client Admin</option>
                       <option value="facilitator">Facilitator</option>
                       <option value="manager">Manager</option>
                       <option value="participant">Participant</option>
-                      <option value="user">User</option>
                     </select>
                   </div>
                   <div className="flex flex-col gap-2">
@@ -720,10 +881,14 @@ export function UsersAdminView() {
                         <p className="text-xs text-slate-500 italic">{user.jobTitle}</p>
                       )}
                       <p className="text-[11px] text-slate-500">
-                        {user.clientName || "No client assigned"}
-                        {viewingClientId && user.clientId && user.clientId !== viewingClientId
-                          ? " • other client"
-                          : ""}
+                        {user.clientMemberships && user.clientMemberships.length > 0
+                          ? `${user.clientMemberships.length} client${user.clientMemberships.length > 1 ? 's' : ''}`
+                          : user.clientName || "No client assigned"}
+                        {user.projectMemberships && user.projectMemberships.length > 0 && (
+                          <span className="ml-1.5">
+                            • {user.projectMemberships.length} project{user.projectMemberships.length > 1 ? 's' : ''}
+                          </span>
+                        )}
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
@@ -767,7 +932,7 @@ export function UsersAdminView() {
                     <div className="flex items-center gap-2">
                       <button
                         type="button"
-                        onClick={() => startUserEdit(user.id)}
+                        onClick={() => openEditModal(user)}
                         className="text-slate-200 hover:text-white"
                         disabled={isBusy}
                       >
@@ -789,6 +954,22 @@ export function UsersAdminView() {
           )}
         </div>
       </div>
+
+      {/* User Edit Modal */}
+      <UserEditModal
+        open={editModalOpen}
+        onOpenChange={setEditModalOpen}
+        user={editingUser}
+        clients={clients}
+        projects={projects}
+        onSave={handleModalSave}
+        onAddClientMembership={handleAddClientMembership}
+        onUpdateClientMembership={handleUpdateClientMembership}
+        onRemoveClientMembership={handleRemoveClientMembership}
+        onAddProjectMembership={handleModalAddProjectMembership}
+        onRemoveProjectMembership={handleModalRemoveProjectMembership}
+        isBusy={isBusy}
+      />
     </div>
   );
 }

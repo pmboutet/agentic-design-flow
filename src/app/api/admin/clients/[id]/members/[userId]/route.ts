@@ -3,9 +3,12 @@ import { z } from "zod";
 import { getAdminSupabaseClient } from "@/lib/supabaseAdmin";
 import { sanitizeOptional } from "@/lib/sanitize";
 import { parseErrorMessage } from "@/lib/utils";
-import { type ApiResponse, type ClientMember } from "@/types";
+import { type ApiResponse, type ClientMember, type ClientRole } from "@/types";
+
+const clientRoles = ["client_admin", "facilitator", "manager", "participant"] as const;
 
 const updateSchema = z.object({
+  role: z.enum(clientRoles).optional(),
   jobTitle: z.string().trim().max(255).optional().or(z.literal(""))
 });
 
@@ -14,6 +17,7 @@ function mapClientMember(row: any): ClientMember {
     id: row.id,
     clientId: row.client_id,
     userId: row.user_id,
+    role: (row.role || 'participant') as ClientRole,
     jobTitle: row.job_title ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at
@@ -34,6 +38,9 @@ export async function PATCH(
     const supabase = getAdminSupabaseClient();
 
     const updateData: Record<string, unknown> = {};
+    if (payload.role !== undefined) {
+      updateData.role = payload.role;
+    }
     if (payload.jobTitle !== undefined) {
       updateData.job_title = sanitizeOptional(payload.jobTitle || null);
     }

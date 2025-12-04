@@ -5,7 +5,7 @@ import { getAdminSupabaseClient } from "@/lib/supabaseAdmin";
 import { sanitizeOptional, sanitizeText } from "@/lib/sanitize";
 import { parseErrorMessage } from "@/lib/utils";
 import { type ApiResponse, type ManagedUser } from "@/types";
-import { fetchProjectMemberships, mapManagedUser } from "./helpers";
+import { fetchProjectMemberships, fetchClientMemberships, fetchDetailedProjectMemberships, mapManagedUser } from "./helpers";
 
 const roleValues = ["full_admin", "admin", "moderator", "facilitator", "participant", "sponsor", "observer", "guest"] as const;
 
@@ -51,11 +51,15 @@ export async function GET(request: NextRequest) {
         });
       }
 
-      const membershipMap = await fetchProjectMemberships(supabase, [data.id]);
+      const [membershipMap, clientMembershipMap, projectMembershipMap] = await Promise.all([
+        fetchProjectMemberships(supabase, [data.id]),
+        fetchClientMemberships(supabase, [data.id]),
+        fetchDetailedProjectMemberships(supabase, [data.id])
+      ]);
 
       return NextResponse.json<ApiResponse<ManagedUser | null>>({
         success: true,
-        data: mapManagedUser(data, membershipMap)
+        data: mapManagedUser(data, membershipMap, clientMembershipMap, projectMembershipMap)
       });
     }
 
@@ -71,11 +75,15 @@ export async function GET(request: NextRequest) {
     }
 
     const userIds = (data ?? []).map(row => row.id).filter((id): id is string => Boolean(id));
-    const membershipMap = await fetchProjectMemberships(supabase, userIds);
+    const [membershipMap, clientMembershipMap, projectMembershipMap] = await Promise.all([
+      fetchProjectMemberships(supabase, userIds),
+      fetchClientMemberships(supabase, userIds),
+      fetchDetailedProjectMemberships(supabase, userIds)
+    ]);
 
     return NextResponse.json<ApiResponse<ManagedUser[]>>({
       success: true,
-      data: (data ?? []).map(row => mapManagedUser(row, membershipMap))
+      data: (data ?? []).map(row => mapManagedUser(row, membershipMap, clientMembershipMap, projectMembershipMap))
     });
   } catch (error) {
     const status = error instanceof Error && error.message.includes('required') ? 403 : 500;
@@ -192,11 +200,15 @@ export async function POST(request: NextRequest) {
     }
 
     console.log("[POST /api/admin/profiles] Profile created successfully:", data.id);
-    
-    const membershipMap = await fetchProjectMemberships(supabase, [data.id]);
-    console.log("[POST /api/admin/profiles] Membership map:", membershipMap);
 
-    const mappedUser = mapManagedUser(data, membershipMap);
+    const [membershipMap, clientMembershipMap, projectMembershipMap] = await Promise.all([
+      fetchProjectMemberships(supabase, [data.id]),
+      fetchClientMemberships(supabase, [data.id]),
+      fetchDetailedProjectMemberships(supabase, [data.id])
+    ]);
+    console.log("[POST /api/admin/profiles] Membership maps fetched");
+
+    const mappedUser = mapManagedUser(data, membershipMap, clientMembershipMap, projectMembershipMap);
     console.log("[POST /api/admin/profiles] Mapped user:", mappedUser);
 
     return NextResponse.json<ApiResponse<ManagedUser>>({

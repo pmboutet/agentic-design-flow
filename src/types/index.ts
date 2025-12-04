@@ -384,13 +384,39 @@ export interface ClientRecord {
   updatedAt: string;
 }
 
+// Client-specific role for users within a client organization
+export type ClientRole = 'client_admin' | 'facilitator' | 'manager' | 'participant';
+
+// Global profile roles
+export type ProfileRole = 'full_admin' | 'admin' | 'client_admin' | 'moderator' | 'facilitator' | 'participant' | 'sponsor' | 'observer' | 'guest';
+
 export interface ClientMember {
   id: string;
   clientId: string;
   userId: string;
+  role: ClientRole; // Role within this specific client
   jobTitle?: string | null; // Client-specific job title
   createdAt: string;
   updatedAt: string;
+}
+
+// Extended client membership with client details (for UI display)
+export interface ClientMembership extends ClientMember {
+  clientName: string;
+  clientStatus?: string;
+}
+
+// Project membership with project details
+export interface ProjectMembership {
+  id: string;
+  projectId: string;
+  projectName: string;
+  projectStatus?: string;
+  clientId: string;
+  clientName?: string;
+  role: string;
+  jobTitle?: string | null;
+  createdAt: string;
 }
 
 // Auth types - Supabase Auth integration
@@ -422,6 +448,8 @@ export interface Profile {
 // Managed user for admin backoffice (extends Profile with additional info)
 export interface ManagedUser extends Profile {
   projectIds?: string[];
+  clientMemberships?: ClientMembership[]; // All client associations with roles
+  projectMemberships?: ProjectMembership[]; // All project associations
 }
 
 export interface ProjectRecord {
