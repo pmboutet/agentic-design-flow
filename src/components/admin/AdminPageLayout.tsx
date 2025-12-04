@@ -24,6 +24,8 @@ import { cn } from "@/lib/utils";
 import { UserProfileMenu } from "@/components/auth/UserProfileMenu";
 import { AdminSearchProvider, useAdminSearch } from "./AdminSearchContext";
 import { AdminAuthGuard } from "./AdminAuthGuard";
+import { ClientProvider } from "./ClientContext";
+import { ClientSelector } from "./ClientSelector";
 import { Input } from "@/components/ui/input";
 import { AnimatePresence, motion } from "framer-motion";
 
@@ -343,6 +345,8 @@ export function AdminPageLayout({ children }: AdminPageLayoutProps) {
         </button>
       </div>
 
+      <ClientSelector collapsed={isSidebarCollapsed} />
+
       <nav className="flex flex-1 flex-col gap-1 overflow-hidden">
         {navigationItems.map(item => {
           const Icon = item.icon;
@@ -377,61 +381,63 @@ export function AdminPageLayout({ children }: AdminPageLayoutProps) {
   );
 
   return (
-    <AdminSearchProvider value={defaultSearchContext}>
-      <div className="admin-layout min-h-screen h-screen overflow-hidden bg-slate-950 text-slate-100">
-        <div className="flex h-full min-h-0">
-          <aside
-            className={cn(
-              "hidden border-r border-white/10 bg-slate-950/70 px-5 py-6 backdrop-blur md:flex",
-              isSidebarCollapsed ? "w-20" : "w-64"
-            )}
-          >
-            {sidebarContent}
-          </aside>
+    <ClientProvider>
+      <AdminSearchProvider value={defaultSearchContext}>
+        <div className="admin-layout min-h-screen h-screen overflow-hidden bg-slate-950 text-slate-100">
+          <div className="flex h-full min-h-0">
+            <aside
+              className={cn(
+                "hidden border-r border-white/10 bg-slate-950/70 px-5 py-6 backdrop-blur md:flex",
+                isSidebarCollapsed ? "w-20" : "w-64"
+              )}
+            >
+              {sidebarContent}
+            </aside>
 
-          {isMobileSidebarOpen ? (
-            <div className="fixed inset-0 z-50 flex md:hidden">
-              <button
-                type="button"
-                className="absolute inset-0 bg-black/60"
-                onClick={() => setIsMobileSidebarOpen(false)}
-                aria-label="Close navigation"
-              />
-              <div className="relative z-10 h-full w-72 border-r border-white/10 bg-slate-950/95 px-5 py-6">
-                {sidebarContent}
+            {isMobileSidebarOpen ? (
+              <div className="fixed inset-0 z-50 flex md:hidden">
+                <button
+                  type="button"
+                  className="absolute inset-0 bg-black/60"
+                  onClick={() => setIsMobileSidebarOpen(false)}
+                  aria-label="Close navigation"
+                />
+                <div className="relative z-10 h-full w-72 border-r border-white/10 bg-slate-950/95 px-5 py-6">
+                  {sidebarContent}
+                </div>
               </div>
+            ) : null}
+
+            <div className="flex flex-1 flex-col min-h-0">
+              <header className="sticky top-0 z-40 border-b border-white/10 bg-slate-950/80 backdrop-blur">
+                <div className="flex items-center justify-between px-4 py-4 md:px-6">
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-foreground transition hover:bg-white/10 md:hidden"
+                      onClick={() => setIsMobileSidebarOpen(true)}
+                      aria-label="Open navigation"
+                    >
+                      <Menu className="h-5 w-5" />
+                    </button>
+                    <div className="hidden text-sm text-slate-300 md:block">Admin console</div>
+                    <AdminSearchBar />
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <UserProfileMenu />
+                  </div>
+                </div>
+              </header>
+
+              <main className="flex-1 overflow-y-auto px-4 py-6 md:px-6 lg:px-10">
+                <AdminAuthGuard>
+                  {children}
+                </AdminAuthGuard>
+              </main>
             </div>
-          ) : null}
-
-          <div className="flex flex-1 flex-col min-h-0">
-            <header className="sticky top-0 z-40 border-b border-white/10 bg-slate-950/80 backdrop-blur">
-              <div className="flex items-center justify-between px-4 py-4 md:px-6">
-                <div className="flex items-center gap-3">
-                  <button
-                    type="button"
-                    className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-foreground transition hover:bg-white/10 md:hidden"
-                    onClick={() => setIsMobileSidebarOpen(true)}
-                    aria-label="Open navigation"
-                  >
-                    <Menu className="h-5 w-5" />
-                  </button>
-                  <div className="hidden text-sm text-slate-300 md:block">Admin console</div>
-                  <AdminSearchBar />
-                </div>
-                <div className="flex items-center gap-3">
-                  <UserProfileMenu />
-                </div>
-              </div>
-            </header>
-
-            <main className="flex-1 overflow-y-auto px-4 py-6 md:px-6 lg:px-10">
-              <AdminAuthGuard>
-                {children}
-              </AdminAuthGuard>
-            </main>
           </div>
         </div>
-      </div>
-    </AdminSearchProvider>
+      </AdminSearchProvider>
+    </ClientProvider>
   );
 }
