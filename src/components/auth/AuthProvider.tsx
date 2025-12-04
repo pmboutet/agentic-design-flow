@@ -1,7 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, useMemo, useState, useEffect, useCallback, useRef } from "react";
-import { Session, User } from "@supabase/supabase-js";
+import { Session, User, AuthChangeEvent } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabaseClient";
 import type { Profile } from "@/types";
 
@@ -42,10 +42,10 @@ const DEV_BYPASS_USER: AuthUser = {
 };
 
 /**
- * Simplified AuthProvider with Supabase Auth integration.
+ * AuthProvider with Supabase Auth integration.
  * - Manages authentication state and session
- * - Trusts middleware for route protection
- * - Simple profile fetching without complex retry logic
+ * - Debounces auth state changes to prevent rapid updates
+ * - Redirects after sign out
  */
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const isDevBypass = useMemo(() => {
@@ -58,13 +58,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(isDevBypass ? DEV_BYPASS_USER : null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
-  const initRef = useRef(false);
 
-  // Simple profile fetch - no retries, just fetch once
+  // Refs to prevent duplicate processing
+  const initRef = useRef(false);
+  const lastProcessedSessionId = useRef<string | null>(null);
+  const lastEventRef = useRef<{ event: AuthChangeEvent; timestamp: number } | null>(null);
+  const isSigningOutRef = useRef(false);
+
+  // Simple profile fetch
   const fetchProfile = useCallback(async (authUser: User): Promise<Profile | null> => {
     if (isDevBypass) return null;
 
-    console.log("[Auth] Fetching profile for user:", authUser.id, authUser.email);
+    console.log("[Auth] Fetching profile for:", authUser.email);
 
     try {
       const { data, error } = await supabase
@@ -79,7 +84,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (!data) {
-        console.warn("[Auth] No profile found for user");
+        console.warn("[Auth] No profile found");
         return null;
       }
 
@@ -112,7 +117,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         updatedAt: data.updated_at,
       };
 
-      console.log("[Auth] Profile loaded:", profileData.email, profileData.role);
+      console.log("[Auth] Profile loaded:", profileData.role);
       return profileData;
     } catch (error) {
       console.error("[Auth] Profile fetch exception:", error);
@@ -120,14 +125,44 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [isDevBypass]);
 
-  // Update user state from session
-  const updateUserFromSession = useCallback(async (newSession: Session | null) => {
+  // Process session - with deduplication
+  const processSession = useCallback(async (newSession: Session | null, event?: AuthChangeEvent) => {
+    // Skip if signing out
+    if (isSigningOutRef.current) {
+      console.log("[Auth] Skipping processSession - signing out");
+      return;
+    }
+
     if (isDevBypass) {
       setUser(DEV_BYPASS_USER);
       setProfile(null);
       setStatus("signed-in");
       return;
     }
+
+    const sessionId = newSession?.access_token ?? null;
+
+    // Skip if same session (for TOKEN_REFRESHED events)
+    if (event === "TOKEN_REFRESHED" && sessionId === lastProcessedSessionId.current) {
+      console.log("[Auth] Skipping TOKEN_REFRESHED - same session");
+      return;
+    }
+
+    // Debounce rapid events (within 1 second)
+    const now = Date.now();
+    if (lastEventRef.current && event) {
+      const timeSinceLastEvent = now - lastEventRef.current.timestamp;
+      if (timeSinceLastEvent < 1000 && lastEventRef.current.event === event) {
+        console.log("[Auth] Debouncing rapid event:", event);
+        return;
+      }
+    }
+
+    if (event) {
+      lastEventRef.current = { event, timestamp: now };
+    }
+
+    lastProcessedSessionId.current = sessionId;
 
     if (!newSession?.user) {
       console.log("[Auth] No session, setting signed-out");
@@ -137,10 +172,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    const authUser = newSession.user;
-    const userProfile = await fetchProfile(authUser);
+    // Only fetch profile for SIGNED_IN or INITIAL_SESSION events, not TOKEN_REFRESHED
+    const shouldFetchProfile = !event || event === "SIGNED_IN" || event === "INITIAL_SESSION";
 
-    setProfile(userProfile);
+    const authUser = newSession.user;
+    let userProfile = profile; // Keep existing profile by default
+
+    if (shouldFetchProfile) {
+      userProfile = await fetchProfile(authUser);
+      setProfile(userProfile);
+    }
+
     setUser({
       id: authUser.id,
       email: authUser.email ?? "",
@@ -150,9 +192,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       profile: userProfile,
     });
 
-    console.log("[Auth] User set, status: signed-in");
+    console.log("[Auth] Session processed, status: signed-in");
     setStatus("signed-in");
-  }, [fetchProfile, isDevBypass]);
+  }, [fetchProfile, isDevBypass, profile]);
 
   // Dev user setter
   const setDevUser = useCallback((devProfile: Profile) => {
@@ -205,7 +247,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         console.log("[Auth] Initial session:", initialSession ? "exists" : "none");
         setSession(initialSession);
-        await updateUserFromSession(initialSession);
+        await processSession(initialSession, "INITIAL_SESSION");
       })
       .catch((error) => {
         console.error("[Auth] getSession exception:", error);
@@ -217,15 +259,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!isMounted) return;
 
       console.log("[Auth] Auth state changed:", event);
+
+      // Handle SIGNED_OUT immediately
+      if (event === "SIGNED_OUT") {
+        setSession(null);
+        setUser(null);
+        setProfile(null);
+        setStatus("signed-out");
+        lastProcessedSessionId.current = null;
+        return;
+      }
+
       setSession(newSession);
-      await updateUserFromSession(newSession);
+      await processSession(newSession, event);
     });
 
     return () => {
       isMounted = false;
       subscription.unsubscribe();
     };
-  }, [isDevBypass, updateUserFromSession]);
+  }, [isDevBypass, processSession]);
 
   const signIn = useCallback(async (email: string, password: string) => {
     if (isDevBypass) {
@@ -241,7 +294,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (data.session) {
         setSession(data.session);
-        await updateUserFromSession(data.session);
+        await processSession(data.session, "SIGNED_IN");
       }
       return {};
     } catch (error) {
@@ -249,7 +302,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setIsProcessing(false);
     }
-  }, [isDevBypass, updateUserFromSession]);
+  }, [isDevBypass, processSession]);
 
   const signUp = useCallback(async (
     email: string,
@@ -283,7 +336,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (data.session) {
         setSession(data.session);
-        await updateUserFromSession(data.session);
+        await processSession(data.session, "SIGNED_IN");
       }
       return {};
     } catch (error) {
@@ -291,7 +344,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setIsProcessing(false);
     }
-  }, [isDevBypass, updateUserFromSession]);
+  }, [isDevBypass, processSession]);
 
   const signInWithGoogle = useCallback(async (redirectTo?: string) => {
     if (isDevBypass) {
@@ -338,17 +391,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
+    console.log("[Auth] Signing out...");
+    isSigningOutRef.current = true;
     setIsProcessing(true);
+
     try {
-      await supabase.auth.signOut();
+      // Clear state immediately
       setSession(null);
       setUser(null);
       setProfile(null);
       setStatus("signed-out");
-      console.log("[Auth] Signed out");
+      lastProcessedSessionId.current = null;
+
+      // Call Supabase signOut
+      await supabase.auth.signOut();
+      console.log("[Auth] Signed out successfully");
+
+      // Redirect to login page
+      if (typeof window !== "undefined") {
+        window.location.href = "/auth/login";
+      }
     } catch (error) {
       console.error("[Auth] Sign out error:", error);
+      // Still redirect even if there's an error
+      if (typeof window !== "undefined") {
+        window.location.href = "/auth/login";
+      }
     } finally {
+      isSigningOutRef.current = false;
       setIsProcessing(false);
     }
   }, [isDevBypass]);
