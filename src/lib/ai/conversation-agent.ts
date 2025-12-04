@@ -249,6 +249,8 @@ export function buildConversationAgentVariables(context: ConversationAgentContex
     participant_name: lastUserMessage?.senderName ?? '',
     // Messages (modern JSON format)
     messages_json: JSON.stringify(conversationMessagesPayload),
+    // Internal: messages as array for Handlebars helpers (recentMessages)
+    messages_array: conversationMessagesPayload,
     latest_user_message: lastUserMessage?.content ?? '',
     // System prompts
     system_prompt_ask: context.ask.system_prompt ?? '',
