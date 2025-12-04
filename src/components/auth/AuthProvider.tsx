@@ -242,11 +242,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.log("[Auth] Document cookies:", document.cookie ? document.cookie.split(';').length + ' cookies' : 'none');
     }
 
+    // Check if Supabase client is available
+    if (!supabase) {
+      console.error("[Auth] Supabase client is not available");
+      setStatus("signed-out");
+      return;
+    }
+
     const initAuth = async () => {
       try {
         // First, validate the user with getUser() - this contacts Supabase to verify JWT
         console.log("[Auth] Calling getUser() to validate JWT...");
-        const { data: { user: validatedUser }, error: userError } = await supabase.auth.getUser();
+
+        // Add timeout to prevent infinite loading
+        const timeoutPromise = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("Auth timeout")), 10000)
+        );
+
+        const getUserPromise = supabase.auth.getUser();
+        const { data: { user: validatedUser }, error: userError } = await Promise.race([
+          getUserPromise,
+          timeoutPromise
+        ]) as Awaited<typeof getUserPromise>;
 
         if (!isMounted) return;
 

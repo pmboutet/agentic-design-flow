@@ -103,7 +103,14 @@ export async function GET(request: NextRequest) {
     console.log(`[Callback] Setting ${cookiesToSet.length} cookies on response`)
     cookiesToSet.forEach(({ name, value, options }) => {
       console.log(`[Callback] Setting cookie on response: ${name}`)
-      response.cookies.set(name, value, options as Parameters<typeof response.cookies.set>[2])
+      // Ensure cookies are accessible from JavaScript (httpOnly: false)
+      // and from all routes (path: '/')
+      const cookieOptions = {
+        ...options,
+        path: '/',
+        httpOnly: false, // Required for browser client to read auth tokens
+      } as Parameters<typeof response.cookies.set>[2]
+      response.cookies.set(name, value, cookieOptions)
     })
     // Log response cookies
     const responseCookies = response.cookies.getAll()
