@@ -65,8 +65,7 @@ export async function POST(
         project_name: '', // TODO: Get project name if available
         challenge_name: '', // TODO: Get challenge name if available
         delivery_mode: 'digital', // TODO: Get from session
-        audience_scope: 'individual', // TODO: Get from session
-        response_mode: 'simultaneous', // TODO: Get from session
+        conversation_mode: 'collaborative', // TODO: Get from session
       }
     );
 

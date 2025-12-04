@@ -10,9 +10,6 @@ export interface ConversationThread {
 
 export interface AskSessionConfig {
   conversation_mode?: string | null;
-  // DEPRECATED: Use conversation_mode instead
-  audience_scope?: string | null;
-  response_mode?: string | null;
 }
 
 /**
@@ -32,21 +29,11 @@ export interface AskSessionConfig {
  *   → Un groupe contribue avec un rapporteur
  *   → Tous les participants partagent le même thread
  *   → Un participant est désigné comme rapporteur (is_spokesperson)
- *
- * For backward compatibility, also supports legacy audience_scope + response_mode logic.
  */
 export function shouldUseSharedThread(askSession: AskSessionConfig): boolean {
-  // New logic: use conversation_mode if available
-  if (askSession.conversation_mode) {
-    // Only individual_parallel uses individual threads
-    return askSession.conversation_mode !== 'individual_parallel';
-  }
-
-  // Legacy fallback: old logic using audience_scope + response_mode
-  return (
-    askSession.audience_scope === 'group' &&
-    askSession.response_mode === 'collective'
-  );
+  // Only individual_parallel uses individual threads
+  // Default to shared thread if conversation_mode is not set
+  return askSession.conversation_mode !== 'individual_parallel';
 }
 
 /**

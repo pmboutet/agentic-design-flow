@@ -20,8 +20,7 @@ interface AskSessionWithRelations {
   project_id?: string | null;
   challenge_id?: string | null;
   delivery_mode?: string | null;
-  audience_scope?: string | null;
-  response_mode?: string | null;
+  conversation_mode?: string | null;
   projects?: RelatedPromptHolder | RelatedPromptHolder[] | null;
   challenges?: RelatedPromptHolder | RelatedPromptHolder[] | null;
 }
@@ -157,13 +156,12 @@ export interface PromptVariables {
   challenge_name?: string;
   previous_messages?: string;
   delivery_mode?: string;
-  audience_scope?: string;
-  response_mode?: string;
+  conversation_mode?: string;
   system_prompt_ask?: string;
   system_prompt_project?: string;
   system_prompt_challenge?: string;
-  participants?: string; // Legacy: comma-separated string
-  participants_list?: Array<{ name: string; role?: string | null }>; // Preferred: array for Handlebars
+  participants?: string; // Comma-separated string for templates
+  participants_list?: Array<{ name: string; role?: string | null }>; // Array for Handlebars
   [key: string]: any; // Allow any type for Handlebars flexibility (arrays, objects, etc.)
 }
 
@@ -359,8 +357,7 @@ export async function getAgentConfigForAsk(
         is_anonymous: boolean;
         max_participants: number | null;
         delivery_mode: string;
-        audience_scope: string;
-        response_mode: string;
+        conversation_mode: string;
         project_id: string | null;
         challenge_id: string | null;
         created_by: string | null;
@@ -416,8 +413,7 @@ export async function getAgentConfigForAsk(
       project_id: rpcData.project_id,
       challenge_id: rpcData.challenge_id,
       delivery_mode: rpcData.delivery_mode,
-      audience_scope: rpcData.audience_scope,
-      response_mode: rpcData.response_mode,
+      conversation_mode: rpcData.conversation_mode,
       projects: projectData ? [projectData] : null,
       challenges: challengeData ? [challengeData] : null,
     } as AskSessionWithRelations;
@@ -435,8 +431,7 @@ export async function getAgentConfigForAsk(
         project_id,
         challenge_id,
         delivery_mode,
-        audience_scope,
-        response_mode,
+        conversation_mode,
         projects(id, name, system_prompt),
         challenges(id, name, system_prompt)
       `)

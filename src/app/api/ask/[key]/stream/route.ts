@@ -196,10 +196,10 @@ export async function POST(
       profileId = profile.id;
     }
 
-    const { row: askRow, error: askError } = await getAskSessionByKey<AskSessionRow & { audience_scope?: string | null; response_mode?: string | null }>(
+    const { row: askRow, error: askError } = await getAskSessionByKey<AskSessionRow & { conversation_mode?: string | null }>(
       dataClient,
       key,
-      'id, ask_key, question, description, status, system_prompt, project_id, challenge_id, is_anonymous, audience_scope, response_mode'
+      'id, ask_key, question, description, status, system_prompt, project_id, challenge_id, is_anonymous, conversation_mode'
     );
 
     if (askError) {
@@ -312,13 +312,12 @@ export async function POST(
 
     // Get or create conversation thread
     const askConfig = {
-      audience_scope: askRow.audience_scope ?? null,
-      response_mode: askRow.response_mode ?? null,
+      conversation_mode: askRow.conversation_mode ?? null,
     };
-    
+
     // In dev bypass mode, use admin client to bypass RLS for thread operations
     const threadClient = isDevBypass ? await getAdminClient() : dataClient;
-    
+
     const { thread: conversationThread, error: threadError } = await getOrCreateConversationThread(
       threadClient,
       askRow.id,

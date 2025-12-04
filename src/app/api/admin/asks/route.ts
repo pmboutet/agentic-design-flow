@@ -10,9 +10,6 @@ import { sendMagicLink } from "@/lib/auth/magicLink";
 const statusValues = ["active", "inactive", "draft", "closed"] as const;
 const deliveryModes = ["physical", "digital"] as const;
 const conversationModes = ["individual_parallel", "collaborative", "group_reporter"] as const;
-// DEPRECATED: Legacy values for backward compatibility
-const audienceScopes = ["individual", "group"] as const;
-const responseModes = ["collective", "simultaneous"] as const;
 const askSelect = "*, projects(name), ask_participants(id, user_id, role, participant_name, participant_email, is_spokesperson, invite_token), system_prompt";
 const dateSchema = z.string().trim().min(1).refine(value => !Number.isNaN(new Date(value).getTime()), {
   message: "Invalid date"
@@ -31,20 +28,12 @@ const askSchema = z.object({
   isAnonymous: z.boolean().default(false),
   maxParticipants: z.number().int().positive().max(10000).optional(),
   deliveryMode: z.enum(deliveryModes),
-  conversationMode: z.enum(conversationModes).optional(),
-  // DEPRECATED: Legacy fields for backward compatibility
-  audienceScope: z.enum(audienceScopes).optional(),
-  responseMode: z.enum(responseModes).optional(),
+  conversationMode: z.enum(conversationModes).default("collaborative"),
   participantIds: z.array(z.string().uuid()).default([]),
   participantEmails: z.array(z.string().email()).default([]),
   spokespersonId: z.string().uuid().optional().or(z.literal("")),
   spokespersonEmail: z.string().email().optional().or(z.literal("")),
   systemPrompt: z.union([z.string().trim(), z.literal(""), z.null()]).optional()
-}).refine((data) => {
-  // Ensure either conversationMode OR (audienceScope AND responseMode) is provided
-  return data.conversationMode || (data.audienceScope && data.responseMode);
-}, {
-  message: "Either conversationMode or both audienceScope and responseMode must be provided"
 });
 
 function mapAsk(row: any): AskSessionRecord {
@@ -80,9 +69,6 @@ function mapAsk(row: any): AskSessionRecord {
     maxParticipants: row.max_participants,
     deliveryMode: row.delivery_mode ?? "digital",
     conversationMode: row.conversation_mode ?? "collaborative",
-    // Legacy fields for backward compatibility
-    audienceScope: row.audience_scope ?? undefined,
-    responseMode: row.response_mode ?? undefined,
     createdBy: row.created_by,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -148,21 +134,6 @@ export async function POST(request: NextRequest) {
     const startDate = new Date(payload.startDate).toISOString();
     const endDate = new Date(payload.endDate).toISOString();
 
-    // Determine conversation mode (new field or convert from legacy fields)
-    let conversationMode = payload.conversationMode;
-    if (!conversationMode && payload.audienceScope && payload.responseMode) {
-      // Convert legacy fields to new conversation_mode
-      if (payload.audienceScope === "individual" || payload.responseMode === "simultaneous") {
-        conversationMode = "individual_parallel";
-      } else if (payload.audienceScope === "group" && payload.responseMode === "collective") {
-        // Check if there's a spokesperson
-        const hasSpokesperson = payload.spokespersonId || payload.spokespersonEmail;
-        conversationMode = hasSpokesperson ? "group_reporter" : "collaborative";
-      } else {
-        conversationMode = "collaborative"; // Default fallback
-      }
-    }
-
     const insertData = {
       ask_key: sanitizeText(payload.askKey),
       name: sanitizeText(payload.name),
@@ -176,7 +147,7 @@ export async function POST(request: NextRequest) {
       is_anonymous: payload.isAnonymous,
       max_participants: payload.maxParticipants ?? null,
       delivery_mode: payload.deliveryMode,
-      conversation_mode: conversationMode ?? "collaborative",
+      conversation_mode: payload.conversationMode,
       system_prompt: sanitizeOptional(payload.systemPrompt || null)
     };
 

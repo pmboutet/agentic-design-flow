@@ -18,8 +18,7 @@ interface AskSessionRow {
   system_prompt?: string | null;
   project_id?: string | null;
   challenge_id?: string | null;
-  audience_scope?: string | null;
-  response_mode?: string | null;
+  conversation_mode?: string | null;
 }
 
 interface MessageRow {
@@ -130,7 +129,7 @@ export async function POST(
     const { row: askRow, error: askError } = await getAskSessionByKey<AskSessionRow>(
       dataClient,
       key,
-      'id, ask_key, question, description, status, system_prompt, project_id, challenge_id, audience_scope, response_mode'
+      'id, ask_key, question, description, status, system_prompt, project_id, challenge_id, conversation_mode'
     );
 
     if (askError || !askRow) {
@@ -151,8 +150,7 @@ export async function POST(
 
     // Get or create conversation thread
     const askConfig = {
-      audience_scope: askRow.audience_scope ?? null,
-      response_mode: askRow.response_mode ?? null,
+      conversation_mode: askRow.conversation_mode ?? null,
     };
 
     // Try to get current user for thread determination (if not already set via token)

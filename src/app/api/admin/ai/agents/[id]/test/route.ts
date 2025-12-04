@@ -54,8 +54,7 @@ export async function POST(
           system_prompt,
           project_id,
           challenge_id,
-          audience_scope,
-          response_mode
+          conversation_mode
         `)
         .eq('id', body.askSessionId)
         .maybeSingle();
@@ -115,8 +114,7 @@ export async function POST(
 
       // Get or create conversation thread
       const askConfig = {
-        audience_scope: askRow.audience_scope ?? null,
-        response_mode: askRow.response_mode ?? null,
+        conversation_mode: askRow.conversation_mode ?? null,
       };
 
       // Use the userId from the request to get the correct thread
