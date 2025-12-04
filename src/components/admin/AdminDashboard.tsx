@@ -44,6 +44,7 @@ import { useAdminResources } from "./useAdminResources";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { UserSearchCombobox } from "@/components/ui/user-search-combobox";
 import { useAdminSearch, type SearchResultType, type SearchResultItem } from "./AdminSearchContext";
+import { useClientContext } from "./ClientContext";
 import type { ApiResponse, AskSessionRecord, ChallengeRecord, ClientRecord, ManagedUser, ProjectRecord } from "@/types";
 
 interface AdminDashboardProps {
@@ -134,11 +135,11 @@ type UserFormInput = z.infer<typeof userFormSchema>;
 
 const gradientButtonClasses = "btn-gradient";
 
-type ColumnWidths = [number, number, number];
+type ColumnWidths = [number, number];
 
-const defaultColumnWidths: ColumnWidths = [320, 360, 460];
-const minColumnWidths: ColumnWidths = [260, 300, 360];
-const maxColumnWidths: ColumnWidths = [520, 560, 680];
+const defaultColumnWidths: ColumnWidths = [400, 560];
+const minColumnWidths: ColumnWidths = [320, 400];
+const maxColumnWidths: ColumnWidths = [600, 800];
 
 const defaultClientFormValues: ClientFormInput = {
   name: "",
@@ -189,7 +190,6 @@ const defaultUserFormValues: UserFormInput = {
 
 const navigationItems = [
   { label: "Dashboard", icon: LayoutDashboard, targetId: "section-dashboard" },
-  { label: "Clients", icon: Building2, targetId: "section-clients" },
   { label: "Projects", icon: FolderKanban, targetId: "section-projects" },
   { label: "Challenges", icon: Target, targetId: "section-challenges" },
   { label: "ASK Sessions", icon: MessageSquare, targetId: "section-asks" },
@@ -646,11 +646,12 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
     refreshAsks
   } = useAdminResources();
 
-  const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
+  // Get client selection from context (managed in sidebar)
+  const { selectedClientId, setSelectedClientId, clients: contextClients, selectedClient: contextSelectedClient } = useClientContext();
+
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(initialProjectId ?? null);
   const [selectedChallengeId, setSelectedChallengeId] = useState<string | null>(null);
 
-  const [showClientForm, setShowClientForm] = useState(false);
   const [showProjectForm, setShowProjectForm] = useState(false);
   const [showAskForm, setShowAskForm] = useState(false);
   const [showUserForm, setShowUserForm] = useState(false);
@@ -670,7 +671,6 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
   const searchBlurTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
 
-  const [editingClientId, setEditingClientId] = useState<string | null>(null);
   const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
   const [editingAskId, setEditingAskId] = useState<string | null>(null);
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
@@ -683,7 +683,6 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
   const normalizedSearchQuery = searchQuery.trim().toLowerCase();
 
   const dashboardRef = useRef<HTMLDivElement>(null);
-  const clientsRef = useRef<HTMLDivElement>(null);
   const projectsRef = useRef<HTMLDivElement>(null);
   const challengesRef = useRef<HTMLDivElement>(null);
   const asksRef = useRef<HTMLDivElement>(null);
@@ -696,7 +695,6 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
   const sectionRefMap = useMemo<Record<SectionId, RefObject<HTMLDivElement | null>>>(
     () => ({
       "section-dashboard": dashboardRef,
-      "section-clients": clientsRef,
       "section-projects": projectsRef,
       "section-challenges": challengesRef,
       "section-asks": asksRef,
@@ -819,10 +817,11 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
       return;
     }
     const project = projects.find(item => item.id === selectedProjectId);
-    if (project && project.clientId !== selectedClientId) {
-      setSelectedClientId(project.clientId ?? null);
+    // If "all" is selected, don't change it when viewing a project
+    if (project && selectedClientId !== "all" && project.clientId !== selectedClientId) {
+      setSelectedClientId(project.clientId ?? "all");
     }
-  }, [projects, selectedProjectId, showOnlyChallengeWorkspace, selectedClientId]);
+  }, [projects, selectedProjectId, showOnlyChallengeWorkspace, selectedClientId, setSelectedClientId]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -856,11 +855,7 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
     }
   }, [askForm, selectedConversationMode]);
 
-  useEffect(() => {
-    if (clients.length > 0 && !selectedClientId) {
-      setSelectedClientId(clients[0].id);
-    }
-  }, [clients, selectedClientId]);
+  // Client initialization is now handled by ClientContext
 
   const clientById = useMemo(() => {
     const map = new Map<string, ClientRecord>();
@@ -1127,14 +1122,14 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
         setChallengeDetailId(null);
       }
 
-      setShowClientForm(false);
       setShowProjectForm(false);
       setShowAskForm(false);
       setShowUserForm(false);
 
       switch (result.type) {
         case "client":
-          scrollToSection("section-clients");
+          // Client selection is now in sidebar, go to projects
+          scrollToSection("section-projects");
           break;
         case "project":
           scrollToSection("section-projects");
@@ -1161,7 +1156,6 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
       setSelectedChallengeId,
       setAskDetailId,
       setChallengeDetailId,
-      setShowClientForm,
       setShowProjectForm,
       setShowAskForm,
       setShowUserForm
@@ -1259,7 +1253,9 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
   }, []);
 
   const projectsForClient = useMemo(
-    () => projects.filter(project => project.clientId === selectedClientId),
+    () => selectedClientId === "all"
+      ? projects
+      : projects.filter(project => project.clientId === selectedClientId),
     [projects, selectedClientId]
   );
 
@@ -1334,10 +1330,8 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
     return closest;
   }, [challengesForProject]);
 
-  const selectedClient = useMemo(
-    () => clients.find(client => client.id === selectedClientId) ?? null,
-    [clients, selectedClientId]
-  );
+  // selectedClient comes from context
+  const selectedClient = contextSelectedClient;
 
   const selectedProject = useMemo(
     () => projects.find(project => project.id === selectedProjectId) ?? null,
@@ -1485,7 +1479,6 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
     [showOnlyChallengeWorkspace, initialProjectId, isLoading, selectedProject]
   );
 
-  const isEditingClient = Boolean(editingClientId);
   const isEditingProject = Boolean(editingProjectId);
   const isEditingAsk = Boolean(editingAskId);
   const isEditingUser = Boolean(editingUserId);
@@ -1494,7 +1487,8 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
     if (!showUserForm || isEditingUser) {
       return;
     }
-    const targetClientId = selectedClientId ?? "";
+    // If "all" is selected, use empty string for user form (user will need to select a client)
+    const targetClientId = selectedClientId === "all" ? "" : (selectedClientId ?? "");
     if (userForm.getValues("clientId") !== targetClientId) {
       userForm.setValue("clientId", targetClientId, { shouldDirty: false });
     }
@@ -1645,53 +1639,20 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
   }, [sectionRefMap, selectedProjectId, selectedChallengeId, navigationMenu]);
 
 
-  const resetClientForm = () => {
-    clientForm.reset(defaultClientFormValues);
-    setEditingClientId(null);
-  };
-
-  const handleSubmitClient = async (values: ClientFormInput) => {
-    if (editingClientId) {
-      await updateClient(editingClientId, values);
-    } else {
-      await createClient(values);
-    }
-    resetClientForm();
-    setShowClientForm(false);
-  };
-
-  const startClientEdit = (clientId: string) => {
-    const client = clients.find(item => item.id === clientId);
-    if (!client) {
-      return;
-    }
-    setShowClientForm(true);
-    setEditingClientId(client.id);
-    clientForm.reset({
-      name: client.name,
-      email: client.email ?? "",
-      company: client.company ?? "",
-      industry: client.industry ?? "",
-      status: (client.status as ClientFormInput["status"]) || "active"
-    });
-  };
-
-  const cancelClientEdit = () => {
-    resetClientForm();
-    setShowClientForm(false);
-  };
-
   const resetProjectForm = () => {
     projectForm.reset(defaultProjectFormValues);
     setEditingProjectId(null);
   };
 
   const handleSubmitProject = async (values: ProjectFormInput) => {
-    const targetClientId = selectedClientId || selectedProject?.clientId;
+    // If "all" is selected, require a specific client selection
+    const targetClientId = selectedClientId === "all"
+      ? selectedProject?.clientId
+      : (selectedClientId || selectedProject?.clientId);
     if (!targetClientId) {
       setFeedback({
         type: "error",
-        message: "Select a client before creating or updating a project."
+        message: "Sélectionnez un client avant de créer ou modifier un projet."
       });
       return;
     }
@@ -1876,7 +1837,9 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
   };
 
   const resetUserForm = () => {
-    userForm.reset({ ...defaultUserFormValues, clientId: selectedClientId ?? "" });
+    // If "all" is selected, use empty string (user must select specific client)
+    const clientIdForForm = selectedClientId === "all" ? "" : (selectedClientId ?? "");
+    userForm.reset({ ...defaultUserFormValues, clientId: clientIdForForm });
     setEditingUserId(null);
   };
 
@@ -1887,14 +1850,16 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
       payload.clientId = values.clientId ?? "";
       await updateUser(editingUserId, payload);
     } else {
-      if (!selectedClientId) {
+      // For new users, require a valid client selection
+      const targetClientId = selectedClientId === "all" ? values.clientId : selectedClientId;
+      if (!targetClientId) {
         setFeedback({
           type: "error",
-          message: "Select a client before creating a user."
+          message: "Sélectionnez un client avant de créer un utilisateur."
         });
         return;
       }
-      payload.clientId = selectedClientId;
+      payload.clientId = targetClientId;
       await createUser(payload);
     }
     resetUserForm();
@@ -1939,7 +1904,8 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
       return;
     }
     console.log("Creating new user for project:", { email, selectedProjectId });
-    const clientId = selectedProject?.clientId ?? selectedClientId ?? undefined;
+    // Use project's clientId, or selectedClientId if not "all"
+    const clientId = selectedProject?.clientId ?? (selectedClientId === "all" ? undefined : selectedClientId) ?? undefined;
     console.log("Client ID:", clientId);
     const newUser = await createUserAndAddToProject(email, selectedProjectId, clientId);
     if (newUser) {
@@ -1964,18 +1930,6 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
       return;
     }
     await deleteUser(userId);
-  };
-
-  const handleDeleteClient = async (clientId: string) => {
-    if (!window.confirm("Delete this client and all related items?")) {
-      return;
-    }
-    if (selectedClientId === clientId) {
-      setSelectedClientId(null);
-      setSelectedProjectId(null);
-      setSelectedChallengeId(null);
-    }
-    await deleteClient(clientId);
   };
 
   const handleDeleteProject = async (projectId: string) => {
@@ -2022,7 +1976,8 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
 
   const filteredUsers = useMemo(() => {
     const projectClientId = selectedProject?.clientId ?? null;
-    const targetClientId = selectedClientId ?? projectClientId ?? null;
+    // If "all" is selected, use null to show all users
+    const targetClientId = selectedClientId === "all" ? null : (selectedClientId ?? projectClientId ?? null);
 
     // If a project is selected, only show users who are members of that project
     if (selectedProjectId) {
@@ -2125,7 +2080,8 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
 
   // All hooks must be called before any conditional returns
   // Calculate values that depend on filteredUsers and other data
-  const viewingClientId = selectedClientId ?? selectedProject?.clientId ?? null;
+  // If "all" is selected, use null to show all clients' data
+  const viewingClientId = selectedClientId === "all" ? null : (selectedClientId ?? selectedProject?.clientId ?? null);
   const activeUserCount = useMemo(
     () => filteredUsers.filter(user => user.isActive).length,
     [filteredUsers]
@@ -3301,13 +3257,6 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                     <div className="flex items-center justify-between">
                       <h1 className="text-3xl font-semibold">Operational dashboard</h1>
                       <div className="hidden gap-3 md:flex">
-                        <Button
-                          type="button"
-                          className={gradientButtonClasses}
-                          onClick={() => setShowClientForm(true)}
-                        >
-                          Create client
-                        </Button>
                         <Button variant="glassDark">
                           Export data
                         </Button>
@@ -3344,193 +3293,14 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
             {!showOnlyChallengeWorkspace && (
               <section className="space-y-6">
                 <div className="flex items-center justify-between">
-                  <h2 className="text-2xl font-semibold">Clients → Projects → Users</h2>
-                  <p className="text-sm text-slate-400">Drill down to manage everything from one place.</p>
+                  <h2 className="text-2xl font-semibold">Projects → Détails</h2>
+                  <p className="text-sm text-slate-400">Gérez les projets et leurs challenges depuis une seule vue.</p>
                 </div>
 
               <div
-                className="grid gap-6 lg:grid-cols-3"
+                className="grid gap-6 lg:grid-cols-2"
                 style={columnTemplate ? { gridTemplateColumns: columnTemplate } : undefined}
               >
-                <div
-                  ref={clientsRef}
-                  id="section-clients"
-                  className="relative flex flex-col gap-4 rounded-3xl border border-white/10 bg-white/5 p-5 backdrop-blur"
-                >
-                  <header className="flex items-center justify-between">
-                    <div>
-                      <h3 className="text-lg font-semibold text-white">Clients</h3>
-                      <p className="text-xs text-slate-400">Select a client to reveal related projects.</p>
-                    </div>
-                    <Button
-                      type="button"
-                      className={`${gradientButtonClasses} h-9 px-4 text-xs`}
-                      onClick={() => {
-                        if (showClientForm) {
-                          cancelClientEdit();
-                        } else {
-                          resetClientForm();
-                          setShowClientForm(true);
-                        }
-                      }}
-                      disabled={isBusy}
-                    >
-                      {showClientForm ? "Close" : "Add client"}
-                    </Button>
-                  </header>
-
-                  {showClientForm && (
-                    <form
-                      onSubmit={clientForm.handleSubmit(handleSubmitClient)}
-                      className="space-y-3 rounded-2xl border border-white/10 bg-slate-900/40 p-4"
-                    >
-                      {isEditingClient && (
-                        <p className="text-xs font-medium text-amber-300">
-                          Editing {clients.find(client => client.id === editingClientId)?.name}
-                        </p>
-                      )}
-                      <div className="flex flex-col gap-2">
-                        <Label htmlFor="client-name">Name</Label>
-                        <Input
-                          id="client-name"
-                          placeholder="Enter the organization name"
-                          {...clientForm.register("name")}
-                          disabled={isBusy}
-                        />
-                        {clientForm.formState.errors.name && (
-                          <p className="text-xs text-red-400">{clientForm.formState.errors.name.message}</p>
-                        )}
-                      </div>
-                      <div className="flex flex-col gap-2">
-                        <Label htmlFor="client-email">Email</Label>
-                        <Input
-                          id="client-email"
-                          placeholder="contact@company.com"
-                          {...clientForm.register("email")}
-                          disabled={isBusy}
-                        />
-                        {clientForm.formState.errors.email && (
-                          <p className="text-xs text-red-400">{clientForm.formState.errors.email.message}</p>
-                        )}
-                      </div>
-                      <div className="flex flex-col gap-2">
-                        <Label htmlFor="client-company">Company</Label>
-                        <Input
-                          id="client-company"
-                          placeholder="Legal entity"
-                          {...clientForm.register("company")}
-                          disabled={isBusy}
-                        />
-                      </div>
-                      <div className="flex flex-col gap-2">
-                        <Label htmlFor="client-industry">Industry</Label>
-                        <Input
-                          id="client-industry"
-                          placeholder="Industry focus"
-                          {...clientForm.register("industry")}
-                          disabled={isBusy}
-                        />
-                      </div>
-                      <div className="flex flex-col gap-2">
-                        <Label htmlFor="client-status">Status</Label>
-                        <select
-                          id="client-status"
-                          className="h-10 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm text-white"
-                          {...clientForm.register("status")}
-                          disabled={isBusy}
-                        >
-                          <option value="active">Active</option>
-                          <option value="inactive">Inactive</option>
-                        </select>
-                      </div>
-                      <div className="flex justify-end gap-2">
-                        {isEditingClient && (
-                          <Button
-                            type="button"
-                            variant="glassDark"
-                            onClick={cancelClientEdit}
-                            disabled={isBusy}
-                          >
-                            Cancel
-                          </Button>
-                        )}
-                        <Button type="submit" className={`${gradientButtonClasses} px-4`} disabled={isBusy}>
-                          {isEditingClient ? "Update client" : "Save client"}
-                        </Button>
-                      </div>
-                    </form>
-                  )}
-
-                  <div className="space-y-3 overflow-y-auto pr-2">
-                    {isLoading && clients.length === 0 ? (
-                      <p className="text-sm text-slate-400">Loading clients...</p>
-                    ) : clients.length === 0 ? (
-                      <p className="text-sm text-slate-400">No clients registered yet.</p>
-                    ) : (
-                      clients.map(client => (
-                        <article
-                          key={client.id}
-                          className={`rounded-2xl border px-4 py-3 transition hover:border-indigo-400 ${
-                            client.id === selectedClientId
-                              ? "border-indigo-400 bg-indigo-500/10"
-                              : "border-white/10 bg-slate-900/40"
-                          }`}
-                        >
-                          <button
-                            type="button"
-                            className="flex w-full items-center justify-between"
-                            onClick={() => setSelectedClientId(client.id)}
-                          >
-                            <div className="text-left">
-                              <h4 className="text-sm font-semibold text-white">{client.name}</h4>
-                              <p className="text-xs text-slate-400">
-                                {client.email ? client.email : "No contact email"}
-                              </p>
-                            </div>
-                            <span className="rounded-full bg-white/10 px-2 py-1 text-[10px] uppercase tracking-wide text-slate-200">
-                              {client.status}
-                            </span>
-                          </button>
-                          <div className="mt-2 flex items-center justify-between text-xs text-slate-500">
-                            <span>
-                              {projects.filter(project => project.clientId === client.id).length} projects
-                            </span>
-                            <div className="flex items-center gap-2">
-                              <button
-                                type="button"
-                                onClick={() => startClientEdit(client.id)}
-                                className="text-slate-200 hover:text-white"
-                                disabled={isBusy}
-                              >
-                                Edit
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteClient(client.id)}
-                                className="text-red-300 hover:text-red-200"
-                                disabled={isBusy}
-                              >
-                                Delete
-                              </button>
-                            </div>
-                          </div>
-                        </article>
-                      ))
-                    )}
-                  </div>
-                  {isLargeScreen && (
-                    <div
-                      role="separator"
-                      aria-label="Resize clients column"
-                      aria-orientation="vertical"
-                      className="absolute inset-y-0 right-[-8px] hidden w-4 cursor-col-resize items-center justify-center lg:flex"
-                      onMouseDown={event => handleResizeStart(event, 0)}
-                    >
-                      <span className="pointer-events-none h-12 w-px rounded-full bg-white/20" />
-                    </div>
-                  )}
-                </div>
-
                 <div
                   ref={projectsRef}
                   id="section-projects"
@@ -3539,7 +3309,11 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                   <header className="flex items-center justify-between">
                     <div>
                       <h3 className="text-lg font-semibold text-white">Projects</h3>
-                      <p className="text-xs text-slate-400">Only projects for the selected client are displayed.</p>
+                      <p className="text-xs text-slate-400">
+                        {selectedClientId === "all"
+                          ? "Tous les projets sont affichés."
+                          : "Projets du client sélectionné."}
+                      </p>
                     </div>
                     <Button
                       type="button"
@@ -3552,7 +3326,7 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                           setShowProjectForm(true);
                         }
                       }}
-                      disabled={!selectedClient || isBusy}
+                      disabled={(selectedClientId === "all" && !selectedProject) || isBusy}
                     >
                       {showProjectForm ? "Close" : "Add project"}
                     </Button>
@@ -3741,7 +3515,7 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                       aria-label="Resize projects column"
                       aria-orientation="vertical"
                       className="absolute inset-y-0 right-[-8px] hidden w-4 cursor-col-resize items-center justify-center lg:flex"
-                      onMouseDown={event => handleResizeStart(event, 1)}
+                      onMouseDown={event => handleResizeStart(event, 0)}
                     >
                       <span className="pointer-events-none h-12 w-px rounded-full bg-white/20" />
                     </div>
@@ -4000,17 +3774,6 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                       })
                     )}
                   </div>
-                  {isLargeScreen && (
-                    <div
-                      role="separator"
-                      aria-label="Resize users column"
-                      aria-orientation="vertical"
-                      className="absolute inset-y-0 right-[-8px] hidden w-4 cursor-col-resize items-center justify-center lg:flex"
-                      onMouseDown={event => handleResizeStart(event, 2)}
-                    >
-                      <span className="pointer-events-none h-12 w-px rounded-full bg-white/20" />
-                    </div>
-                  )}
                 </div>
                 </div>
               </section>
