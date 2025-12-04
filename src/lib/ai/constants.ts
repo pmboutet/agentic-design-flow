@@ -341,6 +341,12 @@ export const HANDLEBARS_HELPERS_DOC = [
     description: "Tronque une chaîne à N caractères + '...'",
     example: "{{truncate description 150}}",
   },
+  {
+    name: "recentMessages",
+    syntax: "{{recentMessages count}} ou {{recentMessages count format=\"json\"}}",
+    description: "Retourne les N derniers messages de la conversation. Format 'text' (défaut) ou 'json'",
+    example: "{{recentMessages 10}}\n{{recentMessages 5 format=\"json\"}}",
+  },
 ];
 
 export const DEFAULT_MAX_OUTPUT_TOKENS = 4096;

@@ -88,6 +88,38 @@ handlebarsInstance.registerHelper('truncate', function(str: string, maxLength: n
   return text.substring(0, maxLength) + '...';
 });
 
+// Helper: Get recent messages (last N messages)
+// Usage: {{recentMessages 10}} or {{recentMessages 10 format="json"}}
+handlebarsInstance.registerHelper('recentMessages', function(count: number, options: any) {
+  // Access messages_array from the root context (passed internally)
+  const messagesArray = options?.data?.root?.messages_array;
+
+  if (!messagesArray || !Array.isArray(messagesArray)) {
+    return '';
+  }
+
+  // Ensure count is a valid positive number
+  const limit = typeof count === 'number' && count > 0 ? count : 10;
+
+  // Get the last N messages
+  const recentMessages = messagesArray.slice(-limit);
+
+  // Determine output format from hash options (default: 'text')
+  const format = options?.hash?.format || 'text';
+
+  if (format === 'json') {
+    return JSON.stringify(recentMessages);
+  }
+
+  // Text format: "SenderName: content"
+  return recentMessages
+    .map((msg: { senderType?: string; senderName?: string; content?: string }) => {
+      const senderLabel = msg.senderType === 'ai' ? 'Agent' : (msg.senderName || 'Participant');
+      return `${senderLabel}: ${msg.content || ''}`;
+    })
+    .join('\n');
+});
+
 /**
  * Render a Handlebars template with the given variables.
  * 

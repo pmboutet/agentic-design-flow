@@ -241,6 +241,82 @@ System prompt challenge : {{system_prompt_challenge}}
       const variables = { text: 'Short' };
       expect(renderTemplate(template, variables)).toBe('Short');
     });
+
+    describe('recentMessages helper', () => {
+      const sampleMessages = [
+        { id: '1', senderType: 'user', senderName: 'Alice', content: 'Hello', timestamp: '2024-01-15T10:00:00Z' },
+        { id: '2', senderType: 'ai', senderName: 'Agent', content: 'Hi Alice!', timestamp: '2024-01-15T10:01:00Z' },
+        { id: '3', senderType: 'user', senderName: 'Bob', content: 'Question here', timestamp: '2024-01-15T10:02:00Z' },
+        { id: '4', senderType: 'ai', senderName: 'Agent', content: 'Here is my answer', timestamp: '2024-01-15T10:03:00Z' },
+        { id: '5', senderType: 'user', senderName: 'Alice', content: 'Thanks!', timestamp: '2024-01-15T10:04:00Z' },
+      ];
+
+      test('should return last N messages in text format by default', () => {
+        const template = '{{recentMessages 3}}';
+        const variables = { messages_array: sampleMessages };
+        const result = renderTemplate(template, variables);
+        expect(result).toBe('Bob: Question here\nAgent: Here is my answer\nAlice: Thanks!');
+      });
+
+      test('should return last N messages in JSON format', () => {
+        const template = '{{recentMessages 2 format="json"}}';
+        const variables = { messages_array: sampleMessages };
+        const result = renderTemplate(template, variables);
+        const parsed = JSON.parse(result);
+        expect(parsed).toHaveLength(2);
+        expect(parsed[0].content).toBe('Here is my answer');
+        expect(parsed[1].content).toBe('Thanks!');
+      });
+
+      test('should return all messages if count exceeds array length', () => {
+        const template = '{{recentMessages 10}}';
+        const variables = { messages_array: sampleMessages };
+        const result = renderTemplate(template, variables);
+        expect(result.split('\n')).toHaveLength(5);
+        expect(result).toContain('Alice: Hello');
+        expect(result).toContain('Alice: Thanks!');
+      });
+
+      test('should return empty string if messages_array is not provided', () => {
+        const template = '{{recentMessages 3}}';
+        const variables = {};
+        const result = renderTemplate(template, variables);
+        expect(result).toBe('');
+      });
+
+      test('should return empty string if messages_array is empty', () => {
+        const template = '{{recentMessages 3}}';
+        const variables = { messages_array: [] };
+        const result = renderTemplate(template, variables);
+        expect(result).toBe('');
+      });
+
+      test('should use "Agent" for ai senderType', () => {
+        const template = '{{recentMessages 1}}';
+        const variables = {
+          messages_array: [{ senderType: 'ai', content: 'AI response' }]
+        };
+        const result = renderTemplate(template, variables);
+        expect(result).toBe('Agent: AI response');
+      });
+
+      test('should use "Participant" when senderName is missing for user messages', () => {
+        const template = '{{recentMessages 1}}';
+        const variables = {
+          messages_array: [{ senderType: 'user', content: 'User message' }]
+        };
+        const result = renderTemplate(template, variables);
+        expect(result).toBe('Participant: User message');
+      });
+
+      test('should default to 10 messages when count is invalid', () => {
+        const template = '{{recentMessages "invalid"}}';
+        const variables = { messages_array: sampleMessages };
+        const result = renderTemplate(template, variables);
+        // Should return all 5 messages (less than default 10)
+        expect(result.split('\n')).toHaveLength(5);
+      });
+    });
   });
 
   describe('renderTemplate - Complex AI Prompt Scenarios', () => {
