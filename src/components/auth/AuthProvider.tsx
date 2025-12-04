@@ -173,29 +173,48 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    // Only fetch profile for SIGNED_IN or INITIAL_SESSION events, not TOKEN_REFRESHED
-    const shouldFetchProfile = !event || event === "SIGNED_IN" || event === "INITIAL_SESSION";
-
     const authUser = newSession.user;
-    let userProfile = profile; // Keep existing profile by default
+    const existingProfile = profile;
 
-    if (shouldFetchProfile) {
-      userProfile = await fetchProfile(authUser);
-      setProfile(userProfile);
-    }
-
+    // Immediately mark the user as signed-in using the cached profile/metadata
     setUser({
       id: authUser.id,
       email: authUser.email ?? "",
-      fullName: userProfile?.fullName ?? authUser.user_metadata?.fullName ?? authUser.email ?? "Unknown",
-      avatarUrl: userProfile?.avatarUrl ?? authUser.user_metadata?.avatarUrl ?? null,
-      role: userProfile?.role ?? null,
-      profile: userProfile,
+      fullName: existingProfile?.fullName ?? authUser.user_metadata?.fullName ?? authUser.email ?? "Unknown",
+      avatarUrl: existingProfile?.avatarUrl ?? authUser.user_metadata?.avatarUrl ?? null,
+      role: existingProfile?.role ?? authUser.user_metadata?.role ?? null,
+      profile: existingProfile,
     });
-
-    console.log("[Auth] Session processed, status: signed-in");
     authHandledRef.current = true; // Mark that auth was handled
     setStatus("signed-in");
+    console.log("[Auth] Session processed, status: signed-in (base user ready)");
+
+    // Only fetch profile for SIGNED_IN or INITIAL_SESSION events, not TOKEN_REFRESHED
+    const shouldFetchProfile = !event || event === "SIGNED_IN" || event === "INITIAL_SESSION";
+
+    if (shouldFetchProfile) {
+      // Fetch profile in the background to avoid blocking UI
+      fetchProfile(authUser)
+        .then(userProfile => {
+          setProfile(userProfile);
+          if (userProfile) {
+            setUser(current => {
+              if (!current) return current;
+              return {
+                ...current,
+                fullName: userProfile.fullName ?? current.fullName,
+                avatarUrl: userProfile.avatarUrl ?? current.avatarUrl,
+                role: userProfile.role ?? current.role,
+                profile: userProfile,
+              };
+            });
+          }
+          console.log("[Auth] Profile fetch complete (background)");
+        })
+        .catch(error => {
+          console.error("[Auth] Background profile fetch error:", error);
+        });
+    }
   }, [fetchProfile, isDevBypass, profile]);
 
   // Dev user setter
