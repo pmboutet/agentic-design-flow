@@ -151,24 +151,26 @@ export function ProjectCreateDialog({
             />
           </div>
 
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="project-client">Client</Label>
-            <select
-              id="project-client"
-              {...form.register("clientId")}
-              className="h-10 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm text-white"
-              disabled={isSubmitting}
-            >
-              {clients.map((client) => (
-                <option key={client.id} value={client.id}>
-                  {client.name}
-                </option>
-              ))}
-            </select>
-            {form.formState.errors.clientId && (
-              <p className="text-xs text-red-400">{form.formState.errors.clientId.message}</p>
-            )}
-          </div>
+          {clients.length > 1 && (
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="project-client">Client</Label>
+              <select
+                id="project-client"
+                {...form.register("clientId")}
+                className="h-10 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm text-white"
+                disabled={isSubmitting}
+              >
+                {clients.map((client) => (
+                  <option key={client.id} value={client.id}>
+                    {client.name}
+                  </option>
+                ))}
+              </select>
+              {form.formState.errors.clientId && (
+                <p className="text-xs text-red-400">{form.formState.errors.clientId.message}</p>
+              )}
+            </div>
+          )}
 
           <div className="grid gap-4 md:grid-cols-2">
             <FormDateTimeField
