@@ -15,7 +15,8 @@ const updateSchema = z.object({
   role: z.enum(roleValues).optional(),
   clientId: z.string().uuid().optional().or(z.literal("")),
   isActive: z.boolean().optional(),
-  jobTitle: z.string().trim().max(255).optional().or(z.literal(""))
+  jobTitle: z.string().trim().max(255).optional().or(z.literal("")),
+  description: z.string().trim().max(2000).optional().or(z.literal(""))
 });
 
 export async function PATCH(
@@ -89,6 +90,10 @@ export async function PATCH(
 
     if (payload.jobTitle !== undefined) {
       updateData.job_title = sanitizeOptional(payload.jobTitle || null);
+    }
+
+    if (payload.description !== undefined) {
+      updateData.description = sanitizeOptional(payload.description || null);
     }
 
     // Update full_name if firstName or lastName changed

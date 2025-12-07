@@ -231,6 +231,7 @@ export function mapManagedUser(
     isActive: row.is_active,
     lastLogin: row.last_login,
     jobTitle: row.job_title ?? null,
+    description: row.description ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
