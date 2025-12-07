@@ -541,7 +541,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       const currentUrl = new URL(window.location.href);
-      const nextParam = redirectTo || currentUrl.searchParams.get("next") || "/admin";
+      // New users go to onboarding; the onboarding page redirects admins to /admin
+      const nextParam = redirectTo || currentUrl.searchParams.get("next") || "/onboarding";
 
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",

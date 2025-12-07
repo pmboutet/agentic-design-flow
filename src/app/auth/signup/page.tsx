@@ -6,15 +6,24 @@ import Link from "next/link";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { SignupForm } from "@/components/auth/SignupForm";
 
+const ADMIN_ROLES = ["full_admin", "client_admin", "facilitator", "manager"];
+
 export default function SignupPage() {
-  const { status } = useAuth();
+  const { status, profile } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
     if (status === "signed-in") {
-      router.push("/admin");
+      // If user already has admin role, redirect to admin dashboard
+      const role = profile?.role?.toLowerCase() ?? "";
+      if (ADMIN_ROLES.includes(role)) {
+        router.push("/admin");
+      } else {
+        // New users (participants) go to onboarding to create their client
+        router.push("/onboarding");
+      }
     }
-  }, [status, router]);
+  }, [status, profile, router]);
 
   if (status === "loading") {
     return (
