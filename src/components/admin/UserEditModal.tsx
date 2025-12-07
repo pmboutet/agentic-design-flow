@@ -53,6 +53,7 @@ const userFormSchema = z.object({
   lastName: z.string().trim().max(100).optional().or(z.literal("")),
   role: z.enum(["full_admin", "client_admin", "facilitator", "manager", "participant"]).default("participant"),
   jobTitle: z.string().trim().max(255).optional().or(z.literal("")),
+  description: z.string().trim().max(2000).optional().or(z.literal("")),
   isActive: z.boolean().default(true),
 });
 
@@ -100,6 +101,7 @@ export function UserEditModal({
       lastName: "",
       role: "participant",
       jobTitle: "",
+      description: "",
       isActive: true,
     },
   });
@@ -113,6 +115,7 @@ export function UserEditModal({
         lastName: user.lastName ?? "",
         role: (user.role as UserFormInput["role"]) || "participant",
         jobTitle: user.jobTitle ?? "",
+        description: user.description ?? "",
         isActive: user.isActive,
       });
     }
@@ -246,6 +249,21 @@ export function UserEditModal({
                   {...form.register("jobTitle")}
                   disabled={isBusy}
                 />
+              </div>
+
+              <div className="flex flex-col gap-2 md:col-span-2">
+                <Label htmlFor="description">Description</Label>
+                <textarea
+                  id="description"
+                  placeholder="Brief description of this user..."
+                  {...form.register("description")}
+                  disabled={isBusy}
+                  rows={3}
+                  className="w-full rounded-xl border border-white/10 bg-slate-900/60 px-3 py-2 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 resize-none"
+                />
+                <p className="text-xs text-slate-400">
+                  Max 2000 characters
+                </p>
               </div>
 
               <div className="flex flex-col gap-2 md:col-span-2">

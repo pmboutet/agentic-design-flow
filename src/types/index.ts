@@ -446,6 +446,7 @@ export interface Profile {
   isActive: boolean;
   lastLogin?: string | null;
   jobTitle?: string | null; // Global job title from profiles table
+  description?: string | null; // User bio/description
   createdAt: string;
   updatedAt: string;
 }
