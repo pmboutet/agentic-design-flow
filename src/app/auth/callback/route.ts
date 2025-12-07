@@ -129,7 +129,8 @@ export async function GET(request: NextRequest) {
     return createRedirectWithCookies(new URL(`/?key=${askKey}`, requestUrl.origin))
   }
 
-  const fallbackDestination = '/admin'
+  // New users go to onboarding; the onboarding page redirects admins to /admin
+  const fallbackDestination = '/onboarding'
 
   const safeNext = (() => {
     if (!nextParam) {

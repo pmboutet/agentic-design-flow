@@ -22,17 +22,18 @@ function LoginPageContent() {
   console.log(`[Login] status=${status}, isStable=${isStable}, hasAttemptedRedirect=${hasAttemptedRedirect.current}`);
   console.log(`[Login] requestedRedirect=${requestedRedirect}`);
 
+  // Default to /onboarding which will redirect admins to /admin automatically
   const redirectTo = useMemo(() => {
     if (!requestedRedirect) {
-      return "/admin";
+      return "/onboarding";
     }
 
     if (!requestedRedirect.startsWith("/")) {
-      return "/admin";
+      return "/onboarding";
     }
 
     if (requestedRedirect.startsWith("//")) {
-      return "/admin";
+      return "/onboarding";
     }
 
     return requestedRedirect;

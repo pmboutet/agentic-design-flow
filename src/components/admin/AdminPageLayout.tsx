@@ -28,6 +28,7 @@ import { ClientProvider } from "./ClientContext";
 import { ClientSelector } from "./ClientSelector";
 import { Input } from "@/components/ui/input";
 import { AnimatePresence, motion } from "framer-motion";
+import { useAuth } from "@/components/auth/AuthProvider";
 
 interface AdminPageLayoutProps {
   children: ReactNode;
@@ -37,6 +38,8 @@ interface AdminNavItem {
   label: string;
   href: string;
   icon: LucideIcon;
+  /** If set, only users with one of these roles can see this item */
+  requiredRoles?: string[];
 }
 
 const navigationItems: AdminNavItem[] = [
@@ -59,11 +62,13 @@ const navigationItems: AdminNavItem[] = [
     label: "AI agents",
     href: "/admin/ai",
     icon: Bot,
+    requiredRoles: ["full_admin"],
   },
   {
     label: "AI logs",
     href: "/admin/ai/logs",
     icon: ScrollText,
+    requiredRoles: ["full_admin"],
   },
 ];
 
@@ -211,8 +216,18 @@ function AdminSearchBar() {
 
 export function AdminPageLayout({ children }: AdminPageLayoutProps) {
   const pathname = usePathname();
+  const { profile } = useAuth();
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+
+  // Filter navigation items based on user role
+  const userRole = profile?.role?.toLowerCase() ?? "";
+  const visibleNavItems = useMemo(() => {
+    return navigationItems.filter(item => {
+      if (!item.requiredRoles) return true;
+      return item.requiredRoles.map(r => r.toLowerCase()).includes(userRole);
+    });
+  }, [userRole]);
 
   // Search state - will be overridden by AdminDashboard if it provides its own
   const [searchQuery, setSearchQuery] = useState("");
@@ -300,7 +315,7 @@ export function AdminPageLayout({ children }: AdminPageLayoutProps) {
 
   const activeHref = useMemo(() => {
     // Filter all matching items, then pick the most specific (longest href)
-    const matchingItems = navigationItems.filter(item => {
+    const matchingItems = visibleNavItems.filter(item => {
       if (item.href === "/admin") {
         return pathname === item.href;
       }
@@ -311,7 +326,7 @@ export function AdminPageLayout({ children }: AdminPageLayoutProps) {
       (a, b) => b.href.length - a.href.length
     )[0];
     return mostSpecific?.href ?? null;
-  }, [pathname]);
+  }, [pathname, visibleNavItems]);
 
   const sidebarContent = (
     <div className="flex h-full flex-col gap-6 overflow-hidden">
@@ -348,7 +363,7 @@ export function AdminPageLayout({ children }: AdminPageLayoutProps) {
       <ClientSelector collapsed={isSidebarCollapsed} />
 
       <nav className="flex flex-1 flex-col gap-1 overflow-hidden">
-        {navigationItems.map(item => {
+        {visibleNavItems.map(item => {
           const Icon = item.icon;
           const isActive = activeHref === item.href;
           return (
