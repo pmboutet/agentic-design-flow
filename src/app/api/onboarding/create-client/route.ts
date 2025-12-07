@@ -129,8 +129,11 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
+    // Use admin client to bypass RLS for client creation and profile update
+    const adminSupabase = getAdminSupabaseClient();
+
     // Create the client
-    const { data: newClient, error: clientError } = await supabase
+    const { data: newClient, error: clientError } = await adminSupabase
       .from("clients")
       .insert({
         name: clientName,
@@ -151,7 +154,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Promote user to client_admin and associate with the client
-    const { error: updateError } = await supabase
+    const { error: updateError } = await adminSupabase
       .from("profiles")
       .update({
         role: "client_admin",
@@ -162,7 +165,7 @@ export async function POST(request: NextRequest) {
     if (updateError) {
       console.error("[POST /api/onboarding/create-client] Error updating profile:", updateError);
       // Rollback: delete the client we just created
-      await supabase.from("clients").delete().eq("id", newClient.id);
+      await adminSupabase.from("clients").delete().eq("id", newClient.id);
       throw new Error(`Erreur lors de la mise à jour du profil: ${updateError.message}`);
     }
 
