@@ -855,6 +855,25 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
     }
   }, [askForm, selectedConversationMode]);
 
+  // Set default ask dates from project when project is selected
+  useEffect(() => {
+    if (!selectedProjectId) return;
+
+    const project = projects.find(p => p.id === selectedProjectId);
+    if (!project) return;
+
+    // Only set dates if they are currently empty
+    const currentStartDate = askForm.getValues("startDate");
+    const currentEndDate = askForm.getValues("endDate");
+
+    if (!currentStartDate && project.startDate) {
+      askForm.setValue("startDate", project.startDate);
+    }
+    if (!currentEndDate && project.endDate) {
+      askForm.setValue("endDate", project.endDate);
+    }
+  }, [selectedProjectId, projects, askForm]);
+
   // Client initialization is now handled by ClientContext
 
   const clientById = useMemo(() => {
@@ -1697,7 +1716,14 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
   };
 
   const resetAskForm = () => {
-    askForm.reset(defaultAskFormValues);
+    // Get project dates for reset
+    const project = selectedProjectId ? projects.find(p => p.id === selectedProjectId) : null;
+
+    askForm.reset({
+      ...defaultAskFormValues,
+      startDate: project?.startDate ?? "",
+      endDate: project?.endDate ?? ""
+    });
     setEditingAskId(null);
     setManualAskKey(false);
   };

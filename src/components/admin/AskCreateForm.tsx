@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { DateTimePicker } from "@/components/ui/date-time-picker";
-import { type ChallengeRecord, type ManagedUser } from "@/types";
+import { type ChallengeRecord, type ManagedUser, type ProjectRecord } from "@/types";
 
 const statusOptions = ["active", "inactive", "draft", "closed"] as const;
 const deliveryModes = ["physical", "digital"] as const;
@@ -44,12 +44,13 @@ export type AskCreateFormValues = z.infer<typeof formSchema>;
 
 interface AskCreateFormProps {
   challenges: ChallengeRecord[];
+  projects: ProjectRecord[];
   availableUsers: ManagedUser[];
   onSubmit: (values: AskCreateFormValues & { projectId: string }) => Promise<void>;
   isLoading?: boolean;
 }
 
-export function AskCreateForm({ challenges, availableUsers, onSubmit, isLoading }: AskCreateFormProps) {
+export function AskCreateForm({ challenges, projects, availableUsers, onSubmit, isLoading }: AskCreateFormProps) {
   const initialChallenge = challenges[0]?.id ?? "";
 
   const form = useForm<AskCreateFormValues>({
@@ -108,6 +109,25 @@ export function AskCreateForm({ challenges, availableUsers, onSubmit, isLoading 
     }
   }, [challenges, form]);
 
+  // Set default dates from project when challenge is selected
+  useEffect(() => {
+    if (!selectedChallenge?.projectId) return;
+
+    const project = projects.find(p => p.id === selectedChallenge.projectId);
+    if (!project) return;
+
+    // Only set dates if they are currently empty
+    const currentStartDate = form.getValues("startDate");
+    const currentEndDate = form.getValues("endDate");
+
+    if (!currentStartDate && project.startDate) {
+      form.setValue("startDate", project.startDate);
+    }
+    if (!currentEndDate && project.endDate) {
+      form.setValue("endDate", project.endDate);
+    }
+  }, [selectedChallenge, projects, form]);
+
   useEffect(() => {
     if (selectedSpokesperson && !selectedParticipants.includes(selectedSpokesperson)) {
       form.setValue("spokespersonId", "");
@@ -134,14 +154,18 @@ export function AskCreateForm({ challenges, availableUsers, onSubmit, isLoading 
     }
 
     await onSubmit({ ...values, projectId: challenge.projectId });
+
+    // Get project dates for reset
+    const project = projects.find(p => p.id === challenge.projectId);
+
     form.reset({
       challengeId: challenge.id,
       askKey: "",
       name: "",
       question: "",
       description: "",
-      startDate: "",
-      endDate: "",
+      startDate: project?.startDate ?? "",
+      endDate: project?.endDate ?? "",
       status: "active",
       isAnonymous: false,
       maxParticipants: undefined,
