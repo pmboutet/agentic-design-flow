@@ -111,6 +111,7 @@ export async function requireAdmin() {
       profile: {
         role: 'full_admin',
         is_active: true,
+        client_id: null,
       },
     }
   }
@@ -125,7 +126,7 @@ export async function requireAdmin() {
   // Check if user has admin role in profiles table
   let { data: profile, error: profileError } = await supabase
     .from('profiles')
-    .select('role, is_active')
+    .select('role, is_active, client_id')
     .eq('auth_id', user.id)
     .single()
 
@@ -154,7 +155,7 @@ export async function requireAdmin() {
           role: 'participant',
           is_active: true
         })
-        .select('role, is_active')
+        .select('role, is_active, client_id')
         .single()
 
       if (createError) {
@@ -162,7 +163,7 @@ export async function requireAdmin() {
         if (createError.code === '23505') {
           const { data: retryProfile } = await supabase
             .from('profiles')
-            .select('role, is_active')
+            .select('role, is_active, client_id')
             .eq('auth_id', user.id)
             .single()
 

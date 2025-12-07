@@ -41,13 +41,21 @@ function mapProject(row: any): ProjectRecord {
 export async function GET() {
   try {
     // Verify user is admin and get authenticated client
-    await requireAdmin();
+    const { profile } = await requireAdmin();
     const supabase = await createServerSupabaseClient();
-    
-    const { data, error } = await supabase
+
+    // Build query based on role
+    let query = supabase
       .from("projects")
-      .select("*, clients(name)")
-      .order("created_at", { ascending: false });
+      .select("*, clients(name)");
+
+    // Non full_admin users can only see projects for their client
+    const role = profile.role?.toLowerCase() ?? "";
+    if (role !== "full_admin" && profile.client_id) {
+      query = query.eq("client_id", profile.client_id);
+    }
+
+    const { data, error } = await query.order("created_at", { ascending: false });
 
     if (error) {
       throw error;
@@ -69,11 +77,20 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     // Verify user is admin and get authenticated client
-    await requireAdmin();
+    const { profile } = await requireAdmin();
     const supabase = await createServerSupabaseClient();
-    
+
     const body = await request.json();
     const payload = projectSchema.parse(body);
+
+    // Non full_admin users can only create projects for their own client
+    const role = profile.role?.toLowerCase() ?? "";
+    if (role !== "full_admin" && profile.client_id && payload.clientId !== profile.client_id) {
+      return NextResponse.json<ApiResponse>({
+        success: false,
+        error: "You can only create projects for your own organization"
+      }, { status: 403 });
+    }
 
     const startDate = new Date(payload.startDate).toISOString();
     const endDate = new Date(payload.endDate).toISOString();

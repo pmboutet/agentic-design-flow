@@ -23,9 +23,12 @@ const userSchema = z.object({
 export async function GET(request: NextRequest) {
   try {
     // Verify user is admin and get authenticated client
-    await requireAdmin();
+    const { profile: adminProfile } = await requireAdmin();
     const supabase = await createServerSupabaseClient();
-    
+
+    const role = adminProfile.role?.toLowerCase() ?? "";
+    const isFullAdmin = role === "full_admin";
+
     // Check for email query parameter for lookup
     const { searchParams } = new URL(request.url);
     const email = searchParams.get("email");
@@ -33,12 +36,18 @@ export async function GET(request: NextRequest) {
     if (email) {
       // Email lookup endpoint
       const sanitizedEmail = sanitizeText(email.toLowerCase());
-      const { data, error } = await supabase
+      let query = supabase
         .from("profiles")
         .select("*, clients(name)")
         .eq("email", sanitizedEmail)
-        .is("deleted_at", null)
-        .maybeSingle();
+        .is("deleted_at", null);
+
+      // Non full_admin users can only look up users from their own client
+      if (!isFullAdmin && adminProfile.client_id) {
+        query = query.eq("client_id", adminProfile.client_id);
+      }
+
+      const { data, error } = await query.maybeSingle();
 
       if (error) {
         throw error;
@@ -64,11 +73,17 @@ export async function GET(request: NextRequest) {
     }
 
     // Regular GET all profiles (exclude deleted users)
-    const { data, error } = await supabase
+    let query = supabase
       .from("profiles")
       .select("*, clients(name)")
-      .is("deleted_at", null)
-      .order("created_at", { ascending: false });
+      .is("deleted_at", null);
+
+    // Non full_admin users can only see users from their own client
+    if (!isFullAdmin && adminProfile.client_id) {
+      query = query.eq("client_id", adminProfile.client_id);
+    }
+
+    const { data, error } = await query.order("created_at", { ascending: false });
 
     if (error) {
       throw error;
