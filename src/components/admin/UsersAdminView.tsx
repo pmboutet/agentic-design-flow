@@ -18,6 +18,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { UserSearchCombobox } from "@/components/ui/user-search-combobox";
 import { UserEditModal } from "@/components/admin/UserEditModal";
+import { useClientContext } from "@/components/admin/ClientContext";
 import type { ClientRecord, ClientRole, ManagedUser, ProjectRecord } from "@/types";
 
 const userRoles = ["full_admin", "client_admin", "facilitator", "manager", "participant"] as const;
@@ -80,6 +81,9 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
 }
 
 export function UsersAdminView() {
+  // Get global client selection from context
+  const { selectedClientId: contextClientId, clients: contextClients } = useClientContext();
+
   const [users, setUsers] = useState<ManagedUser[]>([]);
   const [clients, setClients] = useState<ClientRecord[]>([]);
   const [projects, setProjects] = useState<ProjectRecord[]>([]);
@@ -88,11 +92,22 @@ export function UsersAdminView() {
   const [feedback, setFeedback] = useState<FeedbackState | null>(null);
   const [showUserForm, setShowUserForm] = useState(false);
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
-  const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
+  // Local filter only used when contextClientId is "all"
+  const [localClientFilter, setLocalClientFilter] = useState<string | null>(null);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [selectedUserForProject, setSelectedUserForProject] = useState<ManagedUser | null>(null);
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<ManagedUser | null>(null);
+
+  // Effective client ID: use context selection if specific, otherwise use local filter
+  const isContextClientSpecific = contextClientId !== "all";
+  const selectedClientId = isContextClientSpecific ? contextClientId : localClientFilter;
+
+  // Reset local filters when context client changes
+  useEffect(() => {
+    setLocalClientFilter(null);
+    setSelectedProjectId(null);
+  }, [contextClientId]);
 
   const userForm = useForm<UserFormInput>({
     resolver: zodResolver(userFormSchema),
@@ -547,29 +562,31 @@ export function UsersAdminView() {
       )}
 
       {/* Filters */}
-      <div className="grid gap-4 md:grid-cols-2">
-        {/* Client Filter */}
-        <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-          <div className="flex items-center gap-2 mb-3">
-            <Building2 className="h-4 w-4 text-indigo-300" />
-            <Label className="text-sm font-medium text-white">Filter by Client</Label>
+      <div className={`grid gap-4 ${isContextClientSpecific ? "md:grid-cols-1" : "md:grid-cols-2"}`}>
+        {/* Client Filter - only show when "all" is selected in sidebar */}
+        {!isContextClientSpecific && (
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Building2 className="h-4 w-4 text-indigo-300" />
+              <Label className="text-sm font-medium text-white">Filter by Client</Label>
+            </div>
+            <select
+              className="w-full h-10 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm text-white"
+              value={localClientFilter ?? ""}
+              onChange={e => {
+                setLocalClientFilter(e.target.value || null);
+                setSelectedProjectId(null);
+              }}
+            >
+              <option value="">All clients</option>
+              {clients.map(client => (
+                <option key={client.id} value={client.id}>
+                  {client.name}
+                </option>
+              ))}
+            </select>
           </div>
-          <select
-            className="w-full h-10 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm text-white"
-            value={selectedClientId ?? ""}
-            onChange={e => {
-              setSelectedClientId(e.target.value || null);
-              setSelectedProjectId(null);
-            }}
-          >
-            <option value="">All clients</option>
-            {clients.map(client => (
-              <option key={client.id} value={client.id}>
-                {client.name}
-              </option>
-            ))}
-          </select>
-        </div>
+        )}
 
         {/* Project Filter */}
         <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
