@@ -80,16 +80,29 @@ function mapAsk(row: any): AskSessionRecord {
 export async function GET(request: NextRequest) {
   try {
     // Verify user is admin and get authenticated client
-    await requireAdmin();
+    const { profile } = await requireAdmin();
     const supabase = await createServerSupabaseClient();
-    
+
+    const role = profile.role?.toLowerCase() ?? "";
+    const isFullAdmin = role === "full_admin";
+
     const url = new URL(request.url);
     const challengeId = url.searchParams.get("challengeId");
 
+    // For non full_admin, include client_id in projects join for filtering
+    const selectQuery = isFullAdmin
+      ? askSelect
+      : "*, projects!inner(name, client_id), ask_participants(id, user_id, role, participant_name, participant_email, is_spokesperson, invite_token), system_prompt";
+
     let query = supabase
       .from("ask_sessions")
-      .select(askSelect)
+      .select(selectQuery)
       .order("created_at", { ascending: false });
+
+    // Non full_admin users can only see asks for their client's projects
+    if (!isFullAdmin && profile.client_id) {
+      query = query.eq("projects.client_id", profile.client_id);
+    }
 
     if (challengeId) {
       if (!z.string().uuid().safeParse(challengeId).success) {

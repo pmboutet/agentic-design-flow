@@ -42,21 +42,36 @@ function mapChallenge(row: any): ChallengeRecord {
 export async function GET() {
   try {
     // Verify user is admin and get authenticated client
-    await requireAdmin();
+    const { profile } = await requireAdmin();
     const supabase = await createServerSupabaseClient();
-    
-    const { data, error } = await supabase
+
+    const role = profile.role?.toLowerCase() ?? "";
+    const isFullAdmin = role === "full_admin";
+
+    // Build query - include client_id from projects for filtering
+    let query = supabase
       .from("challenges")
-      .select("*, projects(name)")
-      .order("updated_at", { ascending: false });
+      .select("*, projects(name, client_id)");
+
+    // Non full_admin users can only see challenges for their client's projects
+    if (!isFullAdmin && profile.client_id) {
+      query = query.eq("projects.client_id", profile.client_id);
+    }
+
+    const { data, error } = await query.order("updated_at", { ascending: false });
 
     if (error) {
       throw error;
     }
 
+    // Filter out challenges where project doesn't match (for non-full_admin)
+    const filteredData = !isFullAdmin && profile.client_id
+      ? (data ?? []).filter(row => row.projects?.client_id === profile.client_id)
+      : data ?? [];
+
     return NextResponse.json<ApiResponse<ChallengeRecord[]>>({
       success: true,
-      data: (data ?? []).map(mapChallenge)
+      data: filteredData.map(mapChallenge)
     });
   } catch (error) {
     const status = error instanceof Error && error.message.includes('required') ? 403 : 500;

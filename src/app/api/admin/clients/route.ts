@@ -29,13 +29,21 @@ function mapClient(row: any): ClientRecord {
 export async function GET() {
   try {
     // Verify user is admin and get authenticated client
-    await requireAdmin();
+    const { profile } = await requireAdmin();
     const supabase = await createServerSupabaseClient();
-    
-    const { data, error } = await supabase
+
+    // Build query based on role
+    let query = supabase
       .from("clients")
-      .select("*")
-      .order("created_at", { ascending: false });
+      .select("*");
+
+    // client_admin, facilitator, manager can only see their own client
+    const role = profile.role?.toLowerCase() ?? "";
+    if (role !== "full_admin" && profile.client_id) {
+      query = query.eq("id", profile.client_id);
+    }
+
+    const { data, error } = await query.order("created_at", { ascending: false });
 
     if (error) {
       throw error;
@@ -55,7 +63,17 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     // Verify user is admin and get authenticated client
-    await requireAdmin();
+    const { profile } = await requireAdmin();
+
+    // Only full_admin can create new clients
+    const role = profile.role?.toLowerCase() ?? "";
+    if (role !== "full_admin") {
+      return NextResponse.json<ApiResponse>({
+        success: false,
+        error: "Only full administrators can create new clients"
+      }, { status: 403 });
+    }
+
     const supabase = await createServerSupabaseClient();
     
     const body = await request.json();

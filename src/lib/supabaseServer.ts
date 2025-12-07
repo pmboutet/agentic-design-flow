@@ -1,6 +1,7 @@
 import { createServerClient } from '@supabase/ssr'
 import { createClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
+import { getAdminSupabaseClient } from './supabaseAdmin'
 
 /**
  * Creates a Supabase client for use in Server Components and Route Handlers.
@@ -110,6 +111,7 @@ export async function requireAdmin() {
       profile: {
         role: 'full_admin',
         is_active: true,
+        client_id: null,
       },
     }
   }
@@ -122,24 +124,76 @@ export async function requireAdmin() {
   }
   
   // Check if user has admin role in profiles table
-  const { data: profile, error: profileError } = await supabase
+  let { data: profile, error: profileError } = await supabase
     .from('profiles')
-    .select('role, is_active')
+    .select('role, is_active, client_id')
     .eq('auth_id', user.id)
     .single()
-  
+
+  // If profile doesn't exist, create one with participant role
   if (profileError || !profile) {
-    throw new Error('Profile not found')
+    console.log('[requireAdmin] Profile not found, creating one for:', user.email)
+
+    try {
+      const adminSupabase = getAdminSupabaseClient()
+
+      // Extract user metadata for name fields
+      const metadata = user.user_metadata || {}
+      const firstName = metadata.first_name || metadata.firstName || metadata.given_name || null
+      const lastName = metadata.last_name || metadata.lastName || metadata.family_name || null
+      const fullName = metadata.full_name || metadata.fullName || metadata.name ||
+        [firstName, lastName].filter(Boolean).join(' ') || null
+
+      const { data: newProfile, error: createError } = await adminSupabase
+        .from('profiles')
+        .insert({
+          auth_id: user.id,
+          email: user.email?.toLowerCase(),
+          first_name: firstName,
+          last_name: lastName,
+          full_name: fullName,
+          role: 'participant',
+          is_active: true
+        })
+        .select('role, is_active, client_id')
+        .single()
+
+      if (createError) {
+        // If unique constraint violation, try fetching again
+        if (createError.code === '23505') {
+          const { data: retryProfile } = await supabase
+            .from('profiles')
+            .select('role, is_active, client_id')
+            .eq('auth_id', user.id)
+            .single()
+
+          if (retryProfile) {
+            profile = retryProfile
+          }
+        }
+
+        if (!profile) {
+          console.error('[requireAdmin] Failed to create profile:', createError.message)
+          throw new Error('Profile not found')
+        }
+      } else {
+        profile = newProfile
+        console.log('[requireAdmin] Profile created successfully')
+      }
+    } catch (createErr) {
+      console.error('[requireAdmin] Error creating profile:', createErr)
+      throw new Error('Profile not found')
+    }
   }
-  
+
   // Check if user has admin-level role (full_admin, client_admin, facilitator, or manager)
   const normalizedRole = profile.role?.toLowerCase() ?? "";
   const isAdmin = ['full_admin', 'client_admin', 'facilitator', 'manager'].includes(normalizedRole);
-  
+
   if (!isAdmin || !profile.is_active) {
     throw new Error('Admin access required')
   }
-  
+
   return { user, profile }
 }
 

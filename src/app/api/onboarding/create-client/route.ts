@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { createServerSupabaseClient, requireAuth } from "@/lib/supabaseServer";
+import { getAdminSupabaseClient } from "@/lib/supabaseAdmin";
 import { sanitizeText } from "@/lib/sanitize";
 import { parseErrorMessage } from "@/lib/utils";
 import { type ApiResponse, type ClientRecord } from "@/types";
@@ -63,18 +64,60 @@ export async function POST(request: NextRequest) {
     }
 
     // Get user's profile
-    const { data: profile, error: profileError } = await supabase
+    let { data: profile, error: profileError } = await supabase
       .from("profiles")
       .select("id, role, client_id")
       .eq("auth_id", user.id)
       .single();
 
+    // If profile doesn't exist, create one
     if (profileError || !profile) {
-      console.error("[POST /api/onboarding/create-client] Profile not found:", profileError);
-      return NextResponse.json<ApiResponse>({
-        success: false,
-        error: "Profil utilisateur introuvable. Veuillez vous reconnecter."
-      }, { status: 401 });
+      console.log("[POST /api/onboarding/create-client] Profile not found, creating one for:", user.email);
+
+      const adminSupabase = getAdminSupabaseClient();
+
+      // Create a new profile for the authenticated user
+      const { data: newProfile, error: createError } = await adminSupabase
+        .from("profiles")
+        .insert({
+          auth_id: user.id,
+          email: user.email?.toLowerCase(),
+          role: "participant",
+          is_active: true
+        })
+        .select("id, role, client_id")
+        .single();
+
+      if (createError) {
+        // Check if it's a unique constraint violation (profile was created by another process)
+        if (createError.code === "23505") {
+          // Try to fetch the profile again
+          const { data: retryProfile, error: retryError } = await supabase
+            .from("profiles")
+            .select("id, role, client_id")
+            .eq("auth_id", user.id)
+            .single();
+
+          if (retryError || !retryProfile) {
+            console.error("[POST /api/onboarding/create-client] Failed to fetch profile after race condition:", retryError);
+            return NextResponse.json<ApiResponse>({
+              success: false,
+              error: "Erreur lors de la récupération du profil. Veuillez réessayer."
+            }, { status: 500 });
+          }
+
+          profile = retryProfile;
+        } else {
+          console.error("[POST /api/onboarding/create-client] Failed to create profile:", createError);
+          return NextResponse.json<ApiResponse>({
+            success: false,
+            error: "Erreur lors de la création du profil. Veuillez réessayer."
+          }, { status: 500 });
+        }
+      } else {
+        profile = newProfile;
+        console.log("[POST /api/onboarding/create-client] Profile created successfully:", profile.id);
+      }
     }
 
     // Check if user already has admin privileges
@@ -86,8 +129,11 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
+    // Use admin client to bypass RLS for client creation and profile update
+    const adminSupabase = getAdminSupabaseClient();
+
     // Create the client
-    const { data: newClient, error: clientError } = await supabase
+    const { data: newClient, error: clientError } = await adminSupabase
       .from("clients")
       .insert({
         name: clientName,
@@ -108,7 +154,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Promote user to client_admin and associate with the client
-    const { error: updateError } = await supabase
+    const { error: updateError } = await adminSupabase
       .from("profiles")
       .update({
         role: "client_admin",
@@ -119,7 +165,7 @@ export async function POST(request: NextRequest) {
     if (updateError) {
       console.error("[POST /api/onboarding/create-client] Error updating profile:", updateError);
       // Rollback: delete the client we just created
-      await supabase.from("clients").delete().eq("id", newClient.id);
+      await adminSupabase.from("clients").delete().eq("id", newClient.id);
       throw new Error(`Erreur lors de la mise à jour du profil: ${updateError.message}`);
     }
 

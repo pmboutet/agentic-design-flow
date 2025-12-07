@@ -1,5 +1,6 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
+import { getAdminSupabaseClient } from '@/lib/supabaseAdmin'
 
 /**
  * OAuth callback route
@@ -91,6 +92,64 @@ export async function GET(request: NextRequest) {
     console.log(`[Callback] exchangeCodeForSession SUCCESS: user=${data.session?.user?.email}, access_token=${data.session?.access_token ? 'exists' : 'none'}`)
     console.log(`[Callback] Cookies collected for redirect: ${cookiesToSet.length}`)
     cookiesToSet.forEach(c => console.log(`[Callback] Will set cookie: ${c.name}`))
+
+    // Ensure profile exists for the authenticated user
+    // This handles cases where the database trigger failed or wasn't installed
+    if (data.session?.user) {
+      const authUser = data.session.user
+      try {
+        const adminSupabase = getAdminSupabaseClient()
+
+        // Check if profile exists
+        const { data: existingProfile, error: checkError } = await adminSupabase
+          .from('profiles')
+          .select('id')
+          .eq('auth_id', authUser.id)
+          .maybeSingle()
+
+        if (checkError) {
+          console.error('[Callback] Error checking profile:', checkError.message)
+        } else if (!existingProfile) {
+          console.log('[Callback] No profile found, creating one for:', authUser.email)
+
+          // Extract user metadata
+          const metadata = authUser.user_metadata || {}
+          const firstName = metadata.first_name || metadata.firstName || metadata.given_name || null
+          const lastName = metadata.last_name || metadata.lastName || metadata.family_name || null
+          const fullName = metadata.full_name || metadata.fullName || metadata.name ||
+            [firstName, lastName].filter(Boolean).join(' ') || null
+
+          // Create profile
+          const { error: insertError } = await adminSupabase
+            .from('profiles')
+            .insert({
+              auth_id: authUser.id,
+              email: authUser.email?.toLowerCase(),
+              first_name: firstName,
+              last_name: lastName,
+              full_name: fullName,
+              role: 'participant',
+              is_active: true
+            })
+
+          if (insertError) {
+            // If it's a unique violation, profile was created by another process (race condition)
+            if (insertError.code === '23505') {
+              console.log('[Callback] Profile already exists (race condition), continuing')
+            } else {
+              console.error('[Callback] Error creating profile:', insertError.message)
+            }
+          } else {
+            console.log('[Callback] Profile created successfully for:', authUser.email)
+          }
+        } else {
+          console.log('[Callback] Profile already exists for:', authUser.email)
+        }
+      } catch (profileError) {
+        // Don't fail the auth flow if profile creation fails
+        console.error('[Callback] Profile creation error:', profileError)
+      }
+    }
   } else {
     console.log('[Callback] No code provided, skipping exchange')
   }
