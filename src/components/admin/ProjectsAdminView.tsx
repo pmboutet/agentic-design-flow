@@ -2,11 +2,12 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Building2, CalendarRange, Folder, Loader2, RefreshCcw } from "lucide-react";
+import { Building2, CalendarRange, Folder, Loader2, Plus, RefreshCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { type ProjectRecord } from "@/types";
 import { useClientContext } from "./ClientContext";
+import { ProjectCreateDialog } from "./ProjectCreateDialog";
 
 interface ApiResponse<T> {
   success: boolean;
@@ -35,10 +36,11 @@ interface ProjectGroup {
 }
 
 export function ProjectsAdminView() {
-  const { selectedClientId, selectedClient } = useClientContext();
+  const { selectedClientId, selectedClient, clients } = useClientContext();
   const [projects, setProjects] = useState<ProjectRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
 
   const loadProjects = async () => {
     setIsLoading(true);
@@ -119,10 +121,16 @@ export function ProjectsAdminView() {
           <h1 className="text-2xl font-semibold text-white">{title}</h1>
           <p className="text-sm text-slate-300">{subtitle}</p>
         </div>
-        <Button variant="outline" className="gap-2" onClick={() => void loadProjects()} disabled={isLoading}>
-          {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
-          Rafraîchir
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" className="gap-2" onClick={() => void loadProjects()} disabled={isLoading}>
+            {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
+            Rafraîchir
+          </Button>
+          <Button className="btn-gradient gap-2" onClick={() => setIsCreateDialogOpen(true)}>
+            <Plus className="h-4 w-4" />
+            Ajouter un projet
+          </Button>
+        </div>
       </div>
 
       {error ? (
@@ -178,6 +186,14 @@ export function ProjectsAdminView() {
           ))}
         </div>
       )}
+
+      <ProjectCreateDialog
+        open={isCreateDialogOpen}
+        onOpenChange={setIsCreateDialogOpen}
+        clients={clients}
+        defaultClientId={selectedClientId !== "all" ? selectedClientId : undefined}
+        onSuccess={() => void loadProjects()}
+      />
     </div>
   );
 }
