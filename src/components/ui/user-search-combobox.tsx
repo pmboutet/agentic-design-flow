@@ -41,11 +41,14 @@ export function UserSearchCombobox({
       return users.slice(0, 50); // Limite initiale
     }
 
-    const query = searchQuery.toLowerCase().trim();
+    // Normalize: lowercase and remove dashes/hyphens
+    const normalize = (str: string) => str.toLowerCase().replace(/-/g, "");
+    const query = normalize(searchQuery.trim());
+
     return users.filter(user => {
-      const fullName = (user.fullName || "").toLowerCase();
-      const email = (user.email || "").toLowerCase();
-      const jobTitle = (user.jobTitle || "").toLowerCase();
+      const fullName = normalize(user.fullName || "");
+      const email = normalize(user.email || "");
+      const jobTitle = normalize(user.jobTitle || "");
       return fullName.includes(query) || email.includes(query) || jobTitle.includes(query);
     }).slice(0, 50); // Limite de résultats
   }, [users, searchQuery]);

@@ -2063,20 +2063,31 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
     if (!profile && !user?.profile) {
       return [];
     }
-    
-    // Full admins see all users
+
+    // Determine client filter based on selected client in UI
+    const uiClientFilter = selectedClientId === "all" ? null : selectedClientId;
+
+    // Full admins see users filtered by selected client (or all if "all" selected)
     if (profileRoleLower === "full_admin") {
+      if (uiClientFilter) {
+        return users.filter(u => u.clientId === uiClientFilter);
+      }
       return users;
     }
-    
+
     // Client admins, facilitators, managers see only users from their client
+    // Also respect UI client filter if it matches their access
     if (["client_admin", "facilitator", "manager"].includes(profileRoleLower)) {
       if (!profileClientId) return [];
-      return users.filter(user => user.clientId === profileClientId);
+      // If UI has a client selected, use it only if it matches their own client
+      const effectiveClientId = uiClientFilter && uiClientFilter === profileClientId
+        ? uiClientFilter
+        : profileClientId;
+      return users.filter(u => u.clientId === effectiveClientId);
     }
-    
+
     return [];
-  }, [users, profileRoleLower, profileClientId]);
+  }, [users, profileRoleLower, profileClientId, selectedClientId]);
 
   // All hooks must be called before any conditional returns
   // Calculate values that depend on filteredUsers and other data
