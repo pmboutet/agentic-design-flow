@@ -89,12 +89,14 @@ export async function GET(request: NextRequest) {
     const url = new URL(request.url);
     const challengeId = url.searchParams.get("challengeId");
 
-    // Include client_id from projects for filtering
-    const selectWithClientId = askSelect + ", projects!inner(client_id)";
+    // For non full_admin, include client_id in projects join for filtering
+    const selectQuery = isFullAdmin
+      ? askSelect
+      : "*, projects!inner(name, client_id), ask_participants(id, user_id, role, participant_name, participant_email, is_spokesperson, invite_token), system_prompt";
 
     let query = supabase
       .from("ask_sessions")
-      .select(isFullAdmin ? askSelect : selectWithClientId)
+      .select(selectQuery)
       .order("created_at", { ascending: false });
 
     // Non full_admin users can only see asks for their client's projects
