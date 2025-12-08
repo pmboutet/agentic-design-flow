@@ -8,7 +8,7 @@ body {
 
 @layer base {
   :root {
-    /* Futuristic Dark Theme - Always dark */
+    /* Futuristic Dark Theme - Pink/Purple dominant like logo */
     --background: 230 25% 7%; /* Very dark blue-black */
     --foreground: 210 40% 98%; /* Light text */
 
@@ -18,16 +18,16 @@ body {
     --popover: 230 30% 12%;
     --popover-foreground: 210 40% 98%;
 
-    --primary: 185 100% 50%; /* Cyan/Teal neon */
-    --primary-foreground: 230 25% 7%;
+    --primary: 320 85% 55%; /* Pink/Magenta - like logo */
+    --primary-foreground: 0 0% 100%;
 
-    --secondary: 280 100% 60%; /* Purple/Magenta */
+    --secondary: 270 85% 60%; /* Purple/Violet - like logo */
     --secondary-foreground: 0 0% 100%;
 
     --muted: 230 20% 18%;
     --muted-foreground: 215 20% 65%;
 
-    --accent: 320 100% 60%; /* Pink/Magenta accent */
+    --accent: 290 90% 60%; /* Purple-Pink blend */
     --accent-foreground: 0 0% 100%;
 
     --destructive: 0 84% 60%;
@@ -35,29 +35,29 @@ body {
 
     --border: 230 30% 20%;
     --input: 230 30% 15%;
-    --ring: 185 100% 50%;
+    --ring: 320 85% 55%;
 
     --radius: 0.75rem;
 
-    /* Glow colors */
-    --glow-cyan: 185 100% 50%;
-    --glow-purple: 280 100% 60%;
-    --glow-pink: 320 100% 60%;
+    /* Glow colors - Pink/Purple dominant */
+    --glow-pink: 320 85% 55%;
+    --glow-purple: 270 85% 60%;
+    --glow-magenta: 290 90% 60%;
 
-    --chart-1: 185 100% 50%;
-    --chart-2: 280 100% 60%;
-    --chart-3: 320 100% 60%;
+    --chart-1: 320 85% 55%;
+    --chart-2: 270 85% 60%;
+    --chart-3: 290 90% 60%;
     --chart-4: 45 100% 60%;
     --chart-5: 150 100% 50%;
 
     --sidebar-background: 230 30% 8%;
     --sidebar-foreground: 210 40% 98%;
-    --sidebar-primary: 185 100% 50%;
-    --sidebar-primary-foreground: 230 25% 7%;
+    --sidebar-primary: 320 85% 55%;
+    --sidebar-primary-foreground: 0 0% 100%;
     --sidebar-accent: 230 25% 15%;
     --sidebar-accent-foreground: 210 40% 98%;
     --sidebar-border: 230 30% 18%;
-    --sidebar-ring: 185 100% 50%;
+    --sidebar-ring: 320 85% 55%;
   }
 
   .dark {
@@ -70,16 +70,16 @@ body {
     --popover: 230 30% 12%;
     --popover-foreground: 210 40% 98%;
 
-    --primary: 185 100% 50%;
-    --primary-foreground: 230 25% 7%;
+    --primary: 320 85% 55%; /* Pink/Magenta - like logo */
+    --primary-foreground: 0 0% 100%;
 
-    --secondary: 280 100% 60%;
+    --secondary: 270 85% 60%; /* Purple/Violet - like logo */
     --secondary-foreground: 0 0% 100%;
 
     --muted: 230 20% 18%;
     --muted-foreground: 215 20% 65%;
 
-    --accent: 320 100% 60%;
+    --accent: 290 90% 60%; /* Purple-Pink blend */
     --accent-foreground: 0 0% 100%;
 
     --destructive: 0 62.8% 30.6%;
@@ -87,16 +87,16 @@ body {
 
     --border: 230 30% 20%;
     --input: 230 30% 15%;
-    --ring: 185 100% 50%;
+    --ring: 320 85% 55%;
 
     --sidebar-background: 230 30% 8%;
     --sidebar-foreground: 210 40% 98%;
-    --sidebar-primary: 185 100% 50%;
-    --sidebar-primary-foreground: 230 25% 7%;
+    --sidebar-primary: 320 85% 55%;
+    --sidebar-primary-foreground: 0 0% 100%;
     --sidebar-accent: 230 25% 15%;
     --sidebar-accent-foreground: 210 40% 98%;
     --sidebar-border: 230 30% 18%;
-    --sidebar-ring: 185 100% 50%;
+    --sidebar-ring: 320 85% 55%;
   }
 }
 
@@ -149,33 +149,33 @@ body {
   opacity: 0.6;
 }
 
-/* Cyan/Teal aurora wave */
+/* Pink/Magenta aurora wave - primary like logo */
 .aurora-cyan {
   background:
     radial-gradient(ellipse 40% 30% at 30% 40%,
-      hsla(185, 100%, 50%, 0.25) 0%,
+      hsla(320, 85%, 55%, 0.3) 0%,
       transparent 70%),
     radial-gradient(ellipse 35% 25% at 70% 60%,
-      hsla(185, 100%, 45%, 0.2) 0%,
+      hsla(320, 90%, 50%, 0.25) 0%,
       transparent 60%),
     radial-gradient(ellipse 30% 20% at 50% 80%,
-      hsla(195, 100%, 50%, 0.15) 0%,
+      hsla(330, 85%, 55%, 0.2) 0%,
       transparent 50%);
   animation: aurora-drift-1 30s ease-in-out infinite;
   filter: blur(80px);
 }
 
-/* Pink/Magenta aurora wave */
+/* Purple/Violet aurora wave - secondary like logo */
 .aurora-pink {
   background:
     radial-gradient(ellipse 35% 25% at 70% 35%,
-      hsla(320, 100%, 50%, 0.2) 0%,
+      hsla(270, 85%, 60%, 0.28) 0%,
       transparent 70%),
     radial-gradient(ellipse 30% 20% at 25% 65%,
-      hsla(280, 100%, 55%, 0.18) 0%,
+      hsla(280, 90%, 55%, 0.22) 0%,
       transparent 60%),
     radial-gradient(ellipse 25% 18% at 60% 75%,
-      hsla(300, 100%, 50%, 0.12) 0%,
+      hsla(290, 85%, 55%, 0.18) 0%,
       transparent 50%);
   animation: aurora-drift-2 35s ease-in-out infinite;
   filter: blur(80px);
@@ -214,65 +214,65 @@ body {
   background: transparent !important;
 }
 
-/* Futuristic glass card with glow */
+/* Futuristic glass card with glow - Pink/Purple like logo */
 .glass-card {
   @apply backdrop-blur-md rounded-2xl;
-  background: linear-gradient(135deg, hsla(230, 30%, 15%, 0.8) 0%, hsla(250, 25%, 12%, 0.9) 100%);
-  border: 1px solid hsla(185, 100%, 50%, 0.2);
+  background: linear-gradient(135deg, hsla(230, 30%, 15%, 0.8) 0%, hsla(270, 25%, 12%, 0.9) 100%);
+  border: 1px solid hsla(320, 85%, 55%, 0.2);
   box-shadow:
-    0 0 20px hsla(185, 100%, 50%, 0.1),
-    inset 0 1px 0 hsla(185, 100%, 50%, 0.1);
+    0 0 20px hsla(320, 85%, 55%, 0.1),
+    inset 0 1px 0 hsla(320, 85%, 55%, 0.1);
 }
 
-/* Neon glow card */
+/* Neon glow card - Pink/Purple gradient like logo */
 .neon-card {
   @apply backdrop-blur-md rounded-2xl;
-  background: linear-gradient(135deg, hsla(230, 30%, 12%, 0.9) 0%, hsla(250, 25%, 10%, 0.95) 100%);
-  border: 1px solid hsla(185, 100%, 50%, 0.3);
+  background: linear-gradient(135deg, hsla(230, 30%, 12%, 0.9) 0%, hsla(270, 25%, 10%, 0.95) 100%);
+  border: 1px solid hsla(320, 85%, 55%, 0.3);
   box-shadow:
-    0 0 30px hsla(185, 100%, 50%, 0.15),
-    0 0 60px hsla(185, 100%, 50%, 0.05),
-    inset 0 1px 0 hsla(185, 100%, 50%, 0.2);
+    0 0 30px hsla(320, 85%, 55%, 0.15),
+    0 0 60px hsla(270, 85%, 60%, 0.05),
+    inset 0 1px 0 hsla(320, 85%, 55%, 0.2);
   transition: all 0.3s ease;
 }
 
 .neon-card:hover {
-  border-color: hsla(185, 100%, 50%, 0.5);
+  border-color: hsla(320, 85%, 55%, 0.5);
   box-shadow:
-    0 0 40px hsla(185, 100%, 50%, 0.25),
-    0 0 80px hsla(185, 100%, 50%, 0.1),
-    inset 0 1px 0 hsla(185, 100%, 50%, 0.3);
+    0 0 40px hsla(320, 85%, 55%, 0.25),
+    0 0 80px hsla(270, 85%, 60%, 0.1),
+    inset 0 1px 0 hsla(320, 85%, 55%, 0.3);
 }
 
 /* Purple neon card variant */
 .neon-card-purple {
   @apply backdrop-blur-md rounded-2xl;
   background: linear-gradient(135deg, hsla(230, 30%, 12%, 0.9) 0%, hsla(270, 25%, 10%, 0.95) 100%);
-  border: 1px solid hsla(280, 100%, 60%, 0.3);
+  border: 1px solid hsla(270, 85%, 60%, 0.3);
   box-shadow:
-    0 0 30px hsla(280, 100%, 60%, 0.15),
-    0 0 60px hsla(280, 100%, 60%, 0.05),
-    inset 0 1px 0 hsla(280, 100%, 60%, 0.2);
+    0 0 30px hsla(270, 85%, 60%, 0.15),
+    0 0 60px hsla(270, 85%, 60%, 0.05),
+    inset 0 1px 0 hsla(270, 85%, 60%, 0.2);
   transition: all 0.3s ease;
 }
 
 .neon-card-purple:hover {
-  border-color: hsla(280, 100%, 60%, 0.5);
+  border-color: hsla(270, 85%, 60%, 0.5);
   box-shadow:
-    0 0 40px hsla(280, 100%, 60%, 0.25),
-    0 0 80px hsla(280, 100%, 60%, 0.1),
-    inset 0 1px 0 hsla(280, 100%, 60%, 0.3);
+    0 0 40px hsla(270, 85%, 60%, 0.25),
+    0 0 80px hsla(270, 85%, 60%, 0.1),
+    inset 0 1px 0 hsla(270, 85%, 60%, 0.3);
 }
 
-/* Pink/magenta neon card variant */
+/* Pink/magenta neon card variant - like logo */
 .neon-card-pink {
   @apply backdrop-blur-md rounded-2xl;
   background: linear-gradient(135deg, hsla(230, 30%, 12%, 0.9) 0%, hsla(320, 25%, 10%, 0.95) 100%);
-  border: 1px solid hsla(320, 100%, 60%, 0.3);
+  border: 1px solid hsla(320, 85%, 55%, 0.3);
   box-shadow:
-    0 0 30px hsla(320, 100%, 60%, 0.15),
-    0 0 60px hsla(320, 100%, 60%, 0.05),
-    inset 0 1px 0 hsla(320, 100%, 60%, 0.2);
+    0 0 30px hsla(320, 85%, 55%, 0.15),
+    0 0 60px hsla(320, 85%, 55%, 0.05),
+    inset 0 1px 0 hsla(320, 85%, 55%, 0.2);
   transition: all 0.3s ease;
 }
 
@@ -293,15 +293,15 @@ body {
   background-size: 200% 200%;
 }
 
-/* Futuristic neumorphic - dark theme */
+/* Futuristic neumorphic - dark theme with pink/purple */
 .neumorphic-shadow {
   border-radius: 14px;
-  background: linear-gradient(145deg, hsla(230, 30%, 15%, 0.9), hsla(230, 25%, 10%, 0.9));
+  background: linear-gradient(145deg, hsla(230, 30%, 15%, 0.9), hsla(270, 25%, 10%, 0.9));
   box-shadow:
-    inset 2px 2px 4px hsla(185, 100%, 50%, 0.05),
+    inset 2px 2px 4px hsla(320, 85%, 55%, 0.05),
     inset -2px -2px 4px hsla(0, 0%, 0%, 0.3),
-    0 0 20px hsla(185, 100%, 50%, 0.05);
-  border: 1px solid hsla(185, 100%, 50%, 0.1);
+    0 0 20px hsla(320, 85%, 55%, 0.05);
+  border: 1px solid hsla(320, 85%, 55%, 0.1);
   transition: all 0.2s ease-in-out;
 }
 
@@ -309,17 +309,17 @@ button.neumorphic-shadow:active,
 a.neumorphic-shadow:active {
   box-shadow:
     2px 2px 4px hsla(0, 0%, 0%, 0.3),
-    -2px -2px 4px hsla(185, 100%, 50%, 0.05);
+    -2px -2px 4px hsla(320, 85%, 55%, 0.05);
 }
 
 .neumorphic-raised {
   border-radius: 14px;
-  background: linear-gradient(145deg, hsla(230, 30%, 18%, 0.9), hsla(230, 25%, 12%, 0.9));
+  background: linear-gradient(145deg, hsla(230, 30%, 18%, 0.9), hsla(270, 25%, 12%, 0.9));
   box-shadow:
     4px 4px 8px hsla(0, 0%, 0%, 0.4),
-    -2px -2px 4px hsla(185, 100%, 50%, 0.05),
-    0 0 15px hsla(185, 100%, 50%, 0.05);
-  border: 1px solid hsla(185, 100%, 50%, 0.15);
+    -2px -2px 4px hsla(320, 85%, 55%, 0.05),
+    0 0 15px hsla(320, 85%, 55%, 0.05);
+  border: 1px solid hsla(320, 85%, 55%, 0.15);
   transition: all 0.2s ease-in-out;
 }
 
@@ -327,7 +327,7 @@ button.neumorphic-raised:active,
 a.neumorphic-raised:active {
   box-shadow:
     inset 2px 2px 4px hsla(0, 0%, 0%, 0.3),
-    inset -2px -2px 4px hsla(185, 100%, 50%, 0.03);
+    inset -2px -2px 4px hsla(320, 85%, 55%, 0.03);
 }
 
 /* Adjust card comment container spacing */
@@ -492,106 +492,106 @@ a.neumorphic-raised:active {
   @apply neumorphic-shadow border-0 focus:ring-2 focus:ring-primary/50 focus:outline-none transition-all duration-200 resize-none;
 }
 
-/* Neon button styles */
+/* Neon button styles - Pink/Purple gradient like logo */
 .btn-primary {
   @apply rounded-xl text-sm font-medium transition-all duration-200 active:scale-95;
-  background: linear-gradient(135deg, hsl(185 100% 45%) 0%, hsl(185 100% 35%) 100%);
-  color: hsl(230 25% 7%);
-  border: 1px solid hsla(185, 100%, 50%, 0.5);
+  background: linear-gradient(135deg, hsl(320 85% 55%) 0%, hsl(270 85% 55%) 100%);
+  color: white;
+  border: 1px solid hsla(320, 85%, 55%, 0.5);
   box-shadow:
-    0 0 20px hsla(185, 100%, 50%, 0.3),
-    0 0 40px hsla(185, 100%, 50%, 0.1),
-    inset 0 1px 0 hsla(185, 100%, 80%, 0.3);
+    0 0 20px hsla(320, 85%, 55%, 0.3),
+    0 0 40px hsla(270, 85%, 60%, 0.1),
+    inset 0 1px 0 hsla(320, 85%, 80%, 0.3);
 }
 
 .btn-primary:hover {
-  background: linear-gradient(135deg, hsl(185 100% 50%) 0%, hsl(185 100% 40%) 100%);
+  background: linear-gradient(135deg, hsl(320 85% 60%) 0%, hsl(270 85% 60%) 100%);
   box-shadow:
-    0 0 30px hsla(185, 100%, 50%, 0.5),
-    0 0 60px hsla(185, 100%, 50%, 0.2),
-    inset 0 1px 0 hsla(185, 100%, 80%, 0.4);
+    0 0 30px hsla(320, 85%, 55%, 0.5),
+    0 0 60px hsla(270, 85%, 60%, 0.2),
+    inset 0 1px 0 hsla(320, 85%, 80%, 0.4);
 }
 
 .btn-secondary {
   @apply rounded-xl text-sm font-medium transition-all duration-200 active:scale-95;
-  background: linear-gradient(135deg, hsl(280 100% 55%) 0%, hsl(280 100% 45%) 100%);
+  background: linear-gradient(135deg, hsl(270 85% 55%) 0%, hsl(290 85% 50%) 100%);
   color: white;
-  border: 1px solid hsla(280, 100%, 60%, 0.5);
+  border: 1px solid hsla(270, 85%, 60%, 0.5);
   box-shadow:
-    0 0 20px hsla(280, 100%, 60%, 0.3),
-    0 0 40px hsla(280, 100%, 60%, 0.1),
-    inset 0 1px 0 hsla(280, 100%, 80%, 0.3);
+    0 0 20px hsla(270, 85%, 60%, 0.3),
+    0 0 40px hsla(270, 85%, 60%, 0.1),
+    inset 0 1px 0 hsla(270, 85%, 80%, 0.3);
 }
 
 .btn-secondary:hover {
-  background: linear-gradient(135deg, hsl(280 100% 60%) 0%, hsl(280 100% 50%) 100%);
+  background: linear-gradient(135deg, hsl(270 85% 60%) 0%, hsl(290 85% 55%) 100%);
   box-shadow:
-    0 0 30px hsla(280, 100%, 60%, 0.5),
-    0 0 60px hsla(280, 100%, 60%, 0.2),
-    inset 0 1px 0 hsla(280, 100%, 80%, 0.4);
+    0 0 30px hsla(270, 85%, 60%, 0.5),
+    0 0 60px hsla(270, 85%, 60%, 0.2),
+    inset 0 1px 0 hsla(270, 85%, 80%, 0.4);
 }
 
-/* Glass button styles */
+/* Glass button styles - Pink/Purple accents */
 .btn-glass {
   @apply border rounded-xl text-sm font-medium backdrop-blur-sm transition-all duration-200;
   background: hsla(230, 30%, 15%, 0.5);
-  border-color: hsla(185, 100%, 50%, 0.2);
+  border-color: hsla(320, 85%, 55%, 0.2);
   color: hsl(210 40% 98%);
 }
 
 .btn-glass:hover {
-  background: hsla(230, 30%, 20%, 0.6);
-  border-color: hsla(185, 100%, 50%, 0.4);
-  box-shadow: 0 0 15px hsla(185, 100%, 50%, 0.15);
+  background: hsla(270, 30%, 20%, 0.6);
+  border-color: hsla(320, 85%, 55%, 0.4);
+  box-shadow: 0 0 15px hsla(320, 85%, 55%, 0.15);
 }
 
 .btn-glass-dark {
   @apply border rounded-xl text-sm font-medium backdrop-blur-sm transition-all duration-200;
   background: hsla(230, 30%, 10%, 0.7);
-  border-color: hsla(185, 100%, 50%, 0.15);
+  border-color: hsla(320, 85%, 55%, 0.15);
   color: hsl(210 40% 98%);
 }
 
 .btn-glass-dark:hover {
-  background: hsla(230, 30%, 15%, 0.8);
-  border-color: hsla(185, 100%, 50%, 0.3);
-  box-shadow: 0 0 15px hsla(185, 100%, 50%, 0.1);
+  background: hsla(270, 30%, 15%, 0.8);
+  border-color: hsla(320, 85%, 55%, 0.3);
+  box-shadow: 0 0 15px hsla(320, 85%, 55%, 0.1);
 }
 
-/* Neon outline button */
+/* Neon outline button - Pink/Purple */
 .btn-neon-outline {
   @apply rounded-xl text-sm font-medium transition-all duration-200 active:scale-95;
   background: transparent;
-  color: hsl(185 100% 50%);
-  border: 1px solid hsla(185, 100%, 50%, 0.5);
-  box-shadow: 0 0 10px hsla(185, 100%, 50%, 0.2);
+  color: hsl(320 85% 60%);
+  border: 1px solid hsla(320, 85%, 55%, 0.5);
+  box-shadow: 0 0 10px hsla(320, 85%, 55%, 0.2);
 }
 
 .btn-neon-outline:hover {
-  background: hsla(185, 100%, 50%, 0.1);
-  border-color: hsla(185, 100%, 50%, 0.8);
+  background: hsla(320, 85%, 55%, 0.1);
+  border-color: hsla(320, 85%, 55%, 0.8);
   box-shadow:
-    0 0 20px hsla(185, 100%, 50%, 0.3),
-    inset 0 0 20px hsla(185, 100%, 50%, 0.05);
+    0 0 20px hsla(320, 85%, 55%, 0.3),
+    inset 0 0 20px hsla(320, 85%, 55%, 0.05);
 }
 
-/* Pink neon button */
+/* Pink neon button - like logo */
 .btn-neon-pink {
   @apply rounded-xl text-sm font-medium transition-all duration-200 active:scale-95;
-  background: linear-gradient(135deg, hsl(320 100% 55%) 0%, hsl(320 100% 45%) 100%);
+  background: linear-gradient(135deg, hsl(320 85% 55%) 0%, hsl(320 85% 45%) 100%);
   color: white;
-  border: 1px solid hsla(320, 100%, 60%, 0.5);
+  border: 1px solid hsla(320, 85%, 55%, 0.5);
   box-shadow:
-    0 0 20px hsla(320, 100%, 60%, 0.3),
-    0 0 40px hsla(320, 100%, 60%, 0.1),
-    inset 0 1px 0 hsla(320, 100%, 80%, 0.3);
+    0 0 20px hsla(320, 85%, 55%, 0.3),
+    0 0 40px hsla(320, 85%, 55%, 0.1),
+    inset 0 1px 0 hsla(320, 85%, 80%, 0.3);
 }
 
 .btn-neon-pink:hover {
-  background: linear-gradient(135deg, hsl(320 100% 60%) 0%, hsl(320 100% 50%) 100%);
+  background: linear-gradient(135deg, hsl(320 85% 60%) 0%, hsl(320 85% 50%) 100%);
   box-shadow:
-    0 0 30px hsla(320, 100%, 60%, 0.5),
-    0 0 60px hsla(320, 100%, 60%, 0.2);
+    0 0 30px hsla(320, 85%, 55%, 0.5),
+    0 0 60px hsla(320, 85%, 55%, 0.2);
 }
 
 /* Session status indicator - neon style */
@@ -618,23 +618,23 @@ a.neumorphic-raised:active {
   @apply ring-2 ring-primary/50 ring-offset-2 ring-offset-background outline-none;
 }
 
-/* Gradient button styles - neon version */
+/* Gradient button styles - Pink to Purple like logo */
 .btn-gradient {
   @apply rounded-xl text-sm font-medium transition-all duration-200 active:scale-95;
-  background: linear-gradient(135deg, hsl(320 100% 55%) 0%, hsl(280 100% 55%) 50%, hsl(185 100% 50%) 100%);
+  background: linear-gradient(135deg, hsl(320 85% 55%) 0%, hsl(290 85% 55%) 50%, hsl(270 85% 60%) 100%);
   background-size: 200% 200%;
   color: white;
-  border: 1px solid hsla(280, 100%, 60%, 0.5);
+  border: 1px solid hsla(320, 85%, 55%, 0.5);
   box-shadow:
-    0 0 20px hsla(280, 100%, 60%, 0.3),
-    0 0 40px hsla(185, 100%, 50%, 0.15);
+    0 0 20px hsla(320, 85%, 55%, 0.3),
+    0 0 40px hsla(270, 85%, 60%, 0.15);
   animation: gradient-shift 3s ease infinite;
 }
 
 .btn-gradient:hover {
   box-shadow:
-    0 0 30px hsla(280, 100%, 60%, 0.5),
-    0 0 60px hsla(185, 100%, 50%, 0.25);
+    0 0 30px hsla(320, 85%, 55%, 0.5),
+    0 0 60px hsla(270, 85%, 60%, 0.25);
 }
 
 /* Smooth enter/exit animations */
@@ -699,56 +699,56 @@ a.neumorphic-raised:active {
 }
 
 /* ==========================================
-   FUTURISTIC NEON UTILITIES
+   FUTURISTIC NEON UTILITIES - Pink/Purple like logo
    ========================================== */
 
-/* Pulsing glow animation */
+/* Pulsing glow animation - Pink primary */
 @keyframes pulse-glow {
   0%, 100% {
     box-shadow:
-      0 0 20px hsla(185, 100%, 50%, 0.3),
-      0 0 40px hsla(185, 100%, 50%, 0.1);
+      0 0 20px hsla(320, 85%, 55%, 0.3),
+      0 0 40px hsla(320, 85%, 55%, 0.1);
   }
   50% {
     box-shadow:
-      0 0 30px hsla(185, 100%, 50%, 0.5),
-      0 0 60px hsla(185, 100%, 50%, 0.2);
+      0 0 30px hsla(320, 85%, 55%, 0.5),
+      0 0 60px hsla(320, 85%, 55%, 0.2);
   }
 }
 
 @keyframes pulse-glow-purple {
   0%, 100% {
     box-shadow:
-      0 0 20px hsla(280, 100%, 60%, 0.3),
-      0 0 40px hsla(280, 100%, 60%, 0.1);
+      0 0 20px hsla(270, 85%, 60%, 0.3),
+      0 0 40px hsla(270, 85%, 60%, 0.1);
   }
   50% {
     box-shadow:
-      0 0 30px hsla(280, 100%, 60%, 0.5),
-      0 0 60px hsla(280, 100%, 60%, 0.2);
+      0 0 30px hsla(270, 85%, 60%, 0.5),
+      0 0 60px hsla(270, 85%, 60%, 0.2);
   }
 }
 
 @keyframes pulse-glow-pink {
   0%, 100% {
     box-shadow:
-      0 0 20px hsla(320, 100%, 60%, 0.3),
-      0 0 40px hsla(320, 100%, 60%, 0.1);
+      0 0 20px hsla(320, 85%, 55%, 0.3),
+      0 0 40px hsla(320, 85%, 55%, 0.1);
   }
   50% {
     box-shadow:
-      0 0 30px hsla(320, 100%, 60%, 0.5),
-      0 0 60px hsla(320, 100%, 60%, 0.2);
+      0 0 30px hsla(320, 85%, 55%, 0.5),
+      0 0 60px hsla(320, 85%, 55%, 0.2);
   }
 }
 
-/* Border glow animation */
+/* Border glow animation - Pink primary */
 @keyframes border-glow {
   0%, 100% {
-    border-color: hsla(185, 100%, 50%, 0.3);
+    border-color: hsla(320, 85%, 55%, 0.3);
   }
   50% {
-    border-color: hsla(185, 100%, 50%, 0.6);
+    border-color: hsla(320, 85%, 55%, 0.6);
   }
 }
 
@@ -768,42 +768,42 @@ a.neumorphic-raised:active {
   animation: border-glow 2s ease-in-out infinite;
 }
 
-/* Glow text effects */
+/* Glow text effects - Pink/Purple like logo */
 .text-glow-cyan {
   text-shadow:
-    0 0 10px hsla(185, 100%, 50%, 0.5),
-    0 0 20px hsla(185, 100%, 50%, 0.3),
-    0 0 30px hsla(185, 100%, 50%, 0.2);
+    0 0 10px hsla(320, 85%, 55%, 0.5),
+    0 0 20px hsla(320, 85%, 55%, 0.3),
+    0 0 30px hsla(320, 85%, 55%, 0.2);
 }
 
 .text-glow-purple {
   text-shadow:
-    0 0 10px hsla(280, 100%, 60%, 0.5),
-    0 0 20px hsla(280, 100%, 60%, 0.3),
-    0 0 30px hsla(280, 100%, 60%, 0.2);
+    0 0 10px hsla(270, 85%, 60%, 0.5),
+    0 0 20px hsla(270, 85%, 60%, 0.3),
+    0 0 30px hsla(270, 85%, 60%, 0.2);
 }
 
 .text-glow-pink {
   text-shadow:
-    0 0 10px hsla(320, 100%, 60%, 0.5),
-    0 0 20px hsla(320, 100%, 60%, 0.3),
-    0 0 30px hsla(320, 100%, 60%, 0.2);
+    0 0 10px hsla(320, 85%, 55%, 0.5),
+    0 0 20px hsla(320, 85%, 55%, 0.3),
+    0 0 30px hsla(320, 85%, 55%, 0.2);
 }
 
-/* Glowing border utilities */
+/* Glowing border utilities - Pink/Purple like logo */
 .border-glow-cyan {
-  border: 1px solid hsla(185, 100%, 50%, 0.4);
-  box-shadow: 0 0 15px hsla(185, 100%, 50%, 0.2);
+  border: 1px solid hsla(320, 85%, 55%, 0.4);
+  box-shadow: 0 0 15px hsla(320, 85%, 55%, 0.2);
 }
 
 .border-glow-purple {
-  border: 1px solid hsla(280, 100%, 60%, 0.4);
-  box-shadow: 0 0 15px hsla(280, 100%, 60%, 0.2);
+  border: 1px solid hsla(270, 85%, 60%, 0.4);
+  box-shadow: 0 0 15px hsla(270, 85%, 60%, 0.2);
 }
 
 .border-glow-pink {
-  border: 1px solid hsla(320, 100%, 60%, 0.4);
-  box-shadow: 0 0 15px hsla(320, 100%, 60%, 0.2);
+  border: 1px solid hsla(320, 85%, 55%, 0.4);
+  box-shadow: 0 0 15px hsla(320, 85%, 55%, 0.2);
 }
 
 /* Tag/badge styles */
@@ -842,7 +842,7 @@ a.neumorphic-raised:active {
   border: 1px solid hsla(45, 100%, 50%, 0.3);
 }
 
-/* Futuristic scrollbar */
+/* Futuristic scrollbar - Pink/Purple like logo */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
@@ -854,20 +854,20 @@ a.neumorphic-raised:active {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg, hsla(185, 100%, 50%, 0.4), hsla(280, 100%, 60%, 0.4));
+  background: linear-gradient(180deg, hsla(320, 85%, 55%, 0.4), hsla(270, 85%, 60%, 0.4));
   border-radius: 4px;
-  border: 1px solid hsla(185, 100%, 50%, 0.2);
+  border: 1px solid hsla(320, 85%, 55%, 0.2);
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(180deg, hsla(185, 100%, 50%, 0.6), hsla(280, 100%, 60%, 0.6));
+  background: linear-gradient(180deg, hsla(320, 85%, 55%, 0.6), hsla(270, 85%, 60%, 0.6));
 }
 
-/* Futuristic input styles */
+/* Futuristic input styles - Pink/Purple like logo */
 .input-futuristic {
   @apply rounded-xl text-sm transition-all duration-200;
   background: hsla(230, 30%, 12%, 0.8);
-  border: 1px solid hsla(185, 100%, 50%, 0.2);
+  border: 1px solid hsla(320, 85%, 55%, 0.2);
   color: hsl(210 40% 98%);
 }
 
@@ -877,22 +877,22 @@ a.neumorphic-raised:active {
 
 .input-futuristic:focus {
   outline: none;
-  border-color: hsla(185, 100%, 50%, 0.5);
+  border-color: hsla(320, 85%, 55%, 0.5);
   box-shadow:
-    0 0 15px hsla(185, 100%, 50%, 0.15),
-    inset 0 0 10px hsla(185, 100%, 50%, 0.05);
+    0 0 15px hsla(320, 85%, 55%, 0.15),
+    inset 0 0 10px hsla(320, 85%, 55%, 0.05);
 }
 
-/* Divider with glow */
+/* Divider with glow - Pink/Purple like logo */
 .divider-glow {
   height: 1px;
   background: linear-gradient(90deg,
     transparent,
-    hsla(185, 100%, 50%, 0.4) 20%,
-    hsla(185, 100%, 50%, 0.4) 80%,
+    hsla(320, 85%, 55%, 0.4) 20%,
+    hsla(320, 85%, 55%, 0.4) 80%,
     transparent
   );
-  box-shadow: 0 0 10px hsla(185, 100%, 50%, 0.3);
+  box-shadow: 0 0 10px hsla(320, 85%, 55%, 0.3);
 }
 
 /* Background gradient utilities */
@@ -901,7 +901,7 @@ a.neumorphic-raised:active {
 }
 
 .bg-futuristic-card {
-  background: linear-gradient(135deg, hsla(230, 30%, 12%, 0.9) 0%, hsla(250, 25%, 10%, 0.95) 100%);
+  background: linear-gradient(135deg, hsla(230, 30%, 12%, 0.9) 0%, hsla(270, 25%, 10%, 0.95) 100%);
 }
 
 /* Sidebar and header semi-transparent backgrounds */
@@ -915,25 +915,25 @@ a.neumorphic-raised:active {
   backdrop-filter: blur(20px);
 }
 
-/* Dashboard glass card - transparent with blur to show aurora */
+/* Dashboard glass card - transparent with blur to show aurora - Pink/Purple */
 .dashboard-card {
   @apply rounded-3xl backdrop-blur-xl;
   background: hsla(230, 30%, 10%, 0.4);
-  border: 1px solid hsla(185, 100%, 50%, 0.15);
+  border: 1px solid hsla(320, 85%, 55%, 0.15);
   box-shadow:
     0 4px 30px hsla(0, 0%, 0%, 0.3),
-    inset 0 1px 0 hsla(185, 100%, 50%, 0.05);
+    inset 0 1px 0 hsla(320, 85%, 55%, 0.05);
 }
 
 .dashboard-card:hover {
-  border-color: hsla(185, 100%, 50%, 0.25);
+  border-color: hsla(320, 85%, 55%, 0.25);
 }
 
-/* Stat card with more transparency */
+/* Stat card with more transparency - Pink/Purple */
 .stat-card {
   @apply rounded-3xl backdrop-blur-lg;
-  background: linear-gradient(135deg, hsla(230, 30%, 15%, 0.3) 0%, hsla(230, 25%, 10%, 0.4) 100%);
-  border: 1px solid hsla(185, 100%, 50%, 0.1);
+  background: linear-gradient(135deg, hsla(230, 30%, 15%, 0.3) 0%, hsla(270, 25%, 10%, 0.4) 100%);
+  border: 1px solid hsla(320, 85%, 55%, 0.1);
 }
 
 /* ==========================================
