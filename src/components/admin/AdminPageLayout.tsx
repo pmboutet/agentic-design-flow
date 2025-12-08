@@ -399,7 +399,7 @@ export function AdminPageLayout({ children }: AdminPageLayoutProps) {
   return (
     <ClientProvider>
       <AdminSearchProvider value={defaultSearchContext}>
-        <div className="admin-layout min-h-screen h-screen overflow-hidden bg-futuristic text-slate-100">
+        <div className="admin-layout min-h-screen h-screen overflow-hidden text-slate-100">
           <div className="flex h-full min-h-0">
             {/* Sidebar with neon glow border */}
             <aside
