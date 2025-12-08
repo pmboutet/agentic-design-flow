@@ -936,7 +936,28 @@ a.neumorphic-raised:active {
   border: 1px solid hsla(185, 100%, 50%, 0.1);
 }
 
-/* Override white/5 backgrounds to be more transparent with blur */
-.bg-white\/5 {
-  backdrop-filter: blur(12px);
+/* ==========================================
+   GLOBAL GLASS EFFECT FOR DASHBOARD CARDS
+   Apply backdrop blur to all cards with bg-white/5
+   ========================================== */
+
+/* Target all elements with rounded cards and white/5 background using attribute selector */
+[class*="bg-white/5"] {
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+}
+
+/* Target all rounded border cards to ensure glass effect */
+[class*="rounded-2xl"][class*="border-white/10"],
+[class*="rounded-3xl"][class*="border-white/10"] {
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+  background: hsla(230, 30%, 12%, 0.35) !important;
+}
+
+/* Cards with gradient backgrounds also need glass effect */
+[class*="bg-gradient-to-br"][class*="from-white/5"] {
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+  background: linear-gradient(135deg, hsla(230, 30%, 15%, 0.3) 0%, hsla(230, 25%, 12%, 0.35) 100%) !important;
 }
