@@ -19,6 +19,7 @@ interface AskSessionRow {
   project_id?: string | null;
   challenge_id?: string | null;
   conversation_mode?: string | null;
+  expected_duration_minutes?: number | null;
 }
 
 interface MessageRow {
@@ -129,7 +130,7 @@ export async function POST(
     const { row: askRow, error: askError } = await getAskSessionByKey<AskSessionRow>(
       dataClient,
       key,
-      'id, ask_key, question, description, status, system_prompt, project_id, challenge_id, conversation_mode'
+      'id, ask_key, question, description, status, system_prompt, project_id, challenge_id, conversation_mode, expected_duration_minutes'
     );
 
     if (askError || !askRow) {
@@ -319,6 +320,7 @@ export async function POST(
             system_prompt_challenge: challengeData?.system_prompt ?? '',
             participants: participantSummaries.map(p => p.name).join(', '),
             participants_list: participantSummaries,
+            expected_duration_minutes: String(askRow.expected_duration_minutes ?? 8),
           };
 
           const planData = await generateConversationPlan(
