@@ -1025,3 +1025,76 @@ a.neumorphic-raised:active {
 [class*="gap-6"] {
   gap: 2rem;
 }
+
+/* ==========================================
+   NEON GLOW EFFECTS - Back-lighting
+   ========================================== */
+
+/* Emerald/Green neon glow for selected elements */
+[class*="bg-emerald-500/10"],
+[class*="bg-emerald-500/15"] {
+  box-shadow:
+    0 0 20px hsla(160, 84%, 39%, 0.3),
+    0 0 40px hsla(160, 84%, 39%, 0.15),
+    inset 0 1px 0 hsla(160, 84%, 60%, 0.2);
+  background: linear-gradient(
+    135deg,
+    hsla(160, 84%, 39%, 0.15) 0%,
+    hsla(155, 80%, 35%, 0.2) 50%,
+    hsla(165, 90%, 42%, 0.12) 100%
+  ) !important;
+}
+
+[class*="border-emerald-400"] {
+  border-color: hsla(160, 84%, 50%, 0.5) !important;
+  box-shadow:
+    0 0 15px hsla(160, 84%, 45%, 0.25),
+    0 0 30px hsla(160, 84%, 40%, 0.1);
+}
+
+/* Indigo/Blue neon glow for selected elements */
+[class*="bg-indigo-500/10"],
+[class*="bg-indigo-500/15"] {
+  box-shadow:
+    0 0 20px hsla(239, 84%, 67%, 0.3),
+    0 0 40px hsla(239, 84%, 67%, 0.15),
+    inset 0 1px 0 hsla(239, 84%, 75%, 0.2);
+  background: linear-gradient(
+    135deg,
+    hsla(239, 84%, 67%, 0.15) 0%,
+    hsla(245, 80%, 60%, 0.2) 50%,
+    hsla(230, 90%, 70%, 0.12) 100%
+  ) !important;
+}
+
+[class*="border-indigo-400"],
+[class*="border-indigo-500"] {
+  border-color: hsla(239, 84%, 67%, 0.5) !important;
+  box-shadow:
+    0 0 15px hsla(239, 84%, 67%, 0.25),
+    0 0 30px hsla(239, 84%, 60%, 0.1);
+}
+
+/* Enhanced hover states for neon elements */
+[class*="bg-emerald-500"]:hover {
+  box-shadow:
+    0 0 25px hsla(160, 84%, 39%, 0.4),
+    0 0 50px hsla(160, 84%, 39%, 0.2),
+    inset 0 1px 0 hsla(160, 84%, 60%, 0.3);
+}
+
+[class*="bg-indigo-500"]:hover {
+  box-shadow:
+    0 0 25px hsla(239, 84%, 67%, 0.4),
+    0 0 50px hsla(239, 84%, 67%, 0.2),
+    inset 0 1px 0 hsla(239, 84%, 75%, 0.3);
+}
+
+/* Signal/Pain/Gain badges with subtle glow */
+[class*="bg-emerald-500/20"] {
+  box-shadow: 0 0 12px hsla(160, 84%, 45%, 0.2);
+}
+
+[class*="bg-indigo-500/20"] {
+  box-shadow: 0 0 12px hsla(239, 84%, 60%, 0.2);
+}
