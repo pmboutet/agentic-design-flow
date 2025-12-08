@@ -942,7 +942,8 @@ a.neumorphic-raised:active {
    ========================================== */
 
 /* Target bg-slate-900 SOLID - override Tailwind's opaque background */
-.bg-slate-900 {
+/* Exclude form elements */
+.bg-slate-900:not(input):not(textarea):not(select):not(button) {
   --tw-bg-opacity: 0.2 !important;
   -webkit-backdrop-filter: blur(20px);
   backdrop-filter: blur(20px);
@@ -950,25 +951,46 @@ a.neumorphic-raised:active {
 }
 
 /* Target bg-slate-950 SOLID - override Tailwind's opaque background */
-.bg-slate-950 {
+.bg-slate-950:not(input):not(textarea):not(select):not(button) {
   --tw-bg-opacity: 0.2 !important;
   -webkit-backdrop-filter: blur(20px);
   backdrop-filter: blur(20px);
   background: hsla(230, 30%, 8%, 0.2) !important;
 }
 
-/* Target ALL bg-slate-900 variants with opacity */
-[class*="bg-slate-900/"] {
+/* Target ALL bg-slate-900 variants with opacity - exclude form elements */
+div[class*="bg-slate-900/"],
+section[class*="bg-slate-900/"],
+article[class*="bg-slate-900/"],
+nav[class*="bg-slate-900/"],
+aside[class*="bg-slate-900/"],
+header[class*="bg-slate-900/"],
+footer[class*="bg-slate-900/"] {
   -webkit-backdrop-filter: blur(20px);
   backdrop-filter: blur(20px);
   background: hsla(230, 30%, 12%, 0.2) !important;
 }
 
-/* Target ALL bg-slate-950 variants with opacity */
-[class*="bg-slate-950/"] {
+/* Target ALL bg-slate-950 variants with opacity - exclude form elements */
+div[class*="bg-slate-950/"],
+section[class*="bg-slate-950/"],
+article[class*="bg-slate-950/"],
+nav[class*="bg-slate-950/"],
+aside[class*="bg-slate-950/"],
+header[class*="bg-slate-950/"],
+footer[class*="bg-slate-950/"] {
   -webkit-backdrop-filter: blur(20px);
   backdrop-filter: blur(20px);
   background: hsla(230, 30%, 8%, 0.2) !important;
+}
+
+/* Form elements - visible background for readability */
+input[class*="bg-slate-900"],
+textarea[class*="bg-slate-900"],
+select[class*="bg-slate-900"] {
+  background: hsla(230, 30%, 12%, 0.6) !important;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
 
 /* Target all elements with bg-white/5 */
