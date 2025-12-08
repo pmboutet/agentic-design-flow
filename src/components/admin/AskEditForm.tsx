@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { DateTimePicker } from "@/components/ui/date-time-picker";
+import { DurationSlider } from "@/components/ui/duration-slider";
 import { AskPromptTemplateSelector } from "./AskPromptTemplateSelector";
 import { type AskSessionRecord, type ManagedUser } from "@/types";
 
@@ -36,6 +37,7 @@ const formSchema = z.object({
   maxParticipants: z.preprocess(parseNumber, z.number().int().positive().max(10000).optional()),
   deliveryMode: z.enum(deliveryModes),
   conversationMode: z.enum(conversationModes),
+  expectedDurationMinutes: z.number().int().min(1).max(30).default(8),
   participantIds: z.array(z.string().uuid()).default([]),
   spokespersonId: z.string().uuid().optional().or(z.literal("")),
   systemPrompt: z.string().trim().optional().or(z.literal(""))
@@ -67,6 +69,7 @@ export function AskEditForm({ asks, availableUsers, onSubmit, isLoading }: AskEd
       maxParticipants: undefined,
       deliveryMode: "digital",
       conversationMode: "collaborative",
+      expectedDurationMinutes: 8,
       participantIds: [],
       spokespersonId: "",
       systemPrompt: ""
@@ -118,6 +121,7 @@ export function AskEditForm({ asks, availableUsers, onSubmit, isLoading }: AskEd
       maxParticipants: ask.maxParticipants ?? undefined,
       deliveryMode: ask.deliveryMode ?? "digital",
       conversationMode: ask.conversationMode ?? "collaborative",
+      expectedDurationMinutes: ask.expectedDurationMinutes ?? 8,
       participantIds: ask.participants?.map(participant => participant.id) ?? [],
       spokespersonId: ask.participants?.find(participant => participant.isSpokesperson)?.id ?? "",
       systemPrompt: ask.systemPrompt ?? ""
@@ -155,6 +159,7 @@ export function AskEditForm({ asks, availableUsers, onSubmit, isLoading }: AskEd
       maxParticipants: values.maxParticipants,
       deliveryMode: values.deliveryMode,
       conversationMode: values.conversationMode,
+      expectedDurationMinutes: values.expectedDurationMinutes,
       participantIds: values.participantIds,
       spokespersonId: values.spokespersonId ?? "",
       systemPrompt: values.systemPrompt ?? ""
@@ -325,6 +330,24 @@ export function AskEditForm({ asks, availableUsers, onSubmit, isLoading }: AskEd
             {selectedConversationMode === "group_reporter" && "Tout le monde voit tout, un rapporteur consolide"}
           </p>
         </div>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <Label htmlFor="edit-duration">Durée attendue de la conversation</Label>
+        <Controller
+          control={form.control}
+          name="expectedDurationMinutes"
+          render={({ field }) => (
+            <DurationSlider
+              value={field.value}
+              onChange={field.onChange}
+              disabled={isLoading}
+            />
+          )}
+        />
+        <p className="text-xs text-muted-foreground">
+          Cette durée sera divisée par le nombre d'étapes du plan de conversation pour adapter le rythme de l'agent IA.
+        </p>
       </div>
 
       <div className="space-y-2">

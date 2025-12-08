@@ -7,6 +7,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { getPacingLevel, getDurationAlert } from "@/lib/pacing";
 
 export interface ConversationStep {
   id: string;
@@ -19,14 +20,27 @@ export interface ConversationStep {
 export interface ConversationProgressBarProps {
   steps: ConversationStep[];
   currentStepId: string;
+  expectedDurationMinutes?: number | null;
 }
 
-export function ConversationProgressBar({ steps, currentStepId }: ConversationProgressBarProps) {
+export function ConversationProgressBar({ steps, currentStepId, expectedDurationMinutes }: ConversationProgressBarProps) {
   const [hoveredStep, setHoveredStep] = useState<string | null>(null);
 
   if (!steps || steps.length === 0) {
     return null;
   }
+
+  // Calculate pacing info
+  const duration = expectedDurationMinutes ?? 8;
+  const durationPerStep = steps.length > 0 ? Math.round((duration / steps.length) * 10) / 10 : duration;
+  const pacingLevel = getPacingLevel(duration);
+  const alert = getDurationAlert(duration);
+
+  const pacingLevelLabels = {
+    intensive: { label: 'Intensif', color: 'bg-green-100 text-green-700' },
+    standard: { label: 'Standard', color: 'bg-blue-100 text-blue-700' },
+    deep: { label: 'Approfondi', color: 'bg-purple-100 text-purple-700' },
+  };
 
   const getStepColor = (step: ConversationStep) => {
     if (step.status === 'completed') {
@@ -54,6 +68,22 @@ export function ConversationProgressBar({ steps, currentStepId }: ConversationPr
   return (
     <div className="w-full px-4 py-2 bg-white/50 backdrop-blur-sm border-b border-gray-200/50">
       <div className="max-w-4xl mx-auto">
+        {/* Pacing indicator bar */}
+        <div className="flex items-center justify-between mb-1.5">
+          <div className="flex items-center gap-2">
+            <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${pacingLevelLabels[pacingLevel].color}`}>
+              {pacingLevelLabels[pacingLevel].label}
+            </span>
+            <span className="text-[10px] text-gray-500">
+              ~{duration} min total ({durationPerStep} min/étape)
+            </span>
+          </div>
+          {alert.level !== 'none' && (
+            <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${alert.bgColor} ${alert.color}`}>
+              {alert.level === 'warning' ? 'Attention' : 'Long'}
+            </span>
+          )}
+        </div>
         <div className="flex items-center gap-1">
           {steps.map((step, index) => {
             const isActive = step.id === currentStepId || step.status === 'active';
@@ -80,11 +110,14 @@ export function ConversationProgressBar({ steps, currentStepId }: ConversationPr
                   >
                     <div className="space-y-2">
                       <div className="flex items-center gap-2">
-                        <div 
+                        <div
                           className={`w-2 h-2 rounded-full ${getStepColor(step)}`}
                         />
                         <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">
                           Étape {index + 1}/{steps.length}
+                        </span>
+                        <span className="text-[10px] text-gray-400">
+                          ~{durationPerStep} min
                         </span>
                         {isActive && (
                           <span className="ml-auto text-xs px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full font-medium">

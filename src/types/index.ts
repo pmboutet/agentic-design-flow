@@ -513,6 +513,7 @@ export interface AskSessionRecord {
   maxParticipants?: number | null;
   deliveryMode: AskDeliveryMode;
   conversationMode: AskConversationMode;
+  expectedDurationMinutes?: number | null; // 1-30 minutes for conversation pacing
   createdBy?: string | null;
   createdAt: string;
   updatedAt: string;
@@ -783,4 +784,19 @@ export interface QuarantinedProfile {
   isQuarantined: boolean;
   quarantinedAt?: string | null;
   quarantinedReason?: string | null;
+}
+
+// Conversation pacing types
+export type PacingLevel = 'intensive' | 'standard' | 'deep';
+export type PacingAlertLevel = 'none' | 'warning' | 'critical';
+
+export interface PacingConfig {
+  expectedDurationMinutes: number;
+  totalSteps: number;
+  durationPerStep: number;
+  pacingLevel: PacingLevel;
+  optimalQuestionsMin: number;
+  optimalQuestionsMax: number;
+  alertLevel: PacingAlertLevel;
+  alertMessage?: string;
 }

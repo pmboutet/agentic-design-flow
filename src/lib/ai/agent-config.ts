@@ -3,6 +3,7 @@ import type { AiAgentRecord, AiModelConfig } from '@/types';
 import { renderTemplate } from './templates';
 import { mapModelRow } from './models';
 import { getAdminSupabaseClient } from '@/lib/supabaseAdmin';
+import { calculatePacingConfig, formatPacingVariables } from '@/lib/pacing';
 
 interface RelatedPromptHolder {
   id: string;
@@ -21,6 +22,7 @@ interface AskSessionWithRelations {
   challenge_id?: string | null;
   delivery_mode?: string | null;
   conversation_mode?: string | null;
+  expected_duration_minutes?: number | null;
   projects?: RelatedPromptHolder | RelatedPromptHolder[] | null;
   challenges?: RelatedPromptHolder | RelatedPromptHolder[] | null;
 }
@@ -162,6 +164,13 @@ export interface PromptVariables {
   system_prompt_challenge?: string;
   participants?: string; // Comma-separated string for templates
   participants_list?: Array<{ name: string; role?: string | null }>; // Array for Handlebars
+  // Pacing variables
+  expected_duration_minutes?: string;
+  duration_per_step?: string;
+  optimal_questions_min?: string;
+  optimal_questions_max?: string;
+  pacing_level?: string;
+  pacing_instructions?: string;
   [key: string]: any; // Allow any type for Handlebars flexibility (arrays, objects, etc.)
 }
 
@@ -173,6 +182,7 @@ interface AskSessionRow {
   system_prompt?: string | null;
   project_id?: string | null;
   challenge_id?: string | null;
+  expected_duration_minutes?: number | null;
 }
 
 interface ProjectRow {
@@ -195,12 +205,13 @@ interface ChallengeRow {
 export async function buildChatAgentVariables(
   supabase: SupabaseClient,
   askSessionId: string,
-  additionalVariables?: Partial<PromptVariables>
+  additionalVariables?: Partial<PromptVariables>,
+  totalSteps?: number
 ): Promise<PromptVariables> {
   // Fetch ASK session
   const { data: askRow, error: askError } = await supabase
     .from('ask_sessions')
-    .select('id, ask_key, question, description, system_prompt, project_id, challenge_id')
+    .select('id, ask_key, question, description, system_prompt, project_id, challenge_id, expected_duration_minutes')
     .eq('id', askSessionId)
     .maybeSingle<AskSessionRow>();
 
@@ -244,6 +255,14 @@ export async function buildChatAgentVariables(
     }
   }
 
+  // Build pacing variables if duration is configured
+  let pacingVariables: Record<string, string> = {};
+  const expectedDuration = askRow.expected_duration_minutes ?? 8;
+  const stepsCount = totalSteps ?? 5; // Default to 5 steps if not provided
+
+  const pacingConfig = calculatePacingConfig(expectedDuration, stepsCount);
+  pacingVariables = formatPacingVariables(pacingConfig);
+
   // Build base variables
   const variables: PromptVariables = {
     ask_key: askRow.ask_key,
@@ -252,6 +271,7 @@ export async function buildChatAgentVariables(
     system_prompt_ask: askRow.system_prompt ?? '',
     system_prompt_project: projectData?.system_prompt ?? '',
     system_prompt_challenge: challengeData?.system_prompt ?? '',
+    ...pacingVariables,
     ...additionalVariables,
   };
 
@@ -414,6 +434,7 @@ export async function getAgentConfigForAsk(
       challenge_id: rpcData.challenge_id,
       delivery_mode: rpcData.delivery_mode,
       conversation_mode: rpcData.conversation_mode,
+      expected_duration_minutes: null, // Not returned by token function - will use default
       projects: projectData ? [projectData] : null,
       challenges: challengeData ? [challengeData] : null,
     } as AskSessionWithRelations;
@@ -432,6 +453,7 @@ export async function getAgentConfigForAsk(
         challenge_id,
         delivery_mode,
         conversation_mode,
+        expected_duration_minutes,
         projects(id, name, system_prompt),
         challenges(id, name, system_prompt)
       `)

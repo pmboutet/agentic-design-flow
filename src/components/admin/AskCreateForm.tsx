@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { DateTimePicker } from "@/components/ui/date-time-picker";
+import { DurationSlider } from "@/components/ui/duration-slider";
 import { type ChallengeRecord, type ManagedUser, type ProjectRecord } from "@/types";
 
 const statusOptions = ["active", "inactive", "draft", "closed"] as const;
@@ -36,6 +37,7 @@ const formSchema = z.object({
   maxParticipants: z.preprocess(parseNumber, z.number().int().positive().max(10000).optional()),
   deliveryMode: z.enum(deliveryModes),
   conversationMode: z.enum(conversationModes),
+  expectedDurationMinutes: z.number().int().min(1).max(30).default(8),
   participantIds: z.array(z.string().uuid()).default([]),
   spokespersonId: z.string().uuid().optional().or(z.literal(""))
 });
@@ -68,6 +70,7 @@ export function AskCreateForm({ challenges, projects, availableUsers, onSubmit, 
       maxParticipants: undefined,
       deliveryMode: "digital",
       conversationMode: "collaborative",
+      expectedDurationMinutes: 8,
       participantIds: [],
       spokespersonId: ""
     }
@@ -171,6 +174,7 @@ export function AskCreateForm({ challenges, projects, availableUsers, onSubmit, 
       maxParticipants: undefined,
       deliveryMode: "digital",
       conversationMode: "collaborative",
+      expectedDurationMinutes: 8,
       participantIds: [],
       spokespersonId: ""
     });
@@ -336,6 +340,24 @@ export function AskCreateForm({ challenges, projects, availableUsers, onSubmit, 
             {selectedConversationMode === "group_reporter" && "Tout le monde voit tout, un rapporteur consolide"}
           </p>
         </div>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <Label htmlFor="create-duration">Durée attendue de la conversation</Label>
+        <Controller
+          control={form.control}
+          name="expectedDurationMinutes"
+          render={({ field }) => (
+            <DurationSlider
+              value={field.value}
+              onChange={field.onChange}
+              disabled={isLoading}
+            />
+          )}
+        />
+        <p className="text-xs text-muted-foreground">
+          Cette durée sera divisée par le nombre d'étapes du plan de conversation pour adapter le rythme de l'agent IA.
+        </p>
       </div>
 
       <div className="space-y-2">
