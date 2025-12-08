@@ -30,6 +30,7 @@ interface AskSessionRow {
   project_id?: string | null;
   challenge_id?: string | null;
   is_anonymous?: boolean | null;
+  expected_duration_minutes?: number | null;
 }
 
 interface ProjectRow {
@@ -199,7 +200,7 @@ export async function POST(
     const { row: askRow, error: askError } = await getAskSessionByKey<AskSessionRow & { conversation_mode?: string | null }>(
       dataClient,
       key,
-      'id, ask_key, question, description, status, system_prompt, project_id, challenge_id, is_anonymous, conversation_mode'
+      'id, ask_key, question, description, status, system_prompt, project_id, challenge_id, is_anonymous, conversation_mode, expected_duration_minutes'
     );
 
     if (askError) {

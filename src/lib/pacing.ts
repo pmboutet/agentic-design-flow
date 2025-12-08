@@ -235,3 +235,132 @@ export function formatPacingVariables(config: PacingConfig): Record<string, stri
     pacing_instructions: getPacingInstructions(config.pacingLevel),
   };
 }
+
+/**
+ * Time tracking statistics for real-time pacing
+ */
+export interface TimeTrackingStats {
+  conversationElapsedMinutes: number;
+  stepElapsedMinutes: number;
+  questionsAskedTotal: number;
+  questionsAskedInStep: number;
+  timeRemainingMinutes: number;
+  isOvertime: boolean;
+  overtimeMinutes: number;
+  stepIsOvertime: boolean;
+  stepOvertimeMinutes: number;
+}
+
+/**
+ * Message format for time tracking calculations
+ */
+interface MessageForTimeTracking {
+  senderType: string;
+  timestamp: string;
+  planStepId?: string | null;
+}
+
+/**
+ * Calculate real-time time tracking statistics
+ *
+ * @param messages - Array of messages with timestamps and sender types
+ * @param expectedDurationMinutes - Target session duration
+ * @param durationPerStep - Time budget per step
+ * @param currentStepId - ID of the current active step (plan_step.id)
+ * @param stepActivatedAt - When the current step was activated (optional, falls back to first step message)
+ */
+export function calculateTimeTrackingStats(
+  messages: MessageForTimeTracking[],
+  expectedDurationMinutes: number,
+  durationPerStep: number,
+  currentStepId?: string | null,
+  stepActivatedAt?: string | null
+): TimeTrackingStats {
+  const now = new Date();
+
+  // Find first message timestamp for conversation start
+  const sortedMessages = [...messages].sort((a, b) =>
+    new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+  );
+
+  const firstMessage = sortedMessages[0];
+  const conversationStartTime = firstMessage
+    ? new Date(firstMessage.timestamp)
+    : now;
+
+  // Calculate elapsed time since conversation start
+  const conversationElapsedMs = now.getTime() - conversationStartTime.getTime();
+  const conversationElapsedMinutes = Math.round((conversationElapsedMs / 60000) * 10) / 10;
+
+  // Count AI questions (assistant messages) in total conversation
+  const questionsAskedTotal = messages.filter(m => m.senderType === 'ai').length;
+
+  // Calculate step-specific metrics
+  let stepElapsedMinutes = 0;
+  let questionsAskedInStep = 0;
+
+  if (currentStepId) {
+    // Filter messages for current step
+    const stepMessages = messages.filter(m => m.planStepId === currentStepId);
+
+    // Find step start time
+    let stepStartTime: Date;
+    if (stepActivatedAt) {
+      stepStartTime = new Date(stepActivatedAt);
+    } else {
+      // Fallback: use first message in step or now
+      const firstStepMessage = stepMessages.sort((a, b) =>
+        new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+      )[0];
+      stepStartTime = firstStepMessage ? new Date(firstStepMessage.timestamp) : now;
+    }
+
+    const stepElapsedMs = now.getTime() - stepStartTime.getTime();
+    stepElapsedMinutes = Math.round((stepElapsedMs / 60000) * 10) / 10;
+
+    // Count AI questions in current step
+    questionsAskedInStep = stepMessages.filter(m => m.senderType === 'ai').length;
+  }
+
+  // Calculate remaining time
+  const timeRemainingMinutes = Math.max(0, expectedDurationMinutes - conversationElapsedMinutes);
+  const isOvertime = conversationElapsedMinutes > expectedDurationMinutes;
+  const overtimeMinutes = isOvertime
+    ? Math.round((conversationElapsedMinutes - expectedDurationMinutes) * 10) / 10
+    : 0;
+
+  // Step overtime calculations
+  const stepIsOvertime = stepElapsedMinutes > durationPerStep;
+  const stepOvertimeMinutes = stepIsOvertime
+    ? Math.round((stepElapsedMinutes - durationPerStep) * 10) / 10
+    : 0;
+
+  return {
+    conversationElapsedMinutes,
+    stepElapsedMinutes,
+    questionsAskedTotal,
+    questionsAskedInStep,
+    timeRemainingMinutes,
+    isOvertime,
+    overtimeMinutes,
+    stepIsOvertime,
+    stepOvertimeMinutes,
+  };
+}
+
+/**
+ * Format time tracking stats as prompt variables
+ */
+export function formatTimeTrackingVariables(stats: TimeTrackingStats): Record<string, string> {
+  return {
+    conversation_elapsed_minutes: String(stats.conversationElapsedMinutes),
+    step_elapsed_minutes: String(stats.stepElapsedMinutes),
+    questions_asked_total: String(stats.questionsAskedTotal),
+    questions_asked_in_step: String(stats.questionsAskedInStep),
+    time_remaining_minutes: String(stats.timeRemainingMinutes),
+    is_overtime: String(stats.isOvertime),
+    overtime_minutes: String(stats.overtimeMinutes),
+    step_is_overtime: String(stats.stepIsOvertime),
+    step_overtime_minutes: String(stats.stepOvertimeMinutes),
+  };
+}
