@@ -29,6 +29,7 @@ const askSchema = z.object({
   maxParticipants: z.number().int().positive().max(10000).optional(),
   deliveryMode: z.enum(deliveryModes),
   conversationMode: z.enum(conversationModes).default("collaborative"),
+  expectedDurationMinutes: z.number().int().min(1).max(30).default(8),
   participantIds: z.array(z.string().uuid()).default([]),
   participantEmails: z.array(z.string().email()).default([]),
   spokespersonId: z.string().uuid().optional().or(z.literal("")),
@@ -69,6 +70,7 @@ function mapAsk(row: any): AskSessionRecord {
     maxParticipants: row.max_participants,
     deliveryMode: row.delivery_mode ?? "digital",
     conversationMode: row.conversation_mode ?? "collaborative",
+    expectedDurationMinutes: row.expected_duration_minutes ?? 8,
     createdBy: row.created_by,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -161,6 +163,7 @@ export async function POST(request: NextRequest) {
       max_participants: payload.maxParticipants ?? null,
       delivery_mode: payload.deliveryMode,
       conversation_mode: payload.conversationMode,
+      expected_duration_minutes: payload.expectedDurationMinutes,
       system_prompt: sanitizeOptional(payload.systemPrompt || null)
     };
 

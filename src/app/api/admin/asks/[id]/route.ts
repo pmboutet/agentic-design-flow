@@ -23,6 +23,7 @@ const updateSchema = z.object({
   maxParticipants: z.number().int().positive().max(10000).optional(),
   deliveryMode: z.enum(deliveryModes).optional(),
   conversationMode: z.enum(conversationModes).optional(),
+  expectedDurationMinutes: z.number().int().min(1).max(30).optional(),
   participantIds: z.array(z.string().uuid()).optional(),
   spokespersonId: z.string().uuid().optional().or(z.literal("")),
   systemPrompt: z.union([z.string().trim(), z.literal(""), z.null()]).optional()
@@ -115,6 +116,7 @@ function mapAsk(row: any): AskSessionRecord {
     maxParticipants: row.max_participants,
     deliveryMode: row.delivery_mode ?? "digital",
     conversationMode: row.conversation_mode ?? "collaborative",
+    expectedDurationMinutes: row.expected_duration_minutes ?? 8,
     createdBy: row.created_by,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -220,6 +222,11 @@ export async function PATCH(
   // Handle conversation mode
   if (payload.conversationMode) {
     updateData.conversation_mode = payload.conversationMode;
+  }
+
+  // Handle expected duration
+  if (payload.expectedDurationMinutes !== undefined) {
+    updateData.expected_duration_minutes = payload.expectedDurationMinutes;
   }
 
   if (payload.systemPrompt !== undefined) updateData.system_prompt = sanitizeOptional(payload.systemPrompt || null);
