@@ -126,172 +126,92 @@ body {
    ANIMATED AURORA BACKGROUND
    ========================================== */
 
-/* Aurora animated background container */
-.aurora-bg {
+/* Aurora background container - fixed positioning */
+.aurora-background {
   position: fixed;
   top: 0;
   left: 0;
   right: 0;
   bottom: 0;
-  z-index: -1;
+  z-index: -10;
   overflow: hidden;
   background: #0B1120;
-}
-
-.aurora-bg::before,
-.aurora-bg::after {
-  content: '';
-  position: absolute;
-  width: 150%;
-  height: 150%;
-  top: -25%;
-  left: -25%;
-}
-
-/* First aurora layer - Cyan/Teal wave */
-.aurora-bg::before {
-  background:
-    radial-gradient(ellipse 80% 50% at 20% 40%,
-      hsla(185, 100%, 50%, 0.15) 0%,
-      transparent 50%),
-    radial-gradient(ellipse 60% 40% at 70% 60%,
-      hsla(185, 100%, 45%, 0.12) 0%,
-      transparent 45%),
-    radial-gradient(ellipse 50% 30% at 40% 80%,
-      hsla(195, 100%, 50%, 0.1) 0%,
-      transparent 40%);
-  animation: aurora-wave-1 25s ease-in-out infinite;
-  filter: blur(40px);
-}
-
-/* Second aurora layer - Magenta/Pink wave */
-.aurora-bg::after {
-  background:
-    radial-gradient(ellipse 70% 45% at 75% 35%,
-      hsla(320, 100%, 50%, 0.12) 0%,
-      transparent 50%),
-    radial-gradient(ellipse 55% 35% at 30% 70%,
-      hsla(280, 100%, 55%, 0.1) 0%,
-      transparent 45%),
-    radial-gradient(ellipse 45% 25% at 60% 20%,
-      hsla(300, 100%, 50%, 0.08) 0%,
-      transparent 40%);
-  animation: aurora-wave-2 30s ease-in-out infinite;
-  filter: blur(50px);
-}
-
-/* Third aurora layer (optional extra glow) */
-.aurora-glow {
-  position: absolute;
-  width: 100%;
-  height: 100%;
-  top: 0;
-  left: 0;
-  background:
-    radial-gradient(ellipse 100% 60% at 50% 100%,
-      hsla(185, 100%, 40%, 0.05) 0%,
-      transparent 60%);
-  animation: aurora-pulse 20s ease-in-out infinite;
   pointer-events: none;
 }
 
-/* Aurora wave animations - very slow and subtle */
-@keyframes aurora-wave-1 {
+/* Aurora layers base */
+.aurora-layer {
+  position: absolute;
+  width: 200%;
+  height: 200%;
+  top: -50%;
+  left: -50%;
+  opacity: 0.6;
+}
+
+/* Cyan/Teal aurora wave */
+.aurora-cyan {
+  background:
+    radial-gradient(ellipse 40% 30% at 30% 40%,
+      hsla(185, 100%, 50%, 0.25) 0%,
+      transparent 70%),
+    radial-gradient(ellipse 35% 25% at 70% 60%,
+      hsla(185, 100%, 45%, 0.2) 0%,
+      transparent 60%),
+    radial-gradient(ellipse 30% 20% at 50% 80%,
+      hsla(195, 100%, 50%, 0.15) 0%,
+      transparent 50%);
+  animation: aurora-drift-1 30s ease-in-out infinite;
+  filter: blur(80px);
+}
+
+/* Pink/Magenta aurora wave */
+.aurora-pink {
+  background:
+    radial-gradient(ellipse 35% 25% at 70% 35%,
+      hsla(320, 100%, 50%, 0.2) 0%,
+      transparent 70%),
+    radial-gradient(ellipse 30% 20% at 25% 65%,
+      hsla(280, 100%, 55%, 0.18) 0%,
+      transparent 60%),
+    radial-gradient(ellipse 25% 18% at 60% 75%,
+      hsla(300, 100%, 50%, 0.12) 0%,
+      transparent 50%);
+  animation: aurora-drift-2 35s ease-in-out infinite;
+  filter: blur(80px);
+}
+
+/* Very slow drifting animations */
+@keyframes aurora-drift-1 {
   0%, 100% {
-    transform: translate(0%, 0%) rotate(0deg) scale(1);
+    transform: translate(0%, 0%) rotate(0deg);
   }
   25% {
-    transform: translate(5%, -5%) rotate(3deg) scale(1.05);
+    transform: translate(8%, -5%) rotate(2deg);
   }
   50% {
-    transform: translate(-3%, 8%) rotate(-2deg) scale(0.98);
+    transform: translate(-5%, 10%) rotate(-1deg);
   }
   75% {
-    transform: translate(-8%, -3%) rotate(4deg) scale(1.02);
+    transform: translate(-10%, -3%) rotate(3deg);
   }
 }
 
-@keyframes aurora-wave-2 {
+@keyframes aurora-drift-2 {
   0%, 100% {
-    transform: translate(0%, 0%) rotate(0deg) scale(1);
+    transform: translate(0%, 0%) rotate(0deg);
   }
   33% {
-    transform: translate(-6%, 5%) rotate(-3deg) scale(1.03);
+    transform: translate(-8%, 6%) rotate(-2deg);
   }
   66% {
-    transform: translate(4%, -6%) rotate(2deg) scale(0.97);
+    transform: translate(6%, -8%) rotate(2deg);
   }
 }
 
-@keyframes aurora-pulse {
-  0%, 100% {
-    opacity: 0.5;
-  }
-  50% {
-    opacity: 0.8;
-  }
-}
-
-/* Admin layout with aurora background */
+/* Admin layout - transparent to show aurora */
 .admin-layout {
-  position: relative;
   background: transparent !important;
-}
-
-.admin-layout::before {
-  content: '';
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: -2;
-  background: #0B1120;
-}
-
-.admin-layout::after {
-  content: '';
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: -1;
-  background:
-    radial-gradient(ellipse 80% 50% at 20% 40%,
-      hsla(185, 100%, 50%, 0.12) 0%,
-      transparent 50%),
-    radial-gradient(ellipse 70% 45% at 75% 35%,
-      hsla(320, 100%, 50%, 0.1) 0%,
-      transparent 50%),
-    radial-gradient(ellipse 60% 40% at 70% 70%,
-      hsla(185, 100%, 45%, 0.08) 0%,
-      transparent 45%),
-    radial-gradient(ellipse 55% 35% at 30% 60%,
-      hsla(280, 100%, 55%, 0.08) 0%,
-      transparent 45%);
-  animation: admin-aurora 40s ease-in-out infinite;
-  filter: blur(60px);
-  pointer-events: none;
-}
-
-@keyframes admin-aurora {
-  0%, 100% {
-    transform: translate(0%, 0%) scale(1);
-    opacity: 1;
-  }
-  25% {
-    transform: translate(3%, -2%) scale(1.02);
-    opacity: 0.9;
-  }
-  50% {
-    transform: translate(-2%, 4%) scale(0.98);
-    opacity: 1;
-  }
-  75% {
-    transform: translate(-4%, -2%) scale(1.01);
-    opacity: 0.95;
-  }
 }
 
 /* Futuristic glass card with glow */
