@@ -340,19 +340,20 @@ export function AdminPageLayout({ children }: AdminPageLayoutProps) {
             isSidebarCollapsed ? "justify-center" : ""
           )}
         >
-          <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 text-sm font-semibold">
+          {/* Logo with neon glow */}
+          <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-neon-cyan via-neon-purple to-neon-pink text-sm font-bold text-dark-900 shadow-glow-cyan">
             AD
           </div>
           {!isSidebarCollapsed && (
             <div className="overflow-hidden">
               <div className="text-sm font-semibold text-white truncate">Agentic Admin</div>
-              <p className="text-xs text-slate-400 truncate">Control center</p>
+              <p className="text-xs text-neon-cyan/60 truncate">Control center</p>
             </div>
           )}
         </div>
         <button
           type="button"
-          className="hidden rounded-xl border border-white/10 bg-white/10 p-2 text-slate-200 transition hover:bg-white/20 md:inline-flex flex-shrink-0"
+          className="hidden rounded-xl border border-neon-cyan/20 bg-dark-700/50 p-2 text-slate-200 transition hover:bg-dark-600/50 hover:border-neon-cyan/40 hover:shadow-glow-cyan md:inline-flex flex-shrink-0"
           onClick={() => setIsSidebarCollapsed(value => !value)}
           aria-label={isSidebarCollapsed ? "Expand navigation" : "Collapse navigation"}
         >
@@ -371,15 +372,15 @@ export function AdminPageLayout({ children }: AdminPageLayoutProps) {
               key={item.href}
               href={item.href}
               className={cn(
-                "flex items-center gap-3 rounded-xl px-3 py-2 text-sm transition overflow-hidden",
+                "flex items-center gap-3 rounded-xl px-3 py-2 text-sm transition-all duration-200 overflow-hidden",
                 isActive
-                  ? "bg-white/10 text-white shadow-lg"
-                  : "text-slate-300 hover:bg-white/5 hover:text-foreground",
+                  ? "bg-neon-cyan/10 text-neon-cyan border border-neon-cyan/30 shadow-glow-cyan"
+                  : "text-slate-300 hover:bg-dark-600/50 hover:text-white border border-transparent",
                 isSidebarCollapsed ? "justify-center px-2" : ""
               )}
               onClick={() => setIsMobileSidebarOpen(false)}
             >
-              <Icon className="h-4 w-4 flex-shrink-0" />
+              <Icon className={cn("h-4 w-4 flex-shrink-0", isActive && "text-neon-cyan")} />
               {!isSidebarCollapsed && <span className="truncate">{item.label}</span>}
             </Link>
           );
@@ -387,9 +388,9 @@ export function AdminPageLayout({ children }: AdminPageLayoutProps) {
       </nav>
 
       {!isSidebarCollapsed && (
-        <div className="rounded-2xl bg-white/5 p-4 text-sm text-slate-300">
-          <p className="font-medium text-white">Need help?</p>
-          <p className="mt-1">Review the admin playbook or contact the product team.</p>
+        <div className="neon-card-purple rounded-2xl p-4 text-sm text-slate-300">
+          <p className="font-medium text-neon-purple">Need help?</p>
+          <p className="mt-1 text-slate-400">Review the admin playbook or contact the product team.</p>
         </div>
       )}
     </div>
@@ -398,44 +399,48 @@ export function AdminPageLayout({ children }: AdminPageLayoutProps) {
   return (
     <ClientProvider>
       <AdminSearchProvider value={defaultSearchContext}>
-        <div className="admin-layout min-h-screen h-screen overflow-hidden bg-slate-950 text-slate-100">
+        <div className="admin-layout min-h-screen h-screen overflow-hidden bg-futuristic text-slate-100">
           <div className="flex h-full min-h-0">
+            {/* Sidebar with neon glow border */}
             <aside
               className={cn(
-                "hidden border-r border-white/10 bg-slate-950/70 px-5 py-6 backdrop-blur md:flex",
+                "hidden border-r border-neon-cyan/20 bg-dark-800/70 px-5 py-6 backdrop-blur-xl md:flex",
+                "shadow-[inset_-1px_0_0_hsla(185,100%,50%,0.1)]",
                 isSidebarCollapsed ? "w-20" : "w-64"
               )}
             >
               {sidebarContent}
             </aside>
 
+            {/* Mobile sidebar overlay */}
             {isMobileSidebarOpen ? (
               <div className="fixed inset-0 z-50 flex md:hidden">
                 <button
                   type="button"
-                  className="absolute inset-0 bg-black/60"
+                  className="absolute inset-0 bg-dark-900/80 backdrop-blur-sm"
                   onClick={() => setIsMobileSidebarOpen(false)}
                   aria-label="Close navigation"
                 />
-                <div className="relative z-10 h-full w-72 border-r border-white/10 bg-slate-950/95 px-5 py-6">
+                <div className="relative z-10 h-full w-72 border-r border-neon-cyan/20 bg-dark-800/95 px-5 py-6 shadow-glow-cyan">
                   {sidebarContent}
                 </div>
               </div>
             ) : null}
 
             <div className="flex flex-1 flex-col min-h-0">
-              <header className="sticky top-0 z-40 border-b border-white/10 bg-slate-950/80 backdrop-blur">
+              {/* Header with subtle glow */}
+              <header className="sticky top-0 z-40 border-b border-neon-cyan/10 bg-dark-900/80 backdrop-blur-xl">
                 <div className="flex items-center justify-between px-4 py-4 md:px-6">
                   <div className="flex items-center gap-3">
                     <button
                       type="button"
-                      className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-foreground transition hover:bg-white/10 md:hidden"
+                      className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-neon-cyan/20 bg-dark-700/50 text-foreground transition hover:bg-dark-600/50 hover:border-neon-cyan/40 hover:shadow-glow-cyan md:hidden"
                       onClick={() => setIsMobileSidebarOpen(true)}
                       aria-label="Open navigation"
                     >
                       <Menu className="h-5 w-5" />
                     </button>
-                    <div className="hidden text-sm text-slate-300 md:block">Admin console</div>
+                    <div className="hidden text-sm text-slate-400 md:block">Admin console</div>
                     <AdminSearchBar />
                   </div>
                   <div className="flex items-center gap-3">
@@ -444,6 +449,7 @@ export function AdminPageLayout({ children }: AdminPageLayoutProps) {
                 </div>
               </header>
 
+              {/* Main content area */}
               <main className="flex-1 overflow-y-auto px-4 py-6 md:px-6 lg:px-10">
                 <AdminAuthGuard>
                   {children}
