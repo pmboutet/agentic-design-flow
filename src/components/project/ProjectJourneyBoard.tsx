@@ -482,6 +482,8 @@ export function ProjectJourneyBoard({ projectId, hideHeader = false }: ProjectJo
   const [aiBuilderFeedback, setAiBuilderFeedback] = useState<FeedbackState | null>(null);
   const [isAiBuilderRunning, setIsAiBuilderRunning] = useState(false);
   const [isAiPanelOpen, setIsAiPanelOpen] = useState(false);
+  const [aiBuilderLastRunAt, setAiBuilderLastRunAt] = useState<string | null>(null);
+  const [hasAiBuilderResults, setHasAiBuilderResults] = useState(false);
   const [applyingChallengeUpdateIds, setApplyingChallengeUpdateIds] = useState<Set<string>>(() => new Set());
   const [applyingSubChallengeUpdateIds, setApplyingSubChallengeUpdateIds] = useState<Set<string>>(() => new Set());
   const [applyingNewSubChallengeKeys, setApplyingNewSubChallengeKeys] = useState<Set<string>>(() => new Set());
@@ -560,6 +562,84 @@ export function ProjectJourneyBoard({ projectId, hideHeader = false }: ProjectJo
     const timeoutId = window.setTimeout(() => setAskAiFeedback(null), 3500);
     return () => window.clearTimeout(timeoutId);
   }, [askAiFeedback]);
+
+  // Poll for AI challenge builder results when running
+  useEffect(() => {
+    if (!isAiBuilderRunning) {
+      return;
+    }
+
+    const pollResults = async () => {
+      try {
+        const response = await fetch(`/api/admin/projects/${projectId}/ai/challenge-builder/results`, {
+          cache: "no-store",
+          credentials: "include",
+        });
+        const payload = await response.json();
+
+        if (response.ok && payload.success && payload.data) {
+          const results = payload.data as {
+            suggestions: AiChallengeUpdateSuggestion[];
+            newChallenges: AiNewChallengeSuggestion[];
+            errors: Array<{ challengeId: string | null; message: string }> | null;
+            lastRunAt: string;
+          };
+
+          // Check if results are new (within last 30 seconds means still running)
+          const lastRunAt = new Date(results.lastRunAt);
+          const now = new Date();
+          const secondsSinceRun = (now.getTime() - lastRunAt.getTime()) / 1000;
+
+          // Results are ready when we have suggestions/newChallenges/errors, or it's been > 30 seconds
+          const hasContent = results.suggestions.length > 0 || results.newChallenges.length > 0 || results.errors;
+          if (hasContent || secondsSinceRun >= 30) {
+            setIsAiBuilderRunning(false);
+            setAiBuilderLastRunAt(results.lastRunAt);
+            setHasAiBuilderResults(results.suggestions.length > 0 || results.newChallenges.length > 0);
+
+            if (hasContent) {
+              setAiBuilderFeedback({
+                type: "success",
+                message: "Analyse IA terminée. Cliquez sur 'Voir les propositions' pour consulter les résultats.",
+              });
+            }
+          }
+        }
+      } catch (error) {
+        console.error("Failed to poll challenge builder results:", error);
+      }
+    };
+
+    const interval = setInterval(pollResults, 2000);
+    return () => clearInterval(interval);
+  }, [isAiBuilderRunning, projectId]);
+
+  // Load AI builder results on mount
+  useEffect(() => {
+    const loadInitialResults = async () => {
+      try {
+        const response = await fetch(`/api/admin/projects/${projectId}/ai/challenge-builder/results`, {
+          cache: "no-store",
+          credentials: "include",
+        });
+        const payload = await response.json();
+
+        if (response.ok && payload.success && payload.data) {
+          const results = payload.data as {
+            suggestions: AiChallengeUpdateSuggestion[];
+            newChallenges: AiNewChallengeSuggestion[];
+            lastRunAt: string;
+          };
+          setAiBuilderLastRunAt(results.lastRunAt);
+          setHasAiBuilderResults(results.suggestions.length > 0 || results.newChallenges.length > 0);
+        }
+      } catch (error) {
+        console.error("Failed to load initial challenge builder results:", error);
+      }
+    };
+
+    loadInitialResults();
+  }, [projectId]);
 
   const loadJourneyData = useCallback(
     async (options?: { signal?: AbortSignal; silent?: boolean }) => {
@@ -735,23 +815,31 @@ export function ProjectJourneyBoard({ projectId, hideHeader = false }: ProjectJo
   );
 
   const handleLaunchAiChallengeBuilder = useCallback(async (scopeChallengeId?: string) => {
-    // Open the modal
-    setIsAiPanelOpen(true);
+    if (isAiBuilderRunning) {
+      return;
+    }
+
+    // Start the builder in background (don't open modal)
+    setIsAiBuilderRunning(true);
+    setAiBuilderFeedback({
+      type: "success",
+      message: "Génération IA lancée. Vous pouvez continuer à naviguer.",
+    });
 
     // Fire-and-forget: launch the builder without waiting
-    // The modal will poll for results
     fetch(`/api/admin/projects/${projectId}/ai/challenge-builder`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(scopeChallengeId ? { scopeChallengeId } : {}),
     }).catch((error) => {
       console.error("Failed to start challenge builder:", error);
+      setIsAiBuilderRunning(false);
       setAiBuilderFeedback({
         type: "error",
         message: error instanceof Error ? error.message : "Erreur inattendue lors du lancement de l'analyse IA.",
       });
     });
-  }, [projectId]);
+  }, [projectId, isAiBuilderRunning]);
 
   const handleLaunchAskAiGenerator = useCallback(async () => {
     if (isAskAiRunning) {
@@ -1785,24 +1873,26 @@ export function ProjectJourneyBoard({ projectId, hideHeader = false }: ProjectJo
                   </div>
                 </button>
                 <div className={cn("flex shrink-0 items-start gap-1", isActive ? "p-4" : "p-3")}>
-                  {node.children?.length ? (
-                    <Button
-                      type="button"
-                      size="icon"
-                      variant="ghost"
-                      className="text-indigo-300 hover:bg-indigo-500/20 hover:text-indigo-100"
-                      disabled={isAiBuilderRunning}
-                      onClick={event => {
-                        event.stopPropagation();
-                        event.preventDefault();
-                        handleLaunchAiChallengeBuilder(node.id);
-                      }}
-                      title="Analyze sub-challenges with AI"
-                    >
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    className="text-indigo-300 hover:bg-indigo-500/20 hover:text-indigo-100"
+                    disabled={isAiBuilderRunning}
+                    onClick={event => {
+                      event.stopPropagation();
+                      event.preventDefault();
+                      handleLaunchAiChallengeBuilder(node.id);
+                    }}
+                    title="Analyser ce challenge avec l'IA"
+                  >
+                    {isAiBuilderRunning ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
                       <Sparkles className="h-4 w-4" />
-                      <span className="sr-only">Analyze sub-challenges of {node.title} with AI</span>
-                    </Button>
-                  ) : null}
+                    )}
+                    <span className="sr-only">Analyser {node.title} avec l'IA</span>
+                  </Button>
                   <Button
                     type="button"
                     size="icon"
@@ -3375,8 +3465,19 @@ export function ProjectJourneyBoard({ projectId, hideHeader = false }: ProjectJo
                   disabled={isAiBuilderRunning}
                 >
                   {isAiBuilderRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-                  {isAiBuilderRunning ? "Analyzing with AI" : "Launch AI challenge builder"}
+                  {isAiBuilderRunning ? "Analyse en cours..." : "Lancer l'analyse IA"}
                 </Button>
+                {hasAiBuilderResults && !isAiBuilderRunning ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="gap-2 border-emerald-300/40 bg-emerald-500/10 text-emerald-100 hover:bg-emerald-500/20"
+                    onClick={() => setIsAiPanelOpen(true)}
+                  >
+                    <Sparkles className="h-4 w-4" />
+                    Voir les propositions
+                  </Button>
+                ) : null}
                 <Button
                   type="button"
                   className="gap-2 btn-gradient bg-primary hover:bg-primary/90 h-10 px-4 py-2"
@@ -3388,6 +3489,17 @@ export function ProjectJourneyBoard({ projectId, hideHeader = false }: ProjectJo
                 </Button>
               </div>
             </div>
+            {aiBuilderLastRunAt && !isAiBuilderRunning ? (
+              <div className="text-xs text-slate-400">
+                Dernière analyse IA : {new Intl.DateTimeFormat("fr-FR", {
+                  day: "2-digit",
+                  month: "short",
+                  year: "numeric",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                }).format(new Date(aiBuilderLastRunAt))}
+              </div>
+            ) : null}
             {aiBuilderFeedback ? (
               <Alert
                 variant={aiBuilderFeedback.type === "success" ? "default" : "destructive"}
