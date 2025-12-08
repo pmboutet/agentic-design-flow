@@ -93,31 +93,41 @@ function LoginPageContent() {
 
   if (status === "loading") {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-gray-600">Loading...</div>
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="aurora-background" aria-hidden="true">
+          <div className="aurora-layer aurora-cyan" />
+          <div className="aurora-layer aurora-pink" />
+        </div>
+        <div className="text-slate-400">Loading...</div>
       </div>
     );
   }
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
-      <div className="w-full max-w-md">
+    <div className="min-h-screen flex items-center justify-center px-4 relative">
+      {/* Aurora background */}
+      <div className="aurora-background" aria-hidden="true">
+        <div className="aurora-layer aurora-cyan" />
+        <div className="aurora-layer aurora-pink" />
+      </div>
+
+      <div className="w-full max-w-md relative z-10">
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Sign In</h1>
-          <p className="text-gray-600">Welcome back! Please sign in to continue.</p>
+          <h1 className="text-3xl font-bold text-white mb-2">Sign In</h1>
+          <p className="text-slate-400">Welcome back! Please sign in to continue.</p>
           {isDevMode && (
-            <div className="mt-4 rounded-lg bg-yellow-50 border border-yellow-200 p-3 text-sm text-yellow-800">
+            <div className="mt-4 rounded-lg bg-neon-yellow/10 border border-neon-yellow/30 p-3 text-sm text-neon-yellow">
               <p className="font-medium">🛠️ Mode développement activé</p>
-              <p className="mt-1">Utilisez le bandeau en haut de la page pour choisir un utilisateur sans vous connecter.</p>
+              <p className="mt-1 text-slate-300">Utilisez le bandeau en haut de la page pour choisir un utilisateur sans vous connecter.</p>
             </div>
           )}
         </div>
 
-        <div className="bg-white shadow-lg rounded-lg p-8">
+        <div className="neon-card p-8">
           <LoginForm redirectTo={redirectTo} />
 
-          <div className="mt-6 text-center text-sm text-gray-600">
+          <div className="mt-6 text-center text-sm text-slate-400">
             Don't have an account?{" "}
-            <Link href="/auth/signup" className="text-blue-600 hover:text-blue-700 font-medium">
+            <Link href="/auth/signup" className="text-neon-cyan hover:text-neon-cyan/80 font-medium">
               Sign up
             </Link>
           </div>
@@ -131,8 +141,12 @@ export default function LoginPage() {
   return (
     <Suspense
       fallback={
-        <div className="min-h-screen flex items-center justify-center bg-gray-50">
-          <div className="text-gray-600">Loading...</div>
+        <div className="min-h-screen flex items-center justify-center">
+          <div className="aurora-background" aria-hidden="true">
+            <div className="aurora-layer aurora-cyan" />
+            <div className="aurora-layer aurora-pink" />
+          </div>
+          <div className="text-slate-400">Loading...</div>
         </div>
       }
     >

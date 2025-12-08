@@ -77,6 +77,23 @@ module.exports = {
           border: "hsl(var(--sidebar-border))",
           ring: "hsl(var(--sidebar-ring))",
         },
+        // Neon glow colors
+        neon: {
+          cyan: "hsl(185 100% 50%)",
+          purple: "hsl(280 100% 60%)",
+          pink: "hsl(320 100% 60%)",
+          green: "hsl(160 100% 50%)",
+          yellow: "hsl(45 100% 60%)",
+        },
+        // Dark backgrounds
+        dark: {
+          900: "hsl(230 25% 7%)",
+          800: "hsl(230 30% 10%)",
+          700: "hsl(230 30% 12%)",
+          600: "hsl(230 30% 15%)",
+          500: "hsl(230 30% 18%)",
+          400: "hsl(230 30% 22%)",
+        },
       },
       borderRadius: {
         lg: "var(--radius)",
@@ -160,6 +177,14 @@ module.exports = {
         'neumorphic': '6px 6px 12px rgba(0, 0, 0, 0.1), -6px -6px 12px rgba(255, 255, 255, 0.9)',
         'neumorphic-inset': 'inset 6px 6px 12px rgba(0, 0, 0, 0.08), inset -6px -6px 12px rgba(255, 255, 255, 0.9)',
         'glass': '0 8px 32px 0 rgba(31, 38, 135, 0.37)',
+        // Neon glow shadows
+        'glow-cyan': '0 0 20px hsla(185, 100%, 50%, 0.3), 0 0 40px hsla(185, 100%, 50%, 0.1)',
+        'glow-cyan-lg': '0 0 30px hsla(185, 100%, 50%, 0.5), 0 0 60px hsla(185, 100%, 50%, 0.2)',
+        'glow-purple': '0 0 20px hsla(280, 100%, 60%, 0.3), 0 0 40px hsla(280, 100%, 60%, 0.1)',
+        'glow-purple-lg': '0 0 30px hsla(280, 100%, 60%, 0.5), 0 0 60px hsla(280, 100%, 60%, 0.2)',
+        'glow-pink': '0 0 20px hsla(320, 100%, 60%, 0.3), 0 0 40px hsla(320, 100%, 60%, 0.1)',
+        'glow-pink-lg': '0 0 30px hsla(320, 100%, 60%, 0.5), 0 0 60px hsla(320, 100%, 60%, 0.2)',
+        'neon-card': '0 0 30px hsla(185, 100%, 50%, 0.15), inset 0 1px 0 hsla(185, 100%, 50%, 0.2)',
       },
       backgroundImage: {
         'gradient-radial': 'radial-gradient(circle, var(--tw-gradient-stops))',

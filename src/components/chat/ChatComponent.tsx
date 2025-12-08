@@ -715,11 +715,12 @@ function MessageBubble({
 }) {
   const isUser = message.senderType === 'user';
   const isSystem = message.senderType === 'system';
+  const isAgent = message.senderType === 'ai';
   const bubbleClass = isSystem
-    ? 'bg-muted text-muted-foreground'
+    ? 'bg-muted text-muted-foreground message-system'
     : isUser
-      ? 'bg-primary text-primary-foreground'
-      : 'bg-muted text-foreground';
+      ? 'bg-primary text-primary-foreground message-user'
+      : 'bg-white border border-gray-200 text-foreground shadow-sm message-agent';
 
   // Check if this is an interim message (streaming update)
   const isInterim = message.metadata?.isInterim === true;
