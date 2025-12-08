@@ -1178,3 +1178,249 @@ a.neumorphic-raised:active {
     0 4px 16px hsla(0, 0%, 0%, 0.2),
     inset 0 1px 0 hsla(239, 84%, 75%, 0.15);
 }
+
+/* ==========================================
+   CONVERSATION PAGE - LIGHT THEME
+   Clean, professional SaaS look for public pages
+   ========================================== */
+
+.conversation-layout {
+  --background: 0 0% 100%;
+  --foreground: 222 47% 11%;
+  --card: 0 0% 100%;
+  --card-foreground: 222 47% 11%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 222 47% 11%;
+  --primary: 221 83% 53%; /* Blue for user messages */
+  --primary-foreground: 0 0% 100%;
+  --secondary: 210 40% 96%;
+  --secondary-foreground: 222 47% 11%;
+  --muted: 210 40% 96%;
+  --muted-foreground: 215 16% 47%;
+  --accent: 210 40% 96%;
+  --accent-foreground: 222 47% 11%;
+  --border: 214 32% 91%;
+  --input: 214 32% 91%;
+  --ring: 221 83% 53%;
+  background: hsl(210, 40%, 98%) !important;
+}
+
+/* Conversation page base styling */
+.conversation-layout {
+  min-height: 100vh;
+}
+
+/* Cards in conversation - white with subtle shadow */
+.conversation-layout .card,
+.conversation-layout [class*="Card"],
+.conversation-layout [data-slot="card"] {
+  background: white !important;
+  border: 1px solid hsl(214, 32%, 91%) !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.03) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* Agent messages - white with subtle shadow */
+.conversation-layout .message-agent,
+.conversation-layout [data-sender="agent"] {
+  background: white !important;
+  color: hsl(222, 47%, 11%) !important;
+  border: 1px solid hsl(214, 32%, 91%);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+/* User messages - blue background */
+.conversation-layout .message-user,
+.conversation-layout [data-sender="user"] {
+  background: hsl(221, 83%, 53%) !important;
+  color: white !important;
+}
+
+/* Override primary color for conversation - blue user messages */
+.conversation-layout .bg-primary {
+  background: hsl(221, 83%, 53%) !important;
+}
+
+.conversation-layout .text-primary {
+  color: hsl(221, 83%, 53%) !important;
+}
+
+.conversation-layout .border-primary {
+  border-color: hsl(221, 83%, 53%) !important;
+}
+
+/* Muted backgrounds - light gray */
+.conversation-layout .bg-muted {
+  background: hsl(210, 40%, 96%) !important;
+}
+
+.conversation-layout .text-muted-foreground {
+  color: hsl(215, 16%, 47%) !important;
+}
+
+/* Input fields - white background */
+.conversation-layout input,
+.conversation-layout textarea,
+.conversation-layout select {
+  background: white !important;
+  border-color: hsl(214, 32%, 91%) !important;
+  color: hsl(222, 47%, 11%) !important;
+}
+
+.conversation-layout input::placeholder,
+.conversation-layout textarea::placeholder {
+  color: hsl(215, 16%, 57%) !important;
+}
+
+.conversation-layout input:focus,
+.conversation-layout textarea:focus {
+  border-color: hsl(221, 83%, 53%) !important;
+  box-shadow: 0 0 0 2px hsla(221, 83%, 53%, 0.1) !important;
+}
+
+/* Buttons in conversation */
+.conversation-layout button[class*="bg-primary"] {
+  background: hsl(221, 83%, 53%) !important;
+  color: white !important;
+}
+
+.conversation-layout button[class*="bg-primary"]:hover {
+  background: hsl(221, 83%, 48%) !important;
+}
+
+/* Ghost buttons */
+.conversation-layout button[class*="ghost"] {
+  color: hsl(215, 16%, 47%) !important;
+}
+
+.conversation-layout button[class*="ghost"]:hover {
+  background: hsl(210, 40%, 96%) !important;
+  color: hsl(222, 47%, 11%) !important;
+}
+
+/* Tags/Badges styling for insights */
+.conversation-layout .tag-tous,
+.conversation-layout [data-tag="tous"] {
+  background: hsl(142, 76%, 36%) !important;
+  color: white !important;
+}
+
+.conversation-layout .tag-idee,
+.conversation-layout [data-tag="idee"] {
+  background: hsl(210, 40%, 96%) !important;
+  color: hsl(221, 83%, 53%) !important;
+  border: 1px solid hsl(221, 83%, 80%);
+}
+
+.conversation-layout .tag-gain,
+.conversation-layout [data-tag="gain"] {
+  background: hsl(45, 93%, 47%) !important;
+  color: hsl(45, 93%, 20%) !important;
+}
+
+.conversation-layout .tag-pain,
+.conversation-layout [data-tag="pain"] {
+  background: hsl(24, 95%, 53%) !important;
+  color: white !important;
+}
+
+.conversation-layout .tag-risque,
+.conversation-layout [data-tag="risque"] {
+  background: hsl(0, 84%, 60%) !important;
+  color: white !important;
+}
+
+.conversation-layout .tag-signal,
+.conversation-layout [data-tag="signal"] {
+  background: hsl(270, 60%, 60%) !important;
+  color: white !important;
+}
+
+.conversation-layout .tag-opportunite,
+.conversation-layout [data-tag="opportunite"] {
+  background: hsl(142, 76%, 36%) !important;
+  color: white !important;
+}
+
+/* Active status badge */
+.conversation-layout .badge-active,
+.conversation-layout [data-status="active"] {
+  background: hsl(142, 76%, 36%) !important;
+  color: white !important;
+}
+
+/* Header styling */
+.conversation-layout header,
+.conversation-layout .header {
+  background: white !important;
+  border-bottom: 1px solid hsl(214, 32%, 91%);
+}
+
+/* Progress bar */
+.conversation-layout .progress-bar {
+  background: hsl(210, 40%, 96%);
+}
+
+.conversation-layout .progress-bar-fill {
+  background: hsl(221, 83%, 53%);
+}
+
+/* Scrollbar for conversation */
+.conversation-layout ::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.conversation-layout ::-webkit-scrollbar-track {
+  background: hsl(210, 40%, 96%);
+  border-radius: 3px;
+}
+
+.conversation-layout ::-webkit-scrollbar-thumb {
+  background: hsl(215, 16%, 77%);
+  border-radius: 3px;
+}
+
+.conversation-layout ::-webkit-scrollbar-thumb:hover {
+  background: hsl(215, 16%, 67%);
+}
+
+/* Analyse IA badge */
+.conversation-layout .badge-analyse-ia {
+  background: hsl(210, 40%, 96%) !important;
+  color: hsl(215, 16%, 47%) !important;
+  border: 1px solid hsl(214, 32%, 91%);
+}
+
+/* Links styling */
+.conversation-layout a {
+  color: hsl(221, 83%, 53%);
+}
+
+.conversation-layout a:hover {
+  color: hsl(221, 83%, 43%);
+}
+
+/* Dividers */
+.conversation-layout hr,
+.conversation-layout .divider {
+  border-color: hsl(214, 32%, 91%);
+}
+
+/* Filter tabs */
+.conversation-layout .filter-tab {
+  background: white;
+  border: 1px solid hsl(214, 32%, 91%);
+  color: hsl(222, 47%, 11%);
+}
+
+.conversation-layout .filter-tab:hover {
+  background: hsl(210, 40%, 96%);
+}
+
+.conversation-layout .filter-tab.active {
+  background: hsl(142, 76%, 36%);
+  color: white;
+  border-color: hsl(142, 76%, 36%);
+}

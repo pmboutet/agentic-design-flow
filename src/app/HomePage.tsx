@@ -2160,25 +2160,25 @@ export default function HomePage() {
   }
 
   return (
-    <div className="min-h-[100dvh] bg-gradient-to-br from-indigo-100 via-white to-indigo-200 overflow-x-hidden w-full max-w-full">
+    <div className="conversation-layout min-h-[100dvh] bg-gradient-to-br from-slate-50 via-white to-blue-50 overflow-x-hidden w-full max-w-full">
       {/* Beautiful Header */}
       <motion.header
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="app-header border-0 sticky top-0 z-50"
+        className="bg-white border-b border-gray-100 sticky top-0 z-50 shadow-sm"
       >
         <div className="container mx-auto px-4 sm:px-6 py-3 space-y-4">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <motion.div
               className="flex items-center gap-2.5"
-              whileHover={{ scale: 1.05 }}
+              whileHover={{ scale: 1.02 }}
               transition={{ type: "spring", stiffness: 400 }}
             >
-              <div className="w-9 h-9 bg-gradient-to-br from-primary to-accent rounded-lg flex items-center justify-center shadow-lg">
+              <div className="w-9 h-9 bg-gradient-to-br from-pink-500 to-violet-600 rounded-xl flex items-center justify-center shadow-md">
                 <MessageSquare className="h-5 w-5 text-white" />
               </div>
               <div>
-                <h1 className="text-lg font-semibold sm:text-xl bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
+                <h1 className="text-lg font-semibold sm:text-xl bg-gradient-to-r from-pink-500 to-violet-600 bg-clip-text text-transparent">
                   Agentic Design Flow
                 </h1>
                 {isTestMode && (
