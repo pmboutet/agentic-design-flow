@@ -88,6 +88,50 @@ handlebarsInstance.registerHelper('truncate', function(str: string, maxLength: n
   return text.substring(0, maxLength) + '...';
 });
 
+// Comparison Helpers for conditionals
+
+// Helper: Equality comparison
+// Usage: {{#if (eq value "expected")}}...{{/if}}
+handlebarsInstance.registerHelper('eq', function(a: any, b: any) {
+  return String(a) === String(b);
+});
+
+// Helper: Greater than or equal
+// Usage: {{#if (gte value 10)}}...{{/if}}
+handlebarsInstance.registerHelper('gte', function(a: any, b: any) {
+  const numA = parseFloat(String(a));
+  const numB = parseFloat(String(b));
+  if (isNaN(numA) || isNaN(numB)) return false;
+  return numA >= numB;
+});
+
+// Helper: Greater than
+// Usage: {{#if (gt value 10)}}...{{/if}}
+handlebarsInstance.registerHelper('gt', function(a: any, b: any) {
+  const numA = parseFloat(String(a));
+  const numB = parseFloat(String(b));
+  if (isNaN(numA) || isNaN(numB)) return false;
+  return numA > numB;
+});
+
+// Helper: Less than or equal
+// Usage: {{#if (lte value 10)}}...{{/if}}
+handlebarsInstance.registerHelper('lte', function(a: any, b: any) {
+  const numA = parseFloat(String(a));
+  const numB = parseFloat(String(b));
+  if (isNaN(numA) || isNaN(numB)) return false;
+  return numA <= numB;
+});
+
+// Helper: Less than
+// Usage: {{#if (lt value 10)}}...{{/if}}
+handlebarsInstance.registerHelper('lt', function(a: any, b: any) {
+  const numA = parseFloat(String(a));
+  const numB = parseFloat(String(b));
+  if (isNaN(numA) || isNaN(numB)) return false;
+  return numA < numB;
+});
+
 // Helper: Get recent messages (last N messages)
 // Usage: {{recentMessages 10}} or {{recentMessages 10 format="json"}}
 handlebarsInstance.registerHelper('recentMessages', function(count: number, options: any) {
