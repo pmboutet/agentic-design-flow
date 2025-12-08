@@ -937,123 +937,122 @@ a.neumorphic-raised:active {
 }
 
 /* ==========================================
-   GLOBAL GLASS EFFECT FOR ALL CARDS
-   Apply backdrop blur and transparency to show aurora
+   ADMIN LAYOUT - GLASS EFFECT FOR CARDS
+   Scoped to .admin-layout to not affect public pages
    ========================================== */
 
-/* Target bg-slate-900 SOLID - override Tailwind's opaque background */
-/* Exclude form elements */
-.bg-slate-900:not(input):not(textarea):not(select):not(button) {
+/* Target bg-slate-900 SOLID in admin - exclude form elements */
+.admin-layout .bg-slate-900:not(input):not(textarea):not(select):not(button) {
   --tw-bg-opacity: 0.2 !important;
   -webkit-backdrop-filter: blur(20px);
   backdrop-filter: blur(20px);
   background: hsla(230, 30%, 12%, 0.2) !important;
 }
 
-/* Target bg-slate-950 SOLID - override Tailwind's opaque background */
-.bg-slate-950:not(input):not(textarea):not(select):not(button) {
+/* Target bg-slate-950 SOLID in admin */
+.admin-layout .bg-slate-950:not(input):not(textarea):not(select):not(button) {
   --tw-bg-opacity: 0.2 !important;
   -webkit-backdrop-filter: blur(20px);
   backdrop-filter: blur(20px);
   background: hsla(230, 30%, 8%, 0.2) !important;
 }
 
-/* Target ALL bg-slate-900 variants with opacity - exclude form elements */
-div[class*="bg-slate-900/"],
-section[class*="bg-slate-900/"],
-article[class*="bg-slate-900/"],
-nav[class*="bg-slate-900/"],
-aside[class*="bg-slate-900/"],
-header[class*="bg-slate-900/"],
-footer[class*="bg-slate-900/"] {
+/* Target ALL bg-slate-900 variants with opacity in admin */
+.admin-layout div[class*="bg-slate-900/"],
+.admin-layout section[class*="bg-slate-900/"],
+.admin-layout article[class*="bg-slate-900/"],
+.admin-layout nav[class*="bg-slate-900/"],
+.admin-layout aside[class*="bg-slate-900/"],
+.admin-layout header[class*="bg-slate-900/"],
+.admin-layout footer[class*="bg-slate-900/"] {
   -webkit-backdrop-filter: blur(20px);
   backdrop-filter: blur(20px);
   background: hsla(230, 30%, 12%, 0.2) !important;
 }
 
-/* Target ALL bg-slate-950 variants with opacity - exclude form elements */
-div[class*="bg-slate-950/"],
-section[class*="bg-slate-950/"],
-article[class*="bg-slate-950/"],
-nav[class*="bg-slate-950/"],
-aside[class*="bg-slate-950/"],
-header[class*="bg-slate-950/"],
-footer[class*="bg-slate-950/"] {
+/* Target ALL bg-slate-950 variants with opacity in admin */
+.admin-layout div[class*="bg-slate-950/"],
+.admin-layout section[class*="bg-slate-950/"],
+.admin-layout article[class*="bg-slate-950/"],
+.admin-layout nav[class*="bg-slate-950/"],
+.admin-layout aside[class*="bg-slate-950/"],
+.admin-layout header[class*="bg-slate-950/"],
+.admin-layout footer[class*="bg-slate-950/"] {
   -webkit-backdrop-filter: blur(20px);
   backdrop-filter: blur(20px);
   background: hsla(230, 30%, 8%, 0.2) !important;
 }
 
-/* Form elements - visible background for readability */
-input[class*="bg-slate-900"],
-textarea[class*="bg-slate-900"],
-select[class*="bg-slate-900"] {
+/* Admin form elements - visible background for readability */
+.admin-layout input[class*="bg-slate-900"],
+.admin-layout textarea[class*="bg-slate-900"],
+.admin-layout select[class*="bg-slate-900"] {
   background: hsla(230, 30%, 12%, 0.6) !important;
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
 }
 
-/* Target all elements with bg-white/5 */
-[class*="bg-white/5"] {
+/* Target all elements with bg-white/5 in admin */
+.admin-layout [class*="bg-white/5"] {
   -webkit-backdrop-filter: blur(20px);
   backdrop-filter: blur(20px);
   background: hsla(230, 30%, 15%, 0.15) !important;
 }
 
-/* Target all rounded border cards to ensure glass effect */
-[class*="rounded-2xl"][class*="border-white"],
-[class*="rounded-3xl"][class*="border-white"],
-[class*="rounded-xl"][class*="border-white"],
-[class*="rounded-lg"][class*="border-white"] {
+/* Target all rounded border cards to ensure glass effect in admin */
+.admin-layout [class*="rounded-2xl"][class*="border-white"],
+.admin-layout [class*="rounded-3xl"][class*="border-white"],
+.admin-layout [class*="rounded-xl"][class*="border-white"],
+.admin-layout [class*="rounded-lg"][class*="border-white"] {
   -webkit-backdrop-filter: blur(20px);
   backdrop-filter: blur(20px);
 }
 
-/* Cards with gradient backgrounds also need glass effect */
-[class*="bg-gradient-to-br"][class*="from-white/5"] {
+/* Cards with gradient backgrounds also need glass effect in admin */
+.admin-layout [class*="bg-gradient-to-br"][class*="from-white/5"] {
   -webkit-backdrop-filter: blur(20px);
   backdrop-filter: blur(20px);
   background: linear-gradient(135deg, hsla(230, 30%, 18%, 0.12) 0%, hsla(230, 25%, 14%, 0.15) 100%) !important;
 }
 
-/* Card component base glass effect */
-.card,
-[class*="Card"] {
+/* Card component base glass effect in admin */
+.admin-layout .card,
+.admin-layout [class*="Card"] {
   -webkit-backdrop-filter: blur(16px);
   backdrop-filter: blur(16px);
 }
 
 
 /* ==========================================
-   CARD PADDING & OVERFLOW FIXES
+   CARD PADDING & OVERFLOW FIXES (Admin only)
    ========================================== */
 
-/* Add more padding to challenge cards */
-[class*="rounded-xl"][class*="border"][class*="bg-slate-900"] {
+/* Add more padding to challenge cards in admin */
+.admin-layout [class*="rounded-xl"][class*="border"][class*="bg-slate-900"] {
   padding: 1rem;
 }
 
-/* Fix button overflow - ensure text doesn't clip */
-button[class*="gap-2"] {
+/* Fix button overflow - ensure text doesn't clip in admin */
+.admin-layout button[class*="gap-2"] {
   overflow: visible;
   white-space: nowrap;
 }
 
-/* Ensure chevron icons don't get clipped */
-[class*="ChevronRight"],
-svg[class*="h-4"][class*="w-4"],
-svg[class*="h-5"][class*="w-5"] {
+/* Ensure chevron icons don't get clipped in admin */
+.admin-layout [class*="ChevronRight"],
+.admin-layout svg[class*="h-4"][class*="w-4"],
+.admin-layout svg[class*="h-5"][class*="w-5"] {
   flex-shrink: 0;
 }
 
 /* ==========================================
-   COMPLEX NEON GRADIENT BACKGROUNDS
+   COMPLEX NEON GRADIENT BACKGROUNDS (Admin only)
    Multi-color gradients with glow effects
    ========================================== */
 
 /* Emerald/Green - Complex gradient with purple accent - VERY TRANSPARENT */
-[class*="bg-emerald-500/10"],
-[class*="bg-emerald-500/15"] {
+.admin-layout [class*="bg-emerald-500/10"],
+.admin-layout [class*="bg-emerald-500/15"] {
   position: relative;
   overflow: visible;
   background:
@@ -1068,13 +1067,13 @@ svg[class*="h-5"][class*="w-5"] {
   border: 1px solid hsla(160, 84%, 50%, 0.25) !important;
 }
 
-[class*="border-emerald-400"] {
+.admin-layout [class*="border-emerald-400"] {
   border-color: hsla(160, 84%, 50%, 0.35) !important;
 }
 
 /* Indigo/Blue - Complex gradient with cyan and purple accents - VERY TRANSPARENT */
-[class*="bg-indigo-500/10"],
-[class*="bg-indigo-500/15"] {
+.admin-layout [class*="bg-indigo-500/10"],
+.admin-layout [class*="bg-indigo-500/15"] {
   position: relative;
   overflow: visible;
   background:
@@ -1089,14 +1088,14 @@ svg[class*="h-5"][class*="w-5"] {
   border: 1px solid hsla(239, 84%, 65%, 0.25) !important;
 }
 
-[class*="border-indigo-400"],
-[class*="border-indigo-500"] {
+.admin-layout [class*="border-indigo-400"],
+.admin-layout [class*="border-indigo-500"] {
   border-color: hsla(239, 84%, 65%, 0.35) !important;
 }
 
 /* Purple/Violet - Complex gradient with pink and blue accents */
-[class*="bg-purple-500"],
-[class*="bg-violet-500"] {
+.admin-layout [class*="bg-purple-500"],
+.admin-layout [class*="bg-violet-500"] {
   position: relative;
   overflow: visible;
   background:
@@ -1111,8 +1110,8 @@ svg[class*="h-5"][class*="w-5"] {
 }
 
 /* Cyan/Teal - Complex gradient with purple accent */
-[class*="bg-cyan-500"],
-[class*="bg-teal-500"] {
+.admin-layout [class*="bg-cyan-500"],
+.admin-layout [class*="bg-teal-500"] {
   position: relative;
   overflow: visible;
   background:
@@ -1127,8 +1126,8 @@ svg[class*="h-5"][class*="w-5"] {
 }
 
 /* Yellow/Amber - Complex gradient with orange and pink accents */
-[class*="bg-yellow-500"],
-[class*="bg-amber-500"] {
+.admin-layout [class*="bg-yellow-500"],
+.admin-layout [class*="bg-amber-500"] {
   position: relative;
   overflow: visible;
   background:
@@ -1143,14 +1142,14 @@ svg[class*="h-5"][class*="w-5"] {
 }
 
 /* Enhanced hover states - subtle glow */
-[class*="bg-emerald-500"]:hover {
+.admin-layout [class*="bg-emerald-500"]:hover {
   box-shadow:
     0 0 16px hsla(160, 84%, 45%, 0.25),
     0 0 24px hsla(280, 80%, 50%, 0.1),
     inset 0 1px 0 hsla(160, 84%, 60%, 0.2);
 }
 
-[class*="bg-indigo-500"]:hover {
+.admin-layout [class*="bg-indigo-500"]:hover {
   box-shadow:
     0 0 16px hsla(239, 84%, 60%, 0.25),
     0 0 24px hsla(280, 80%, 55%, 0.1),
@@ -1158,13 +1157,13 @@ svg[class*="h-5"][class*="w-5"] {
 }
 
 /* Card glow wrapper - prevents clipping */
-.card-glow-wrapper {
+.admin-layout .card-glow-wrapper {
   padding: 4px;
   margin: -4px;
 }
 
 /* Active/Selected state - subtle glow */
-[class*="bg-emerald"][class*="border-emerald"] {
+.admin-layout [class*="bg-emerald"][class*="border-emerald"] {
   box-shadow:
     0 0 14px hsla(160, 84%, 45%, 0.25),
     0 0 22px hsla(280, 80%, 50%, 0.08),
@@ -1172,7 +1171,7 @@ svg[class*="h-5"][class*="w-5"] {
     inset 0 1px 0 hsla(160, 84%, 60%, 0.15);
 }
 
-[class*="bg-indigo"][class*="border-indigo"] {
+.admin-layout [class*="bg-indigo"][class*="border-indigo"] {
   box-shadow:
     0 0 14px hsla(239, 84%, 60%, 0.25),
     0 0 22px hsla(185, 80%, 50%, 0.08),
