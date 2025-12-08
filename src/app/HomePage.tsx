@@ -1688,6 +1688,15 @@ export default function HomePage() {
                     ...prev,
                     insights,
                   }));
+                } else if (parsed.type === 'step_completed') {
+                  // Update conversation plan when a step is completed
+                  if (parsed.conversationPlan) {
+                    console.log('[handleStreamingResponse] 📋 Step completed, updating conversation plan');
+                    setSessionData(prev => ({
+                      ...prev,
+                      conversationPlan: parsed.conversationPlan,
+                    }));
+                  }
                 } else if (parsed.type === 'done') {
                   console.log('[handleStreamingResponse] ✅ Stream done, updating awaitingAiResponse state');
                   stopAwaitingAiResponse();
