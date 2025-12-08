@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SessionData, Ask, Message, Insight, Challenge, ApiResponse, ConversationPlan } from "@/types";
 import { ConversationProgressBar } from "@/components/conversation/ConversationProgressBar";
+import { estimateActiveDuration } from "@/lib/pacing";
 import {
   validateAskKey,
   parseErrorMessage,
@@ -304,6 +305,7 @@ function MobileLayout({
                 <ConversationProgressBar
                   steps={sessionData.conversationPlan.plan_data.steps}
                   currentStepId={sessionData.conversationPlan.current_step_id}
+                  elapsedMinutes={estimateActiveDuration(sessionData.messages)}
                 />
               )}
               <div className="flex-1 p-2 md:p-4 overflow-y-auto min-w-0 max-w-full overflow-x-hidden">
@@ -2255,6 +2257,7 @@ export default function HomePage() {
                 <ConversationProgressBar
                   steps={sessionData.conversationPlan.plan_data.steps}
                   currentStepId={sessionData.conversationPlan.current_step_id}
+                  elapsedMinutes={estimateActiveDuration(sessionData.messages)}
                 />
               )}
               <div className="flex-1 overflow-hidden">
