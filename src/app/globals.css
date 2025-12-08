@@ -941,25 +941,41 @@ a.neumorphic-raised:active {
    Apply backdrop blur and transparency to show aurora
    ========================================== */
 
-/* Target ALL bg-slate-900 variants - make them glass */
+/* Target bg-slate-900 SOLID - override Tailwind's opaque background */
+.bg-slate-900 {
+  --tw-bg-opacity: 0.2 !important;
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+  background: hsla(230, 30%, 12%, 0.2) !important;
+}
+
+/* Target bg-slate-950 SOLID - override Tailwind's opaque background */
+.bg-slate-950 {
+  --tw-bg-opacity: 0.2 !important;
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+  background: hsla(230, 30%, 8%, 0.2) !important;
+}
+
+/* Target ALL bg-slate-900 variants with opacity */
 [class*="bg-slate-900/"] {
   -webkit-backdrop-filter: blur(20px);
   backdrop-filter: blur(20px);
-  background: hsla(230, 30%, 12%, 0.25) !important;
+  background: hsla(230, 30%, 12%, 0.2) !important;
 }
 
-/* Target ALL bg-slate-950 variants - make them glass */
+/* Target ALL bg-slate-950 variants with opacity */
 [class*="bg-slate-950/"] {
   -webkit-backdrop-filter: blur(20px);
   backdrop-filter: blur(20px);
-  background: hsla(230, 30%, 8%, 0.3) !important;
+  background: hsla(230, 30%, 8%, 0.2) !important;
 }
 
 /* Target all elements with bg-white/5 */
 [class*="bg-white/5"] {
   -webkit-backdrop-filter: blur(20px);
   backdrop-filter: blur(20px);
-  background: hsla(230, 30%, 15%, 0.18) !important;
+  background: hsla(230, 30%, 15%, 0.15) !important;
 }
 
 /* Target all rounded border cards to ensure glass effect */
@@ -975,7 +991,7 @@ a.neumorphic-raised:active {
 [class*="bg-gradient-to-br"][class*="from-white/5"] {
   -webkit-backdrop-filter: blur(20px);
   backdrop-filter: blur(20px);
-  background: linear-gradient(135deg, hsla(230, 30%, 18%, 0.15) 0%, hsla(230, 25%, 14%, 0.2) 100%) !important;
+  background: linear-gradient(135deg, hsla(230, 30%, 18%, 0.12) 0%, hsla(230, 25%, 14%, 0.15) 100%) !important;
 }
 
 /* Card component base glass effect */
@@ -983,4 +999,29 @@ a.neumorphic-raised:active {
 [class*="Card"] {
   -webkit-backdrop-filter: blur(16px);
   backdrop-filter: blur(16px);
+}
+
+/* ==========================================
+   SPACING - More breathing room between cards
+   ========================================== */
+
+/* Increase gap between cards in grid/flex layouts */
+[class*="space-y-4"] {
+  --tw-space-y-reverse: 0;
+  margin-top: calc(1.5rem * calc(1 - var(--tw-space-y-reverse)));
+  margin-bottom: calc(1.5rem * var(--tw-space-y-reverse));
+}
+
+[class*="space-y-6"] {
+  --tw-space-y-reverse: 0;
+  margin-top: calc(2rem * calc(1 - var(--tw-space-y-reverse)));
+  margin-bottom: calc(2rem * var(--tw-space-y-reverse));
+}
+
+[class*="gap-4"] {
+  gap: 1.5rem;
+}
+
+[class*="gap-6"] {
+  gap: 2rem;
 }
