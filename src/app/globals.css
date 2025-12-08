@@ -1180,402 +1180,486 @@ a.neumorphic-raised:active {
 }
 
 /* ==========================================
-   CONVERSATION PAGE - LIGHT THEME
-   Clean, professional SaaS look for public pages
+   CONVERSATION PAGE - FROSTED GLASS THEME
+   Elegant glassmorphism design matching Photo 2
    ========================================== */
 
+/* Base variables and background */
 .conversation-layout {
-  --background: 0 0% 100%;
-  --foreground: 222 47% 11%;
+  --conv-bg-gradient: linear-gradient(180deg, #F4F7FB 0%, #E9EEF5 100%);
+  --conv-text-primary: #1C2B4A;
+  --conv-text-secondary: #5A6B8A;
+  --conv-text-muted: #8DA0B6;
+  --conv-surface: rgba(255, 255, 255, 0.65);
+  --conv-surface-elevated: rgba(255, 255, 255, 0.75);
+  --conv-border: rgba(255, 255, 255, 0.4);
+  --conv-border-subtle: rgba(0, 0, 0, 0.06);
+  --conv-shadow: 0 4px 24px rgba(0, 0, 0, 0.06);
+  --conv-shadow-elevated: 0 6px 30px rgba(0, 0, 0, 0.08);
+  --conv-user-bubble: #4A74FF;
+  --conv-user-shadow: 0 8px 18px rgba(74, 116, 255, 0.25);
+  --conv-badge-bg: #E8EEFB;
+  --conv-badge-text: #3A56A0;
+  --conv-active-bg: #E1E7F5;
+  --conv-active-text: #2C4A90;
+  --conv-success: #22C55E;
+  --conv-radius-sm: 10px;
+  --conv-radius-md: 14px;
+  --conv-radius-lg: 16px;
+  --conv-radius-xl: 18px;
+
+  /* Override theme variables */
+  --background: 220 20% 97%;
+  --foreground: 222 47% 17%;
   --card: 0 0% 100%;
-  --card-foreground: 222 47% 11%;
-  --popover: 0 0% 100%;
-  --popover-foreground: 222 47% 11%;
-  --primary: 221 83% 53%; /* Blue for user messages */
+  --card-foreground: 222 47% 17%;
+  --primary: 225 100% 65%;
   --primary-foreground: 0 0% 100%;
-  --secondary: 210 40% 96%;
-  --secondary-foreground: 222 47% 11%;
-  --muted: 210 40% 96%;
-  --muted-foreground: 215 16% 47%;
-  --accent: 210 40% 96%;
-  --accent-foreground: 222 47% 11%;
-  --border: 214 32% 91%;
-  --input: 214 32% 91%;
-  --ring: 221 83% 53%;
-  background: hsl(210, 40%, 98%) !important;
-}
+  --muted: 220 20% 94%;
+  --muted-foreground: 220 15% 45%;
+  --border: 220 20% 90%;
+  --input: 220 20% 90%;
+  --ring: 225 100% 65%;
 
-/* Conversation page base styling */
-.conversation-layout {
   min-height: 100vh;
+  background: var(--conv-bg-gradient) !important;
+  color: var(--conv-text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-/* Cards in conversation - white with subtle shadow */
+/* ==========================================
+   HEADER - Frosted glass
+   ========================================== */
+.conversation-layout header,
+.conversation-layout .header {
+  background: var(--conv-surface) !important;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--conv-border) !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+/* ==========================================
+   CARDS & PANELS - Elevated glass effect
+   ========================================== */
 .conversation-layout .card,
 .conversation-layout [class*="Card"],
-.conversation-layout [data-slot="card"] {
-  background: white !important;
-  border: 1px solid hsl(214, 32%, 91%) !important;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.03) !important;
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
+.conversation-layout [data-slot="card"],
+.conversation-layout .glass-card,
+.conversation-layout .chat-container,
+.conversation-layout .neon-card,
+.conversation-layout .neon-card-purple,
+.conversation-layout .neon-card-pink {
+  background: var(--conv-surface-elevated) !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+  border-radius: var(--conv-radius-lg) !important;
+  border: 1px solid var(--conv-border) !important;
+  box-shadow: var(--conv-shadow) !important;
 }
 
-/* Agent messages - white with subtle shadow */
+/* Card hover effect */
+.conversation-layout .card:hover,
+.conversation-layout [class*="Card"]:hover {
+  box-shadow: var(--conv-shadow-elevated);
+}
+
+/* Card headers & content */
+.conversation-layout [class*="CardHeader"],
+.conversation-layout [class*="CardContent"] {
+  background: transparent !important;
+}
+
+.conversation-layout [class*="CardTitle"] {
+  color: var(--conv-text-primary) !important;
+  font-weight: 600;
+}
+
+/* ==========================================
+   NEUMORPHIC ELEMENTS - Clean flat style
+   ========================================== */
+.conversation-layout .neumorphic-shadow,
+.conversation-layout .neumorphic-raised {
+  background: rgba(255, 255, 255, 0.8) !important;
+  border: 1px solid var(--conv-border-subtle) !important;
+  border-radius: var(--conv-radius-md) !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04) !important;
+}
+
+/* ==========================================
+   CHAT MESSAGES
+   ========================================== */
+
+/* Messages container */
+.conversation-layout .chat-messages {
+  background: transparent;
+}
+
+/* Agent messages - frosted white */
 .conversation-layout .message-agent,
-.conversation-layout [data-sender="agent"] {
-  background: white !important;
-  color: hsl(222, 47%, 11%) !important;
-  border: 1px solid hsl(214, 32%, 91%);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+.conversation-layout [data-sender="agent"],
+.conversation-layout .chat-message.ai,
+.conversation-layout .chat-message:not(.user) {
+  background: rgba(255, 255, 255, 0.8) !important;
+  color: var(--conv-text-primary) !important;
+  border: 1px solid var(--conv-border-subtle) !important;
+  border-radius: var(--conv-radius-md) !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
 }
 
-/* User messages - blue background */
+/* User messages - blue with glow */
 .conversation-layout .message-user,
-.conversation-layout [data-sender="user"] {
-  background: hsl(221, 83%, 53%) !important;
+.conversation-layout [data-sender="user"],
+.conversation-layout .chat-message.user,
+.conversation-layout .bg-primary:not(button) {
+  background: var(--conv-user-bubble) !important;
   color: white !important;
+  border-radius: var(--conv-radius-md) !important;
+  box-shadow: var(--conv-user-shadow) !important;
+  border: none !important;
 }
 
-/* Override primary color for conversation - blue user messages */
-.conversation-layout .bg-primary {
-  background: hsl(221, 83%, 53%) !important;
-}
-
-.conversation-layout .text-primary {
-  color: hsl(221, 83%, 53%) !important;
-}
-
-.conversation-layout .border-primary {
-  border-color: hsl(221, 83%, 53%) !important;
-}
-
-/* Muted backgrounds - light gray */
-.conversation-layout .bg-muted {
-  background: hsl(210, 40%, 96%) !important;
-}
-
-.conversation-layout .text-muted-foreground {
-  color: hsl(215, 16%, 47%) !important;
-}
-
-/* Input fields - white background */
+/* ==========================================
+   INPUT FIELDS
+   ========================================== */
 .conversation-layout input,
 .conversation-layout textarea,
 .conversation-layout select {
-  background: white !important;
-  border-color: hsl(214, 32%, 91%) !important;
-  color: hsl(222, 47%, 11%) !important;
+  background: rgba(255, 255, 255, 0.9) !important;
+  border: 1px solid var(--conv-border-subtle) !important;
+  border-radius: var(--conv-radius-md) !important;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+  color: var(--conv-text-primary) !important;
+  transition: all 0.2s ease;
 }
 
 .conversation-layout input::placeholder,
 .conversation-layout textarea::placeholder {
-  color: hsl(215, 16%, 57%) !important;
+  color: var(--conv-text-muted) !important;
 }
 
 .conversation-layout input:focus,
-.conversation-layout textarea:focus {
-  border-color: hsl(221, 83%, 53%) !important;
-  box-shadow: 0 0 0 2px hsla(221, 83%, 53%, 0.1) !important;
+.conversation-layout textarea:focus,
+.conversation-layout select:focus {
+  outline: none;
+  border-color: var(--conv-user-bubble) !important;
+  box-shadow: 0 0 0 3px rgba(74, 116, 255, 0.15), 0 2px 10px rgba(0, 0, 0, 0.05) !important;
 }
 
-/* Buttons in conversation */
-.conversation-layout button[class*="bg-primary"] {
-  background: hsl(221, 83%, 53%) !important;
+/* Chat input container */
+.conversation-layout .chat-input-container {
+  background: rgba(255, 255, 255, 0.6) !important;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-top: 1px solid var(--conv-border) !important;
+}
+
+/* ==========================================
+   BUTTONS
+   ========================================== */
+
+/* Primary buttons */
+.conversation-layout button[class*="bg-primary"],
+.conversation-layout .btn-primary {
+  background: var(--conv-user-bubble) !important;
   color: white !important;
+  border-radius: var(--conv-radius-sm) !important;
+  box-shadow: 0 4px 12px rgba(74, 116, 255, 0.25);
+  border: none !important;
+  transition: all 0.2s ease;
 }
 
-.conversation-layout button[class*="bg-primary"]:hover {
-  background: hsl(221, 83%, 48%) !important;
+.conversation-layout button[class*="bg-primary"]:hover,
+.conversation-layout .btn-primary:hover {
+  background: #3D65E8 !important;
+  box-shadow: 0 6px 16px rgba(74, 116, 255, 0.35);
+  transform: translateY(-1px);
 }
 
-/* Ghost buttons */
-.conversation-layout button[class*="ghost"] {
-  color: hsl(215, 16%, 47%) !important;
+/* Ghost/outline buttons */
+.conversation-layout button[class*="ghost"],
+.conversation-layout button[class*="outline"] {
+  color: var(--conv-text-secondary) !important;
+  border-radius: var(--conv-radius-sm) !important;
+  transition: all 0.2s ease;
 }
 
-.conversation-layout button[class*="ghost"]:hover {
-  background: hsl(210, 40%, 96%) !important;
-  color: hsl(222, 47%, 11%) !important;
+.conversation-layout button[class*="ghost"]:hover,
+.conversation-layout button[class*="outline"]:hover {
+  background: var(--conv-active-bg) !important;
+  color: var(--conv-active-text) !important;
 }
 
-/* Tags/Badges styling for insights */
-.conversation-layout .tag-tous,
-.conversation-layout [data-tag="tous"] {
-  background: hsl(142, 76%, 36%) !important;
+/* ==========================================
+   FILTER TABS & PILLS
+   ========================================== */
+.conversation-layout .filter-tab,
+.conversation-layout button[class*="rounded-full"][class*="border"] {
+  background: #F2F5FA;
+  border: 1px solid transparent !important;
+  border-radius: var(--conv-radius-sm) !important;
+  color: var(--conv-text-secondary);
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.conversation-layout .filter-tab:hover,
+.conversation-layout button[class*="rounded-full"][class*="border"]:hover {
+  background: var(--conv-active-bg);
+  color: var(--conv-active-text);
+}
+
+.conversation-layout .filter-tab.active,
+.conversation-layout button[class*="rounded-full"][class*="bg-primary"] {
+  background: var(--conv-user-bubble) !important;
   color: white !important;
+  border-color: var(--conv-user-bubble) !important;
+  box-shadow: 0 4px 12px rgba(74, 116, 255, 0.25);
 }
 
+/* ==========================================
+   BADGES & TAGS
+   ========================================== */
+
+/* Base badge style */
+.conversation-layout [class*="rounded-full"][class*="px-"],
+.conversation-layout [class*="badge"],
+.conversation-layout .tag {
+  border-radius: 6px;
+  font-weight: 500;
+}
+
+/* Type badges */
+.conversation-layout [class*="border-primary"][class*="bg-white"],
+.conversation-layout [class*="border-primary/"] {
+  background: var(--conv-badge-bg) !important;
+  border-color: rgba(74, 116, 255, 0.3) !important;
+  color: var(--conv-badge-text) !important;
+}
+
+/* Category badges (Analyse IA) */
+.conversation-layout [class*="bg-amber-100"],
+.conversation-layout .badge-analyse-ia {
+  background: #FEF3C7 !important;
+  color: #92400E !important;
+  border: none !important;
+}
+
+/* Status badges */
+.conversation-layout [class*="bg-emerald-100"],
+.conversation-layout .badge-active,
+.conversation-layout [data-status="active"] {
+  background: #D1FAE5 !important;
+  color: #065F46 !important;
+}
+
+/* Active green badge (like "Active" status) */
+.conversation-layout .session-active,
+.conversation-layout [class*="bg-green-"],
+.conversation-layout [class*="bg-emerald-500"] {
+  background: var(--conv-success) !important;
+  color: white !important;
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(34, 197, 94, 0.3);
+}
+
+/* Insight type specific badges */
 .conversation-layout .tag-idee,
 .conversation-layout [data-tag="idee"] {
-  background: hsl(210, 40%, 96%) !important;
-  color: hsl(221, 83%, 53%) !important;
-  border: 1px solid hsl(221, 83%, 80%);
+  background: var(--conv-badge-bg) !important;
+  color: var(--conv-badge-text) !important;
 }
 
 .conversation-layout .tag-gain,
 .conversation-layout [data-tag="gain"] {
-  background: hsl(45, 93%, 47%) !important;
-  color: hsl(45, 93%, 20%) !important;
+  background: #FEF9C3 !important;
+  color: #854D0E !important;
 }
 
 .conversation-layout .tag-pain,
 .conversation-layout [data-tag="pain"] {
-  background: hsl(24, 95%, 53%) !important;
-  color: white !important;
+  background: #FFEDD5 !important;
+  color: #9A3412 !important;
 }
 
 .conversation-layout .tag-risque,
 .conversation-layout [data-tag="risque"] {
-  background: hsl(0, 84%, 60%) !important;
-  color: white !important;
+  background: #FEE2E2 !important;
+  color: #991B1B !important;
 }
 
 .conversation-layout .tag-signal,
 .conversation-layout [data-tag="signal"] {
-  background: hsl(270, 60%, 60%) !important;
-  color: white !important;
+  background: #EDE9FE !important;
+  color: #5B21B6 !important;
 }
 
 .conversation-layout .tag-opportunite,
-.conversation-layout [data-tag="opportunite"] {
-  background: hsl(142, 76%, 36%) !important;
+.conversation-layout [data-tag="opportunite"],
+.conversation-layout .tag-tous,
+.conversation-layout [data-tag="tous"] {
+  background: var(--conv-user-bubble) !important;
   color: white !important;
 }
 
-/* Active status badge */
-.conversation-layout .badge-active,
-.conversation-layout [data-status="active"] {
-  background: hsl(142, 76%, 36%) !important;
-  color: white !important;
+/* ==========================================
+   PROGRESS BAR
+   ========================================== */
+.conversation-layout .progress-bar,
+.conversation-layout [class*="bg-gray-200"],
+.conversation-layout [class*="bg-slate-200"] {
+  background: #E2E8F0 !important;
+  border-radius: 999px;
+  overflow: hidden;
 }
 
-/* Header styling */
-.conversation-layout header,
-.conversation-layout .header {
-  background: white !important;
-  border-bottom: 1px solid hsl(214, 32%, 91%);
+.conversation-layout .progress-bar-fill,
+.conversation-layout [class*="bg-blue-"],
+.conversation-layout [class*="bg-primary"]:not(button):not(.message-user) {
+  background: linear-gradient(90deg, #4A74FF, #6B8AFF) !important;
+  border-radius: 999px;
 }
 
-/* Progress bar */
-.conversation-layout .progress-bar {
-  background: hsl(210, 40%, 96%);
+/* ==========================================
+   TEXT COLORS
+   ========================================== */
+.conversation-layout .text-foreground,
+.conversation-layout h1, .conversation-layout h2,
+.conversation-layout h3, .conversation-layout h4 {
+  color: var(--conv-text-primary) !important;
 }
 
-.conversation-layout .progress-bar-fill {
-  background: hsl(221, 83%, 53%);
+.conversation-layout .text-muted-foreground,
+.conversation-layout [class*="text-gray-"],
+.conversation-layout [class*="text-slate-500"],
+.conversation-layout [class*="text-slate-600"] {
+  color: var(--conv-text-secondary) !important;
 }
 
-/* Scrollbar for conversation */
+.conversation-layout [class*="text-slate-"],
+.conversation-layout [class*="text-slate-700"],
+.conversation-layout [class*="text-slate-800"],
+.conversation-layout [class*="text-slate-900"] {
+  color: var(--conv-text-primary) !important;
+}
+
+.conversation-layout .text-primary {
+  color: var(--conv-user-bubble) !important;
+}
+
+/* ==========================================
+   BACKGROUND OVERRIDES
+   ========================================== */
+.conversation-layout [class*="bg-slate-900"],
+.conversation-layout [class*="bg-slate-950"],
+.conversation-layout [class*="bg-slate-800"],
+.conversation-layout [class*="bg-slate-50"],
+.conversation-layout [class*="bg-gray-50"],
+.conversation-layout [class*="bg-white/"] {
+  background: rgba(255, 255, 255, 0.6) !important;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.conversation-layout [class*="from-slate-"],
+.conversation-layout [class*="to-slate-"] {
+  --tw-gradient-from: rgba(255, 255, 255, 0.7) !important;
+  --tw-gradient-to: rgba(233, 238, 245, 0.8) !important;
+}
+
+.conversation-layout .bg-muted {
+  background: #F2F5FA !important;
+}
+
+/* ==========================================
+   LINKS
+   ========================================== */
+.conversation-layout a {
+  color: var(--conv-user-bubble);
+  transition: color 0.2s ease;
+}
+
+.conversation-layout a:hover {
+  color: #3D65E8;
+}
+
+/* ==========================================
+   DIVIDERS & BORDERS
+   ========================================== */
+.conversation-layout hr,
+.conversation-layout .divider {
+  border-color: rgba(0, 0, 0, 0.06);
+}
+
+.conversation-layout [class*="border-dashed"] {
+  background: rgba(255, 255, 255, 0.5) !important;
+  border-color: rgba(0, 0, 0, 0.1) !important;
+  border-radius: var(--conv-radius-md);
+}
+
+/* ==========================================
+   SCROLLBAR
+   ========================================== */
 .conversation-layout ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 
 .conversation-layout ::-webkit-scrollbar-track {
-  background: hsl(210, 40%, 96%);
+  background: rgba(0, 0, 0, 0.04);
   border-radius: 3px;
 }
 
 .conversation-layout ::-webkit-scrollbar-thumb {
-  background: hsl(215, 16%, 77%);
+  background: rgba(0, 0, 0, 0.15);
   border-radius: 3px;
 }
 
 .conversation-layout ::-webkit-scrollbar-thumb:hover {
-  background: hsl(215, 16%, 67%);
+  background: rgba(0, 0, 0, 0.25);
 }
 
-/* Analyse IA badge */
-.conversation-layout .badge-analyse-ia {
-  background: hsl(210, 40%, 96%) !important;
-  color: hsl(215, 16%, 47%) !important;
-  border: 1px solid hsl(214, 32%, 91%);
+/* ==========================================
+   SPECIAL ELEMENTS
+   ========================================== */
+
+/* Attention badge (yellow) */
+.conversation-layout [class*="bg-yellow-"],
+.conversation-layout [class*="bg-amber-500"] {
+  background: #FBBF24 !important;
+  color: #78350F !important;
 }
 
-/* Links styling */
-.conversation-layout a {
-  color: hsl(221, 83%, 53%);
+/* Standard badge */
+.conversation-layout [class*="bg-blue-100"] {
+  background: var(--conv-badge-bg) !important;
+  color: var(--conv-badge-text) !important;
 }
 
-.conversation-layout a:hover {
-  color: hsl(221, 83%, 43%);
-}
-
-/* Dividers */
-.conversation-layout hr,
-.conversation-layout .divider {
-  border-color: hsl(214, 32%, 91%);
-}
-
-/* Filter tabs */
-.conversation-layout .filter-tab {
-  background: white;
-  border: 1px solid hsl(214, 32%, 91%);
-  color: hsl(222, 47%, 11%);
-}
-
-.conversation-layout .filter-tab:hover {
-  background: hsl(210, 40%, 96%);
-}
-
-.conversation-layout .filter-tab.active {
-  background: hsl(142, 76%, 36%);
-  color: white;
-  border-color: hsl(142, 76%, 36%);
-}
-
-/* Override glass-card in conversation layout - make it light */
-.conversation-layout .glass-card,
-.conversation-layout .chat-container {
-  background: white !important;
-  border: 1px solid hsl(214, 32%, 91%) !important;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05), 0 4px 6px rgba(0, 0, 0, 0.02) !important;
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
-}
-
-/* Override neon-card in conversation layout */
-.conversation-layout .neon-card,
-.conversation-layout .neon-card-purple,
-.conversation-layout .neon-card-pink {
-  background: white !important;
-  border: 1px solid hsl(214, 32%, 91%) !important;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05) !important;
-  backdrop-filter: none !important;
-}
-
-/* Override neumorphic shadows in conversation - cleaner style */
-.conversation-layout .neumorphic-shadow,
-.conversation-layout .neumorphic-raised {
-  background: white !important;
-  border: 1px solid hsl(214, 32%, 91%) !important;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04) !important;
-}
-
-/* Override dark slate backgrounds in conversation */
-.conversation-layout [class*="bg-slate-900"],
-.conversation-layout [class*="bg-slate-950"],
-.conversation-layout [class*="bg-slate-800"] {
-  background: white !important;
-}
-
-/* Override any dark gradient backgrounds */
-.conversation-layout [class*="from-slate-"],
-.conversation-layout [class*="to-slate-"] {
-  --tw-gradient-from: white !important;
-  --tw-gradient-to: hsl(210, 40%, 98%) !important;
-}
-
-/* Chat input container - light theme */
-.conversation-layout .chat-input-container {
-  background: white !important;
-  border-top: 1px solid hsl(214, 32%, 91%) !important;
-  backdrop-filter: none !important;
-}
-
-/* Chat messages container - light background */
-.conversation-layout .chat-messages {
-  background: hsl(210, 40%, 98%);
-}
-
-/* Message bubbles - agent messages white, user blue */
-.conversation-layout .chat-message.ai,
-.conversation-layout .chat-message:not(.user) {
-  background: white !important;
-  color: hsl(222, 47%, 11%) !important;
-  border: 1px solid hsl(214, 32%, 91%);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
-}
-
-.conversation-layout .chat-message.user {
-  background: hsl(221, 83%, 53%) !important;
+/* Participant badges */
+.conversation-layout [class*="bg-violet-"],
+.conversation-layout [class*="bg-purple-"] {
+  background: #8B5CF6 !important;
   color: white !important;
 }
 
-/* Override CardHeader and CardContent backgrounds */
-.conversation-layout [class*="CardHeader"],
-.conversation-layout [class*="CardContent"] {
-  background: transparent !important;
+/* Challenge links */
+.conversation-layout [class*="text-emerald-"],
+.conversation-layout [class*="text-green-"] {
+  color: #059669 !important;
 }
 
-/* Ensure text is dark in conversation layout */
-.conversation-layout .text-foreground,
-.conversation-layout [class*="CardTitle"] {
-  color: hsl(222, 47%, 11%) !important;
+/* Icons */
+.conversation-layout svg {
+  flex-shrink: 0;
 }
 
-/* Progress bar styling */
-.conversation-layout [class*="bg-primary/10"],
-.conversation-layout [class*="bg-primary/20"] {
-  background: hsla(221, 83%, 53%, 0.1) !important;
-}
-
-/* Filter buttons - pill style */
-.conversation-layout button[class*="rounded-full"][class*="border"] {
-  background: white;
-  border-color: hsl(214, 32%, 91%);
-  color: hsl(222, 47%, 11%);
-}
-
-.conversation-layout button[class*="rounded-full"][class*="border"]:hover {
-  background: hsl(210, 40%, 96%);
-  border-color: hsl(221, 83%, 70%);
-}
-
-.conversation-layout button[class*="rounded-full"][class*="bg-primary"] {
-  background: hsl(221, 83%, 53%) !important;
-  color: white !important;
-  border-color: hsl(221, 83%, 53%) !important;
-}
-
-/* Insight type badges - colorful but clean */
-.conversation-layout [class*="border-primary"][class*="bg-white"] {
-  background: white !important;
-  border-color: hsl(221, 83%, 70%) !important;
-  color: hsl(221, 83%, 45%) !important;
-}
-
-/* Amber/category badges */
-.conversation-layout [class*="bg-amber-100"] {
-  background: hsl(45, 93%, 94%) !important;
-  color: hsl(45, 93%, 25%) !important;
-}
-
-/* Emerald/status badges */
-.conversation-layout [class*="bg-emerald-100"] {
-  background: hsl(142, 76%, 94%) !important;
-  color: hsl(142, 76%, 25%) !important;
-}
-
-/* Slate background overrides for insights */
-.conversation-layout [class*="bg-slate-50"] {
-  background: hsl(210, 40%, 98%) !important;
-}
-
-/* Empty state styling */
-.conversation-layout [class*="border-dashed"] {
-  background: hsl(210, 40%, 99%) !important;
-  border-color: hsl(214, 32%, 85%) !important;
-}
-
-/* Icon colors */
-.conversation-layout .text-primary {
-  color: hsl(221, 83%, 53%) !important;
-}
-
-/* Override any remaining dark text */
-.conversation-layout [class*="text-slate-"] {
-  color: hsl(222, 47%, 25%) !important;
-}
-
-.conversation-layout [class*="text-slate-500"],
-.conversation-layout [class*="text-slate-600"] {
-  color: hsl(215, 16%, 47%) !important;
-}
-
-.conversation-layout [class*="text-slate-700"],
-.conversation-layout [class*="text-slate-800"],
-.conversation-layout [class*="text-slate-900"] {
-  color: hsl(222, 47%, 20%) !important;
+/* Smooth transitions for all interactive elements */
+.conversation-layout button,
+.conversation-layout a,
+.conversation-layout input,
+.conversation-layout textarea,
+.conversation-layout .card {
+  transition: all 0.2s ease;
 }
