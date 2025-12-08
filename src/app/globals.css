@@ -1180,486 +1180,377 @@ a.neumorphic-raised:active {
 }
 
 /* ==========================================
-   CONVERSATION PAGE - FROSTED GLASS THEME
-   Elegant glassmorphism design matching Photo 2
+   CONVERSATION PAGE - ORIGINAL LIGHT THEME
+   Restored from pre-dark-theme CSS, scoped to conversation-layout
    ========================================== */
 
-/* Base variables and background */
+/* Base variables - Original light theme */
 .conversation-layout {
-  --conv-bg-gradient: linear-gradient(180deg, #F4F7FB 0%, #E9EEF5 100%);
-  --conv-text-primary: #1C2B4A;
-  --conv-text-secondary: #5A6B8A;
-  --conv-text-muted: #8DA0B6;
-  --conv-surface: rgba(255, 255, 255, 0.65);
-  --conv-surface-elevated: rgba(255, 255, 255, 0.75);
-  --conv-border: rgba(255, 255, 255, 0.4);
-  --conv-border-subtle: rgba(0, 0, 0, 0.06);
-  --conv-shadow: 0 4px 24px rgba(0, 0, 0, 0.06);
-  --conv-shadow-elevated: 0 6px 30px rgba(0, 0, 0, 0.08);
-  --conv-user-bubble: #4A74FF;
-  --conv-user-shadow: 0 8px 18px rgba(74, 116, 255, 0.25);
-  --conv-badge-bg: #E8EEFB;
-  --conv-badge-text: #3A56A0;
-  --conv-active-bg: #E1E7F5;
-  --conv-active-text: #2C4A90;
-  --conv-success: #22C55E;
-  --conv-radius-sm: 10px;
-  --conv-radius-md: 14px;
-  --conv-radius-lg: 16px;
-  --conv-radius-xl: 18px;
-
-  /* Override theme variables */
-  --background: 220 20% 97%;
-  --foreground: 222 47% 17%;
-  --card: 0 0% 100%;
-  --card-foreground: 222 47% 17%;
-  --primary: 225 100% 65%;
+  /* Original light theme colors */
+  --background: 224 71% 95%; /* Light Grayish Blue */
+  --foreground: 223 23% 41%; /* Dark Desaturated Blue */
+  --card: 224 71% 95%;
+  --card-foreground: 223 23% 41%;
+  --popover: 224 71% 95%;
+  --popover-foreground: 223 23% 41%;
+  --primary: 225 67% 58%; /* Calming Blue */
   --primary-foreground: 0 0% 100%;
-  --muted: 220 20% 94%;
-  --muted-foreground: 220 15% 45%;
-  --border: 220 20% 90%;
-  --input: 220 20% 90%;
-  --ring: 225 100% 65%;
+  --secondary: 210 40% 96.1%;
+  --secondary-foreground: 222.2 47.4% 11.2%;
+  --muted: 210 40% 96.1%;
+  --muted-foreground: 215.4 16.3% 46.9%;
+  --accent: 333 100% 50%; /* Vibrant Orange/Pink */
+  --accent-foreground: 0 0% 100%;
+  --destructive: 0 84.2% 60.2%;
+  --destructive-foreground: 210 40% 98%;
+  --border: 224 44% 86%;
+  --input: 224 44% 86%;
+  --ring: 225 67% 58%;
 
   min-height: 100vh;
-  background: var(--conv-bg-gradient) !important;
-  color: var(--conv-text-primary);
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  background: linear-gradient(to bottom right, #e0e7ff, #ffffff, #c7d2fe) !important;
+  color: hsl(223 23% 41%);
 }
 
-/* ==========================================
-   HEADER - Frosted glass
-   ========================================== */
-.conversation-layout header,
-.conversation-layout .header {
-  background: var(--conv-surface) !important;
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border-bottom: 1px solid var(--conv-border) !important;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
-}
-
-/* ==========================================
-   CARDS & PANELS - Elevated glass effect
-   ========================================== */
-.conversation-layout .card,
-.conversation-layout [class*="Card"],
-.conversation-layout [data-slot="card"],
-.conversation-layout .glass-card,
-.conversation-layout .chat-container,
-.conversation-layout .neon-card,
-.conversation-layout .neon-card-purple,
-.conversation-layout .neon-card-pink {
-  background: var(--conv-surface-elevated) !important;
+/* Glass card - Original style */
+.conversation-layout .glass-card {
+  background: rgba(255, 255, 255, 0.6) !important;
   backdrop-filter: blur(12px) !important;
   -webkit-backdrop-filter: blur(12px) !important;
-  border-radius: var(--conv-radius-lg) !important;
-  border: 1px solid var(--conv-border) !important;
-  box-shadow: var(--conv-shadow) !important;
+  border-radius: 1rem !important;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05) !important;
+  border: none !important;
 }
 
-/* Card hover effect */
-.conversation-layout .card:hover,
-.conversation-layout [class*="Card"]:hover {
-  box-shadow: var(--conv-shadow-elevated);
+/* Chat container - Original style */
+.conversation-layout .chat-container {
+  background: rgba(255, 255, 255, 0.6) !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+  border-radius: 1rem !important;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05) !important;
+  border: none !important;
 }
 
-/* Card headers & content */
+/* Neumorphic shadow - Original style */
+.conversation-layout .neumorphic-shadow {
+  border-radius: 14px !important;
+  background: #ffffff !important;
+  box-shadow: inset 6px 6px 12px rgba(0, 0, 0, 0.08), inset -6px -6px 12px rgba(255, 255, 255, 0.9) !important;
+}
+
+.conversation-layout button.neumorphic-shadow:active,
+.conversation-layout a.neumorphic-shadow:active {
+  box-shadow: 6px 6px 12px rgba(0, 0, 0, 0.1), -6px -6px 12px rgba(255, 255, 255, 0.9) !important;
+}
+
+/* Neumorphic raised - Original style */
+.conversation-layout .neumorphic-raised {
+  border-radius: 14px !important;
+  background-color: #ffffff !important;
+  box-shadow: 6px 6px 12px rgba(0, 0, 0, 0.1), -6px -6px 12px rgba(255, 255, 255, 0.9) !important;
+}
+
+.conversation-layout button.neumorphic-raised:active,
+.conversation-layout a.neumorphic-raised:active {
+  box-shadow: inset 6px 6px 12px rgba(0, 0, 0, 0.1), inset -6px -6px 12px rgba(255, 255, 255, 0.9) !important;
+}
+
+/* Chat messages */
+.conversation-layout .chat-messages {
+  background: transparent;
+}
+
+.conversation-layout .chat-message {
+  border-radius: 14px;
+  background: #ffffff;
+  box-shadow: inset 6px 6px 12px rgba(0, 0, 0, 0.08), inset -6px -6px 12px rgba(255, 255, 255, 0.9);
+}
+
+.conversation-layout .chat-message.user {
+  background: hsl(225 67% 58% / 0.1) !important;
+}
+
+.conversation-layout .chat-message.ai {
+  background: hsl(210 40% 96.1% / 0.5) !important;
+}
+
+/* Chat input container - Original style */
+.conversation-layout .chat-input-container {
+  background: rgba(255, 255, 255, 0.4) !important;
+  backdrop-filter: blur(4px) !important;
+  -webkit-backdrop-filter: blur(4px) !important;
+  border-top: 1px solid hsl(224 44% 86% / 0.5) !important;
+}
+
+/* Cards */
+.conversation-layout .card,
+.conversation-layout [class*="Card"],
+.conversation-layout [data-slot="card"] {
+  background: rgba(255, 255, 255, 0.6) !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+  border-radius: 1rem !important;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05) !important;
+  border: none !important;
+}
+
 .conversation-layout [class*="CardHeader"],
 .conversation-layout [class*="CardContent"] {
   background: transparent !important;
 }
 
-.conversation-layout [class*="CardTitle"] {
-  color: var(--conv-text-primary) !important;
-  font-weight: 600;
+/* Challenge card - Original style */
+.conversation-layout .challenge-card {
+  background: rgba(255, 255, 255, 0.6) !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+  border-radius: 1rem !important;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05) !important;
 }
 
-/* ==========================================
-   NEUMORPHIC ELEMENTS - Clean flat style
-   ========================================== */
-.conversation-layout .neumorphic-shadow,
-.conversation-layout .neumorphic-raised {
+.conversation-layout .challenge-card:hover {
+  transform: scale(1.02);
+  background: rgba(255, 255, 255, 0.7) !important;
+}
+
+/* Header - Original style */
+.conversation-layout header,
+.conversation-layout .header,
+.conversation-layout .app-header {
   background: rgba(255, 255, 255, 0.8) !important;
-  border: 1px solid var(--conv-border-subtle) !important;
-  border-radius: var(--conv-radius-md) !important;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04) !important;
-}
-
-/* ==========================================
-   CHAT MESSAGES
-   ========================================== */
-
-/* Messages container */
-.conversation-layout .chat-messages {
-  background: transparent;
-}
-
-/* Agent messages - frosted white */
-.conversation-layout .message-agent,
-.conversation-layout [data-sender="agent"],
-.conversation-layout .chat-message.ai,
-.conversation-layout .chat-message:not(.user) {
-  background: rgba(255, 255, 255, 0.8) !important;
-  color: var(--conv-text-primary) !important;
-  border: 1px solid var(--conv-border-subtle) !important;
-  border-radius: var(--conv-radius-md) !important;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
-}
-
-/* User messages - blue with glow */
-.conversation-layout .message-user,
-.conversation-layout [data-sender="user"],
-.conversation-layout .chat-message.user,
-.conversation-layout .bg-primary:not(button) {
-  background: var(--conv-user-bubble) !important;
-  color: white !important;
-  border-radius: var(--conv-radius-md) !important;
-  box-shadow: var(--conv-user-shadow) !important;
+  backdrop-filter: blur(16px) !important;
+  -webkit-backdrop-filter: blur(16px) !important;
   border: none !important;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05) !important;
 }
 
-/* ==========================================
-   INPUT FIELDS
-   ========================================== */
+/* Input fields - Original style */
 .conversation-layout input,
 .conversation-layout textarea,
 .conversation-layout select {
-  background: rgba(255, 255, 255, 0.9) !important;
-  border: 1px solid var(--conv-border-subtle) !important;
-  border-radius: var(--conv-radius-md) !important;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
-  color: var(--conv-text-primary) !important;
-  transition: all 0.2s ease;
+  background: #ffffff !important;
+  border: 1px solid hsl(224 44% 86%) !important;
+  border-radius: 14px !important;
+  color: hsl(223 23% 41%) !important;
 }
 
 .conversation-layout input::placeholder,
 .conversation-layout textarea::placeholder {
-  color: var(--conv-text-muted) !important;
+  color: hsl(215.4 16.3% 46.9%) !important;
 }
 
 .conversation-layout input:focus,
 .conversation-layout textarea:focus,
 .conversation-layout select:focus {
-  outline: none;
-  border-color: var(--conv-user-bubble) !important;
-  box-shadow: 0 0 0 3px rgba(74, 116, 255, 0.15), 0 2px 10px rgba(0, 0, 0, 0.05) !important;
+  outline: none !important;
+  box-shadow: 0 0 0 2px hsl(225 67% 58% / 0.5) !important;
+  border-color: hsl(225 67% 58%) !important;
 }
 
-/* Chat input container */
-.conversation-layout .chat-input-container {
-  background: rgba(255, 255, 255, 0.6) !important;
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  border-top: 1px solid var(--conv-border) !important;
-}
-
-/* ==========================================
-   BUTTONS
-   ========================================== */
-
-/* Primary buttons */
-.conversation-layout button[class*="bg-primary"],
-.conversation-layout .btn-primary {
-  background: var(--conv-user-bubble) !important;
+/* Buttons - Original style */
+.conversation-layout .btn-primary,
+.conversation-layout button[class*="bg-primary"] {
+  background: linear-gradient(to right, hsl(225 67% 58%), hsl(225 67% 58% / 0.8)) !important;
   color: white !important;
-  border-radius: var(--conv-radius-sm) !important;
-  box-shadow: 0 4px 12px rgba(74, 116, 255, 0.25);
   border: none !important;
-  transition: all 0.2s ease;
+  border-radius: 14px !important;
+  box-shadow: 6px 6px 12px rgba(0, 0, 0, 0.1), -6px -6px 12px rgba(255, 255, 255, 0.9) !important;
 }
 
-.conversation-layout button[class*="bg-primary"]:hover,
-.conversation-layout .btn-primary:hover {
-  background: #3D65E8 !important;
-  box-shadow: 0 6px 16px rgba(74, 116, 255, 0.35);
-  transform: translateY(-1px);
+.conversation-layout .btn-primary:hover,
+.conversation-layout button[class*="bg-primary"]:hover {
+  background: linear-gradient(to right, hsl(225 67% 58% / 0.9), hsl(225 67% 58% / 0.7)) !important;
 }
 
-/* Ghost/outline buttons */
-.conversation-layout button[class*="ghost"],
-.conversation-layout button[class*="outline"] {
-  color: var(--conv-text-secondary) !important;
-  border-radius: var(--conv-radius-sm) !important;
-  transition: all 0.2s ease;
+.conversation-layout .btn-primary:active,
+.conversation-layout button[class*="bg-primary"]:active {
+  transform: scale(0.95);
 }
 
-.conversation-layout button[class*="ghost"]:hover,
-.conversation-layout button[class*="outline"]:hover {
-  background: var(--conv-active-bg) !important;
-  color: var(--conv-active-text) !important;
+.conversation-layout .btn-secondary {
+  background: hsl(210 40% 96.1%) !important;
+  color: hsl(222.2 47.4% 11.2%) !important;
+  border-radius: 14px !important;
+  box-shadow: inset 6px 6px 12px rgba(0, 0, 0, 0.08), inset -6px -6px 12px rgba(255, 255, 255, 0.9) !important;
 }
 
-/* ==========================================
-   FILTER TABS & PILLS
-   ========================================== */
-.conversation-layout .filter-tab,
-.conversation-layout button[class*="rounded-full"][class*="border"] {
-  background: #F2F5FA;
-  border: 1px solid transparent !important;
-  border-radius: var(--conv-radius-sm) !important;
-  color: var(--conv-text-secondary);
-  font-weight: 500;
-  transition: all 0.2s ease;
+.conversation-layout button[class*="ghost"] {
+  color: hsl(223 23% 41%) !important;
 }
 
-.conversation-layout .filter-tab:hover,
-.conversation-layout button[class*="rounded-full"][class*="border"]:hover {
-  background: var(--conv-active-bg);
-  color: var(--conv-active-text);
+.conversation-layout button[class*="ghost"]:hover {
+  background: hsl(210 40% 96.1%) !important;
 }
 
-.conversation-layout .filter-tab.active,
-.conversation-layout button[class*="rounded-full"][class*="bg-primary"] {
-  background: var(--conv-user-bubble) !important;
+/* Session status - Original style */
+.conversation-layout .session-active {
+  background: linear-gradient(to right, #4ade80, #10b981) !important;
   color: white !important;
-  border-color: var(--conv-user-bubble) !important;
-  box-shadow: 0 4px 12px rgba(74, 116, 255, 0.25);
+  padding: 0.25rem 0.75rem !important;
+  border-radius: 9999px !important;
+  font-size: 0.875rem !important;
+  font-weight: 500 !important;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05) !important;
 }
 
-/* ==========================================
-   BADGES & TAGS
-   ========================================== */
-
-/* Base badge style */
-.conversation-layout [class*="rounded-full"][class*="px-"],
-.conversation-layout [class*="badge"],
-.conversation-layout .tag {
-  border-radius: 6px;
-  font-weight: 500;
-}
-
-/* Type badges */
-.conversation-layout [class*="border-primary"][class*="bg-white"],
-.conversation-layout [class*="border-primary/"] {
-  background: var(--conv-badge-bg) !important;
-  border-color: rgba(74, 116, 255, 0.3) !important;
-  color: var(--conv-badge-text) !important;
-}
-
-/* Category badges (Analyse IA) */
-.conversation-layout [class*="bg-amber-100"],
-.conversation-layout .badge-analyse-ia {
-  background: #FEF3C7 !important;
-  color: #92400E !important;
-  border: none !important;
-}
-
-/* Status badges */
-.conversation-layout [class*="bg-emerald-100"],
-.conversation-layout .badge-active,
-.conversation-layout [data-status="active"] {
-  background: #D1FAE5 !important;
-  color: #065F46 !important;
-}
-
-/* Active green badge (like "Active" status) */
-.conversation-layout .session-active,
-.conversation-layout [class*="bg-green-"],
-.conversation-layout [class*="bg-emerald-500"] {
-  background: var(--conv-success) !important;
+.conversation-layout .session-closed {
+  background: linear-gradient(to right, #f87171, #fb7185) !important;
   color: white !important;
-  border-radius: 6px;
-  box-shadow: 0 2px 8px rgba(34, 197, 94, 0.3);
+  padding: 0.25rem 0.75rem !important;
+  border-radius: 9999px !important;
+  font-size: 0.875rem !important;
+  font-weight: 500 !important;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05) !important;
 }
 
-/* Insight type specific badges */
-.conversation-layout .tag-idee,
-.conversation-layout [data-tag="idee"] {
-  background: var(--conv-badge-bg) !important;
-  color: var(--conv-badge-text) !important;
-}
-
-.conversation-layout .tag-gain,
-.conversation-layout [data-tag="gain"] {
-  background: #FEF9C3 !important;
-  color: #854D0E !important;
-}
-
-.conversation-layout .tag-pain,
-.conversation-layout [data-tag="pain"] {
-  background: #FFEDD5 !important;
-  color: #9A3412 !important;
-}
-
-.conversation-layout .tag-risque,
-.conversation-layout [data-tag="risque"] {
-  background: #FEE2E2 !important;
-  color: #991B1B !important;
-}
-
-.conversation-layout .tag-signal,
-.conversation-layout [data-tag="signal"] {
-  background: #EDE9FE !important;
-  color: #5B21B6 !important;
-}
-
-.conversation-layout .tag-opportunite,
-.conversation-layout [data-tag="opportunite"],
-.conversation-layout .tag-tous,
-.conversation-layout [data-tag="tous"] {
-  background: var(--conv-user-bubble) !important;
+/* Test mode badge - Original style */
+.conversation-layout .test-mode-badge {
+  background: linear-gradient(to right, #facc15, #f97316) !important;
   color: white !important;
+  padding: 0.25rem 0.75rem !important;
+  border-radius: 9999px !important;
+  font-size: 0.75rem !important;
+  font-weight: 500 !important;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05) !important;
 }
 
-/* ==========================================
-   PROGRESS BAR
-   ========================================== */
-.conversation-layout .progress-bar,
-.conversation-layout [class*="bg-gray-200"],
-.conversation-layout [class*="bg-slate-200"] {
-  background: #E2E8F0 !important;
-  border-radius: 999px;
-  overflow: hidden;
-}
-
-.conversation-layout .progress-bar-fill,
-.conversation-layout [class*="bg-blue-"],
-.conversation-layout [class*="bg-primary"]:not(button):not(.message-user) {
-  background: linear-gradient(90deg, #4A74FF, #6B8AFF) !important;
-  border-radius: 999px;
-}
-
-/* ==========================================
-   TEXT COLORS
-   ========================================== */
-.conversation-layout .text-foreground,
-.conversation-layout h1, .conversation-layout h2,
-.conversation-layout h3, .conversation-layout h4 {
-  color: var(--conv-text-primary) !important;
-}
-
-.conversation-layout .text-muted-foreground,
-.conversation-layout [class*="text-gray-"],
-.conversation-layout [class*="text-slate-500"],
-.conversation-layout [class*="text-slate-600"] {
-  color: var(--conv-text-secondary) !important;
-}
-
-.conversation-layout [class*="text-slate-"],
-.conversation-layout [class*="text-slate-700"],
-.conversation-layout [class*="text-slate-800"],
-.conversation-layout [class*="text-slate-900"] {
-  color: var(--conv-text-primary) !important;
-}
-
-.conversation-layout .text-primary {
-  color: var(--conv-user-bubble) !important;
-}
-
-/* ==========================================
-   BACKGROUND OVERRIDES
-   ========================================== */
-.conversation-layout [class*="bg-slate-900"],
-.conversation-layout [class*="bg-slate-950"],
-.conversation-layout [class*="bg-slate-800"],
-.conversation-layout [class*="bg-slate-50"],
-.conversation-layout [class*="bg-gray-50"],
-.conversation-layout [class*="bg-white/"] {
-  background: rgba(255, 255, 255, 0.6) !important;
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-}
-
-.conversation-layout [class*="from-slate-"],
-.conversation-layout [class*="to-slate-"] {
-  --tw-gradient-from: rgba(255, 255, 255, 0.7) !important;
-  --tw-gradient-to: rgba(233, 238, 245, 0.8) !important;
-}
-
-.conversation-layout .bg-muted {
-  background: #F2F5FA !important;
-}
-
-/* ==========================================
-   LINKS
-   ========================================== */
-.conversation-layout a {
-  color: var(--conv-user-bubble);
-  transition: color 0.2s ease;
-}
-
-.conversation-layout a:hover {
-  color: #3D65E8;
-}
-
-/* ==========================================
-   DIVIDERS & BORDERS
-   ========================================== */
-.conversation-layout hr,
-.conversation-layout .divider {
-  border-color: rgba(0, 0, 0, 0.06);
-}
-
-.conversation-layout [class*="border-dashed"] {
-  background: rgba(255, 255, 255, 0.5) !important;
-  border-color: rgba(0, 0, 0, 0.1) !important;
-  border-radius: var(--conv-radius-md);
-}
-
-/* ==========================================
-   SCROLLBAR
-   ========================================== */
+/* Scrollbar - Original style */
 .conversation-layout ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 
 .conversation-layout ::-webkit-scrollbar-track {
-  background: rgba(0, 0, 0, 0.04);
-  border-radius: 3px;
+  background: hsl(210 40% 96.1% / 0.2);
+  border-radius: 9999px;
 }
 
 .conversation-layout ::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.15);
-  border-radius: 3px;
+  background: hsl(225 67% 58% / 0.3);
+  border-radius: 9999px;
 }
 
 .conversation-layout ::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 0, 0, 0.25);
+  background: hsl(225 67% 58% / 0.5);
 }
 
-/* ==========================================
-   SPECIAL ELEMENTS
-   ========================================== */
-
-/* Attention badge (yellow) */
-.conversation-layout [class*="bg-yellow-"],
-.conversation-layout [class*="bg-amber-500"] {
-  background: #FBBF24 !important;
-  color: #78350F !important;
+/* Text colors */
+.conversation-layout .text-foreground {
+  color: hsl(223 23% 41%) !important;
 }
 
-/* Standard badge */
-.conversation-layout [class*="bg-blue-100"] {
-  background: var(--conv-badge-bg) !important;
-  color: var(--conv-badge-text) !important;
+.conversation-layout .text-muted-foreground {
+  color: hsl(215.4 16.3% 46.9%) !important;
 }
 
-/* Participant badges */
-.conversation-layout [class*="bg-violet-"],
-.conversation-layout [class*="bg-purple-"] {
-  background: #8B5CF6 !important;
+.conversation-layout .text-primary {
+  color: hsl(225 67% 58%) !important;
+}
+
+.conversation-layout [class*="CardTitle"] {
+  color: hsl(223 23% 41%) !important;
+}
+
+/* Override dark backgrounds */
+.conversation-layout [class*="bg-slate-900"],
+.conversation-layout [class*="bg-slate-950"],
+.conversation-layout [class*="bg-slate-800"] {
+  background: rgba(255, 255, 255, 0.6) !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+}
+
+.conversation-layout [class*="bg-slate-50"],
+.conversation-layout [class*="bg-gray-50"] {
+  background: hsl(210 40% 96.1%) !important;
+}
+
+.conversation-layout .bg-muted {
+  background: hsl(210 40% 96.1%) !important;
+}
+
+/* Override dark text */
+.conversation-layout [class*="text-slate-"],
+.conversation-layout [class*="text-gray-"] {
+  color: hsl(223 23% 41%) !important;
+}
+
+.conversation-layout [class*="text-slate-500"],
+.conversation-layout [class*="text-slate-600"],
+.conversation-layout [class*="text-gray-500"],
+.conversation-layout [class*="text-gray-600"] {
+  color: hsl(215.4 16.3% 46.9%) !important;
+}
+
+/* Filter tabs/pills */
+.conversation-layout button[class*="rounded-full"][class*="border"] {
+  background: white !important;
+  border: 1px solid hsl(224 44% 86%) !important;
+  color: hsl(223 23% 41%) !important;
+}
+
+.conversation-layout button[class*="rounded-full"][class*="border"]:hover {
+  background: hsl(210 40% 96.1%) !important;
+}
+
+.conversation-layout button[class*="rounded-full"][class*="bg-primary"] {
+  background: hsl(225 67% 58%) !important;
   color: white !important;
+  border: none !important;
 }
 
-/* Challenge links */
-.conversation-layout [class*="text-emerald-"],
-.conversation-layout [class*="text-green-"] {
-  color: #059669 !important;
+/* KPI item - Original style */
+.conversation-layout .kpi-item {
+  background: linear-gradient(to right, hsl(225 67% 58% / 0.05), hsl(333 100% 50% / 0.05)) !important;
+  padding: 0.75rem !important;
+  border-radius: 0.5rem !important;
+  border: 1px solid hsl(225 67% 58% / 0.2) !important;
 }
 
-/* Icons */
-.conversation-layout svg {
-  flex-shrink: 0;
+/* Pain/gain item - Original style */
+.conversation-layout .pain-gain-item {
+  border-radius: 14px !important;
+  background: #ffffff !important;
+  box-shadow: inset 6px 6px 12px rgba(0, 0, 0, 0.08), inset -6px -6px 12px rgba(255, 255, 255, 0.9) !important;
 }
 
-/* Smooth transitions for all interactive elements */
-.conversation-layout button,
-.conversation-layout a,
-.conversation-layout input,
-.conversation-layout textarea,
-.conversation-layout .card {
-  transition: all 0.2s ease;
+/* Links */
+.conversation-layout a {
+  color: hsl(225 67% 58%);
+}
+
+.conversation-layout a:hover {
+  color: hsl(225 67% 48%);
+}
+
+/* Dividers */
+.conversation-layout hr,
+.conversation-layout .divider {
+  border-color: hsl(224 44% 86%);
+}
+
+/* Neon card overrides - make them light */
+.conversation-layout .neon-card,
+.conversation-layout .neon-card-purple,
+.conversation-layout .neon-card-pink {
+  background: rgba(255, 255, 255, 0.6) !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+  border-radius: 1rem !important;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05) !important;
+  border: none !important;
+}
+
+/* Gradient overrides */
+.conversation-layout [class*="from-slate-"],
+.conversation-layout [class*="to-slate-"] {
+  --tw-gradient-from: rgba(255, 255, 255, 0.6) !important;
+  --tw-gradient-to: hsl(210 40% 96.1%) !important;
+}
+
+/* Empty state / dashed borders */
+.conversation-layout [class*="border-dashed"] {
+  background: rgba(255, 255, 255, 0.5) !important;
+  border-color: hsl(224 44% 86%) !important;
 }
