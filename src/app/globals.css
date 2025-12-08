@@ -1027,74 +1027,143 @@ a.neumorphic-raised:active {
 }
 
 /* ==========================================
-   NEON GLOW EFFECTS - Back-lighting
+   COMPLEX NEON GRADIENT BACKGROUNDS
+   Multi-color gradients with glow effects
    ========================================== */
 
-/* Emerald/Green neon glow for selected elements */
+/* Container spacing to prevent glow clipping */
+[class*="space-y-4"] > *,
+[class*="space-y-6"] > *,
+[class*="gap-4"] > *,
+[class*="gap-6"] > * {
+  margin: 4px;
+}
+
+/* Emerald/Green - Complex gradient with purple accent */
 [class*="bg-emerald-500/10"],
 [class*="bg-emerald-500/15"] {
+  position: relative;
+  overflow: visible;
+  background:
+    radial-gradient(ellipse 80% 50% at 0% 100%, hsla(280, 80%, 50%, 0.15) 0%, transparent 50%),
+    radial-gradient(ellipse 60% 40% at 100% 0%, hsla(160, 84%, 45%, 0.25) 0%, transparent 50%),
+    radial-gradient(ellipse 50% 50% at 50% 50%, hsla(185, 80%, 40%, 0.1) 0%, transparent 70%),
+    linear-gradient(135deg, hsla(160, 84%, 35%, 0.12) 0%, hsla(180, 70%, 30%, 0.15) 100%) !important;
   box-shadow:
-    0 0 20px hsla(160, 84%, 39%, 0.3),
-    0 0 40px hsla(160, 84%, 39%, 0.15),
-    inset 0 1px 0 hsla(160, 84%, 60%, 0.2);
-  background: linear-gradient(
-    135deg,
-    hsla(160, 84%, 39%, 0.15) 0%,
-    hsla(155, 80%, 35%, 0.2) 50%,
-    hsla(165, 90%, 42%, 0.12) 100%
-  ) !important;
+    0 0 30px hsla(160, 84%, 45%, 0.25),
+    0 0 60px hsla(280, 80%, 50%, 0.1),
+    inset 0 1px 0 hsla(160, 84%, 60%, 0.15);
+  border: 1px solid hsla(160, 84%, 50%, 0.3) !important;
 }
 
 [class*="border-emerald-400"] {
-  border-color: hsla(160, 84%, 50%, 0.5) !important;
-  box-shadow:
-    0 0 15px hsla(160, 84%, 45%, 0.25),
-    0 0 30px hsla(160, 84%, 40%, 0.1);
+  border-color: hsla(160, 84%, 50%, 0.4) !important;
 }
 
-/* Indigo/Blue neon glow for selected elements */
+/* Indigo/Blue - Complex gradient with cyan and purple accents */
 [class*="bg-indigo-500/10"],
 [class*="bg-indigo-500/15"] {
+  position: relative;
+  overflow: visible;
+  background:
+    radial-gradient(ellipse 70% 50% at 0% 0%, hsla(280, 80%, 55%, 0.2) 0%, transparent 50%),
+    radial-gradient(ellipse 80% 60% at 100% 100%, hsla(185, 90%, 50%, 0.15) 0%, transparent 50%),
+    radial-gradient(ellipse 60% 40% at 50% 50%, hsla(239, 84%, 60%, 0.15) 0%, transparent 60%),
+    linear-gradient(135deg, hsla(239, 84%, 55%, 0.12) 0%, hsla(250, 70%, 45%, 0.15) 100%) !important;
   box-shadow:
-    0 0 20px hsla(239, 84%, 67%, 0.3),
-    0 0 40px hsla(239, 84%, 67%, 0.15),
-    inset 0 1px 0 hsla(239, 84%, 75%, 0.2);
-  background: linear-gradient(
-    135deg,
-    hsla(239, 84%, 67%, 0.15) 0%,
-    hsla(245, 80%, 60%, 0.2) 50%,
-    hsla(230, 90%, 70%, 0.12) 100%
-  ) !important;
+    0 0 30px hsla(239, 84%, 60%, 0.2),
+    0 0 60px hsla(280, 80%, 55%, 0.1),
+    inset 0 1px 0 hsla(239, 84%, 75%, 0.15);
+  border: 1px solid hsla(239, 84%, 65%, 0.3) !important;
 }
 
 [class*="border-indigo-400"],
 [class*="border-indigo-500"] {
-  border-color: hsla(239, 84%, 67%, 0.5) !important;
-  box-shadow:
-    0 0 15px hsla(239, 84%, 67%, 0.25),
-    0 0 30px hsla(239, 84%, 60%, 0.1);
+  border-color: hsla(239, 84%, 65%, 0.4) !important;
 }
 
-/* Enhanced hover states for neon elements */
+/* Purple/Violet - Complex gradient with pink and blue accents */
+[class*="bg-purple-500"],
+[class*="bg-violet-500"] {
+  position: relative;
+  overflow: visible;
+  background:
+    radial-gradient(ellipse 70% 50% at 100% 0%, hsla(320, 80%, 55%, 0.2) 0%, transparent 50%),
+    radial-gradient(ellipse 60% 50% at 0% 100%, hsla(239, 80%, 60%, 0.15) 0%, transparent 50%),
+    radial-gradient(ellipse 50% 50% at 50% 50%, hsla(280, 84%, 55%, 0.2) 0%, transparent 60%),
+    linear-gradient(135deg, hsla(280, 80%, 50%, 0.15) 0%, hsla(290, 70%, 45%, 0.18) 100%) !important;
+  box-shadow:
+    0 0 30px hsla(280, 80%, 55%, 0.25),
+    0 0 60px hsla(320, 80%, 50%, 0.1),
+    inset 0 1px 0 hsla(280, 84%, 70%, 0.15);
+}
+
+/* Cyan/Teal - Complex gradient with purple accent */
+[class*="bg-cyan-500"],
+[class*="bg-teal-500"] {
+  position: relative;
+  overflow: visible;
+  background:
+    radial-gradient(ellipse 70% 50% at 0% 0%, hsla(280, 80%, 55%, 0.15) 0%, transparent 50%),
+    radial-gradient(ellipse 80% 60% at 100% 100%, hsla(160, 80%, 45%, 0.15) 0%, transparent 50%),
+    radial-gradient(ellipse 60% 40% at 50% 50%, hsla(185, 90%, 50%, 0.2) 0%, transparent 60%),
+    linear-gradient(135deg, hsla(185, 90%, 45%, 0.15) 0%, hsla(175, 80%, 40%, 0.18) 100%) !important;
+  box-shadow:
+    0 0 30px hsla(185, 90%, 50%, 0.25),
+    0 0 60px hsla(280, 80%, 50%, 0.1),
+    inset 0 1px 0 hsla(185, 90%, 65%, 0.15);
+}
+
+/* Yellow/Amber - Complex gradient with orange and pink accents */
+[class*="bg-yellow-500"],
+[class*="bg-amber-500"] {
+  position: relative;
+  overflow: visible;
+  background:
+    radial-gradient(ellipse 70% 50% at 100% 0%, hsla(320, 80%, 55%, 0.15) 0%, transparent 50%),
+    radial-gradient(ellipse 60% 50% at 0% 100%, hsla(30, 90%, 55%, 0.2) 0%, transparent 50%),
+    radial-gradient(ellipse 50% 50% at 50% 50%, hsla(45, 95%, 55%, 0.2) 0%, transparent 60%),
+    linear-gradient(135deg, hsla(45, 95%, 50%, 0.15) 0%, hsla(35, 90%, 45%, 0.18) 100%) !important;
+  box-shadow:
+    0 0 30px hsla(45, 95%, 55%, 0.25),
+    0 0 60px hsla(30, 90%, 50%, 0.1),
+    inset 0 1px 0 hsla(45, 95%, 70%, 0.15);
+}
+
+/* Enhanced hover states - more intense glow */
 [class*="bg-emerald-500"]:hover {
   box-shadow:
-    0 0 25px hsla(160, 84%, 39%, 0.4),
-    0 0 50px hsla(160, 84%, 39%, 0.2),
-    inset 0 1px 0 hsla(160, 84%, 60%, 0.3);
+    0 0 40px hsla(160, 84%, 45%, 0.35),
+    0 0 80px hsla(280, 80%, 50%, 0.15),
+    inset 0 1px 0 hsla(160, 84%, 60%, 0.25);
 }
 
 [class*="bg-indigo-500"]:hover {
   box-shadow:
-    0 0 25px hsla(239, 84%, 67%, 0.4),
-    0 0 50px hsla(239, 84%, 67%, 0.2),
-    inset 0 1px 0 hsla(239, 84%, 75%, 0.3);
+    0 0 40px hsla(239, 84%, 60%, 0.35),
+    0 0 80px hsla(280, 80%, 55%, 0.15),
+    inset 0 1px 0 hsla(239, 84%, 75%, 0.25);
 }
 
-/* Signal/Pain/Gain badges with subtle glow */
-[class*="bg-emerald-500/20"] {
-  box-shadow: 0 0 12px hsla(160, 84%, 45%, 0.2);
+/* Card glow wrapper - prevents clipping */
+.card-glow-wrapper {
+  padding: 8px;
+  margin: -8px;
 }
 
-[class*="bg-indigo-500/20"] {
-  box-shadow: 0 0 12px hsla(239, 84%, 60%, 0.2);
+/* Active/Selected state - extra glow intensity */
+[class*="bg-emerald"][class*="border-emerald"] {
+  box-shadow:
+    0 0 35px hsla(160, 84%, 45%, 0.3),
+    0 0 70px hsla(280, 80%, 50%, 0.12),
+    0 8px 32px hsla(0, 0%, 0%, 0.3),
+    inset 0 1px 0 hsla(160, 84%, 60%, 0.2);
+}
+
+[class*="bg-indigo"][class*="border-indigo"] {
+  box-shadow:
+    0 0 35px hsla(239, 84%, 60%, 0.3),
+    0 0 70px hsla(185, 80%, 50%, 0.12),
+    0 8px 32px hsla(0, 0%, 0%, 0.3),
+    inset 0 1px 0 hsla(239, 84%, 75%, 0.2);
 }
