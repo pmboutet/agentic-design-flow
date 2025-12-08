@@ -7,7 +7,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { getPacingLevel, getDurationAlert } from "@/lib/pacing";
+import { getPacingLevel } from "@/lib/pacing";
 
 export interface ConversationStep {
   id: string;
@@ -21,9 +21,10 @@ export interface ConversationProgressBarProps {
   steps: ConversationStep[];
   currentStepId: string;
   expectedDurationMinutes?: number | null;
+  elapsedMinutes?: number;
 }
 
-export function ConversationProgressBar({ steps, currentStepId, expectedDurationMinutes }: ConversationProgressBarProps) {
+export function ConversationProgressBar({ steps, currentStepId, expectedDurationMinutes, elapsedMinutes = 0 }: ConversationProgressBarProps) {
   const [hoveredStep, setHoveredStep] = useState<string | null>(null);
 
   if (!steps || steps.length === 0) {
@@ -34,7 +35,6 @@ export function ConversationProgressBar({ steps, currentStepId, expectedDuration
   const duration = expectedDurationMinutes ?? 8;
   const durationPerStep = steps.length > 0 ? Math.round((duration / steps.length) * 10) / 10 : duration;
   const pacingLevel = getPacingLevel(duration);
-  const alert = getDurationAlert(duration);
 
   const pacingLevelLabels = {
     intensive: { label: 'Intensif', color: 'bg-green-100 text-green-700' },
@@ -78,9 +78,9 @@ export function ConversationProgressBar({ steps, currentStepId, expectedDuration
               ~{duration} min total ({durationPerStep} min/étape)
             </span>
           </div>
-          {alert.level !== 'none' && (
-            <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${alert.bgColor} ${alert.color}`}>
-              {alert.level === 'warning' ? 'Attention' : 'Long'}
+          {elapsedMinutes > 0 && (
+            <span className="text-[10px] text-gray-500">
+              {elapsedMinutes} min écoulées
             </span>
           )}
         </div>
