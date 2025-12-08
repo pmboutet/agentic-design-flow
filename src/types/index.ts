@@ -632,9 +632,18 @@ export interface ProjectChallengeNode {
   children?: ProjectChallengeNode[];
 }
 
+export interface ProjectMember {
+  id: string;
+  fullName: string | null;
+  email: string | null;
+  role: string | null;
+  jobTitle: string | null;
+}
+
 export interface ProjectJourneyBoardData {
   projectId: string;
   projectName: string;
+  clientId: string | null;
   clientName: string | null;
   projectGoal?: string | null;
   timeframe?: string | null;
@@ -646,6 +655,7 @@ export interface ProjectJourneyBoardData {
   asks: ProjectAskOverview[];
   challenges: ProjectChallengeNode[];
   availableUsers: ProjectParticipantOption[];
+  projectMembers: ProjectMember[];
 }
 
 export interface AiChallengeAgentMetadata {

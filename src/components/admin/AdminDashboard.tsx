@@ -3371,112 +3371,12 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
 
             {isJourneyMode ? (
               <section className="flex flex-1 flex-col">
-                <div className="rounded-3xl border border-white/10 bg-white/5 p-6 backdrop-blur">
-                  {/* Fixed header bar with blur effect on content below */}
-                  <div className="sticky top-0 z-20 -mx-6 -mt-6 mb-6">
-                    {/* Blur overlay for content passing underneath */}
-                    <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-slate-950 via-slate-950/95 to-transparent backdrop-blur-xl pointer-events-none" />
-                    
-                    {/* Header content */}
-                    <div className="relative z-10 flex flex-wrap items-start justify-between gap-4 px-6 pt-6">
-                      <div className="flex-1">
-                        <p className="text-xs uppercase tracking-wide text-indigo-200">Exploration projet</p>
-                        <h2 className="text-2xl font-semibold text-white">
-                          {selectedProject?.name || "Parcours projet"}
-                        </h2>
-                      </div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        {selectedProject && (
-                          <>
-                            <Button
-                              type="button"
-                              variant="glassDark"
-                              onClick={() => setShowAddParticipantsDialog(true)}
-                              className="gap-2"
-                            >
-                              <UserPlus className="h-4 w-4" />
-                              Ajouter des participants
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="glassDark"
-                              onClick={() => startProjectEdit(selectedProject.id)}
-                              className="gap-2"
-                            >
-                              <Pencil className="h-4 w-4" />
-                              Éditer
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="glassDark"
-                              onClick={() => window.open(`/admin/projects/${selectedProject.id}/synthesis`, '_blank')}
-                              className="gap-2"
-                            >
-                              <Sparkles className="h-4 w-4" />
-                              Synthèse
-                            </Button>
-                          </>
-                        )}
-                        <Button
-                          type="button"
-                          variant="glassDark"
-                          onClick={() => setShowJourneyBoard(false)}
-                        >
-                          Fermer
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Project details */}
-                  {selectedProject ? (
-                    <>
-                      {selectedProject?.clientName ? (
-                        <p className="mb-4 text-sm text-slate-300">Client: {selectedProject.clientName}</p>
-                      ) : null}
-                      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                        <div>
-                          <p className="text-xs uppercase tracking-wide text-slate-400">Status</p>
-                          <p className="mt-1 text-sm font-medium text-slate-100 capitalize">
-                            {selectedProject.status ?? "unknown"}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="text-xs uppercase tracking-wide text-slate-400">Timeline</p>
-                          <p className="mt-1 text-sm font-medium text-slate-100">
-                            {selectedProject.startDate && selectedProject.endDate
-                              ? `${new Intl.DateTimeFormat("en", { month: "short", year: "numeric" }).format(new Date(selectedProject.startDate))} – ${new Intl.DateTimeFormat("en", { month: "short", year: "numeric" }).format(new Date(selectedProject.endDate))}`
-                              : "Not specified"}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="text-xs uppercase tracking-wide text-slate-400">Start date</p>
-                          <p className="mt-1 text-sm font-medium text-slate-100">
-                            {selectedProject.startDate
-                              ? new Intl.DateTimeFormat("en", { dateStyle: "medium" }).format(new Date(selectedProject.startDate))
-                              : "—"}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="text-xs uppercase tracking-wide text-slate-400">End date</p>
-                          <p className="mt-1 text-sm font-medium text-slate-100">
-                            {selectedProject.endDate
-                              ? new Intl.DateTimeFormat("en", { dateStyle: "medium" }).format(new Date(selectedProject.endDate))
-                              : "—"}
-                          </p>
-                        </div>
-                      </div>
-
-                      {selectedProject.description ? (
-                        <p className="mt-4 text-sm text-slate-300">{selectedProject.description}</p>
-                      ) : null}
-                    </>
-                  ) : null}
-                </div>
-
-                <div className="rounded-3xl border border-white/10 bg-slate-900/60 p-4">
-                  {selectedProjectId && <ProjectJourneyBoard projectId={selectedProjectId} hideHeader={true} />}
-                </div>
+                {selectedProjectId && (
+                  <ProjectJourneyBoard
+                    projectId={selectedProjectId}
+                    onClose={() => setShowJourneyBoard(false)}
+                  />
+                )}
               </section>
             ) : (
               <div className="flex flex-1 flex-col min-h-0">
