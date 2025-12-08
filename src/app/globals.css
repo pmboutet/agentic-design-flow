@@ -906,11 +906,37 @@ a.neumorphic-raised:active {
 
 /* Sidebar and header semi-transparent backgrounds */
 .bg-sidebar-aurora {
-  background: hsla(11, 30%, 6%, 0.85);
+  background: hsla(230, 30%, 6%, 0.85);
   backdrop-filter: blur(20px);
 }
 
 .bg-header-aurora {
-  background: hsla(11, 30%, 5%, 0.75);
+  background: hsla(230, 30%, 5%, 0.75);
   backdrop-filter: blur(20px);
+}
+
+/* Dashboard glass card - transparent with blur to show aurora */
+.dashboard-card {
+  @apply rounded-3xl backdrop-blur-xl;
+  background: hsla(230, 30%, 10%, 0.4);
+  border: 1px solid hsla(185, 100%, 50%, 0.15);
+  box-shadow:
+    0 4px 30px hsla(0, 0%, 0%, 0.3),
+    inset 0 1px 0 hsla(185, 100%, 50%, 0.05);
+}
+
+.dashboard-card:hover {
+  border-color: hsla(185, 100%, 50%, 0.25);
+}
+
+/* Stat card with more transparency */
+.stat-card {
+  @apply rounded-3xl backdrop-blur-lg;
+  background: linear-gradient(135deg, hsla(230, 30%, 15%, 0.3) 0%, hsla(230, 25%, 10%, 0.4) 100%);
+  border: 1px solid hsla(185, 100%, 50%, 0.1);
+}
+
+/* Override white/5 backgrounds to be more transparent with blur */
+.bg-white\/5 {
+  backdrop-filter: blur(12px);
 }
