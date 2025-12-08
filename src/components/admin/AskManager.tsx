@@ -1,12 +1,13 @@
 "use client";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { type AskSessionRecord, type ChallengeRecord, type ManagedUser } from "@/types";
+import { type AskSessionRecord, type ChallengeRecord, type ManagedUser, type ProjectRecord } from "@/types";
 import { AskCreateForm, type AskCreateFormValues } from "./AskCreateForm";
 import { AskEditForm, type AskEditFormValues } from "./AskEditForm";
 
 interface AskManagerProps {
   challenges: ChallengeRecord[];
+  projects: ProjectRecord[];
   asks: AskSessionRecord[];
   users: ManagedUser[];
   onCreate: (values: AskCreateFormValues & { projectId: string }) => Promise<void>;
@@ -14,7 +15,7 @@ interface AskManagerProps {
   isLoading?: boolean;
 }
 
-export function AskManager({ challenges, asks, users, onCreate, onUpdate, isLoading }: AskManagerProps) {
+export function AskManager({ challenges, projects, asks, users, onCreate, onUpdate, isLoading }: AskManagerProps) {
   return (
     <Card className="glass-card">
       <CardHeader>
@@ -26,6 +27,7 @@ export function AskManager({ challenges, asks, users, onCreate, onUpdate, isLoad
             <h4 className="font-semibold text-sm text-muted-foreground">Create a new session</h4>
             <AskCreateForm
               challenges={challenges}
+              projects={projects}
               availableUsers={users}
               onSubmit={onCreate}
               isLoading={isLoading}
