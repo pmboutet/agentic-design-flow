@@ -1001,43 +1001,33 @@ a.neumorphic-raised:active {
   backdrop-filter: blur(16px);
 }
 
+
 /* ==========================================
-   SPACING - More breathing room between cards
+   CARD PADDING & OVERFLOW FIXES
    ========================================== */
 
-/* Increase gap between cards in grid/flex layouts */
-[class*="space-y-4"] {
-  --tw-space-y-reverse: 0;
-  margin-top: calc(1.5rem * calc(1 - var(--tw-space-y-reverse)));
-  margin-bottom: calc(1.5rem * var(--tw-space-y-reverse));
+/* Add more padding to challenge cards */
+[class*="rounded-xl"][class*="border"][class*="bg-slate-900"] {
+  padding: 1rem;
 }
 
-[class*="space-y-6"] {
-  --tw-space-y-reverse: 0;
-  margin-top: calc(2rem * calc(1 - var(--tw-space-y-reverse)));
-  margin-bottom: calc(2rem * var(--tw-space-y-reverse));
+/* Fix button overflow - ensure text doesn't clip */
+button[class*="gap-2"] {
+  overflow: visible;
+  white-space: nowrap;
 }
 
-[class*="gap-4"] {
-  gap: 1.5rem;
-}
-
-[class*="gap-6"] {
-  gap: 2rem;
+/* Ensure chevron icons don't get clipped */
+[class*="ChevronRight"],
+svg[class*="h-4"][class*="w-4"],
+svg[class*="h-5"][class*="w-5"] {
+  flex-shrink: 0;
 }
 
 /* ==========================================
    COMPLEX NEON GRADIENT BACKGROUNDS
    Multi-color gradients with glow effects
    ========================================== */
-
-/* Container spacing to prevent glow clipping */
-[class*="space-y-4"] > *,
-[class*="space-y-6"] > *,
-[class*="gap-4"] > *,
-[class*="gap-6"] > * {
-  margin: 4px;
-}
 
 /* Emerald/Green - Complex gradient with purple accent - VERY TRANSPARENT */
 [class*="bg-emerald-500/10"],
