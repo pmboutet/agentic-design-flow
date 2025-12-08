@@ -31,6 +31,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { DateTimePicker } from "@/components/ui/date-time-picker";
+import { DurationSlider } from "@/components/ui/duration-slider";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { cn } from "@/lib/utils";
 import { getMockProjectJourneyData } from "@/lib/mockProjectJourney";
@@ -377,6 +378,8 @@ function createEmptyChallengeForm(): ChallengeFormState {
   };
 }
 
+// TODO: Consider refactoring to use shared AskForm component with AskCreateForm.tsx
+// Currently duplicated due to different themes (dark/light) and data structures
 type AskFormState = {
   challengeId: string;
   askKey: string;
@@ -393,6 +396,7 @@ type AskFormState = {
   deliveryMode: AskDeliveryMode;
   conversationMode: AskConversationMode;
   systemPrompt: string;
+  expectedDurationMinutes: number;
 };
 
 function generateAskKey(base: string) {
@@ -425,6 +429,7 @@ function createEmptyAskForm(challengeId?: string): AskFormState {
     deliveryMode: "digital",
     conversationMode: "collaborative",
     systemPrompt: "",
+    expectedDurationMinutes: 8,
   };
 }
 
@@ -2751,6 +2756,10 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
     setAskFormValues(current => ({ ...current, conversationMode: value as AskConversationMode }));
   };
 
+  const handleAskExpectedDurationChange = (value: number) => {
+    setAskFormValues(current => ({ ...current, expectedDurationMinutes: value }));
+  };
+
   const handleAskChallengeChange = (event: ChangeEvent<HTMLSelectElement>) => {
     const { value } = event.target;
     setAskFormValues(current => ({ ...current, challengeId: value }));
@@ -2884,6 +2893,7 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
       maxParticipants: numericMaxParticipants,
       deliveryMode: askFormValues.deliveryMode,
       conversationMode: askFormValues.conversationMode,
+      expectedDurationMinutes: askFormValues.expectedDurationMinutes,
       participantIds,
       spokespersonId,
       challengeId,
@@ -3010,6 +3020,7 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
         deliveryMode: record.deliveryMode ?? "digital",
         conversationMode: record.conversationMode ?? "collaborative",
         systemPrompt: record.systemPrompt ?? "",
+        expectedDurationMinutes: record.expectedDurationMinutes ?? 8,
       });
     } catch (error) {
       console.error("Failed to load ASK details", error);
@@ -4584,6 +4595,18 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
                         {askFormValues.conversationMode === "group_reporter" && "Tout le monde voit tout, un rapporteur consolide"}
                       </p>
                     </div>
+                  </div>
+
+                  <div className="flex flex-col gap-2">
+                    <Label>Durée attendue de la conversation</Label>
+                    <DurationSlider
+                      value={askFormValues.expectedDurationMinutes}
+                      onChange={handleAskExpectedDurationChange}
+                      disabled={isSavingAsk || isLoadingAskDetails}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Cette durée sera divisée par le nombre d'étapes du plan de conversation pour adapter le rythme de l'agent IA.
+                    </p>
                   </div>
 
                   <div className="grid gap-4 md:grid-cols-2">

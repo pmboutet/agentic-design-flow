@@ -242,6 +242,96 @@ System prompt challenge : {{system_prompt_challenge}}
       expect(renderTemplate(template, variables)).toBe('Short');
     });
 
+    describe('comparison helpers', () => {
+      describe('eq helper', () => {
+        test('should return true for equal string values', () => {
+          const template = '{{#if (eq status "active")}}Active{{else}}Inactive{{/if}}';
+          expect(renderTemplate(template, { status: 'active' })).toBe('Active');
+          expect(renderTemplate(template, { status: 'inactive' })).toBe('Inactive');
+        });
+
+        test('should compare numbers as strings', () => {
+          const template = '{{#if (eq count "5")}}Five{{else}}Not Five{{/if}}';
+          expect(renderTemplate(template, { count: 5 })).toBe('Five');
+          expect(renderTemplate(template, { count: '5' })).toBe('Five');
+        });
+
+        test('should work with pacing_level example', () => {
+          const template = '{{#if (eq pacing_level "intensive")}}Fast mode{{/if}}{{#if (eq pacing_level "standard")}}Normal mode{{/if}}';
+          expect(renderTemplate(template, { pacing_level: 'intensive' })).toBe('Fast mode');
+          expect(renderTemplate(template, { pacing_level: 'standard' })).toBe('Normal mode');
+        });
+      });
+
+      describe('gte helper (greater than or equal)', () => {
+        test('should return true when a >= b', () => {
+          const template = '{{#if (gte value 10)}}Yes{{else}}No{{/if}}';
+          expect(renderTemplate(template, { value: 10 })).toBe('Yes');
+          expect(renderTemplate(template, { value: 15 })).toBe('Yes');
+          expect(renderTemplate(template, { value: 5 })).toBe('No');
+        });
+
+        test('should handle string numbers', () => {
+          const template = '{{#if (gte elapsed "8")}}Overtime{{/if}}';
+          expect(renderTemplate(template, { elapsed: '10' })).toBe('Overtime');
+          expect(renderTemplate(template, { elapsed: 8 })).toBe('Overtime');
+        });
+
+        test('should return false for non-numeric values', () => {
+          const template = '{{#if (gte value 10)}}Yes{{else}}No{{/if}}';
+          expect(renderTemplate(template, { value: 'not a number' })).toBe('No');
+        });
+      });
+
+      describe('gt helper (greater than)', () => {
+        test('should return true when a > b', () => {
+          const template = '{{#if (gt value 10)}}Yes{{else}}No{{/if}}';
+          expect(renderTemplate(template, { value: 15 })).toBe('Yes');
+          expect(renderTemplate(template, { value: 10 })).toBe('No');
+          expect(renderTemplate(template, { value: 5 })).toBe('No');
+        });
+      });
+
+      describe('lte helper (less than or equal)', () => {
+        test('should return true when a <= b', () => {
+          const template = '{{#if (lte value 10)}}Yes{{else}}No{{/if}}';
+          expect(renderTemplate(template, { value: 10 })).toBe('Yes');
+          expect(renderTemplate(template, { value: 5 })).toBe('Yes');
+          expect(renderTemplate(template, { value: 15 })).toBe('No');
+        });
+      });
+
+      describe('lt helper (less than)', () => {
+        test('should return true when a < b', () => {
+          const template = '{{#if (lt value 10)}}Yes{{else}}No{{/if}}';
+          expect(renderTemplate(template, { value: 5 })).toBe('Yes');
+          expect(renderTemplate(template, { value: 10 })).toBe('No');
+          expect(renderTemplate(template, { value: 15 })).toBe('No');
+        });
+      });
+
+      describe('real-world pacing prompt scenarios', () => {
+        test('should handle is_overtime boolean-like string', () => {
+          const template = '{{#if (eq is_overtime "true")}}OVERTIME{{/if}}';
+          expect(renderTemplate(template, { is_overtime: 'true' })).toBe('OVERTIME');
+          expect(renderTemplate(template, { is_overtime: 'false' })).toBe('');
+        });
+
+        test('should handle step_elapsed >= duration_per_step', () => {
+          const template = '{{#if (gte step_elapsed_minutes duration_per_step)}}Step over budget{{/if}}';
+          expect(renderTemplate(template, { step_elapsed_minutes: '5', duration_per_step: '3' })).toBe('Step over budget');
+          expect(renderTemplate(template, { step_elapsed_minutes: '2', duration_per_step: '3' })).toBe('');
+        });
+
+        test('should handle complex pacing conditions', () => {
+          const template = `{{#if (eq pacing_level "intensive")}}FAST{{/if}}{{#if (eq pacing_level "standard")}}NORMAL{{/if}}{{#if (eq pacing_level "deep")}}DEEP{{/if}}`;
+          expect(renderTemplate(template, { pacing_level: 'intensive' })).toBe('FAST');
+          expect(renderTemplate(template, { pacing_level: 'standard' })).toBe('NORMAL');
+          expect(renderTemplate(template, { pacing_level: 'deep' })).toBe('DEEP');
+        });
+      });
+    });
+
     describe('recentMessages helper', () => {
       const sampleMessages = [
         { id: '1', senderType: 'user', senderName: 'Alice', content: 'Hello', timestamp: '2024-01-15T10:00:00Z' },

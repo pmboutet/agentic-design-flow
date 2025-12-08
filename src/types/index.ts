@@ -800,3 +800,16 @@ export interface PacingConfig {
   alertLevel: PacingAlertLevel;
   alertMessage?: string;
 }
+
+// Time tracking statistics for real-time pacing
+export interface TimeTrackingStats {
+  conversationElapsedMinutes: number;
+  stepElapsedMinutes: number;
+  questionsAskedTotal: number;
+  questionsAskedInStep: number;
+  timeRemainingMinutes: number;
+  isOvertime: boolean;
+  overtimeMinutes: number;
+  stepIsOvertime: boolean;
+  stepOvertimeMinutes: number;
+}

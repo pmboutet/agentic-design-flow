@@ -1,6 +1,12 @@
 import type { PromptVariables } from './agent-config';
 import type { ConversationPlan } from './conversation-plan';
 import type { Insight } from '@/types';
+import {
+  calculatePacingConfig,
+  formatPacingVariables,
+  calculateTimeTrackingStats,
+  formatTimeTrackingVariables
+} from '@/lib/pacing';
 
 export interface ConversationParticipantSummary {
   name: string;
@@ -22,6 +28,7 @@ export interface ConversationAgentContext {
     question: string;
     description?: string | null;
     system_prompt?: string | null;
+    expected_duration_minutes?: number | null;
   };
   project?: { system_prompt?: string | null } | null;
   challenge?: { system_prompt?: string | null } | null;
@@ -238,6 +245,53 @@ export function buildConversationAgentVariables(context: ConversationAgentContex
     stepMessagesJson = JSON.stringify(conversationMessagesPayload);
   }
 
+  // Calculate pacing variables
+  const expectedDurationMinutes = context.ask.expected_duration_minutes ?? 8;
+  const totalSteps = context.conversationPlan
+    ? ('steps' in context.conversationPlan && Array.isArray(context.conversationPlan.steps)
+        ? context.conversationPlan.steps.length
+        : context.conversationPlan.plan_data?.steps.length || 5)
+    : 5;
+
+  const pacingConfig = calculatePacingConfig(expectedDurationMinutes, totalSteps);
+  const pacingVariables = formatPacingVariables(pacingConfig);
+
+  // Calculate time tracking variables (real-time metrics)
+  // Get the current step record ID for filtering
+  let currentStepRecordId: string | null = null;
+  let stepActivatedAt: string | null = null;
+
+  if (currentStepId && planSteps) {
+    const currentStepRecord = planSteps.find(step => step.step_identifier === currentStepId);
+    if (currentStepRecord) {
+      currentStepRecordId = currentStepRecord.id;
+      // Try to get activated_at from the step if available
+      if (context.conversationPlan && 'steps' in context.conversationPlan && Array.isArray(context.conversationPlan.steps)) {
+        const stepWithActivatedAt = context.conversationPlan.steps.find(
+          (s: any) => s.step_identifier === currentStepId
+        );
+        if (stepWithActivatedAt && 'activated_at' in stepWithActivatedAt) {
+          stepActivatedAt = stepWithActivatedAt.activated_at as string;
+        }
+      }
+    }
+  }
+
+  const messagesForTimeTracking = context.messages.map(m => ({
+    senderType: m.senderType,
+    timestamp: m.timestamp,
+    planStepId: m.planStepId ?? null,
+  }));
+
+  const timeTrackingStats = calculateTimeTrackingStats(
+    messagesForTimeTracking,
+    expectedDurationMinutes,
+    pacingConfig.durationPerStep,
+    currentStepRecordId,
+    stepActivatedAt
+  );
+  const timeTrackingVariables = formatTimeTrackingVariables(timeTrackingStats);
+
   // Build base variables
   const variables: PromptVariables = {
     ask_key: context.ask.ask_key,
@@ -265,6 +319,10 @@ export function buildConversationAgentVariables(context: ConversationAgentContex
     // Step-specific messages (filtered by current step's plan_step_id)
     step_messages: stepMessagesFormatted,
     step_messages_json: stepMessagesJson,
+    // Pacing variables (static configuration)
+    ...pacingVariables,
+    // Time tracking variables (dynamic, real-time)
+    ...timeTrackingVariables,
   };
 
   // Add legacy message_history for backward compatibility

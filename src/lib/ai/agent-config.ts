@@ -164,13 +164,23 @@ export interface PromptVariables {
   system_prompt_challenge?: string;
   participants?: string; // Comma-separated string for templates
   participants_list?: Array<{ name: string; role?: string | null }>; // Array for Handlebars
-  // Pacing variables
+  // Pacing variables (static configuration)
   expected_duration_minutes?: string;
   duration_per_step?: string;
   optimal_questions_min?: string;
   optimal_questions_max?: string;
   pacing_level?: string;
   pacing_instructions?: string;
+  // Time tracking variables (dynamic, real-time)
+  conversation_elapsed_minutes?: string;
+  step_elapsed_minutes?: string;
+  questions_asked_total?: string;
+  questions_asked_in_step?: string;
+  time_remaining_minutes?: string;
+  is_overtime?: string;
+  overtime_minutes?: string;
+  step_is_overtime?: string;
+  step_overtime_minutes?: string;
   [key: string]: any; // Allow any type for Handlebars flexibility (arrays, objects, etc.)
 }
 

@@ -1076,6 +1076,262 @@ describe('Voice Agent Variables', () => {
 });
 
 // ============================================================================
+// PACING AND TIME TRACKING VARIABLES
+// ============================================================================
+
+describe('Pacing Variables', () => {
+  test('should include expected_duration_minutes', () => {
+    const context = createMinimalContext();
+    context.ask.expected_duration_minutes = 12;
+
+    const variables = buildConversationAgentVariables(context);
+
+    expect(variables.expected_duration_minutes).toBe('12');
+  });
+
+  test('should default expected_duration_minutes to 8 when not set', () => {
+    const context = createMinimalContext();
+    context.ask.expected_duration_minutes = undefined;
+
+    const variables = buildConversationAgentVariables(context);
+
+    expect(variables.expected_duration_minutes).toBe('8');
+  });
+
+  test('should include duration_per_step calculated from total steps', () => {
+    const context = createFullContext();
+    context.ask.expected_duration_minutes = 15;
+    // createFullContext has 3 steps in the plan
+
+    const variables = buildConversationAgentVariables(context);
+
+    expect(variables.duration_per_step).toBeDefined();
+    // 15 min / 3 steps = 5 min per step
+    expect(parseFloat(variables.duration_per_step as string)).toBeCloseTo(5, 1);
+  });
+
+  test('should include pacing_level based on duration', () => {
+    const context = createMinimalContext();
+
+    // Test intensive (1-7 min)
+    context.ask.expected_duration_minutes = 5;
+    let variables = buildConversationAgentVariables(context);
+    expect(variables.pacing_level).toBe('intensive');
+
+    // Test standard (8-15 min)
+    context.ask.expected_duration_minutes = 12;
+    variables = buildConversationAgentVariables(context);
+    expect(variables.pacing_level).toBe('standard');
+
+    // Test deep (16+ min)
+    context.ask.expected_duration_minutes = 20;
+    variables = buildConversationAgentVariables(context);
+    expect(variables.pacing_level).toBe('deep');
+  });
+
+  test('should include optimal_questions_min and optimal_questions_max', () => {
+    const context = createMinimalContext();
+    context.ask.expected_duration_minutes = 12;
+
+    const variables = buildConversationAgentVariables(context);
+
+    expect(variables.optimal_questions_min).toBeDefined();
+    expect(variables.optimal_questions_max).toBeDefined();
+    expect(parseInt(variables.optimal_questions_min as string)).toBeGreaterThan(0);
+    expect(parseInt(variables.optimal_questions_max as string)).toBeGreaterThanOrEqual(
+      parseInt(variables.optimal_questions_min as string)
+    );
+  });
+});
+
+describe('Time Tracking Variables', () => {
+  test('should include conversation_elapsed_minutes calculated from messages', () => {
+    const context = createMinimalContext();
+    const now = new Date();
+    const fiveMinutesAgo = new Date(now.getTime() - 5 * 60 * 1000);
+
+    context.messages = [
+      createMockMessage({
+        id: 'msg-1',
+        timestamp: fiveMinutesAgo.toISOString(),
+      }),
+      createMockMessage({
+        id: 'msg-2',
+        timestamp: now.toISOString(),
+      }),
+    ];
+
+    const variables = buildConversationAgentVariables(context);
+
+    expect(variables.conversation_elapsed_minutes).toBeDefined();
+    // Should be approximately 5 minutes
+    const elapsed = parseFloat(variables.conversation_elapsed_minutes as string);
+    expect(elapsed).toBeGreaterThanOrEqual(4.9);
+    expect(elapsed).toBeLessThanOrEqual(5.5);
+  });
+
+  test('should include questions_asked_total counting AI messages', () => {
+    const context = createMinimalContext();
+    context.messages = [
+      createMockMessage({ senderType: 'ai', content: 'Question 1?' }),
+      createMockMessage({ senderType: 'user', content: 'Answer 1' }),
+      createMockMessage({ senderType: 'ai', content: 'Question 2?' }),
+      createMockMessage({ senderType: 'user', content: 'Answer 2' }),
+      createMockMessage({ senderType: 'ai', content: 'Question 3?' }),
+    ];
+
+    const variables = buildConversationAgentVariables(context);
+
+    expect(variables.questions_asked_total).toBe('3');
+  });
+
+  test('should include time_remaining_minutes', () => {
+    const context = createMinimalContext();
+    context.ask.expected_duration_minutes = 10;
+    const now = new Date();
+    const twoMinutesAgo = new Date(now.getTime() - 2 * 60 * 1000);
+
+    context.messages = [
+      createMockMessage({ timestamp: twoMinutesAgo.toISOString() }),
+      createMockMessage({ timestamp: now.toISOString() }),
+    ];
+
+    const variables = buildConversationAgentVariables(context);
+
+    expect(variables.time_remaining_minutes).toBeDefined();
+    const remaining = parseFloat(variables.time_remaining_minutes as string);
+    // 10 min - ~2 min elapsed = ~8 min remaining
+    expect(remaining).toBeGreaterThanOrEqual(7);
+    expect(remaining).toBeLessThanOrEqual(9);
+  });
+
+  test('should set is_overtime to true when conversation exceeds expected duration', () => {
+    const context = createMinimalContext();
+    context.ask.expected_duration_minutes = 5;
+    const now = new Date();
+    const tenMinutesAgo = new Date(now.getTime() - 10 * 60 * 1000);
+
+    context.messages = [
+      createMockMessage({ timestamp: tenMinutesAgo.toISOString() }),
+      createMockMessage({ timestamp: now.toISOString() }),
+    ];
+
+    const variables = buildConversationAgentVariables(context);
+
+    expect(variables.is_overtime).toBe('true');
+    expect(parseFloat(variables.overtime_minutes as string)).toBeGreaterThan(0);
+  });
+
+  test('should set is_overtime to false when within expected duration', () => {
+    const context = createMinimalContext();
+    context.ask.expected_duration_minutes = 30;
+    const now = new Date();
+    const twoMinutesAgo = new Date(now.getTime() - 2 * 60 * 1000);
+
+    context.messages = [
+      createMockMessage({ timestamp: twoMinutesAgo.toISOString() }),
+      createMockMessage({ timestamp: now.toISOString() }),
+    ];
+
+    const variables = buildConversationAgentVariables(context);
+
+    expect(variables.is_overtime).toBe('false');
+    expect(variables.overtime_minutes).toBe('0');
+  });
+
+  test('should include step_elapsed_minutes for current step', () => {
+    const context = createFullContext();
+    const now = new Date();
+    const threeMinutesAgo = new Date(now.getTime() - 3 * 60 * 1000);
+
+    // Messages for current step (step_2)
+    context.messages = [
+      createMockMessage({
+        timestamp: threeMinutesAgo.toISOString(),
+        planStepId: 'step-uuid-2',
+      }),
+      createMockMessage({
+        timestamp: now.toISOString(),
+        planStepId: 'step-uuid-2',
+      }),
+    ];
+
+    const variables = buildConversationAgentVariables(context);
+
+    expect(variables.step_elapsed_minutes).toBeDefined();
+    expect(parseFloat(variables.step_elapsed_minutes as string)).toBeGreaterThanOrEqual(0);
+  });
+
+  test('should include questions_asked_in_step for current step', () => {
+    const context = createFullContext();
+    context.messages = [
+      // Messages from previous step
+      createMockMessage({ senderType: 'ai', planStepId: 'step-uuid-1' }),
+      createMockMessage({ senderType: 'ai', planStepId: 'step-uuid-1' }),
+      // Messages from current step (step_2)
+      createMockMessage({ senderType: 'ai', planStepId: 'step-uuid-2' }),
+      createMockMessage({ senderType: 'user', planStepId: 'step-uuid-2' }),
+      createMockMessage({ senderType: 'ai', planStepId: 'step-uuid-2' }),
+    ];
+
+    const variables = buildConversationAgentVariables(context);
+
+    // Should count 2 AI messages in step_2
+    expect(variables.questions_asked_in_step).toBe('2');
+  });
+
+  test('should set step_is_overtime correctly', () => {
+    const context = createFullContext();
+    context.ask.expected_duration_minutes = 3; // Very short duration
+    const now = new Date();
+    const fiveMinutesAgo = new Date(now.getTime() - 5 * 60 * 1000);
+
+    // Current step started 5 minutes ago
+    context.conversationPlan!.steps[1].activated_at = fiveMinutesAgo.toISOString();
+
+    context.messages = [
+      createMockMessage({
+        timestamp: fiveMinutesAgo.toISOString(),
+        planStepId: 'step-uuid-2',
+      }),
+      createMockMessage({
+        timestamp: now.toISOString(),
+        planStepId: 'step-uuid-2',
+      }),
+    ];
+
+    const variables = buildConversationAgentVariables(context);
+
+    // With 3 min total / 3 steps = 1 min per step, 5 min should be overtime
+    expect(variables.step_is_overtime).toBe('true');
+    expect(parseFloat(variables.step_overtime_minutes as string)).toBeGreaterThan(0);
+  });
+
+  test('should handle zero messages for time tracking', () => {
+    const context = createMinimalContext();
+    context.messages = [];
+
+    const variables = buildConversationAgentVariables(context);
+
+    expect(variables.conversation_elapsed_minutes).toBe('0');
+    expect(variables.questions_asked_total).toBe('0');
+    expect(variables.is_overtime).toBe('false');
+  });
+
+  test('should handle single message for time tracking', () => {
+    const context = createMinimalContext();
+    context.messages = [
+      createMockMessage({ timestamp: new Date().toISOString() }),
+    ];
+
+    const variables = buildConversationAgentVariables(context);
+
+    expect(variables.conversation_elapsed_minutes).toBe('0');
+    expect(variables.questions_asked_total).toBe('0'); // User message doesn't count
+  });
+});
+
+// ============================================================================
 // EDGE CASES AND ERROR HANDLING
 // ============================================================================
 
