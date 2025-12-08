@@ -387,9 +387,34 @@ export function ProjectGraphVisualization({ projectId, refreshKey }: ProjectGrap
   }, []);
 
   // Handle zoom change
-  const handleZoom = useCallback((transform: { k: number }) => {
+  const handleZoom = useCallback((transform: { k: number; x: number; y: number }) => {
     setZoomLevel(transform.k);
   }, []);
+
+  // Maintain zoom level when toggling visibility filters
+  const previousVisibleTypesRef = useRef(visibleTypes);
+  useEffect(() => {
+    // Only run if visibleTypes actually changed (not on initial mount)
+    const prevTypes = previousVisibleTypesRef.current;
+    const typesChanged = Object.keys(visibleTypes).some(
+      key => visibleTypes[key] !== prevTypes[key]
+    );
+    previousVisibleTypesRef.current = visibleTypes;
+
+    if (typesChanged && fgRef.current && filteredGraphData && filteredGraphData.nodes.length > 0) {
+      // Preserve current zoom level by re-applying it after a short delay
+      const currentZoom = zoomLevel;
+      const timer = setTimeout(() => {
+        if (fgRef.current && currentZoom > 0) {
+          // Get current center
+          const fg = fgRef.current;
+          // Re-apply the current zoom to prevent auto-zoom reset
+          fg.zoom(currentZoom, 0);
+        }
+      }, 50);
+      return () => clearTimeout(timer);
+    }
+  }, [visibleTypes, filteredGraphData, zoomLevel]);
 
   // Calculate dimensions
   const dimensions = useMemo(() => {
