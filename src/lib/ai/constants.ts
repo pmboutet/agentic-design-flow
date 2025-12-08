@@ -140,6 +140,22 @@ export const PROMPT_VARIABLES: PromptVariableDefinition[] = [
     type: "string",
     category: "conversation",
   },
+  {
+    key: "step_messages",
+    label: "Messages du step courant",
+    description: "Uniquement les messages de l'étape en cours (filtrés par plan_step_id), format texte formaté",
+    example: "[15/01/2024 10:30:00] Participant:\nJe pense que...\n\n---\n\n[15/01/2024 10:31:00] Agent:\nMerci pour ce point...",
+    type: "string",
+    category: "conversation",
+  },
+  {
+    key: "step_messages_json",
+    label: "Messages du step courant (JSON)",
+    description: "Uniquement les messages de l'étape en cours au format JSON, utilisable avec {{#each}} et {{jsonParse}}",
+    example: '[{"id":"msg1","senderType":"user","senderName":"Alice","content":"Mon idée...","timestamp":"2024-01-15T10:30:00Z"}]',
+    type: "string",
+    category: "conversation",
+  },
 
   // Participants
   {
