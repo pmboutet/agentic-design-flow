@@ -780,6 +780,75 @@ function MessageBubble({
             {senderLabel}
           </span>
         )}
+
+        {/* Step completion indicator - shown BEFORE the message */}
+        {hasStepComplete && !isUser && completedStep && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9, y: -10 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            transition={{ duration: 0.5, delay: 0.3 }}
+            className="mb-3 rounded-lg border border-emerald-500/30 bg-gradient-to-r from-emerald-50/80 to-teal-50/80 px-4 py-3 shadow-sm"
+          >
+            <div className="flex items-start gap-3">
+              <motion.div
+                initial={{ rotate: 0, scale: 0 }}
+                animate={{ rotate: 360, scale: 1 }}
+                transition={{ duration: 0.6, delay: 0.4 }}
+                className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-emerald-500/20 mt-0.5"
+              >
+                <svg
+                  className="h-4 w-4 text-emerald-600"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2.5}
+                    d="M5 13l4 4L19 7"
+                  />
+                </svg>
+              </motion.div>
+
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-sm font-semibold text-emerald-700">
+                    Étape {stepNumber} complétée ! 🎯
+                  </span>
+                </div>
+                <p className="text-sm font-medium text-emerald-800 mb-1">
+                  {completedStep.title}
+                </p>
+                <p className="text-xs text-emerald-700/80 leading-relaxed">
+                  {completedStep.objective}
+                </p>
+              </div>
+
+              <motion.div
+                animate={{
+                  scale: [1, 1.2, 1],
+                  opacity: [0.5, 1, 0.5]
+                }}
+                transition={{
+                  duration: 2,
+                  repeat: Infinity,
+                  ease: "easeInOut"
+                }}
+                className="flex gap-0.5 flex-shrink-0 mt-1"
+              >
+                {[0, 1, 2].map((i) => (
+                  <div
+                    key={i}
+                    className="h-1.5 w-1.5 rounded-full bg-emerald-500"
+                    style={{ animationDelay: `${i * 0.2}s` }}
+                  />
+                ))}
+              </motion.div>
+            </div>
+          </motion.div>
+        )}
+
         <div className="relative group">
           {/* Edit button for user messages - positioned outside the bubble */}
           {isUser && message.type === 'text' && onStartEdit && !isEditing && !isInterim && (
@@ -889,74 +958,6 @@ function MessageBubble({
           )}
           </div>
         </div>
-
-        {/* Step completion indicator */}
-        {hasStepComplete && !isUser && completedStep && (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.9, y: -10 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: 0.3 }}
-            className="mt-3 rounded-lg border border-emerald-500/30 bg-gradient-to-r from-emerald-50/80 to-teal-50/80 px-4 py-3 shadow-sm"
-          >
-            <div className="flex items-start gap-3">
-              <motion.div
-                initial={{ rotate: 0, scale: 0 }}
-                animate={{ rotate: 360, scale: 1 }}
-                transition={{ duration: 0.6, delay: 0.4 }}
-                className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-emerald-500/20 mt-0.5"
-              >
-                <svg
-                  className="h-4 w-4 text-emerald-600"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2.5}
-                    d="M5 13l4 4L19 7"
-                  />
-                </svg>
-              </motion.div>
-
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="text-sm font-semibold text-emerald-700">
-                    Étape {stepNumber} complétée ! 🎯
-                  </span>
-                </div>
-                <p className="text-sm font-medium text-emerald-800 mb-1">
-                  {completedStep.title}
-                </p>
-                <p className="text-xs text-emerald-700/80 leading-relaxed">
-                  {completedStep.objective}
-                </p>
-              </div>
-
-              <motion.div
-                animate={{
-                  scale: [1, 1.2, 1],
-                  opacity: [0.5, 1, 0.5]
-                }}
-                transition={{
-                  duration: 2,
-                  repeat: Infinity,
-                  ease: "easeInOut"
-                }}
-                className="flex gap-0.5 flex-shrink-0 mt-1"
-              >
-                {[0, 1, 2].map((i) => (
-                  <div
-                    key={i}
-                    className="h-1.5 w-1.5 rounded-full bg-emerald-500"
-                    style={{ animationDelay: `${i * 0.2}s` }}
-                  />
-                ))}
-              </motion.div>
-            </div>
-          </motion.div>
-        )}
       </div>
     </motion.div>
   );
