@@ -201,9 +201,28 @@ export function buildConversationAgentVariables(context: ConversationAgentContex
     } = require('./conversation-plan');
 
     conversationPlanFormatted = formatPlanForPrompt(context.conversationPlan);
-    const currentStep = getCurrentStep(context.conversationPlan);
+
+    // Try to get current step from current_step_id
+    let currentStep = getCurrentStep(context.conversationPlan);
+
+    // Fallback: if no current step but plan has steps, find first active or pending step
+    if (!currentStep && 'steps' in context.conversationPlan && Array.isArray(context.conversationPlan.steps) && context.conversationPlan.steps.length > 0) {
+      // First try to find active step
+      currentStep = context.conversationPlan.steps.find((s: any) => s.status === 'active') ?? null;
+      // If no active, find first pending step
+      if (!currentStep) {
+        currentStep = context.conversationPlan.steps.find((s: any) => s.status === 'pending') ?? null;
+      }
+      // If still no step (all completed or skipped), use the last step
+      if (!currentStep) {
+        currentStep = context.conversationPlan.steps[context.conversationPlan.steps.length - 1];
+      }
+    }
+
     currentStepFormatted = formatCurrentStepForPrompt(currentStep);
-    currentStepId = context.conversationPlan.current_step_id || '';
+    // Use current_step_id from plan, or derive from the found currentStep
+    currentStepId = context.conversationPlan.current_step_id
+      || (currentStep && 'step_identifier' in currentStep ? currentStep.step_identifier : (currentStep as any)?.id ?? '');
     // This will always return a non-empty string (either "Aucune étape complétée pour le moment" or the formatted list)
     completedStepsSummaryFormatted = formatCompletedStepsForPrompt(context.conversationPlan);
     planProgressFormatted = formatPlanProgress(context.conversationPlan);

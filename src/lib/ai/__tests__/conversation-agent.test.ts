@@ -334,4 +334,120 @@ describe('Conversation Agent Variables', () => {
       expect(stepMessages[0].content).toBe('Step 2 message');
     });
   });
+
+  describe('current_step fallback when current_step_id is null', () => {
+    it('should find active step when current_step_id is null', () => {
+      const step1 = createMockStep({
+        id: 'step-uuid-1',
+        step_identifier: 'step_1',
+        step_order: 1,
+        status: 'completed',
+      });
+      const step2 = createMockStep({
+        id: 'step-uuid-2',
+        step_identifier: 'step_2',
+        step_order: 2,
+        status: 'active',
+        title: 'Active Step',
+      });
+
+      // Create plan with null current_step_id but active step exists
+      const plan = createMockPlanWithSteps([step1, step2], null);
+
+      const variables = buildConversationAgentVariables({
+        ask: { ask_key: 'test', question: 'Test' },
+        messages: [],
+        participants: [],
+        conversationPlan: plan,
+      });
+
+      // Should fallback to active step
+      expect(variables.current_step_id).toBe('step_2');
+      expect(variables.current_step).toContain('Active Step');
+      expect(variables.current_step).not.toBe('Aucune étape active');
+    });
+
+    it('should find first pending step when current_step_id is null and no active step', () => {
+      const step1 = createMockStep({
+        id: 'step-uuid-1',
+        step_identifier: 'step_1',
+        step_order: 1,
+        status: 'pending',
+        title: 'First Pending',
+      });
+      const step2 = createMockStep({
+        id: 'step-uuid-2',
+        step_identifier: 'step_2',
+        step_order: 2,
+        status: 'pending',
+        title: 'Second Pending',
+      });
+
+      const plan = createMockPlanWithSteps([step1, step2], null);
+
+      const variables = buildConversationAgentVariables({
+        ask: { ask_key: 'test', question: 'Test' },
+        messages: [],
+        participants: [],
+        conversationPlan: plan,
+      });
+
+      // Should fallback to first pending step
+      expect(variables.current_step_id).toBe('step_1');
+      expect(variables.current_step).toContain('First Pending');
+    });
+
+    it('should use last step when current_step_id is null and all steps are completed', () => {
+      const step1 = createMockStep({
+        id: 'step-uuid-1',
+        step_identifier: 'step_1',
+        step_order: 1,
+        status: 'completed',
+        title: 'First Completed',
+      });
+      const step2 = createMockStep({
+        id: 'step-uuid-2',
+        step_identifier: 'step_2',
+        step_order: 2,
+        status: 'completed',
+        title: 'Last Completed',
+      });
+
+      const plan = createMockPlanWithSteps([step1, step2], null);
+
+      const variables = buildConversationAgentVariables({
+        ask: { ask_key: 'test', question: 'Test' },
+        messages: [],
+        participants: [],
+        conversationPlan: plan,
+      });
+
+      // Should fallback to last step
+      expect(variables.current_step_id).toBe('step_2');
+      expect(variables.current_step).toContain('Last Completed');
+    });
+
+    it('should handle empty string current_step_id as null', () => {
+      const step1 = createMockStep({
+        id: 'step-uuid-1',
+        step_identifier: 'step_1',
+        step_order: 1,
+        status: 'active',
+        title: 'Active Step',
+      });
+
+      const plan = createMockPlanWithSteps([step1], ''); // Empty string
+
+      const variables = buildConversationAgentVariables({
+        ask: { ask_key: 'test', question: 'Test' },
+        messages: [],
+        participants: [],
+        conversationPlan: plan,
+      });
+
+      // Should fallback to active step since '' is falsy
+      expect(variables.current_step_id).toBe('step_1');
+      expect(variables.current_step).toContain('Active Step');
+    });
+  });
 });

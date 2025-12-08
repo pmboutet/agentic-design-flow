@@ -240,14 +240,23 @@ export function formatPacingVariables(config: PacingConfig): Record<string, stri
  * Time tracking statistics for real-time pacing
  */
 export interface TimeTrackingStats {
+  /** Estimated active conversation time (based on activity signals) */
   conversationElapsedMinutes: number;
+  /** Estimated active time for current step */
   stepElapsedMinutes: number;
+  /** Total AI messages count */
   questionsAskedTotal: number;
+  /** AI messages count in current step */
   questionsAskedInStep: number;
+  /** Remaining time budget */
   timeRemainingMinutes: number;
+  /** Whether conversation exceeds expected duration */
   isOvertime: boolean;
+  /** Minutes over expected duration */
   overtimeMinutes: number;
+  /** Whether current step exceeds its time budget */
   stepIsOvertime: boolean;
+  /** Minutes over step time budget */
   stepOvertimeMinutes: number;
 }
 
@@ -261,36 +270,64 @@ interface MessageForTimeTracking {
 }
 
 /**
+ * Activity signal durations (in seconds)
+ *
+ * Based on realistic interaction patterns:
+ * - AI message: user reads the response (~45s on average)
+ * - User message: user waits for AI + reads response (~90s total)
+ */
+const ACTIVITY_SIGNAL_SECONDS = {
+  AI_MESSAGE: 45,    // User is reading the AI response
+  USER_MESSAGE: 90,  // User waits for AI response + reads it
+} as const;
+
+/**
+ * Estimate active conversation duration based on activity signals
+ *
+ * Instead of measuring wall-clock time (which includes breaks like coffee),
+ * we estimate active engagement time based on messages:
+ * - Each AI message: adds 45 seconds (user is reading)
+ * - Each user message: adds 90 seconds (waiting for response + reading)
+ *
+ * @param messages - Array of messages with sender types
+ * @returns Estimated active duration in minutes
+ */
+export function estimateActiveDuration(messages: MessageForTimeTracking[]): number {
+  let totalSeconds = 0;
+
+  for (const message of messages) {
+    if (message.senderType === 'ai') {
+      totalSeconds += ACTIVITY_SIGNAL_SECONDS.AI_MESSAGE;
+    } else if (message.senderType === 'user') {
+      totalSeconds += ACTIVITY_SIGNAL_SECONDS.USER_MESSAGE;
+    }
+  }
+
+  // Convert to minutes with 1 decimal precision
+  return Math.round((totalSeconds / 60) * 10) / 10;
+}
+
+/**
  * Calculate real-time time tracking statistics
+ *
+ * Uses activity-based estimation instead of wall-clock time to avoid
+ * counting breaks (e.g., user going for coffee).
  *
  * @param messages - Array of messages with timestamps and sender types
  * @param expectedDurationMinutes - Target session duration
  * @param durationPerStep - Time budget per step
  * @param currentStepId - ID of the current active step (plan_step.id)
- * @param stepActivatedAt - When the current step was activated (optional, falls back to first step message)
+ * @param _stepActivatedAt - Deprecated: no longer used (kept for API compatibility)
  */
 export function calculateTimeTrackingStats(
   messages: MessageForTimeTracking[],
   expectedDurationMinutes: number,
   durationPerStep: number,
   currentStepId?: string | null,
-  stepActivatedAt?: string | null
+  _stepActivatedAt?: string | null
 ): TimeTrackingStats {
-  const now = new Date();
-
-  // Find first message timestamp for conversation start
-  const sortedMessages = [...messages].sort((a, b) =>
-    new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-  );
-
-  const firstMessage = sortedMessages[0];
-  const conversationStartTime = firstMessage
-    ? new Date(firstMessage.timestamp)
-    : now;
-
-  // Calculate elapsed time since conversation start
-  const conversationElapsedMs = now.getTime() - conversationStartTime.getTime();
-  const conversationElapsedMinutes = Math.round((conversationElapsedMs / 60000) * 10) / 10;
+  // Estimate active conversation time based on activity signals
+  const conversationElapsedMinutes = estimateActiveDuration(messages);
 
   // Count AI questions (assistant messages) in total conversation
   const questionsAskedTotal = messages.filter(m => m.senderType === 'ai').length;
@@ -303,20 +340,8 @@ export function calculateTimeTrackingStats(
     // Filter messages for current step
     const stepMessages = messages.filter(m => m.planStepId === currentStepId);
 
-    // Find step start time
-    let stepStartTime: Date;
-    if (stepActivatedAt) {
-      stepStartTime = new Date(stepActivatedAt);
-    } else {
-      // Fallback: use first message in step or now
-      const firstStepMessage = stepMessages.sort((a, b) =>
-        new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-      )[0];
-      stepStartTime = firstStepMessage ? new Date(firstStepMessage.timestamp) : now;
-    }
-
-    const stepElapsedMs = now.getTime() - stepStartTime.getTime();
-    stepElapsedMinutes = Math.round((stepElapsedMs / 60000) * 10) / 10;
+    // Estimate active time for this step
+    stepElapsedMinutes = estimateActiveDuration(stepMessages);
 
     // Count AI questions in current step
     questionsAskedInStep = stepMessages.filter(m => m.senderType === 'ai').length;
