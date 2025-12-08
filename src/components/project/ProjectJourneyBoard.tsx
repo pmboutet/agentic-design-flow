@@ -476,6 +476,7 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
   const [expandedAsks, setExpandedAsks] = useState<Set<string>>(new Set());
   const [expandedAskParticipants, setExpandedAskParticipants] = useState<Set<string>>(new Set());
   const [isFoundationalInsightsExpanded, setIsFoundationalInsightsExpanded] = useState(true);
+  const [expandedCollectedInsightsAskIds, setExpandedCollectedInsightsAskIds] = useState<Set<string>>(new Set());
   const [askParticipantEdits, setAskParticipantEdits] = useState<Record<string, { participantIds: string[]; spokespersonId: string }>>({});
   const [savingAskParticipants, setSavingAskParticipants] = useState<Set<string>>(new Set());
   const [hoveredAskMenu, setHoveredAskMenu] = useState(false);
@@ -1932,6 +1933,15 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
         })}
       </div>
     );
+  };
+
+  const getAskInsightsCount = (ask: ProjectAskOverview): number => {
+    const uniqueIds = new Set<string>();
+    ask.insights.forEach(insight => uniqueIds.add(insight.id));
+    ask.participants.forEach(participant => {
+      participant.insights.forEach(insight => uniqueIds.add(insight.id));
+    });
+    return uniqueIds.size;
   };
 
   const renderAskInsights = (ask: ProjectAskOverview) => {
@@ -4161,8 +4171,36 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
 
                             {/* Collected Insights */}
                             <div>
-                              <h3 className="text-sm font-semibold text-slate-200 mb-2">Collected insights</h3>
-                              {renderAskInsights(ask)}
+                              <button
+                                type="button"
+                                className="w-full flex items-center justify-between text-left mb-2"
+                                onClick={() => setExpandedCollectedInsightsAskIds(prev => {
+                                  const next = new Set(prev);
+                                  if (next.has(ask.id)) {
+                                    next.delete(ask.id);
+                                  } else {
+                                    next.add(ask.id);
+                                  }
+                                  return next;
+                                })}
+                              >
+                                <h3 className="text-sm font-semibold text-slate-200">
+                                  Collected insights
+                                  {(() => {
+                                    const count = getAskInsightsCount(ask);
+                                    return count > 0 ? (
+                                      <span className="ml-2 text-xs font-normal text-slate-400">({count})</span>
+                                    ) : null;
+                                  })()}
+                                </h3>
+                                <ChevronRight
+                                  className={cn(
+                                    "h-4 w-4 text-slate-400 transition-transform duration-200",
+                                    expandedCollectedInsightsAskIds.has(ask.id) && "rotate-90"
+                                  )}
+                                />
+                              </button>
+                              {expandedCollectedInsightsAskIds.has(ask.id) && renderAskInsights(ask)}
                             </div>
                           </CardContent>
                         )}
