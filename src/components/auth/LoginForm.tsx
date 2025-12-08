@@ -44,7 +44,7 @@ export function LoginForm({ redirectTo = "/admin" }: LoginFormProps) {
   return (
     <form onSubmit={handleSubmit} className="space-y-6 w-full max-w-md">
       <div>
-        <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
+        <label htmlFor="email" className="block text-sm font-medium text-slate-300 mb-2">
           Email
         </label>
         <input
@@ -53,14 +53,14 @@ export function LoginForm({ redirectTo = "/admin" }: LoginFormProps) {
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           required
-          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          className="w-full px-4 py-2 bg-dark-700/50 border border-neon-cyan/20 rounded-lg text-white placeholder:text-slate-500 focus:ring-2 focus:ring-neon-cyan/50 focus:border-neon-cyan/50 focus:outline-none transition-all"
           placeholder="your@email.com"
           disabled={isProcessing}
         />
       </div>
 
       <div>
-        <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
+        <label htmlFor="password" className="block text-sm font-medium text-slate-300 mb-2">
           Password
         </label>
         <div className="relative">
@@ -70,14 +70,14 @@ export function LoginForm({ redirectTo = "/admin" }: LoginFormProps) {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
-            className="w-full px-4 py-2 pr-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="w-full px-4 py-2 pr-10 bg-dark-700/50 border border-neon-cyan/20 rounded-lg text-white placeholder:text-slate-500 focus:ring-2 focus:ring-neon-cyan/50 focus:border-neon-cyan/50 focus:outline-none transition-all"
             placeholder="••••••••"
             disabled={isProcessing}
           />
           <button
             type="button"
             onClick={() => setShowPassword(!showPassword)}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 focus:outline-none"
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-neon-cyan focus:outline-none transition-colors"
             tabIndex={-1}
             aria-label={showPassword ? "Hide password" : "Show password"}
           >
@@ -87,7 +87,7 @@ export function LoginForm({ redirectTo = "/admin" }: LoginFormProps) {
       </div>
 
       {error && (
-        <div className="bg-red-500 border border-red-600/50 text-white px-4 py-3 rounded-lg font-medium shadow-sm">
+        <div className="bg-red-500/20 border border-red-500/50 text-red-400 px-4 py-3 rounded-lg font-medium">
           {error}
         </div>
       )}
@@ -95,7 +95,7 @@ export function LoginForm({ redirectTo = "/admin" }: LoginFormProps) {
       <button
         type="submit"
         disabled={isProcessing}
-        className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-6 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+        className="w-full btn-primary py-3 px-6 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
       >
         {isProcessing ? (
           <>
@@ -109,10 +109,10 @@ export function LoginForm({ redirectTo = "/admin" }: LoginFormProps) {
 
       <div className="relative my-6">
         <div className="absolute inset-0 flex items-center">
-          <div className="w-full border-t border-gray-300"></div>
+          <div className="divider-glow w-full"></div>
         </div>
         <div className="relative flex justify-center text-sm">
-          <span className="px-2 bg-white text-gray-500">Or continue with</span>
+          <span className="px-3 bg-dark-800 text-slate-400">Or continue with</span>
         </div>
       </div>
 
@@ -120,7 +120,7 @@ export function LoginForm({ redirectTo = "/admin" }: LoginFormProps) {
         type="button"
         onClick={handleGoogleSignIn}
         disabled={isProcessing}
-        className="w-full flex items-center justify-center gap-3 bg-white border border-gray-300 text-gray-700 font-semibold py-3 px-6 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        className="w-full flex items-center justify-center gap-3 btn-glass py-3 px-6 disabled:opacity-50 disabled:cursor-not-allowed"
       >
         <svg className="w-5 h-5" viewBox="0 0 24 24">
           <path
