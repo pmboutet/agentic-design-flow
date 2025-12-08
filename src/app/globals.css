@@ -937,27 +937,50 @@ a.neumorphic-raised:active {
 }
 
 /* ==========================================
-   GLOBAL GLASS EFFECT FOR DASHBOARD CARDS
-   Apply backdrop blur to all cards with bg-white/5
+   GLOBAL GLASS EFFECT FOR ALL CARDS
+   Apply backdrop blur and transparency to show aurora
    ========================================== */
 
-/* Target all elements with rounded cards and white/5 background using attribute selector */
+/* Target ALL bg-slate-900 variants - make them glass */
+[class*="bg-slate-900/"] {
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+  background: hsla(230, 30%, 12%, 0.25) !important;
+}
+
+/* Target ALL bg-slate-950 variants - make them glass */
+[class*="bg-slate-950/"] {
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+  background: hsla(230, 30%, 8%, 0.3) !important;
+}
+
+/* Target all elements with bg-white/5 */
 [class*="bg-white/5"] {
-  -webkit-backdrop-filter: blur(16px);
-  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+  background: hsla(230, 30%, 15%, 0.18) !important;
 }
 
 /* Target all rounded border cards to ensure glass effect */
-[class*="rounded-2xl"][class*="border-white/10"],
-[class*="rounded-3xl"][class*="border-white/10"] {
-  -webkit-backdrop-filter: blur(16px);
-  backdrop-filter: blur(16px);
-  background: hsla(230, 30%, 12%, 0.35) !important;
+[class*="rounded-2xl"][class*="border-white"],
+[class*="rounded-3xl"][class*="border-white"],
+[class*="rounded-xl"][class*="border-white"],
+[class*="rounded-lg"][class*="border-white"] {
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
 }
 
 /* Cards with gradient backgrounds also need glass effect */
 [class*="bg-gradient-to-br"][class*="from-white/5"] {
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+  background: linear-gradient(135deg, hsla(230, 30%, 18%, 0.15) 0%, hsla(230, 25%, 14%, 0.2) 100%) !important;
+}
+
+/* Card component base glass effect */
+.card,
+[class*="Card"] {
   -webkit-backdrop-filter: blur(16px);
   backdrop-filter: blur(16px);
-  background: linear-gradient(135deg, hsla(230, 30%, 15%, 0.3) 0%, hsla(230, 25%, 12%, 0.35) 100%) !important;
 }
