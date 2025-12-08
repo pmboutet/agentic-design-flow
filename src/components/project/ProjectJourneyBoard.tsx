@@ -475,6 +475,7 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
   const rightColumnRef = useRef<HTMLDivElement | null>(null);
   const [expandedAsks, setExpandedAsks] = useState<Set<string>>(new Set());
   const [expandedAskParticipants, setExpandedAskParticipants] = useState<Set<string>>(new Set());
+  const [isFoundationalInsightsExpanded, setIsFoundationalInsightsExpanded] = useState(true);
   const [askParticipantEdits, setAskParticipantEdits] = useState<Record<string, { participantIds: string[]; spokespersonId: string }>>({});
   const [savingAskParticipants, setSavingAskParticipants] = useState<Set<string>>(new Set());
   const [hoveredAskMenu, setHoveredAskMenu] = useState(false);
@@ -3732,15 +3733,34 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
             ) : (
               <>
                 <Card id="foundational-insights" className="border border-emerald-400/40 bg-emerald-500/10">
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-lg font-semibold text-white">
-                      Foundational insights
-                    </CardTitle>
-                    <p className="text-sm text-slate-300">
-                      These insights contributed to framing the challenge "{activeChallenge.title}".
-                    </p>
-                  </CardHeader>
-                  <CardContent>
+                  <button
+                    type="button"
+                    className="w-full text-left"
+                    onClick={() => setIsFoundationalInsightsExpanded(prev => !prev)}
+                  >
+                    <CardHeader className="pb-2">
+                      <div className="flex items-center justify-between">
+                        <CardTitle className="text-lg font-semibold text-white">
+                          Foundational insights
+                          {activeChallengeInsights?.length ? (
+                            <span className="ml-2 text-sm font-normal text-emerald-300">
+                              ({activeChallengeInsights.length})
+                            </span>
+                          ) : null}
+                        </CardTitle>
+                        <ChevronRight
+                          className={cn(
+                            "h-5 w-5 text-emerald-300 transition-transform duration-200",
+                            isFoundationalInsightsExpanded && "rotate-90"
+                          )}
+                        />
+                      </div>
+                      <p className="text-sm text-slate-300">
+                        These insights contributed to framing the challenge "{activeChallenge.title}".
+                      </p>
+                    </CardHeader>
+                  </button>
+                  {isFoundationalInsightsExpanded && <CardContent>
                     {activeChallengeInsights?.length ? (
                       <div className="space-y-3">
                         {activeChallengeInsights.map(insight => (
@@ -3784,7 +3804,7 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
                         No insights are linked to this challenge yet.
                       </div>
                     )}
-                  </CardContent>
+                  </CardContent>}
                 </Card>
 
                 <div id="asks-section" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-slate-900/70 px-4 py-3 shadow-sm">
