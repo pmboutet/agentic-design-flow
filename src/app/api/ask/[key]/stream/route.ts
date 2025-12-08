@@ -735,6 +735,17 @@ export async function POST(
                                 undefined, // No pre-generated summary - let the async agent generate it
                                 askRow.id // Pass askSessionId to trigger async summary generation
                               );
+
+                              // Fetch the updated plan and send step_completed event to client
+                              const updatedPlan = await getConversationPlanWithSteps(adminForStepUpdate, conversationThread.id);
+                              if (updatedPlan) {
+                                const stepCompletedEvent = JSON.stringify({
+                                  type: 'step_completed',
+                                  conversationPlan: updatedPlan,
+                                  completedStepId: stepIdToComplete,
+                                });
+                                controller.enqueue(encoder.encode(`data: ${stepCompletedEvent}\n\n`));
+                              }
                             }
                           }
                         } catch (planError) {
