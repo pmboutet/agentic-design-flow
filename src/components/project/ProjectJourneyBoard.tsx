@@ -19,6 +19,7 @@ import {
   Sparkles,
   Target,
   Trash2,
+  UserPlus,
   Users,
   X,
 } from "lucide-react";
@@ -53,13 +54,17 @@ import {
 } from "@/types";
 import { AiChallengeBuilderModal } from "@/components/project/AiChallengeBuilderModal";
 import { AiAskGeneratorPanel } from "@/components/project/AiAskGeneratorPanel";
+import { AddParticipantsDialog } from "@/components/project/AddParticipantsDialog";
 import { AskPromptTemplateSelector } from "@/components/admin/AskPromptTemplateSelector";
 import { GraphRAGPanel } from "@/components/admin/GraphRAGPanel";
 import { useAuth } from "@/components/auth/AuthProvider";
 
 interface ProjectJourneyBoardProps {
   projectId: string;
+  /** @deprecated This prop is ignored - header is always shown for consistency */
   hideHeader?: boolean;
+  /** Optional callback when user clicks close button (only shown in embedded mode) */
+  onClose?: () => void;
 }
 
 interface ChallengeInsightRow extends ProjectParticipantInsight {
@@ -431,7 +436,7 @@ function normalizeAskStatus(value?: string | null): AskFormState["status"] {
   return askStatusOptions.includes(normalized) ? normalized : "active";
 }
 
-export function ProjectJourneyBoard({ projectId, hideHeader = false }: ProjectJourneyBoardProps) {
+export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardProps) {
   const [boardData, setBoardData] = useState<ProjectJourneyBoardData | null>(
     USE_MOCK_JOURNEY ? getMockProjectJourneyData(projectId) : null,
   );
@@ -439,6 +444,7 @@ export function ProjectJourneyBoard({ projectId, hideHeader = false }: ProjectJo
   const [error, setError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<FeedbackState | null>(null);
   const [isEditingProject, setIsEditingProject] = useState(false);
+  const [showAddParticipantsDialog, setShowAddParticipantsDialog] = useState(false);
   const [isSavingProject, setIsSavingProject] = useState(false);
   const [isGeneratingSyntheses, setIsGeneratingSyntheses] = useState(false);
   const [synthesisRefreshKey, setSynthesisRefreshKey] = useState(0);
@@ -3280,11 +3286,11 @@ export function ProjectJourneyBoard({ projectId, hideHeader = false }: ProjectJo
         </Alert>
       ) : null}
 
-      {!hideHeader && boardData ? (
+      {boardData ? (
       <header className="rounded-xl border border-white/10 bg-slate-900/70 p-6 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <p className="text-sm uppercase tracking-wide text-indigo-200">Project</p>
+          <div className="flex-1">
+            <p className="text-xs uppercase tracking-wide text-indigo-200">Exploration projet</p>
             <h1 className="text-2xl font-semibold text-white">{boardData.projectName}</h1>
             {boardData.clientName ? (
               <p className="mt-1 text-sm text-slate-300">Client: {boardData.clientName}</p>
@@ -3294,43 +3300,58 @@ export function ProjectJourneyBoard({ projectId, hideHeader = false }: ProjectJo
             {isEditingProject ? (
               <>
                 <Button
-                  size="sm"
-                  variant="secondary"
+                  type="button"
+                  variant="glassDark"
                   onClick={handleProjectSave}
                   disabled={isSavingProject}
                   className="gap-2"
                 >
                   {isSavingProject ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                  Save changes
+                  Enregistrer
                 </Button>
-                <Button size="sm" variant="outline" onClick={handleEditToggle} disabled={isSavingProject} className="gap-2">
+                <Button type="button" variant="glassDark" onClick={handleEditToggle} disabled={isSavingProject} className="gap-2">
                   <X className="h-4 w-4" />
-                  Cancel
+                  Annuler
                 </Button>
               </>
             ) : (
               <>
                 <Button
-                  onClick={handleEditToggle}
-                  className="gap-2 btn-gradient bg-primary hover:bg-primary/90 h-10 px-4 py-2"
-                >
-                  <Pencil className="h-4 w-4" />
-                  Edit project
-                </Button>
-                <Button
-                  onClick={handleGenerateSyntheses}
-                  disabled={isGeneratingSyntheses}
-                  size="sm"
-                  variant="outline"
+                  type="button"
+                  variant="glassDark"
+                  onClick={() => setShowAddParticipantsDialog(true)}
                   className="gap-2"
                 >
-                  {isGeneratingSyntheses ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <RefreshCw className="h-4 w-4" />
-                  )}
-                  Générer synthèses
+                  <UserPlus className="h-4 w-4" />
+                  Ajouter des participants
                 </Button>
+                <Button
+                  type="button"
+                  variant="glassDark"
+                  onClick={handleEditToggle}
+                  className="gap-2"
+                >
+                  <Pencil className="h-4 w-4" />
+                  Éditer
+                </Button>
+                <Button
+                  type="button"
+                  variant="glassDark"
+                  onClick={() => window.open(`/admin/projects/${projectId}/synthesis`, '_blank')}
+                  className="gap-2"
+                >
+                  <Sparkles className="h-4 w-4" />
+                  Synthèse
+                </Button>
+                {onClose && (
+                  <Button
+                    type="button"
+                    variant="glassDark"
+                    onClick={onClose}
+                  >
+                    Fermer
+                  </Button>
+                )}
               </>
             )}
           </div>
@@ -3371,6 +3392,18 @@ export function ProjectJourneyBoard({ projectId, hideHeader = false }: ProjectJo
         ) : null}
       </header>
       ) : null}
+
+      {/* Add Participants Dialog */}
+      {boardData && (
+        <AddParticipantsDialog
+          open={showAddParticipantsDialog}
+          onOpenChange={setShowAddParticipantsDialog}
+          projectId={projectId}
+          projectName={boardData.projectName}
+          projectMembers={boardData.projectMembers}
+          onMembersChange={() => loadJourneyData({ silent: true })}
+        />
+      )}
 
       {isEditingProject ? (
         <Card className="border border-white/15 bg-slate-900/70">

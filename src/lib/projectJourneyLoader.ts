@@ -4,6 +4,7 @@ import {
   type ProjectAskParticipant,
   type ProjectChallengeNode,
   type ProjectJourneyBoardData,
+  type ProjectMember,
   type ProjectParticipantInsight,
   type ProjectParticipantOption,
   type ProjectParticipantSummary,
@@ -797,9 +798,26 @@ export async function fetchProjectJourneyContext(
     ? clientRelation[0]?.name ?? null
     : clientRelation?.name ?? null;
 
+  // Build project members array from memberRows
+  const projectMembers: ProjectMember[] = memberRows.map(row => {
+    const profile = getProfileFromRow(row);
+    return {
+      id: String(row.user_id ?? profile?.id ?? ""),
+      fullName: profile?.full_name ?? null,
+      email: profile?.email ?? null,
+      role: row.role ?? profile?.role ?? null,
+      jobTitle: row.job_title ?? profile?.job_title ?? null,
+    };
+  }).filter(member => member.id !== "").sort((a, b) => {
+    const nameA = (a.fullName || a.email || "").toLowerCase();
+    const nameB = (b.fullName || b.email || "").toLowerCase();
+    return nameA.localeCompare(nameB);
+  });
+
   const boardData: ProjectJourneyBoardData = {
     projectId,
     projectName: projectRow.name,
+    clientId: projectRow.client_id ?? null,
     clientName,
     projectGoal: projectRow.description ?? null,
     timeframe: formatTimeframe(projectRow.start_date, projectRow.end_date),
@@ -813,6 +831,7 @@ export async function fetchProjectJourneyContext(
     availableUsers: Array.from(availableUsers.values()).sort((a, b) =>
       a.name.localeCompare(b.name, undefined, { sensitivity: "base" }),
     ),
+    projectMembers,
   };
 
   console.log("🧩 Loader: Board data assembled", {
