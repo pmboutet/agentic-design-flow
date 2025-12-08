@@ -1424,3 +1424,158 @@ a.neumorphic-raised:active {
   color: white;
   border-color: hsl(142, 76%, 36%);
 }
+
+/* Override glass-card in conversation layout - make it light */
+.conversation-layout .glass-card,
+.conversation-layout .chat-container {
+  background: white !important;
+  border: 1px solid hsl(214, 32%, 91%) !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05), 0 4px 6px rgba(0, 0, 0, 0.02) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* Override neon-card in conversation layout */
+.conversation-layout .neon-card,
+.conversation-layout .neon-card-purple,
+.conversation-layout .neon-card-pink {
+  background: white !important;
+  border: 1px solid hsl(214, 32%, 91%) !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05) !important;
+  backdrop-filter: none !important;
+}
+
+/* Override neumorphic shadows in conversation - cleaner style */
+.conversation-layout .neumorphic-shadow,
+.conversation-layout .neumorphic-raised {
+  background: white !important;
+  border: 1px solid hsl(214, 32%, 91%) !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04) !important;
+}
+
+/* Override dark slate backgrounds in conversation */
+.conversation-layout [class*="bg-slate-900"],
+.conversation-layout [class*="bg-slate-950"],
+.conversation-layout [class*="bg-slate-800"] {
+  background: white !important;
+}
+
+/* Override any dark gradient backgrounds */
+.conversation-layout [class*="from-slate-"],
+.conversation-layout [class*="to-slate-"] {
+  --tw-gradient-from: white !important;
+  --tw-gradient-to: hsl(210, 40%, 98%) !important;
+}
+
+/* Chat input container - light theme */
+.conversation-layout .chat-input-container {
+  background: white !important;
+  border-top: 1px solid hsl(214, 32%, 91%) !important;
+  backdrop-filter: none !important;
+}
+
+/* Chat messages container - light background */
+.conversation-layout .chat-messages {
+  background: hsl(210, 40%, 98%);
+}
+
+/* Message bubbles - agent messages white, user blue */
+.conversation-layout .chat-message.ai,
+.conversation-layout .chat-message:not(.user) {
+  background: white !important;
+  color: hsl(222, 47%, 11%) !important;
+  border: 1px solid hsl(214, 32%, 91%);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.conversation-layout .chat-message.user {
+  background: hsl(221, 83%, 53%) !important;
+  color: white !important;
+}
+
+/* Override CardHeader and CardContent backgrounds */
+.conversation-layout [class*="CardHeader"],
+.conversation-layout [class*="CardContent"] {
+  background: transparent !important;
+}
+
+/* Ensure text is dark in conversation layout */
+.conversation-layout .text-foreground,
+.conversation-layout [class*="CardTitle"] {
+  color: hsl(222, 47%, 11%) !important;
+}
+
+/* Progress bar styling */
+.conversation-layout [class*="bg-primary/10"],
+.conversation-layout [class*="bg-primary/20"] {
+  background: hsla(221, 83%, 53%, 0.1) !important;
+}
+
+/* Filter buttons - pill style */
+.conversation-layout button[class*="rounded-full"][class*="border"] {
+  background: white;
+  border-color: hsl(214, 32%, 91%);
+  color: hsl(222, 47%, 11%);
+}
+
+.conversation-layout button[class*="rounded-full"][class*="border"]:hover {
+  background: hsl(210, 40%, 96%);
+  border-color: hsl(221, 83%, 70%);
+}
+
+.conversation-layout button[class*="rounded-full"][class*="bg-primary"] {
+  background: hsl(221, 83%, 53%) !important;
+  color: white !important;
+  border-color: hsl(221, 83%, 53%) !important;
+}
+
+/* Insight type badges - colorful but clean */
+.conversation-layout [class*="border-primary"][class*="bg-white"] {
+  background: white !important;
+  border-color: hsl(221, 83%, 70%) !important;
+  color: hsl(221, 83%, 45%) !important;
+}
+
+/* Amber/category badges */
+.conversation-layout [class*="bg-amber-100"] {
+  background: hsl(45, 93%, 94%) !important;
+  color: hsl(45, 93%, 25%) !important;
+}
+
+/* Emerald/status badges */
+.conversation-layout [class*="bg-emerald-100"] {
+  background: hsl(142, 76%, 94%) !important;
+  color: hsl(142, 76%, 25%) !important;
+}
+
+/* Slate background overrides for insights */
+.conversation-layout [class*="bg-slate-50"] {
+  background: hsl(210, 40%, 98%) !important;
+}
+
+/* Empty state styling */
+.conversation-layout [class*="border-dashed"] {
+  background: hsl(210, 40%, 99%) !important;
+  border-color: hsl(214, 32%, 85%) !important;
+}
+
+/* Icon colors */
+.conversation-layout .text-primary {
+  color: hsl(221, 83%, 53%) !important;
+}
+
+/* Override any remaining dark text */
+.conversation-layout [class*="text-slate-"] {
+  color: hsl(222, 47%, 25%) !important;
+}
+
+.conversation-layout [class*="text-slate-500"],
+.conversation-layout [class*="text-slate-600"] {
+  color: hsl(215, 16%, 47%) !important;
+}
+
+.conversation-layout [class*="text-slate-700"],
+.conversation-layout [class*="text-slate-800"],
+.conversation-layout [class*="text-slate-900"] {
+  color: hsl(222, 47%, 20%) !important;
+}
