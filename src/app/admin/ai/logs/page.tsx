@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { AiAgentLog } from "@/types";
+import { getModuleColorByInteractionType, statusColors } from "@/lib/module-colors";
 
 // Import dynamique pour éviter les problèmes SSR
 const SyntaxHighlighter = dynamic(
@@ -348,13 +349,6 @@ interface LogsResponse {
   };
   error?: string;
 }
-
-const statusColors = {
-  pending: "bg-yellow-500/20 text-yellow-300 border border-yellow-400/30",
-  processing: "bg-blue-500/20 text-blue-300 border border-blue-400/30",
-  completed: "bg-emerald-500/20 text-emerald-300 border border-emerald-400/30",
-  failed: "bg-red-500/20 text-red-300 border border-red-400/30"
-};
 
 const statusIcons = {
   pending: Clock,
@@ -748,14 +742,8 @@ export default function AiLogsPage() {
                       const StatusIcon = statusIcons[log.status as keyof typeof statusIcons];
                       const isExpanded = expandedLogs.has(log.id);
 
-                      // Define border color based on status
-                      const statusBorderColors = {
-                        pending: "border-yellow-400/40",
-                        processing: "border-blue-400/40",
-                        completed: "border-emerald-400/40",
-                        failed: "border-red-400/40"
-                      };
-                      const borderColor = statusBorderColors[log.status as keyof typeof statusBorderColors] || "border-slate-400/40";
+                      // Get module color based on interaction type
+                      const moduleColor = getModuleColorByInteractionType(log.interactionType);
 
                       return (
                         <motion.div
@@ -765,7 +753,7 @@ export default function AiLogsPage() {
                           exit={{ opacity: 0, y: -20 }}
                           transition={{ duration: 0.2 }}
                         >
-                          <div className={`rounded-lg border-l-4 ${borderColor} bg-slate-800/50 transition-colors hover:bg-slate-700/50`}>
+                          <div className={`rounded-lg border-l-4 ${moduleColor.border} ${moduleColor.bg} transition-colors hover:brightness-110`}>
                             <div
                               className="cursor-pointer p-4"
                               onClick={() => {
@@ -776,13 +764,13 @@ export default function AiLogsPage() {
                             >
                                 <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-4">
-                                  <StatusIcon className="h-5 w-5 text-slate-400" />
+                                  <StatusIcon className={`h-5 w-5 ${moduleColor.icon}`} />
                                   <div>
                                     <div className="flex items-center gap-2">
                                       <span className={`rounded-full px-2 py-1 text-xs font-medium ${statusColors[log.status as keyof typeof statusColors]}`}>
                                         {log.status}
                                       </span>
-                                      <span className="font-medium text-slate-100">{log.interactionType}</span>
+                                      <span className={`font-medium ${moduleColor.text}`}>{log.interactionType}</span>
                                     </div>
                                     <p className="text-sm text-slate-400">
                                       {log.agentId && `Agent: ${log.agentId}`}

@@ -10,6 +10,7 @@ import { Loader2, Network, Sparkles, ChevronDown, ChevronUp, TestTube2, Settings
 import type { AiAgentRecord, AiModelConfig, PromptVariableDefinition, ApiResponse, AskPromptTemplate, AiAgentLog } from "@/types";
 import { extractTemplateVariables } from "@/lib/ai/templates";
 import { AgentTestMode } from "@/components/admin/AgentTestMode";
+import { agentGroupColors } from "@/lib/module-colors";
 
 interface AgentsResponse {
   success: boolean;
@@ -177,32 +178,9 @@ type AgentGroup = {
   };
 };
 
-// Define color scheme for each group
+// Use shared module colors with additional "other" category
 const groupColors: Record<string, AgentGroup["color"]> = {
-  conversation: {
-    border: "border-blue-400/40",
-    bg: "bg-blue-500/10",
-    text: "text-blue-700 dark:text-blue-200",
-    badge: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
-  },
-  "insight-detection": {
-    border: "border-purple-400/40",
-    bg: "bg-purple-500/10",
-    text: "text-purple-700 dark:text-purple-200",
-    badge: "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200",
-  },
-  "ask-generator": {
-    border: "border-emerald-400/40",
-    bg: "bg-emerald-500/10",
-    text: "text-emerald-700 dark:text-emerald-200",
-    badge: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200",
-  },
-  "challenge-builder": {
-    border: "border-indigo-400/40",
-    bg: "bg-indigo-500/10",
-    text: "text-indigo-700 dark:text-indigo-200",
-    badge: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200",
-  },
+  ...agentGroupColors,
   other: {
     border: "border-gray-400/40",
     bg: "bg-gray-500/10",
@@ -1449,10 +1427,10 @@ export default function AiConfigurationPage() {
       </div>
 
       {/* Models Configuration Section */}
-      <div className="rounded-xl border border-amber-400/40 bg-amber-500/10 p-6 backdrop-blur-sm">
+      <div className="rounded-xl border border-purple-400/40 bg-purple-500/10 p-6 backdrop-blur-sm">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h3 className="text-lg font-semibold text-amber-400">Configurations des modèles IA</h3>
+            <h3 className="text-lg font-semibold text-purple-400">Configurations des modèles IA</h3>
             <p className="text-sm text-slate-400">
               Gérez les configurations des modèles, y compris les paramètres Deepgram Voice Agent.
             </p>
@@ -1494,7 +1472,7 @@ export default function AiConfigurationPage() {
           </div>
 
           {isCreatingModel && (
-            <div className="rounded-lg border border-amber-400/30 border-dashed p-4 mb-4 bg-slate-800/50">
+            <div className="rounded-lg border border-purple-400/30 border-dashed p-4 mb-4 bg-slate-800/50">
               <h4 className="text-md font-semibold text-slate-100 mb-4">Nouveau modèle IA</h4>
               <div className="space-y-4">
                 <div className="grid gap-4 md:grid-cols-2">
@@ -1758,13 +1736,13 @@ export default function AiConfigurationPage() {
               {models.map(model => {
                 const isCollapsed = collapsedModels.has(model.id);
                 return (
-                <div key={model.id} className="rounded-lg border border-amber-400/30 p-4 bg-slate-800/50">
+                <div key={model.id} className="rounded-lg border border-purple-400/30 p-4 bg-slate-800/50">
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex-1">
                       <h4 className="font-semibold text-slate-100">{model.name}</h4>
                       <p className="text-sm text-slate-400">
                         {model.code} • {model.provider} • {model.model}
-                        {model.isDefault && <span className="ml-2 text-amber-400">(Par défaut)</span>}
+                        {model.isDefault && <span className="ml-2 text-purple-400">(Par défaut)</span>}
                         {model.isFallback && <span className="ml-2 text-slate-500">(Secours)</span>}
                       </p>
                     </div>
@@ -1808,7 +1786,7 @@ export default function AiConfigurationPage() {
                           e.stopPropagation();
                           toggleModelSection(model.id, "agent");
                         }}
-                        className="w-full flex items-center justify-between p-4 hover:bg-slate-700/30 transition cursor-pointer focus:outline-none focus:ring-2 focus:ring-amber-400/20"
+                        className="w-full flex items-center justify-between p-4 hover:bg-slate-700/30 transition cursor-pointer focus:outline-none focus:ring-2 focus:ring-purple-400/20"
                       >
                         <h4 className="text-sm font-semibold text-slate-100">1. Agent Principal</h4>
                         {isModelSectionCollapsed(model.id, "agent") ? (
@@ -2117,7 +2095,7 @@ export default function AiConfigurationPage() {
                           console.log('[STT Button] Clicked for model:', model.id);
                           toggleModelSection(model.id, "stt");
                         }}
-                        className="w-full flex items-center justify-between p-4 hover:bg-slate-700/30 transition cursor-pointer focus:outline-none focus:ring-2 focus:ring-amber-400/20"
+                        className="w-full flex items-center justify-between p-4 hover:bg-slate-700/30 transition cursor-pointer focus:outline-none focus:ring-2 focus:ring-purple-400/20"
                       >
                         <h4 className="text-sm font-semibold text-slate-100">2. Agent STT Associé</h4>
                         {isModelSectionCollapsed(model.id, "stt") ? (
@@ -2279,7 +2257,7 @@ export default function AiConfigurationPage() {
                           console.log('[TTS Button] Clicked for model:', model.id);
                           toggleModelSection(model.id, "tts");
                         }}
-                        className="w-full flex items-center justify-between p-4 hover:bg-slate-700/30 transition cursor-pointer focus:outline-none focus:ring-2 focus:ring-amber-400/20"
+                        className="w-full flex items-center justify-between p-4 hover:bg-slate-700/30 transition cursor-pointer focus:outline-none focus:ring-2 focus:ring-purple-400/20"
                       >
                         <h4 className="text-sm font-semibold text-slate-100">3. Agent TTS Associé</h4>
                         {isModelSectionCollapsed(model.id, "tts") ? (

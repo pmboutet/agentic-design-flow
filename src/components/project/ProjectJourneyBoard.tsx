@@ -480,6 +480,7 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
   const [isHeaderCollapsed, setIsHeaderCollapsed] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const [isInsightsModalOpen, setIsInsightsModalOpen] = useState(false);
+  const [modalActiveTab, setModalActiveTab] = useState<"insights" | "asks">("insights");
   const [askParticipantEdits, setAskParticipantEdits] = useState<Record<string, { participantIds: string[]; spokespersonId: string }>>({});
   const [savingAskParticipants, setSavingAskParticipants] = useState<Set<string>>(new Set());
   const [hoveredAskMenu, setHoveredAskMenu] = useState(false);
@@ -3660,290 +3661,212 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
       </div>
 
       {/* Insights & ASKs Modal */}
-      <Dialog.Root open={isInsightsModalOpen} onOpenChange={setIsInsightsModalOpen}>
+      <Dialog.Root open={isInsightsModalOpen} onOpenChange={(open) => { setIsInsightsModalOpen(open); if (!open) setModalActiveTab("insights"); }}>
         <Dialog.Portal>
-          <Dialog.Overlay className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md transition-opacity data-[state=closed]:opacity-0 data-[state=open]:opacity-100" />
-          <Dialog.Content className="fixed inset-4 z-50 flex flex-col overflow-hidden rounded-3xl border border-white/10 bg-slate-900/95 shadow-2xl backdrop-blur-xl data-[state=closed]:opacity-0 data-[state=open]:opacity-100">
-            <div className="flex items-center justify-between border-b border-white/10 px-6 py-4">
-              <div>
-                <Dialog.Title className="text-xl font-semibold text-white">
+          <Dialog.Overlay className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm transition-opacity data-[state=closed]:opacity-0 data-[state=open]:opacity-100" />
+          <Dialog.Content className="fixed left-1/2 top-1/2 z-50 flex max-h-[85vh] w-[90vw] max-w-4xl -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl border border-white/15 bg-slate-900/80 shadow-2xl backdrop-blur-xl data-[state=closed]:opacity-0 data-[state=open]:opacity-100">
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-white/10 px-5 py-3">
+              <div className="min-w-0 flex-1">
+                <Dialog.Title className="text-lg font-semibold text-white truncate">
                   {activeChallenge?.title ?? "Challenge Details"}
                 </Dialog.Title>
-                <Dialog.Description className="text-sm text-slate-300">
-                  Foundational insights and ASK sessions for this challenge
+                <Dialog.Description className="text-xs text-slate-400">
+                  Insights et sessions ASK pour ce challenge
                 </Dialog.Description>
               </div>
               <Dialog.Close asChild>
                 <button
                   type="button"
-                  className="rounded-full border border-white/10 bg-white/10 p-2 text-white transition hover:bg-white/20"
+                  className="ml-3 rounded-full border border-white/10 bg-white/5 p-1.5 text-slate-400 transition hover:bg-white/10 hover:text-white"
                   aria-label="Close"
                 >
-                  <X className="h-5 w-5" />
+                  <X className="h-4 w-4" />
                 </button>
               </Dialog.Close>
             </div>
-            <div ref={rightColumnRef} className="flex-1 overflow-y-auto p-6 relative">
-              {/* Navigation Menu - Fixed */}
-              {activeChallenge && (
-                <div className="sticky top-0 z-20 mb-4 pointer-events-none">
-                  <nav className="flex items-center gap-1.5 w-full rounded-xl border border-white/20 bg-slate-900/98 backdrop-blur-xl p-1.5 shadow-2xl pointer-events-auto ring-1 ring-white/5">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const element = document.getElementById("foundational-insights");
-                        if (element && rightColumnRef.current) {
-                          const offset = element.getBoundingClientRect().top - rightColumnRef.current.getBoundingClientRect().top + rightColumnRef.current.scrollTop - 20;
-                          rightColumnRef.current.scrollTo({ top: offset, behavior: "smooth" });
-                        }
-                      }}
-                      className="group flex items-center justify-center gap-1.5 rounded-lg border border-emerald-400/30 bg-emerald-500/15 px-2.5 py-2 flex-1 min-w-0 transition-all duration-200 hover:bg-emerald-500/25 hover:border-emerald-400/50 hover:shadow-lg hover:shadow-emerald-500/20 hover:scale-[1.02] active:scale-[0.98]"
-                      title="Foundational insights"
-                    >
-                      <Lightbulb className="h-4 w-4 text-emerald-300 transition-transform group-hover:scale-110 shrink-0" />
-                      <span className="text-xs font-medium text-emerald-50 truncate hidden sm:inline">Foundational insights</span>
-                      <span className="text-xs font-medium text-emerald-50 truncate sm:hidden">...</span>
-                    </button>
-                <div
-                  className="relative flex-1 min-w-0"
-                  onMouseEnter={() => {
-                    if (hoverTimeoutRef.current) {
-                      clearTimeout(hoverTimeoutRef.current);
-                      hoverTimeoutRef.current = null;
-                    }
-                    setHoveredAskMenu(true);
-                  }}
-                  onMouseLeave={() => {
-                    hoverTimeoutRef.current = setTimeout(() => {
-                      setHoveredAskMenu(false);
-                    }, 200);
-                  }}
-                >
+
+            {/* Tab Navigation */}
+            {activeChallenge && (
+              <div className="border-b border-white/10 px-5">
+                <nav className="flex gap-1 -mb-px">
                   <button
                     type="button"
-                    onClick={() => {
-                      const element = document.getElementById("asks-section");
-                      if (element && rightColumnRef.current) {
-                        const offset = element.getBoundingClientRect().top - rightColumnRef.current.getBoundingClientRect().top + rightColumnRef.current.scrollTop - 20;
-                        rightColumnRef.current.scrollTo({ top: offset, behavior: "smooth" });
-                      }
-                    }}
-                    className="group flex items-center justify-center gap-1.5 rounded-lg border border-indigo-400/30 bg-indigo-500/15 px-2.5 py-2 w-full min-w-0 transition-all duration-200 hover:bg-indigo-500/25 hover:border-indigo-400/50 hover:shadow-lg hover:shadow-indigo-500/20 hover:scale-[1.02] active:scale-[0.98]"
-                    title="ASKs"
+                    onClick={() => setModalActiveTab("insights")}
+                    className={cn(
+                      "group flex items-center gap-2 px-4 py-2.5 text-sm font-medium transition-all duration-200 border-b-2",
+                      modalActiveTab === "insights"
+                        ? "border-yellow-400 text-yellow-300"
+                        : "border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-600"
+                    )}
                   >
-                    <MessageSquare className="h-4 w-4 text-indigo-300 transition-transform group-hover:scale-110 shrink-0" />
-                    <span className="text-xs font-medium text-indigo-50 truncate hidden sm:inline">ASKs</span>
-                    <span className="text-xs font-medium text-indigo-50 truncate sm:hidden">...</span>
+                    <Lightbulb className={cn(
+                      "h-4 w-4 transition-colors",
+                      modalActiveTab === "insights" ? "text-yellow-400" : "text-slate-500 group-hover:text-slate-400"
+                    )} />
+                    Insights
+                    {activeChallengeInsights?.length ? (
+                      <span className={cn(
+                        "rounded-full px-1.5 py-0.5 text-[10px] font-semibold",
+                        modalActiveTab === "insights"
+                          ? "bg-yellow-400/20 text-yellow-300"
+                          : "bg-slate-700 text-slate-400"
+                      )}>
+                        {activeChallengeInsights.length}
+                      </span>
+                    ) : null}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setModalActiveTab("asks")}
+                    className={cn(
+                      "group flex items-center gap-2 px-4 py-2.5 text-sm font-medium transition-all duration-200 border-b-2",
+                      modalActiveTab === "asks"
+                        ? "border-emerald-400 text-emerald-300"
+                        : "border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-600"
+                    )}
+                  >
+                    <MessageSquare className={cn(
+                      "h-4 w-4 transition-colors",
+                      modalActiveTab === "asks" ? "text-emerald-400" : "text-slate-500 group-hover:text-slate-400"
+                    )} />
+                    ASKs
                     {activeChallengeAsks && activeChallengeAsks.length > 0 && (
-                      <span className="rounded-full bg-indigo-400/30 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-100 shrink-0">
+                      <span className={cn(
+                        "rounded-full px-1.5 py-0.5 text-[10px] font-semibold",
+                        modalActiveTab === "asks"
+                          ? "bg-emerald-400/20 text-emerald-300"
+                          : "bg-slate-700 text-slate-400"
+                      )}>
                         {activeChallengeAsks.length}
                       </span>
                     )}
                   </button>
-                  {hoveredAskMenu && activeChallengeAsks && activeChallengeAsks.length > 0 && (
-                    <>
-                      {/* Zone de transition invisible pour éviter la perte de focus */}
-                      <div 
-                        className="absolute left-0 top-full w-full h-2 z-20"
-                        onMouseEnter={() => {
-                          if (hoverTimeoutRef.current) {
-                            clearTimeout(hoverTimeoutRef.current);
-                            hoverTimeoutRef.current = null;
-                          }
-                          setHoveredAskMenu(true);
-                        }}
-                        onMouseLeave={() => {
-                          hoverTimeoutRef.current = setTimeout(() => {
-                            setHoveredAskMenu(false);
-                          }, 200);
-                        }}
-                      />
-                      <div 
-                        className="absolute left-0 top-full mt-1 w-full rounded-xl border border-white/20 bg-slate-900 backdrop-blur-xl p-2 shadow-2xl z-30 ring-1 ring-white/10 animate-in fade-in slide-in-from-top-2 duration-200"
-                        onMouseEnter={() => {
-                          if (hoverTimeoutRef.current) {
-                            clearTimeout(hoverTimeoutRef.current);
-                            hoverTimeoutRef.current = null;
-                          }
-                          setHoveredAskMenu(true);
-                        }}
-                        onMouseLeave={() => {
-                          hoverTimeoutRef.current = setTimeout(() => {
-                            setHoveredAskMenu(false);
-                          }, 200);
-                        }}
-                      >
-                      <div className="mb-1.5 px-2 py-1 text-xs font-semibold text-slate-400 uppercase tracking-wider">
-                        ASKs ({activeChallengeAsks.length})
-                      </div>
-                      <div className="flex flex-col gap-0.5 max-h-[400px] overflow-y-auto [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-white/10 [&::-webkit-scrollbar-thumb]:rounded-full">
-                        {activeChallengeAsks.map((ask, index) => (
-                          <button
-                            key={ask.id}
-                            type="button"
-                            onClick={() => {
-                              const element = document.getElementById(`ask-${ask.id}`);
-                              if (element && rightColumnRef.current) {
-                                const offset = element.getBoundingClientRect().top - rightColumnRef.current.getBoundingClientRect().top + rightColumnRef.current.scrollTop - 20;
-                                rightColumnRef.current.scrollTo({ top: offset, behavior: "smooth" });
-                                setExpandedAsks(prev => new Set(prev).add(ask.id));
-                                setHoveredAskMenu(false);
-                              }
-                            }}
-                            className="group flex items-start gap-2 rounded-lg px-2.5 py-2 text-left text-xs text-slate-200 transition-all duration-150 hover:bg-white/10 hover:text-white"
-                            title={ask.title}
-                          >
-                            <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-indigo-500/20 text-[10px] font-semibold text-indigo-300 group-hover:bg-indigo-500/30">
-                              {index + 1}
-                            </span>
-                            <span className="flex-1 leading-relaxed">
-                              {ask.title}
-                            </span>
-                          </button>
-                        ))}
-                      </div>
+                </nav>
+              </div>
+            )}
+
+            {/* Tab Content with slide animation */}
+            <div ref={rightColumnRef} className="flex-1 overflow-hidden relative">
+              <div
+                className="flex transition-transform duration-300 ease-out h-full"
+                style={{ transform: modalActiveTab === "asks" ? "translateX(-100%)" : "translateX(0)" }}
+              >
+                {/* Insights Tab */}
+                <div className="w-full flex-shrink-0 overflow-y-auto p-5">
+                  {!activeChallenge ? (
+                    <Card className="border-dashed border-white/10 bg-slate-900/60">
+                      <CardContent className="py-10 text-center text-sm text-slate-300">
+                        Choose a challenge from the list to see its details.
+                      </CardContent>
+                    </Card>
+                  ) : (
+                    <div className="space-y-4">
+                      <Card className="border border-yellow-400/40 bg-yellow-500/10">
+                        <CardHeader className="pb-2">
+                          <CardTitle className="text-base font-semibold text-white flex items-center gap-2">
+                            <Lightbulb className="h-4 w-4 text-yellow-400" />
+                            Foundational Insights
+                            {activeChallengeInsights?.length ? (
+                              <span className="text-sm font-normal text-yellow-300">
+                                ({activeChallengeInsights.length})
+                              </span>
+                            ) : null}
+                          </CardTitle>
+                          <p className="text-xs text-slate-400">
+                            Insights qui ont contribué à définir le challenge "{activeChallenge.title}".
+                          </p>
+                        </CardHeader>
+                        <CardContent>
+                          {activeChallengeInsights?.length ? (
+                            <div className="space-y-2">
+                              {activeChallengeInsights.map(insight => (
+                                <div
+                                  key={`${insight.id}-${insight.askId}`}
+                                  className="rounded-lg border border-yellow-400/30 bg-yellow-500/5 p-3"
+                                >
+                                  <div className="flex flex-wrap items-center gap-2 text-xs font-medium text-slate-300">
+                                    <span className={cn("rounded-full border px-2 py-0.5", insightTypeClasses[insight.type])}>
+                                      {insight.type.toUpperCase()}
+                                    </span>
+                                    <span className="inline-flex items-center gap-1 text-slate-400">
+                                      <Users className="h-3 w-3" />
+                                      {insight.contributors.map(c => c.name).join(", ")}
+                                    </span>
+                                  </div>
+                                  <p className="mt-1.5 text-sm font-medium text-white">{insight.title}</p>
+                                  <p className="mt-1 text-xs text-slate-400 line-clamp-2">{insight.description}</p>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="rounded-md border border-dashed border-white/10 bg-slate-900/40 px-3 py-4 text-center text-sm text-slate-400">
+                              Aucun insight lié à ce challenge.
+                            </div>
+                          )}
+                        </CardContent>
+                      </Card>
                     </div>
-                    </>
                   )}
                 </div>
-              </nav>
-            </div>
-          )}
-          <section className="space-y-4">
-            {!activeChallenge ? (
-              <>
-                <div>
-                  <h2 className="text-lg font-semibold text-white">Select a challenge</h2>
-                  <p className="text-sm text-slate-300">
-                    Review the ASKs planned for a challenge, along with the insights and project relationships they generate.
-                  </p>
-                </div>
-                <Card className="border-dashed border-white/10 bg-slate-900/60">
-                  <CardContent className="py-10 text-center text-sm text-slate-300">
-                    Choose a challenge from the list on the left to see its details.
-                  </CardContent>
-                </Card>
-              </>
-            ) : (
-              <>
-                <Card id="foundational-insights" className="border border-emerald-400/40 bg-emerald-500/10">
-                  <button
-                    type="button"
-                    className="w-full text-left"
-                    onClick={() => setIsFoundationalInsightsExpanded(prev => !prev)}
-                  >
-                    <CardHeader className="pb-2">
-                      <div className="flex items-center justify-between">
-                        <CardTitle className="text-lg font-semibold text-white">
-                          Foundational insights
-                          {activeChallengeInsights?.length ? (
-                            <span className="ml-2 text-sm font-normal text-emerald-300">
-                              ({activeChallengeInsights.length})
-                            </span>
-                          ) : null}
-                        </CardTitle>
-                        <ChevronRight
-                          className={cn(
-                            "h-5 w-5 text-emerald-300 transition-transform duration-200",
-                            isFoundationalInsightsExpanded && "rotate-90"
-                          )}
-                        />
-                      </div>
-                      <p className="text-sm text-slate-300">
-                        These insights contributed to framing the challenge "{activeChallenge.title}".
-                      </p>
-                    </CardHeader>
-                  </button>
-                  {isFoundationalInsightsExpanded && <CardContent>
-                    {activeChallengeInsights?.length ? (
-                      <div className="space-y-3">
-                        {activeChallengeInsights.map(insight => (
-                          <div
-                            key={`${insight.id}-${insight.askId}`}
-                            className="rounded-lg border border-emerald-400/40 bg-emerald-500/10 p-4"
-                          >
-                            <div className="flex flex-wrap items-center gap-2 text-xs font-medium text-slate-200">
-                              <span className={cn("rounded-full border px-2 py-0.5", insightTypeClasses[insight.type])}>
-                                {insight.type.toUpperCase()}
-                              </span>
-                              <span className="inline-flex items-center gap-1 text-slate-300">
-                                <Users className="h-3.5 w-3.5 text-slate-400" />
-                                <span className="flex flex-wrap items-center gap-1">
-                                  {insight.contributors.map(contributor => (
-                                    <span
-                                      key={contributor.id || contributor.name}
-                                      className="rounded-full bg-white/10 px-2 py-0.5 font-medium text-white"
-                                    >
-                                      {contributor.name}
-                                    </span>
-                                  ))}
-                                </span>
-                              </span>
-                              <span className="inline-flex items-center gap-1 text-slate-400">
-                                <Calendar className="h-3.5 w-3.5 text-slate-400" />
-                                {formatDate(insight.updatedAt)}
-                              </span>
-                              <span className="inline-flex items-center gap-1 text-slate-300">
-                                <Lightbulb className="h-3.5 w-3.5 text-indigo-300" />
-                                ASK: {insight.askTitle}
-                              </span>
-                            </div>
-                            <p className="mt-2 text-sm font-semibold text-white">{insight.title}</p>
-                            <p className="mt-1 text-sm text-slate-300">{insight.description}</p>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="rounded-md border border-dashed border-white/10 bg-slate-900/60 px-4 py-3 text-sm text-slate-300">
-                        No insights are linked to this challenge yet.
-                      </div>
-                    )}
-                  </CardContent>}
-                </Card>
 
-                <div id="asks-section" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-slate-900/70 px-4 py-3 shadow-sm">
-                  <div>
-                    <h2 className="text-lg font-semibold text-white">
-                      ASKs linked to "{activeChallenge.title}"
-                    </h2>
-                    <p className="text-sm text-slate-300">
-                      Review the ASK sessions planned for this challenge, including the insights gathered and related projects.
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Button
-                      type="button"
-                      size="sm"
-                      className="gap-2 bg-indigo-500 text-white hover:bg-indigo-400"
-                      onClick={() => {
-                        if (isAskFormOpen) {
-                          handleAskCancel();
-                        } else {
-                          handleAskCreateStart();
-                        }
-                      }}
-                      disabled={isSavingAsk || isLoadingAskDetails}
-                    >
-                      {isAskFormOpen ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
-                      {isAskFormOpen ? "Close form" : "Create ASK"}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="glassDark"
-                      className="gap-2"
-                      onClick={handleLaunchAskAiGenerator}
-                      disabled={isAskAiRunning || !activeChallenge}
-                    >
-                      {isAskAiRunning ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Sparkles className="h-4 w-4" />
-                      )}
-                      {isAskAiRunning ? "Generating ASKs" : "Generate ASKs with AI"}
-                    </Button>
-                  </div>
-                </div>
-                <div className="space-y-4">
+                {/* ASKs Tab */}
+                <div className="w-full flex-shrink-0 overflow-y-auto p-5">
+                  {!activeChallenge ? (
+                    <Card className="border-dashed border-white/10 bg-slate-900/60">
+                      <CardContent className="py-10 text-center text-sm text-slate-300">
+                        Choose a challenge from the list to see its details.
+                      </CardContent>
+                    </Card>
+                  ) : (
+                    <div className="space-y-4">
+                      {/* ASKs Header */}
+                      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-emerald-400/30 bg-emerald-500/10 px-4 py-3">
+                        <div>
+                          <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+                            <MessageSquare className="h-4 w-4 text-emerald-400" />
+                            ASKs liées à "{activeChallenge.title}"
+                          </h3>
+                          <p className="text-xs text-slate-400 mt-0.5">
+                            Sessions ASK planifiées pour ce challenge.
+                          </p>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Button
+                            type="button"
+                            size="sm"
+                            className="gap-1.5 bg-emerald-500 text-white hover:bg-emerald-400 h-8 text-xs"
+                            onClick={() => {
+                              if (isAskFormOpen) {
+                                handleAskCancel();
+                              } else {
+                                handleAskCreateStart();
+                              }
+                            }}
+                            disabled={isSavingAsk || isLoadingAskDetails}
+                          >
+                            {isAskFormOpen ? <X className="h-3.5 w-3.5" /> : <Plus className="h-3.5 w-3.5" />}
+                            {isAskFormOpen ? "Fermer" : "Créer ASK"}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="glassDark"
+                            className="gap-1.5 h-8 text-xs"
+                            onClick={handleLaunchAskAiGenerator}
+                            disabled={isAskAiRunning || !activeChallenge}
+                          >
+                            {isAskAiRunning ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Sparkles className="h-3.5 w-3.5" />
+                            )}
+                            {isAskAiRunning ? "Génération..." : "Générer avec IA"}
+                          </Button>
+                        </div>
+                      </div>
+
+                      {/* ASK Cards List */}
+                      <div className="space-y-3">
                   {activeChallengeAsks?.length ? (
                     activeChallengeAsks.map(ask => {
                       const isExpanded = expandedAsks.has(ask.id);
@@ -3954,9 +3877,9 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
                       const { href: answerHref, canAnswer } = getAnswerLinkForAsk(ask);
 
                       return (
-                        <Card key={ask.id} id={`ask-${ask.id}`} className="border border-white/10 bg-slate-900/70 shadow-sm">
+                        <Card key={ask.id} id={`ask-${ask.id}`} className="border border-blue-400/30 bg-blue-500/5 shadow-sm">
                           <CardHeader
-                            className="space-y-3 pb-3 cursor-pointer"
+                            className="space-y-2 pb-2 cursor-pointer"
                             onClick={() => {
                               setExpandedAsks(prev => {
                                 const next = new Set(prev);
@@ -3973,26 +3896,26 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
                               <div className="flex items-start gap-2 flex-1">
                                 <ChevronRight
                                   className={cn(
-                                    "h-4 w-4 text-slate-400 transition-transform shrink-0 mt-1",
+                                    "h-4 w-4 text-blue-400 transition-transform shrink-0 mt-0.5",
                                     isExpanded && "rotate-90"
                                   )}
                                 />
                                 <div className="flex-1 min-w-0">
-                                  <CardTitle className="text-base font-semibold text-white">{ask.title}</CardTitle>
-                                  <div className="flex flex-wrap items-center gap-2 mt-2">
-                                    <span className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/10 px-2 py-0.5 text-xs font-medium text-slate-200">
+                                  <CardTitle className="text-sm font-semibold text-blue-100">{ask.title}</CardTitle>
+                                  <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                                    <span className="inline-flex items-center gap-1 rounded-full border border-blue-400/20 bg-blue-500/10 px-2 py-0.5 text-[10px] font-medium text-blue-200">
                                       <Calendar className="h-3 w-3" /> {formatDate(ask.dueDate)}
                                     </span>
                                     <span className={cn(
                                       "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
-                                      ask.status === "active" ? "bg-emerald-500/20 text-emerald-300" :
+                                      ask.status === "active" ? "bg-blue-500/20 text-blue-300" :
                                       ask.status === "closed" ? "bg-slate-500/20 text-slate-300" :
                                       "bg-amber-500/20 text-amber-300"
                                     )}>
                                       {ask.status}
                                     </span>
-                                    <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2 py-0.5 text-xs text-slate-200">
-                                      <Users className="h-3 w-3" /> {ask.participants?.length ?? 0}
+                                    <span className="inline-flex items-center gap-1 rounded-full bg-blue-500/10 px-2 py-0.5 text-[10px] text-blue-200">
+                                      <Users className="h-2.5 w-2.5" /> {ask.participants?.length ?? 0}
                                     </span>
                                   </div>
                                 </div>
@@ -4002,7 +3925,7 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
                                   <Button
                                     asChild
                                     size="sm"
-                                    className="gap-1 bg-emerald-500 text-white hover:bg-emerald-400 h-8"
+                                    className="gap-1 bg-blue-500 text-white hover:bg-blue-400 h-8"
                                   >
                                     <Link href={answerHref} target="_blank" rel="noopener noreferrer">
                                       <MessageSquare className="h-3.5 w-3.5" />
@@ -4292,16 +4215,17 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
                     );
                     })
                   ) : (
-                    <Card className="border-dashed border-white/10 bg-slate-900/60">
-                      <CardContent className="py-10 text-center text-sm text-slate-300">
-                        No ASK sessions are linked to this challenge yet.
+                    <Card className="border-dashed border-blue-400/20 bg-slate-900/40">
+                      <CardContent className="py-8 text-center text-sm text-slate-400">
+                        Aucune session ASK liée à ce challenge.
                       </CardContent>
                     </Card>
                   )}
+                      </div>
+                    </div>
+                  )}
                 </div>
-              </>
-            )}
-          </section>
+              </div>
             </div>
           </Dialog.Content>
         </Dialog.Portal>
