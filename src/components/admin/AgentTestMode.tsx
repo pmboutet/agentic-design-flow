@@ -2,14 +2,21 @@
 
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Loader2, Play, X } from "lucide-react";
+
+interface ColorScheme {
+  border: string;
+  bg: string;
+  text: string;
+  badge: string;
+}
 
 interface AgentTestModeProps {
   agentId: string;
   agentSlug: string;
   onClose: () => void;
+  colorScheme?: ColorScheme;
 }
 
 interface TestResult {
@@ -60,7 +67,7 @@ function HighlightedPrompt({
   resolvedVariables?: Record<string, string>;
 }) {
   if (!resolvedVariables || Object.keys(resolvedVariables).length === 0) {
-    return <pre className="text-xs whitespace-pre-wrap break-words">{text}</pre>;
+    return <pre className="text-xs whitespace-pre-wrap break-words text-slate-300">{text}</pre>;
   }
 
   // Sort variables by value length (longest first) to avoid partial matches
@@ -69,7 +76,7 @@ function HighlightedPrompt({
     .sort((a, b) => b[1].length - a[1].length);
 
   if (sortedVars.length === 0) {
-    return <pre className="text-xs whitespace-pre-wrap break-words">{text}</pre>;
+    return <pre className="text-xs whitespace-pre-wrap break-words text-slate-300">{text}</pre>;
   }
 
   // Create segments with highlighting
@@ -124,13 +131,13 @@ function HighlightedPrompt({
   }
 
   return (
-    <pre className="text-xs whitespace-pre-wrap break-words">
+    <pre className="text-xs whitespace-pre-wrap break-words text-slate-300">
       {segments.map((segment, index) => {
         if (segment.isVariable) {
           return (
             <span
               key={index}
-              className="bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300 rounded px-0.5 border border-orange-200 dark:border-orange-700/50"
+              className="bg-cyan-500/25 text-cyan-200 rounded px-0.5 border border-cyan-400/50 font-medium"
               title={`Variable: {{${segment.variableName}}}`}
             >
               {segment.text}
@@ -143,7 +150,14 @@ function HighlightedPrompt({
   );
 }
 
-export function AgentTestMode({ agentId, agentSlug, onClose }: AgentTestModeProps) {
+export function AgentTestMode({ agentId, agentSlug, onClose, colorScheme }: AgentTestModeProps) {
+  // Default color scheme (slate/gray) if not provided
+  const colors = colorScheme || {
+    border: "border-slate-400/40",
+    bg: "bg-slate-500/10",
+    text: "text-slate-200",
+    badge: "bg-slate-700 text-slate-200",
+  };
   const [askSessions, setAskSessions] = useState<AskSession[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [challenges, setChallenges] = useState<Challenge[]>([]);
@@ -335,29 +349,29 @@ export function AgentTestMode({ agentId, agentSlug, onClose }: AgentTestModeProp
   };
 
   return (
-    <Card className="border-primary/20 mt-4">
-      <CardHeader>
+    <div className={`rounded-xl ${colors.border} ${colors.bg} mt-4 backdrop-blur-sm`}>
+      <div className="flex flex-col space-y-1.5 p-6">
         <div className="flex items-center justify-between">
           <div>
-            <CardTitle>Mode test</CardTitle>
-            <CardDescription>
+            <h3 className="text-xl font-semibold text-slate-100">Mode test</h3>
+            <p className="text-sm text-slate-400">
               Testez votre agent avec des données réelles pour voir les prompts fusionnés
-            </CardDescription>
+            </p>
           </div>
-          <Button variant="ghost" size="sm" onClick={onClose}>
+          <Button variant="ghost" size="sm" onClick={onClose} className="text-slate-400 hover:text-slate-200 hover:bg-slate-700/50">
             <X className="h-4 w-4" />
           </Button>
         </div>
-      </CardHeader>
-      <CardContent className="space-y-4">
+      </div>
+      <div className="p-6 pt-0 space-y-4">
         {/* Context selectors */}
         <div className="space-y-4">
           {isAskAgent || isInsightAgent ? (
             <>
               <div className="space-y-2">
-                <Label>Sélectionner une session ASK</Label>
+                <Label className="text-slate-300">Sélectionner une session ASK</Label>
                 <select
-                  className="w-full rounded border border-input bg-background px-3 py-2 text-sm"
+                  className="w-full rounded-md border border-slate-600/50 bg-slate-800/60 px-3 py-2 text-sm text-slate-100"
                   value={selectedAskId}
                   onChange={(e) => setSelectedAskId(e.target.value)}
                   disabled={isLoadingData}
@@ -372,9 +386,9 @@ export function AgentTestMode({ agentId, agentSlug, onClose }: AgentTestModeProp
               </div>
               {selectedAskId && (
                 <div className="space-y-2">
-                  <Label>Sélectionner un participant (pour simuler sa perspective)</Label>
+                  <Label className="text-slate-300">Sélectionner un participant (pour simuler sa perspective)</Label>
                   <select
-                    className="w-full rounded border border-input bg-background px-3 py-2 text-sm"
+                    className="w-full rounded-md border border-slate-600/50 bg-slate-800/60 px-3 py-2 text-sm text-slate-100"
                     value={selectedParticipantUserId}
                     onChange={(e) => setSelectedParticipantUserId(e.target.value)}
                     disabled={isLoadingParticipants || participants.length === 0}
@@ -389,15 +403,15 @@ export function AgentTestMode({ agentId, agentSlug, onClose }: AgentTestModeProp
                       ))}
                   </select>
                   {isLoadingParticipants && (
-                    <p className="text-xs text-muted-foreground">Chargement des participants...</p>
+                    <p className="text-xs text-slate-400">Chargement des participants...</p>
                   )}
                   {!isLoadingParticipants && participants.length === 0 && (
-                    <p className="text-xs text-amber-600 dark:text-amber-400">
+                    <p className="text-xs text-amber-400">
                       ⚠️ Aucun participant avec compte utilisateur trouvé pour cette session
                     </p>
                   )}
                   {!isLoadingParticipants && participants.filter(p => p.user_id).length === 0 && participants.length > 0 && (
-                    <p className="text-xs text-amber-600 dark:text-amber-400">
+                    <p className="text-xs text-amber-400">
                       ⚠️ Aucun participant n'a de compte utilisateur lié (user_id)
                     </p>
                   )}
@@ -407,9 +421,9 @@ export function AgentTestMode({ agentId, agentSlug, onClose }: AgentTestModeProp
           ) : isAskGenerator ? (
             <>
               <div className="space-y-2">
-                <Label>Sélectionner un projet</Label>
+                <Label className="text-slate-300">Sélectionner un projet</Label>
                 <select
-                  className="w-full rounded border border-input bg-background px-3 py-2 text-sm"
+                  className="w-full rounded-md border border-slate-600/50 bg-slate-800/60 px-3 py-2 text-sm text-slate-100"
                   value={selectedProjectId}
                   onChange={(e) => setSelectedProjectId(e.target.value)}
                   disabled={isLoadingData}
@@ -423,9 +437,9 @@ export function AgentTestMode({ agentId, agentSlug, onClose }: AgentTestModeProp
                 </select>
               </div>
               <div className="space-y-2">
-                <Label>Sélectionner un challenge</Label>
+                <Label className="text-slate-300">Sélectionner un challenge</Label>
                 <select
-                  className="w-full rounded border border-input bg-background px-3 py-2 text-sm"
+                  className="w-full rounded-md border border-slate-600/50 bg-slate-800/60 px-3 py-2 text-sm text-slate-100"
                   value={selectedChallengeId}
                   onChange={(e) => setSelectedChallengeId(e.target.value)}
                   disabled={!selectedProjectId || isLoadingData}
@@ -442,9 +456,9 @@ export function AgentTestMode({ agentId, agentSlug, onClose }: AgentTestModeProp
           ) : isChallengeBuilder ? (
             <>
               <div className="space-y-2">
-                <Label>Sélectionner un projet</Label>
+                <Label className="text-slate-300">Sélectionner un projet</Label>
                 <select
-                  className="w-full rounded border border-input bg-background px-3 py-2 text-sm"
+                  className="w-full rounded-md border border-slate-600/50 bg-slate-800/60 px-3 py-2 text-sm text-slate-100"
                   value={selectedProjectId}
                   onChange={(e) => setSelectedProjectId(e.target.value)}
                   disabled={isLoadingData}
@@ -458,9 +472,9 @@ export function AgentTestMode({ agentId, agentSlug, onClose }: AgentTestModeProp
                 </select>
               </div>
               <div className="space-y-2">
-                <Label>Sélectionner un challenge</Label>
+                <Label className="text-slate-300">Sélectionner un challenge</Label>
                 <select
-                  className="w-full rounded border border-input bg-background px-3 py-2 text-sm"
+                  className="w-full rounded-md border border-slate-600/50 bg-slate-800/60 px-3 py-2 text-sm text-slate-100"
                   value={selectedChallengeId}
                   onChange={(e) => setSelectedChallengeId(e.target.value)}
                   disabled={!selectedProjectId || isLoadingData}
@@ -476,7 +490,11 @@ export function AgentTestMode({ agentId, agentSlug, onClose }: AgentTestModeProp
             </>
           ) : null}
 
-          <Button onClick={handleTest} disabled={isLoading || isLoadingData} className="w-full">
+          <Button
+            onClick={handleTest}
+            disabled={isLoading || isLoadingData}
+            className={`w-full ${colors.border} ${colors.bg} text-slate-100 hover:bg-slate-700/50`}
+          >
             {isLoading ? (
               <>
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -492,8 +510,8 @@ export function AgentTestMode({ agentId, agentSlug, onClose }: AgentTestModeProp
         </div>
 
         {error && (
-          <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-3">
-            <p className="text-sm text-destructive">{error}</p>
+          <div className="rounded-lg border border-red-400/40 bg-red-500/10 p-3">
+            <p className="text-sm text-red-300">{error}</p>
           </div>
         )}
 
@@ -501,40 +519,40 @@ export function AgentTestMode({ agentId, agentSlug, onClose }: AgentTestModeProp
           <div className="space-y-4 mt-4">
             {/* Metadata Badge */}
             {testResult.metadata && (
-              <div className="flex flex-wrap gap-2 p-3 bg-blue-50 dark:bg-blue-950/20 rounded-lg border border-blue-200 dark:border-blue-800">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-xs font-medium text-blue-700 dark:text-blue-300">📊 Données réelles :</span>
+              <div className="flex flex-wrap gap-2 p-3 bg-slate-800/50 rounded-lg border border-slate-600/40">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="text-xs font-medium text-slate-300">📊 Données réelles :</span>
                   {testResult.metadata.messagesCount !== undefined && (
-                    <span className="text-xs text-blue-600 dark:text-blue-400">
+                    <span className="text-xs text-blue-400">
                       {testResult.metadata.messagesCount} message{testResult.metadata.messagesCount !== 1 ? 's' : ''}
                     </span>
                   )}
                   {testResult.metadata.participantsCount !== undefined && (
                     <>
-                      <span className="text-blue-400 dark:text-blue-600">•</span>
-                      <span className="text-xs text-blue-600 dark:text-blue-400">
+                      <span className="text-slate-500">•</span>
+                      <span className="text-xs text-blue-400">
                         {testResult.metadata.participantsCount} participant{testResult.metadata.participantsCount !== 1 ? 's' : ''}
                       </span>
                     </>
                   )}
                   {testResult.metadata.insightsCount !== undefined && (
                     <>
-                      <span className="text-blue-400 dark:text-blue-600">•</span>
-                      <span className="text-xs text-purple-600 dark:text-purple-400">
+                      <span className="text-slate-500">•</span>
+                      <span className="text-xs text-purple-400">
                         {testResult.metadata.insightsCount} insight{testResult.metadata.insightsCount !== 1 ? 's' : ''} existant{testResult.metadata.insightsCount !== 1 ? 's' : ''}
                       </span>
                     </>
                   )}
                   {testResult.metadata.hasProject && (
                     <>
-                      <span className="text-blue-400 dark:text-blue-600">•</span>
-                      <span className="text-xs text-green-600 dark:text-green-400">✓ Projet</span>
+                      <span className="text-slate-500">•</span>
+                      <span className="text-xs text-emerald-400">✓ Projet</span>
                     </>
                   )}
                   {testResult.metadata.hasChallenge && (
                     <>
-                      <span className="text-blue-400 dark:text-blue-600">•</span>
-                      <span className="text-xs text-green-600 dark:text-green-400">✓ Challenge</span>
+                      <span className="text-slate-500">•</span>
+                      <span className="text-xs text-emerald-400">✓ Challenge</span>
                     </>
                   )}
                 </div>
@@ -542,8 +560,8 @@ export function AgentTestMode({ agentId, agentSlug, onClose }: AgentTestModeProp
             )}
 
             <div className="space-y-2">
-              <Label>System Prompt (fusionné avec données réelles)</Label>
-              <div className="rounded-lg border bg-muted/30 p-3 max-h-64 overflow-y-auto overflow-x-hidden">
+              <Label className="text-slate-300">System Prompt (fusionné avec données réelles)</Label>
+              <div className="rounded-lg border border-slate-600/40 bg-slate-900/50 p-3 max-h-64 overflow-y-auto overflow-x-hidden">
                 <HighlightedPrompt
                   text={testResult.systemPrompt}
                   resolvedVariables={testResult.resolvedVariables}
@@ -551,8 +569,8 @@ export function AgentTestMode({ agentId, agentSlug, onClose }: AgentTestModeProp
               </div>
             </div>
             <div className="space-y-2">
-              <Label>User Prompt (fusionné avec données réelles)</Label>
-              <div className="rounded-lg border bg-muted/30 p-3 max-h-64 overflow-y-auto overflow-x-hidden">
+              <Label className="text-slate-300">User Prompt (fusionné avec données réelles)</Label>
+              <div className="rounded-lg border border-slate-600/40 bg-slate-900/50 p-3 max-h-64 overflow-y-auto overflow-x-hidden">
                 <HighlightedPrompt
                   text={testResult.userPrompt}
                   resolvedVariables={testResult.resolvedVariables}
@@ -561,8 +579,8 @@ export function AgentTestMode({ agentId, agentSlug, onClose }: AgentTestModeProp
             </div>
           </div>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }
 

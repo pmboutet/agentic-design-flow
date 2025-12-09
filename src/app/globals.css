@@ -542,6 +542,111 @@ a.neumorphic-raised:active {
   box-shadow: 0 0 20px hsla(185, 100%, 50%, 0.1), inset 0 1px 0 hsla(185, 100%, 50%, 0.1);
 }
 
+/* Admin form elements - light backgrounds inside cards */
+.admin-layout [class*="CardContent"] input:not([type="checkbox"]):not([type="radio"]),
+.admin-layout [class*="CardContent"] textarea,
+.admin-layout [class*="CardContent"] select {
+  background-color: rgba(255, 255, 255, 0.9) !important;
+  color: #1e293b !important;
+  border-color: #e2e8f0 !important;
+}
+
+.admin-layout [class*="CardContent"] input:not([type="checkbox"]):not([type="radio"])::placeholder,
+.admin-layout [class*="CardContent"] textarea::placeholder {
+  color: #94a3b8 !important;
+}
+
+.admin-layout [class*="CardContent"] input:not([type="checkbox"]):not([type="radio"]):focus,
+.admin-layout [class*="CardContent"] textarea:focus,
+.admin-layout [class*="CardContent"] select:focus {
+  background-color: rgba(255, 255, 255, 0.95) !important;
+  border-color: #94a3b8 !important;
+}
+
+.admin-layout [class*="CardContent"] input:disabled,
+.admin-layout [class*="CardContent"] textarea:disabled,
+.admin-layout [class*="CardContent"] select:disabled {
+  background-color: rgba(241, 245, 249, 0.9) !important;
+  color: #64748b !important;
+}
+
+/* Admin select option styling */
+.admin-layout [class*="CardContent"] select option {
+  background-color: white;
+  color: #1e293b;
+}
+
+/* Admin labels inside cards */
+.admin-layout [class*="CardContent"] label {
+  color: #475569;
+}
+
+/* Admin Card light backgrounds with transparency */
+.admin-layout .bg-card {
+  background-color: rgba(255, 255, 255, 0.92) !important;
+  color: #1e293b !important;
+  border-color: rgba(226, 232, 240, 0.8) !important;
+  backdrop-filter: blur(8px);
+}
+
+.admin-layout .bg-card h3,
+.admin-layout .bg-card .text-2xl {
+  color: #0f172a !important;
+}
+
+.admin-layout .bg-card .text-muted-foreground {
+  color: #64748b !important;
+}
+
+.admin-layout .bg-card .text-sm {
+  color: #475569;
+}
+
+/* Admin Card stat boxes with colored backgrounds */
+.admin-layout .bg-slate-50,
+.admin-layout .bg-emerald-50,
+.admin-layout .bg-blue-50,
+.admin-layout .bg-red-50,
+.admin-layout .bg-orange-500\/10,
+.admin-layout .bg-muted\/30,
+.admin-layout .bg-muted\/20 {
+  backdrop-filter: blur(4px);
+}
+
+.admin-layout .bg-slate-50 {
+  background-color: rgba(248, 250, 252, 0.9) !important;
+}
+
+.admin-layout .bg-emerald-50 {
+  background-color: rgba(236, 253, 245, 0.9) !important;
+}
+
+.admin-layout .bg-blue-50 {
+  background-color: rgba(239, 246, 255, 0.9) !important;
+}
+
+.admin-layout .bg-red-50 {
+  background-color: rgba(254, 242, 242, 0.9) !important;
+}
+
+/* Admin colored border cards with light backgrounds */
+.admin-layout [class*="border-orange"],
+.admin-layout [class*="border-primary"],
+.admin-layout [class*="border-destructive"] {
+  background-color: rgba(255, 255, 255, 0.9) !important;
+  color: #1e293b !important;
+}
+
+.admin-layout [class*="border-orange"] .bg-white\/60 {
+  background-color: rgba(255, 255, 255, 0.8) !important;
+}
+
+/* Admin muted backgrounds */
+.admin-layout .bg-muted\/30,
+.admin-layout .bg-muted\/20 {
+  background-color: rgba(241, 245, 249, 0.8) !important;
+}
+
 /* Admin neumorphic */
 .admin-layout .neumorphic-shadow {
   background: linear-gradient(145deg, hsla(230, 30%, 15%, 0.9), hsla(230, 25%, 10%, 0.9));
@@ -622,6 +727,13 @@ a.neumorphic-raised:active {
   background: linear-gradient(135deg, hsla(230, 30%, 12%, 0.9) 0%, hsla(320, 25%, 10%, 0.95) 100%);
   border: 1px solid hsla(320, 100%, 60%, 0.3);
   box-shadow: 0 0 30px hsla(320, 100%, 60%, 0.15);
+}
+
+.neon-card-red {
+  @apply backdrop-blur-md rounded-2xl;
+  background: linear-gradient(135deg, hsla(230, 30%, 12%, 0.9) 0%, hsla(0, 25%, 10%, 0.95) 100%);
+  border: 1px solid hsla(0, 100%, 50%, 0.3);
+  box-shadow: 0 0 30px hsla(0, 100%, 50%, 0.15);
 }
 
 /* Admin complex gradient backgrounds */

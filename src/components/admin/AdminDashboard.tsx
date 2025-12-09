@@ -3383,7 +3383,7 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                 )}
               </section>
             ) : (
-              <div className="flex flex-1 flex-col min-h-0">
+              <div className="flex flex-1 flex-col min-h-0 space-y-8">
                 {!showOnlyChallengeWorkspace && (
                   <section ref={dashboardRef} id="section-dashboard">
                     <div className="flex items-center justify-between">

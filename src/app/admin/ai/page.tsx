@@ -1089,7 +1089,7 @@ export default function AiConfigurationPage() {
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Configuration des agents IA</h1>
-          <p className="text-muted-foreground">Gérez les prompts et l'association aux modèles.</p>
+          <p className="text-slate-400">Gérez les prompts et l'association aux modèles.</p>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" onClick={handleToggleCreateForm} disabled={newAgent.isSaving}>
@@ -1179,9 +1179,9 @@ export default function AiConfigurationPage() {
 
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
-                <Label>Modèle principal</Label>
+                <Label className="text-slate-300">Modèle principal</Label>
                 <select
-                  className="w-full rounded border border-input bg-background px-3 py-2 text-sm"
+                  className="w-full rounded border border-slate-600/50 bg-slate-800/60 px-3 py-2 text-sm text-slate-100"
                   value={newAgent.modelConfigId ?? ''}
                   onChange={event => handleNewAgentModelChange("primary", event.target.value)}
                   disabled={newAgent.isSaving}
@@ -1195,9 +1195,9 @@ export default function AiConfigurationPage() {
                 </select>
               </div>
               <div className="space-y-2">
-                <Label>Modèle de secours</Label>
+                <Label className="text-slate-300">Modèle de secours</Label>
                 <select
-                  className="w-full rounded border border-input bg-background px-3 py-2 text-sm"
+                  className="w-full rounded border border-slate-600/50 bg-slate-800/60 px-3 py-2 text-sm text-slate-100"
                   value={newAgent.fallbackModelConfigId ?? ''}
                   onChange={event => handleNewAgentModelChange("fallback", event.target.value)}
                   disabled={newAgent.isSaving}
@@ -1220,20 +1220,20 @@ export default function AiConfigurationPage() {
                   checked={newAgent.voice}
                   onChange={event => setNewAgent(prev => ({ ...prev, voice: event.target.checked }))}
                   disabled={newAgent.isSaving}
-                  className="h-4 w-4 rounded border-gray-300"
+                  className="h-4 w-4 rounded border-slate-600 bg-slate-700"
                 />
-                <Label htmlFor="new-agent-voice" className="cursor-pointer">
+                <Label htmlFor="new-agent-voice" className="cursor-pointer text-slate-200">
                   Agent vocal (utilise voiceAgentProvider du modèle)
                 </Label>
               </div>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-xs text-slate-400">
                 Si activé, l'agent utilisera le voiceAgentProvider du modèle configuré. Sinon, il utilisera le provider normal (texte/JSON).
               </p>
             </div>
 
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="new-agent-system">System prompt</Label>
+                <Label htmlFor="new-agent-system" className="text-slate-300">System prompt</Label>
                 <AutoResizeTextarea
                   id="new-agent-system"
                   value={newAgent.systemPrompt}
@@ -1242,7 +1242,7 @@ export default function AiConfigurationPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="new-agent-user">User prompt</Label>
+                <Label htmlFor="new-agent-user" className="text-slate-300">User prompt</Label>
                 <AutoResizeTextarea
                   id="new-agent-user"
                   value={newAgent.userPrompt}
@@ -1265,7 +1265,7 @@ export default function AiConfigurationPage() {
                   
                   if (detectedVars.length === 0) {
                     return (
-                      <p className="text-xs text-muted-foreground">
+                      <p className="text-xs text-slate-400">
                         Aucune variable détectée. Utilisez {"{{variable}}"} dans vos prompts.
                       </p>
                     );
@@ -1308,31 +1308,30 @@ export default function AiConfigurationPage() {
       )}
 
       {/* System Services Section */}
-      <Card className="border-orange-400/40 bg-orange-500/10">
-        <CardHeader>
-          <div className="flex items-center gap-2">
-            <Settings className="h-5 w-5" />
-            <CardTitle className="text-orange-700 dark:text-orange-200">Services Système</CardTitle>
-          </div>
-          <CardDescription>
-            Workers et services système pour le monitoring et la sécurité.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="rounded-lg border border-orange-400/40 p-4 bg-white/60">
+      <div className="rounded-xl border border-red-400/40 bg-red-500/10 p-6 backdrop-blur-sm">
+        <div className="flex items-center gap-2 mb-2">
+          <Settings className="h-5 w-5 text-red-400" />
+          <h3 className="text-lg font-semibold text-red-400">Services Système</h3>
+        </div>
+        <p className="text-sm text-slate-400 mb-4">
+          Workers et services système pour le monitoring et la sécurité.
+        </p>
+        <div className="space-y-4">
+          <div className="rounded-lg border border-red-400/30 p-4 bg-slate-800/50">
             <div className="flex items-center justify-between mb-2">
-              <h4 className="font-semibold">Worker de Surveillance Sécurité</h4>
-              <span className="text-xs px-2 py-1 rounded bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200">
+              <h4 className="font-semibold text-slate-100">Worker de Surveillance Sécurité</h4>
+              <span className="text-xs px-2 py-1 rounded bg-red-500/20 text-red-300 border border-red-400/30">
                 Worker
               </span>
             </div>
-            <p className="text-sm text-muted-foreground mb-3">
+            <p className="text-sm text-slate-400 mb-3">
               Traite la queue de monitoring asynchrone pour analyser les messages et détecter les contenus malveillants.
             </p>
             <div className="flex gap-2">
               <Button
                 variant="outline"
                 size="sm"
+                className="border-red-400/40 bg-red-500/20 text-red-300 hover:bg-red-500/30"
                 onClick={async () => {
                   try {
                     const response = await fetch('/api/admin/security/process-queue', {
@@ -1357,46 +1356,45 @@ export default function AiConfigurationPage() {
               <Button
                 variant="outline"
                 size="sm"
+                className="border-slate-500/40 bg-slate-800/50 text-slate-200 hover:bg-slate-700/50"
                 onClick={() => window.open('/admin', '_blank')}
               >
                 Voir Security Panel
               </Button>
             </div>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
 
       {/* Graph RAG Section */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center gap-2">
-            <Network className="h-5 w-5" />
-            <CardTitle>Graph RAG - Construction du graphe</CardTitle>
-          </div>
-          <CardDescription>
-            Construire le graphe de connaissances pour les insights existants (embeddings, entités, relations).
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
+      <div className="rounded-xl border border-cyan-400/40 bg-cyan-500/10 p-6 backdrop-blur-sm">
+        <div className="flex items-center gap-2 mb-2">
+          <Network className="h-5 w-5 text-cyan-400" />
+          <h3 className="text-lg font-semibold text-cyan-400">Graph RAG - Construction du graphe</h3>
+        </div>
+        <p className="text-sm text-slate-400 mb-4">
+          Construire le graphe de connaissances pour les insights existants (embeddings, entités, relations).
+        </p>
+        <div className="space-y-4">
           {isLoadingGraphStats ? (
-            <p className="text-sm text-muted-foreground">Chargement des statistiques...</p>
+            <p className="text-sm text-slate-400">Chargement des statistiques...</p>
           ) : graphStats ? (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div className="rounded-lg border p-3 bg-muted/30">
-                <p className="text-xs text-muted-foreground">Total insights</p>
-                <p className="text-lg font-semibold">{graphStats.totalInsights}</p>
+              <div className="rounded-lg border border-slate-600/40 p-3 bg-slate-800/50">
+                <p className="text-xs text-slate-400">Total insights</p>
+                <p className="text-lg font-semibold text-slate-100">{graphStats.totalInsights}</p>
               </div>
-              <div className="rounded-lg border p-3 bg-muted/30">
-                <p className="text-xs text-muted-foreground">Avec embeddings</p>
-                <p className="text-lg font-semibold">{graphStats.insightsWithEmbeddings}</p>
+              <div className="rounded-lg border border-slate-600/40 p-3 bg-slate-800/50">
+                <p className="text-xs text-slate-400">Avec embeddings</p>
+                <p className="text-lg font-semibold text-slate-100">{graphStats.insightsWithEmbeddings}</p>
               </div>
-              <div className="rounded-lg border p-3 bg-muted/30">
-                <p className="text-xs text-muted-foreground">Avec entités</p>
-                <p className="text-lg font-semibold">{graphStats.insightsWithEntities}</p>
+              <div className="rounded-lg border border-slate-600/40 p-3 bg-slate-800/50">
+                <p className="text-xs text-slate-400">Avec entités</p>
+                <p className="text-lg font-semibold text-slate-100">{graphStats.insightsWithEntities}</p>
               </div>
-              <div className="rounded-lg border p-3 bg-muted/30">
-                <p className="text-xs text-muted-foreground">Arêtes du graphe</p>
-                <p className="text-lg font-semibold">{graphStats.graphEdges}</p>
+              <div className="rounded-lg border border-slate-600/40 p-3 bg-slate-800/50">
+                <p className="text-xs text-slate-400">Arêtes du graphe</p>
+                <p className="text-lg font-semibold text-slate-100">{graphStats.graphEdges}</p>
               </div>
             </div>
           ) : null}
@@ -1405,7 +1403,7 @@ export default function AiConfigurationPage() {
             <Button
               onClick={handleBuildGraph}
               disabled={isBuildingGraph}
-              className="gap-2"
+              className="gap-2 border-cyan-400/40 bg-cyan-500/20 text-cyan-300 hover:bg-cyan-500/30"
             >
               {isBuildingGraph ? (
                 <>
@@ -1423,7 +1421,7 @@ export default function AiConfigurationPage() {
               onClick={loadGraphStats}
               variant="outline"
               disabled={isLoadingGraphStats}
-              className="gap-2"
+              className="gap-2 border-slate-500/40 bg-slate-800/50 text-slate-200 hover:bg-slate-700/50"
             >
               {isLoadingGraphStats ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -1434,32 +1432,31 @@ export default function AiConfigurationPage() {
           </div>
 
           {graphBuildResult && (
-            <p className="text-sm text-emerald-600">{graphBuildResult}</p>
+            <p className="text-sm text-emerald-400">{graphBuildResult}</p>
           )}
           {graphBuildError && (
-            <p className="text-sm text-destructive">{graphBuildError}</p>
+            <p className="text-sm text-red-400">{graphBuildError}</p>
           )}
 
-          <div className="rounded-lg border p-4 bg-muted/20">
-            <p className="text-xs text-muted-foreground">
-              <strong>Note :</strong> Cette opération traite les insights sans embeddings par lots de 100.
+          <div className="rounded-lg border border-slate-600/40 p-4 bg-slate-800/30">
+            <p className="text-xs text-slate-400">
+              <strong className="text-slate-300">Note :</strong> Cette opération traite les insights sans embeddings par lots de 100.
               Pour chaque insight, elle génère les embeddings, extrait les entités (mots-clés, concepts, thèmes),
               et construit les arêtes du graphe (similarités, relations conceptuelles, liens aux challenges).
             </p>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
 
       {/* Models Configuration Section */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle>Configurations des modèles IA</CardTitle>
-              <CardDescription>
-                Gérez les configurations des modèles, y compris les paramètres Deepgram Voice Agent.
-              </CardDescription>
-            </div>
+      <div className="rounded-xl border border-amber-400/40 bg-amber-500/10 p-6 backdrop-blur-sm">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="text-lg font-semibold text-amber-400">Configurations des modèles IA</h3>
+            <p className="text-sm text-slate-400">
+              Gérez les configurations des modèles, y compris les paramètres Deepgram Voice Agent.
+            </p>
+          </div>
             <Button
               variant="outline"
               onClick={() => {
@@ -1495,14 +1492,11 @@ export default function AiConfigurationPage() {
               {isCreatingModel ? "Fermer" : "Nouveau"}
             </Button>
           </div>
-        </CardHeader>
-        <CardContent>
+
           {isCreatingModel && (
-            <Card className="border-2 border-dashed mb-4">
-              <CardHeader>
-                <CardTitle className="text-lg">Nouveau modèle IA</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
+            <div className="rounded-lg border border-amber-400/30 border-dashed p-4 mb-4 bg-slate-800/50">
+              <h4 className="text-md font-semibold text-slate-100 mb-4">Nouveau modèle IA</h4>
+              <div className="space-y-4">
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="space-y-2">
                     <Label htmlFor="new-model-code">Code *</Label>
@@ -1526,7 +1520,7 @@ export default function AiConfigurationPage() {
                     <Label htmlFor="new-model-provider">Provider *</Label>
                     <select
                       id="new-model-provider"
-                      className="w-full rounded border border-input bg-background px-3 py-2 text-sm"
+                      className="w-full rounded border border-slate-600/50 bg-slate-800/60 px-3 py-2 text-sm text-slate-100"
                       value={newModel.provider}
                       onChange={(e) => setNewModel(prev => ({ ...prev, provider: e.target.value, error: null }))}
                     >
@@ -1611,7 +1605,7 @@ export default function AiConfigurationPage() {
                       <Label htmlFor="new-model-enable-thinking" className="cursor-pointer">
                         Activer Claude Extended Thinking
                       </Label>
-                      <p className="text-xs text-muted-foreground">
+                      <p className="text-xs text-slate-400">
                         Autorise Claude à raisonner plus longtemps avant de répondre (min 1024 tokens dédiés).
                       </p>
                     </div>
@@ -1634,7 +1628,7 @@ export default function AiConfigurationPage() {
                         }));
                       }}
                     />
-                    <p className="text-xs text-muted-foreground">
+                    <p className="text-xs text-slate-400">
                       Budget disponible pour le raisonnement interne (par défaut 10k tokens).
                     </p>
                   </div>
@@ -1754,27 +1748,26 @@ export default function AiConfigurationPage() {
                     Annuler
                   </Button>
                 </div>
-              </CardContent>
-            </Card>
+              </div>
+            </div>
           )}
           {models.length === 0 ? (
-            <p className="text-muted-foreground">Aucun modèle configuré.</p>
+            <p className="text-slate-400">Aucun modèle configuré.</p>
           ) : (
             <div className="space-y-4">
               {models.map(model => {
                 const isCollapsed = collapsedModels.has(model.id);
                 return (
-                <Card key={model.id} className="border">
-                  <CardHeader>
-                    <div className="flex items-center justify-between">
-                      <div className="flex-1">
-                        <CardTitle className="text-lg">{model.name}</CardTitle>
-                        <CardDescription>
-                          {model.code} • {model.provider} • {model.model}
-                          {model.isDefault && <span className="ml-2 text-primary">(Par défaut)</span>}
-                          {model.isFallback && <span className="ml-2 text-muted-foreground">(Secours)</span>}
-                        </CardDescription>
-                      </div>
+                <div key={model.id} className="rounded-lg border border-amber-400/30 p-4 bg-slate-800/50">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex-1">
+                      <h4 className="font-semibold text-slate-100">{model.name}</h4>
+                      <p className="text-sm text-slate-400">
+                        {model.code} • {model.provider} • {model.model}
+                        {model.isDefault && <span className="ml-2 text-amber-400">(Par défaut)</span>}
+                        {model.isFallback && <span className="ml-2 text-slate-500">(Secours)</span>}
+                      </p>
+                    </div>
                       <Button
                         variant="ghost"
                         size="sm"
@@ -1804,11 +1797,10 @@ export default function AiConfigurationPage() {
                         )}
                       </Button>
                     </div>
-                  </CardHeader>
                   {!isCollapsed && (
-                  <CardContent className="space-y-4">
+                  <div className="space-y-4 mt-4">
                     {/* Section 1: Agent Principal */}
-                    <div className="border rounded-lg overflow-hidden bg-card">
+                    <div className="border border-slate-600/40 rounded-lg overflow-hidden bg-slate-800/30">
                       <button
                         type="button"
                         onClick={(e) => {
@@ -1816,38 +1808,38 @@ export default function AiConfigurationPage() {
                           e.stopPropagation();
                           toggleModelSection(model.id, "agent");
                         }}
-                        className="w-full flex items-center justify-between p-4 hover:bg-muted/50 transition cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary/20"
+                        className="w-full flex items-center justify-between p-4 hover:bg-slate-700/30 transition cursor-pointer focus:outline-none focus:ring-2 focus:ring-amber-400/20"
                       >
-                        <h4 className="text-sm font-semibold">1. Agent Principal</h4>
+                        <h4 className="text-sm font-semibold text-slate-100">1. Agent Principal</h4>
                         {isModelSectionCollapsed(model.id, "agent") ? (
-                          <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                          <ChevronDown className="h-4 w-4 text-slate-400" />
                         ) : (
-                          <ChevronUp className="h-4 w-4 text-muted-foreground" />
+                          <ChevronUp className="h-4 w-4 text-slate-400" />
                         )}
                       </button>
                       {!isModelSectionCollapsed(model.id, "agent") && (
-                        <div className="p-4 pt-0 space-y-4 border-t">
+                        <div className="p-4 pt-0 space-y-4 border-t border-slate-600/40">
                           <div className="grid gap-4 md:grid-cols-2">
                             <div className="space-y-2">
-                              <Label>Provider</Label>
-                              <Input value={model.provider} disabled />
+                              <Label className="text-slate-300">Provider</Label>
+                              <Input value={model.provider} disabled className="bg-slate-800/60 border-slate-600/50 text-slate-100" />
                             </div>
                             <div className="space-y-2">
-                              <Label>Modèle</Label>
-                              <Input value={model.model} disabled />
+                              <Label className="text-slate-300">Modèle</Label>
+                              <Input value={model.model} disabled className="bg-slate-800/60 border-slate-600/50 text-slate-100" />
                             </div>
                             <div className="space-y-2">
-                              <Label>Base URL</Label>
-                              <Input value={model.baseUrl || ''} disabled />
+                              <Label className="text-slate-300">Base URL</Label>
+                              <Input value={model.baseUrl || ''} disabled className="bg-slate-800/60 border-slate-600/50 text-slate-100" />
                             </div>
                             <div className="space-y-2">
-                              <Label>Variable d'environnement API Key</Label>
-                              <Input value={model.apiKeyEnvVar} disabled />
+                              <Label className="text-slate-300">Variable d'environnement API Key</Label>
+                              <Input value={model.apiKeyEnvVar} disabled className="bg-slate-800/60 border-slate-600/50 text-slate-100" />
                             </div>
                           </div>
 
                           {/* Claude Extended Thinking */}
-                          <div className="space-y-3 rounded-lg border p-4">
+                          <div className="space-y-3 rounded-lg border border-slate-600/40 p-4 bg-slate-800/30">
                             <div className="flex items-center gap-2">
                               <input
                                 type="checkbox"
@@ -1868,25 +1860,26 @@ export default function AiConfigurationPage() {
                                       : m
                                   ));
                                 }}
-                                className="rounded border-gray-300"
+                                className="rounded border-slate-600 bg-slate-700"
                               />
                               <div>
-                                <Label htmlFor={`enable-thinking-${model.id}`} className="cursor-pointer">
+                                <Label htmlFor={`enable-thinking-${model.id}`} className="cursor-pointer text-slate-200">
                                   Activer Claude Extended Thinking
                                 </Label>
-                                <p className="text-xs text-muted-foreground">
+                                <p className="text-xs text-slate-400">
                                   Permet à Claude de raisonner plus longtemps avant de répondre.
                                 </p>
                               </div>
                             </div>
                             <div className="space-y-2 md:w-1/2">
-                              <Label htmlFor={`thinking-budget-${model.id}`}>Budget Thinking (tokens)</Label>
+                              <Label htmlFor={`thinking-budget-${model.id}`} className="text-slate-300">Budget Thinking (tokens)</Label>
                               <Input
                                 id={`thinking-budget-${model.id}`}
                                 type="number"
                                 min={1024}
                                 step={512}
                                 disabled={!model.enableThinkingDraft}
+                                className="bg-slate-800/60 border-slate-600/50 text-slate-100"
                                 value={
                                   model.enableThinkingDraft
                                     ? (model.thinkingBudgetTokensDraft ?? 10000)
@@ -1905,21 +1898,21 @@ export default function AiConfigurationPage() {
                                   ));
                                 }}
                               />
-                              <p className="text-xs text-muted-foreground">
+                              <p className="text-xs text-slate-400">
                                 Minimum 1024 tokens, valeur recommandée : 10k.
                               </p>
                             </div>
                           </div>
-                          
+
                           {/* Sélecteur Voice Agent Provider */}
                           {/* Afficher pour tous les modèles qui peuvent être utilisés avec un voice agent */}
-                          <div className="space-y-2 border-t pt-4">
-                            <Label htmlFor={`voice-agent-provider-${model.id}`}>
+                          <div className="space-y-2 border-t border-slate-600/40 pt-4">
+                            <Label htmlFor={`voice-agent-provider-${model.id}`} className="text-slate-300">
                               Voice Agent Provider
                             </Label>
                             <select
                               id={`voice-agent-provider-${model.id}`}
-                              className="w-full rounded border border-input bg-background px-3 py-2 text-sm"
+                              className="w-full rounded border border-slate-600/50 bg-slate-800/60 px-3 py-2 text-sm text-slate-100"
                               value={model.voiceAgentProviderDraft || ''}
                               onChange={(e) => {
                                 const value = e.target.value as "deepgram-voice-agent" | "speechmatics-voice-agent" | undefined;
@@ -1934,49 +1927,50 @@ export default function AiConfigurationPage() {
                               <option value="deepgram-voice-agent">Deepgram Voice Agent</option>
                               <option value="speechmatics-voice-agent">Speechmatics Voice Agent</option>
                             </select>
-                            <p className="text-xs text-muted-foreground">
+                            <p className="text-xs text-slate-400">
                               Sélectionnez le provider pour le voice agent (Deepgram ou Speechmatics). Utilisé pour déterminer quel agent voice utiliser avec ce modèle.
                             </p>
                           </div>
 
                           {/* Configuration Deepgram Voice Agent */}
                           {model.voiceAgentProviderDraft === "deepgram-voice-agent" && (
-                            <div className="space-y-4 border-t pt-4">
-                              <h5 className="text-sm font-semibold">Configuration Deepgram Voice Agent</h5>
+                            <div className="space-y-4 border-t border-slate-600/40 pt-4">
+                              <h5 className="text-sm font-semibold text-slate-200">Configuration Deepgram Voice Agent</h5>
                               <div className="grid gap-4 md:grid-cols-2">
                                 <div className="space-y-2">
-                                  <Label htmlFor={`deepgram-llm-model-${model.id}`}>
+                                  <Label htmlFor={`deepgram-llm-model-${model.id}`} className="text-slate-300">
                                     Modèle LLM Deepgram
                                   </Label>
                                   <Input
                                     id={`deepgram-llm-model-${model.id}`}
                                     placeholder="ex: claude-3-5-haiku-latest, gpt-4o"
+                                    className="bg-slate-800/60 border-slate-600/50 text-slate-100 placeholder:text-slate-500"
                                     value={model.deepgramLlmModelDraft || ''}
                                     onChange={(e) => {
                                       const value = e.target.value.trim() || undefined;
-                                      setModels(prev => prev.map(m => 
-                                        m.id === model.id 
+                                      setModels(prev => prev.map(m =>
+                                        m.id === model.id
                                           ? { ...m, deepgramLlmModelDraft: value, saveSuccess: false }
                                           : m
                                       ));
                                     }}
                                   />
-                                  <p className="text-xs text-muted-foreground">
+                                  <p className="text-xs text-slate-400">
                                     Modèle LLM pour Deepgram Voice Agent
                                   </p>
                                 </div>
                                 <div className="space-y-2">
-                                  <Label htmlFor={`deepgram-llm-provider-${model.id}`}>
+                                  <Label htmlFor={`deepgram-llm-provider-${model.id}`} className="text-slate-300">
                                     Provider LLM Deepgram
                                   </Label>
                                   <select
                                     id={`deepgram-llm-provider-${model.id}`}
-                                    className="w-full rounded border border-input bg-background px-3 py-2 text-sm"
+                                    className="w-full rounded border border-slate-600/50 bg-slate-800/60 px-3 py-2 text-sm text-slate-100"
                                     value={model.deepgramLlmProviderDraft || ''}
                                     onChange={(e) => {
                                       const value = e.target.value || undefined;
-                                      setModels(prev => prev.map(m => 
-                                        m.id === model.id 
+                                      setModels(prev => prev.map(m =>
+                                        m.id === model.id
                                           ? { ...m, deepgramLlmProviderDraft: (value as "anthropic" | "openai") || undefined, saveSuccess: false }
                                           : m
                                       ));
@@ -1988,44 +1982,46 @@ export default function AiConfigurationPage() {
                                   </select>
                                 </div>
                                 <div className="space-y-2">
-                                  <Label htmlFor={`deepgram-stt-model-agent-${model.id}`}>
+                                  <Label htmlFor={`deepgram-stt-model-agent-${model.id}`} className="text-slate-300">
                                     Modèle STT Deepgram
                                   </Label>
                                   <Input
                                     id={`deepgram-stt-model-agent-${model.id}`}
                                     placeholder="ex: nova-2, nova-3"
+                                    className="bg-slate-800/60 border-slate-600/50 text-slate-100 placeholder:text-slate-500"
                                     value={model.deepgramSttModelDraft || ''}
                                     onChange={(e) => {
                                       const value = e.target.value.trim() || undefined;
-                                      setModels(prev => prev.map(m => 
-                                        m.id === model.id 
+                                      setModels(prev => prev.map(m =>
+                                        m.id === model.id
                                           ? { ...m, deepgramSttModelDraft: value, saveSuccess: false }
                                           : m
                                       ));
                                     }}
                                   />
-                                  <p className="text-xs text-muted-foreground">
+                                  <p className="text-xs text-slate-400">
                                     Modèle Speech-to-Text Deepgram (ex: nova-2, nova-3)
                                   </p>
                                 </div>
                                 <div className="space-y-2">
-                                  <Label htmlFor={`deepgram-tts-model-agent-${model.id}`}>
+                                  <Label htmlFor={`deepgram-tts-model-agent-${model.id}`} className="text-slate-300">
                                     Modèle TTS Deepgram
                                   </Label>
                                   <Input
                                     id={`deepgram-tts-model-agent-${model.id}`}
                                     placeholder="ex: aura-2-thalia-en, aura-2-asteria-en"
+                                    className="bg-slate-800/60 border-slate-600/50 text-slate-100 placeholder:text-slate-500"
                                     value={model.deepgramTtsModelDraft || ''}
                                     onChange={(e) => {
                                       const value = e.target.value.trim() || undefined;
-                                      setModels(prev => prev.map(m => 
-                                        m.id === model.id 
+                                      setModels(prev => prev.map(m =>
+                                        m.id === model.id
                                           ? { ...m, deepgramTtsModelDraft: value, saveSuccess: false }
                                           : m
                                       ));
                                     }}
                                   />
-                                  <p className="text-xs text-muted-foreground">
+                                  <p className="text-xs text-slate-400">
                                     Modèle Text-to-Speech Deepgram (ex: aura-2-thalia-en)
                                   </p>
                                 </div>
@@ -2035,37 +2031,38 @@ export default function AiConfigurationPage() {
 
                           {/* Configuration Speechmatics Voice Agent */}
                           {model.voiceAgentProviderDraft === "speechmatics-voice-agent" && (
-                            <div className="space-y-4 border-t pt-4">
-                              <h5 className="text-sm font-semibold">Configuration Speechmatics Voice Agent</h5>
+                            <div className="space-y-4 border-t border-slate-600/40 pt-4">
+                              <h5 className="text-sm font-semibold text-slate-200">Configuration Speechmatics Voice Agent</h5>
                               <div className="grid gap-4 md:grid-cols-2">
                                 <div className="space-y-2">
-                                  <Label htmlFor={`speechmatics-llm-model-agent-${model.id}`}>
+                                  <Label htmlFor={`speechmatics-llm-model-agent-${model.id}`} className="text-slate-300">
                                     Modèle LLM Speechmatics
                                   </Label>
                                   <Input
                                     id={`speechmatics-llm-model-agent-${model.id}`}
                                     placeholder="ex: claude-3-5-haiku-latest, gpt-4o"
+                                    className="bg-slate-800/60 border-slate-600/50 text-slate-100 placeholder:text-slate-500"
                                     value={model.speechmaticsLlmModelDraft || ''}
                                     onChange={(e) => {
                                       const value = e.target.value.trim() || undefined;
-                                      setModels(prev => prev.map(m => 
-                                        m.id === model.id 
+                                      setModels(prev => prev.map(m =>
+                                        m.id === model.id
                                           ? { ...m, speechmaticsLlmModelDraft: value, saveSuccess: false }
                                           : m
                                       ));
                                     }}
                                   />
-                                  <p className="text-xs text-muted-foreground">
+                                  <p className="text-xs text-slate-400">
                                     Modèle LLM pour Speechmatics Voice Agent
                                   </p>
                                 </div>
                                 <div className="space-y-2">
-                                  <Label htmlFor={`speechmatics-llm-provider-agent-${model.id}`}>
+                                  <Label htmlFor={`speechmatics-llm-provider-agent-${model.id}`} className="text-slate-300">
                                     Provider LLM Speechmatics
                                   </Label>
                                   <select
                                     id={`speechmatics-llm-provider-agent-${model.id}`}
-                                    className="w-full rounded border border-input bg-background px-3 py-2 text-sm"
+                                    className="w-full rounded border border-slate-600/50 bg-slate-800/60 px-3 py-2 text-sm text-slate-100"
                                     value={model.speechmaticsLlmProviderDraft || ''}
                                     onChange={(e) => {
                                       const value = e.target.value || undefined;
@@ -2082,23 +2079,24 @@ export default function AiConfigurationPage() {
                                   </select>
                                 </div>
                                 <div className="space-y-2">
-                                  <Label htmlFor={`speechmatics-api-key-env-${model.id}`}>
+                                  <Label htmlFor={`speechmatics-api-key-env-${model.id}`} className="text-slate-300">
                                     Variable d'environnement API Key Speechmatics
                                   </Label>
                                   <Input
                                     id={`speechmatics-api-key-env-${model.id}`}
                                     placeholder="SPEECHMATICS_API_KEY"
+                                    className="bg-slate-800/60 border-slate-600/50 text-slate-100 placeholder:text-slate-500"
                                     value={model.speechmaticsApiKeyEnvVarDraft || ''}
                                     onChange={(e) => {
                                       const value = e.target.value.trim() || undefined;
-                                      setModels(prev => prev.map(m => 
-                                        m.id === model.id 
+                                      setModels(prev => prev.map(m =>
+                                        m.id === model.id
                                           ? { ...m, speechmaticsApiKeyEnvVarDraft: value, saveSuccess: false }
                                           : m
                                       ));
                                     }}
                                   />
-                                  <p className="text-xs text-muted-foreground">
+                                  <p className="text-xs text-slate-400">
                                     Nom de la variable d'environnement pour la clé API Speechmatics
                                   </p>
                                 </div>
@@ -2110,7 +2108,7 @@ export default function AiConfigurationPage() {
                     </div>
 
                     {/* Section 2: Agent STT Associé */}
-                    <div className="border rounded-lg overflow-hidden bg-card">
+                    <div className="border border-slate-600/40 rounded-lg overflow-hidden bg-slate-800/30">
                       <button
                         type="button"
                         onClick={(e) => {
@@ -2119,22 +2117,22 @@ export default function AiConfigurationPage() {
                           console.log('[STT Button] Clicked for model:', model.id);
                           toggleModelSection(model.id, "stt");
                         }}
-                        className="w-full flex items-center justify-between p-4 hover:bg-muted/50 transition cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary/20 active:bg-muted"
+                        className="w-full flex items-center justify-between p-4 hover:bg-slate-700/30 transition cursor-pointer focus:outline-none focus:ring-2 focus:ring-amber-400/20"
                       >
-                        <h4 className="text-sm font-semibold">2. Agent STT Associé</h4>
+                        <h4 className="text-sm font-semibold text-slate-100">2. Agent STT Associé</h4>
                         {isModelSectionCollapsed(model.id, "stt") ? (
-                          <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                          <ChevronDown className="h-4 w-4 text-slate-400" />
                         ) : (
-                          <ChevronUp className="h-4 w-4 text-muted-foreground" />
+                          <ChevronUp className="h-4 w-4 text-slate-400" />
                         )}
                       </button>
                       {!isModelSectionCollapsed(model.id, "stt") && (
-                        <div className="p-4 pt-0 space-y-4 border-t">
+                        <div className="p-4 pt-0 space-y-4 border-t border-slate-600/40">
                           <div className="space-y-2">
-                            <Label htmlFor={`stt-provider-${model.id}`}>Provider STT</Label>
+                            <Label htmlFor={`stt-provider-${model.id}`} className="text-slate-300">Provider STT</Label>
                             <select
                               id={`stt-provider-${model.id}`}
-                              className="w-full rounded border border-input bg-background px-3 py-2 text-sm"
+                              className="w-full rounded border border-slate-600/50 bg-slate-800/60 px-3 py-2 text-sm text-slate-100"
                               value={sttProvider.get(model.id) || "none"}
                               onChange={(e) => {
                                 const value = e.target.value as "deepgram" | "speechmatics" | "none";
@@ -2153,23 +2151,24 @@ export default function AiConfigurationPage() {
 
                           {sttProvider.get(model.id) === "deepgram" && (
                             <div className="space-y-2">
-                              <Label htmlFor={`deepgram-stt-${model.id}`}>
+                              <Label htmlFor={`deepgram-stt-${model.id}`} className="text-slate-300">
                                 Modèle Speech-to-Text Deepgram
                               </Label>
                               <Input
                                 id={`deepgram-stt-${model.id}`}
                                 placeholder="ex: nova-2, nova-3"
+                                className="bg-slate-800/60 border-slate-600/50 text-slate-100 placeholder:text-slate-500"
                                 value={model.deepgramSttModelDraft || ''}
                                 onChange={(e) => {
                                   const value = e.target.value.trim() || undefined;
-                                  setModels(prev => prev.map(m => 
-                                    m.id === model.id 
+                                  setModels(prev => prev.map(m =>
+                                    m.id === model.id
                                       ? { ...m, deepgramSttModelDraft: value, saveSuccess: false }
                                       : m
                                   ));
                                 }}
                               />
-                              <p className="text-xs text-muted-foreground">
+                              <p className="text-xs text-slate-400">
                                 Modèles Deepgram STT : nova-2, nova-3 (multilingue)
                               </p>
                             </div>
@@ -2178,38 +2177,39 @@ export default function AiConfigurationPage() {
                           {sttProvider.get(model.id) === "speechmatics" && (
                             <div className="grid gap-4 md:grid-cols-2">
                               <div className="space-y-2">
-                                <Label htmlFor={`speechmatics-stt-language-${model.id}`}>
+                                <Label htmlFor={`speechmatics-stt-language-${model.id}`} className="text-slate-300">
                                   Langue
                                 </Label>
                                 <Input
                                   id={`speechmatics-stt-language-${model.id}`}
                                   placeholder="ex: fr, en, multi, fr,en"
+                                  className="bg-slate-800/60 border-slate-600/50 text-slate-100 placeholder:text-slate-500"
                                   value={model.speechmaticsSttLanguageDraft || ''}
                                   onChange={(e) => {
                                     const value = e.target.value.trim() || undefined;
-                                    setModels(prev => prev.map(m => 
-                                      m.id === model.id 
+                                    setModels(prev => prev.map(m =>
+                                      m.id === model.id
                                         ? { ...m, speechmaticsSttLanguageDraft: value, saveSuccess: false }
                                         : m
                                     ));
                                   }}
                                 />
-                                <p className="text-xs text-muted-foreground">
+                                <p className="text-xs text-slate-400">
                                   Langue(s) : fr, en, multi, ou fr,en pour code-switching
                                 </p>
                               </div>
                               <div className="space-y-2">
-                                <Label htmlFor={`speechmatics-stt-operating-point-${model.id}`}>
+                                <Label htmlFor={`speechmatics-stt-operating-point-${model.id}`} className="text-slate-300">
                                   Operating Point
                                 </Label>
                                 <select
                                   id={`speechmatics-stt-operating-point-${model.id}`}
-                                  className="w-full rounded border border-input bg-background px-3 py-2 text-sm"
+                                  className="w-full rounded border border-slate-600/50 bg-slate-800/60 px-3 py-2 text-sm text-slate-100"
                                   value={model.speechmaticsSttOperatingPointDraft || "enhanced"}
                                   onChange={(e) => {
                                     const value = e.target.value as "enhanced" | "standard" || undefined;
-                                    setModels(prev => prev.map(m => 
-                                      m.id === model.id 
+                                    setModels(prev => prev.map(m =>
+                                      m.id === model.id
                                         ? { ...m, speechmaticsSttOperatingPointDraft: value, saveSuccess: false }
                                         : m
                                     ));
@@ -2220,7 +2220,7 @@ export default function AiConfigurationPage() {
                                 </select>
                               </div>
                               <div className="space-y-2">
-                                <Label htmlFor={`speechmatics-stt-max-delay-${model.id}`}>
+                                <Label htmlFor={`speechmatics-stt-max-delay-${model.id}`} className="text-slate-300">
                                   Max Delay (secondes)
                                 </Label>
                                 <Input
@@ -2228,11 +2228,12 @@ export default function AiConfigurationPage() {
                                   type="number"
                                   step="0.1"
                                   placeholder="2.0"
+                                  className="bg-slate-800/60 border-slate-600/50 text-slate-100 placeholder:text-slate-500"
                                   value={model.speechmaticsSttMaxDelayDraft || 2.0}
                                   onChange={(e) => {
                                     const value = e.target.value ? parseFloat(e.target.value) : undefined;
-                                    setModels(prev => prev.map(m => 
-                                      m.id === model.id 
+                                    setModels(prev => prev.map(m =>
+                                      m.id === model.id
                                         ? { ...m, speechmaticsSttMaxDelayDraft: value, saveSuccess: false }
                                         : m
                                     ));
@@ -2240,7 +2241,7 @@ export default function AiConfigurationPage() {
                                 />
                               </div>
                               <div className="space-y-2">
-                                <Label htmlFor={`speechmatics-stt-enable-partials-${model.id}`}>
+                                <Label htmlFor={`speechmatics-stt-enable-partials-${model.id}`} className="text-slate-300">
                                   Activer résultats partiels
                                 </Label>
                                 <div className="flex items-center gap-2">
@@ -2249,15 +2250,15 @@ export default function AiConfigurationPage() {
                                     id={`speechmatics-stt-enable-partials-${model.id}`}
                                     checked={model.speechmaticsSttEnablePartialsDraft !== false}
                                     onChange={(e) => {
-                                      setModels(prev => prev.map(m => 
-                                        m.id === model.id 
+                                      setModels(prev => prev.map(m =>
+                                        m.id === model.id
                                           ? { ...m, speechmaticsSttEnablePartialsDraft: e.target.checked, saveSuccess: false }
                                           : m
                                       ));
                                     }}
-                                    className="rounded border-gray-300"
+                                    className="rounded border-slate-600 bg-slate-700"
                                   />
-                                  <Label htmlFor={`speechmatics-stt-enable-partials-${model.id}`} className="cursor-pointer text-sm">
+                                  <Label htmlFor={`speechmatics-stt-enable-partials-${model.id}`} className="cursor-pointer text-sm text-slate-300">
                                     Activer les transcriptions intermédiaires
                                   </Label>
                                 </div>
@@ -2269,7 +2270,7 @@ export default function AiConfigurationPage() {
                     </div>
 
                     {/* Section 3: Agent TTS Associé */}
-                    <div className="border rounded-lg overflow-hidden bg-card">
+                    <div className="border border-slate-600/40 rounded-lg overflow-hidden bg-slate-800/30">
                       <button
                         type="button"
                         onClick={(e) => {
@@ -2278,22 +2279,22 @@ export default function AiConfigurationPage() {
                           console.log('[TTS Button] Clicked for model:', model.id);
                           toggleModelSection(model.id, "tts");
                         }}
-                        className="w-full flex items-center justify-between p-4 hover:bg-muted/50 transition cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary/20 active:bg-muted"
+                        className="w-full flex items-center justify-between p-4 hover:bg-slate-700/30 transition cursor-pointer focus:outline-none focus:ring-2 focus:ring-amber-400/20"
                       >
-                        <h4 className="text-sm font-semibold">3. Agent TTS Associé</h4>
+                        <h4 className="text-sm font-semibold text-slate-100">3. Agent TTS Associé</h4>
                         {isModelSectionCollapsed(model.id, "tts") ? (
-                          <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                          <ChevronDown className="h-4 w-4 text-slate-400" />
                         ) : (
-                          <ChevronUp className="h-4 w-4 text-muted-foreground" />
+                          <ChevronUp className="h-4 w-4 text-slate-400" />
                         )}
                       </button>
                       {!isModelSectionCollapsed(model.id, "tts") && (
-                        <div className="p-4 pt-0 space-y-4 border-t">
+                        <div className="p-4 pt-0 space-y-4 border-t border-slate-600/40">
                           <div className="space-y-2">
-                            <Label htmlFor={`tts-provider-${model.id}`}>Provider TTS</Label>
+                            <Label htmlFor={`tts-provider-${model.id}`} className="text-slate-300">Provider TTS</Label>
                             <select
                               id={`tts-provider-${model.id}`}
-                              className="w-full rounded border border-input bg-background px-3 py-2 text-sm"
+                              className="w-full rounded border border-slate-600/50 bg-slate-800/60 px-3 py-2 text-sm text-slate-100"
                               value={ttsProvider.get(model.id) || "none"}
                               onChange={(e) => {
                                 const value = e.target.value as "deepgram" | "elevenlabs" | "none";
@@ -2312,23 +2313,24 @@ export default function AiConfigurationPage() {
 
                           {ttsProvider.get(model.id) === "deepgram" && (
                             <div className="space-y-2">
-                              <Label htmlFor={`deepgram-tts-${model.id}`}>
+                              <Label htmlFor={`deepgram-tts-${model.id}`} className="text-slate-300">
                                 Modèle Text-to-Speech Deepgram
                               </Label>
                               <Input
                                 id={`deepgram-tts-${model.id}`}
                                 placeholder="ex: aura-2-thalia-en, aura-2-asteria-en"
+                                className="bg-slate-800/60 border-slate-600/50 text-slate-100 placeholder:text-slate-500"
                                 value={model.deepgramTtsModelDraft || ''}
                                 onChange={(e) => {
                                   const value = e.target.value.trim() || undefined;
-                                  setModels(prev => prev.map(m => 
-                                    m.id === model.id 
+                                  setModels(prev => prev.map(m =>
+                                    m.id === model.id
                                       ? { ...m, deepgramTtsModelDraft: value, saveSuccess: false }
                                       : m
                                   ));
                                 }}
                               />
-                              <p className="text-xs text-muted-foreground">
+                              <p className="text-xs text-slate-400">
                                 Modèles Deepgram TTS : aura-2-thalia-en, aura-2-asteria-en, etc.
                               </p>
                             </div>
@@ -2337,38 +2339,39 @@ export default function AiConfigurationPage() {
                           {ttsProvider.get(model.id) === "elevenlabs" && (
                             <div className="grid gap-4 md:grid-cols-2">
                               <div className="space-y-2">
-                                <Label htmlFor={`elevenlabs-voice-id-${model.id}`}>
+                                <Label htmlFor={`elevenlabs-voice-id-${model.id}`} className="text-slate-300">
                                   Voice ID
                                 </Label>
                                 <Input
                                   id={`elevenlabs-voice-id-${model.id}`}
                                   placeholder="ex: 21m00Tcm4TlvDq8ikWAM (Rachel)"
+                                  className="bg-slate-800/60 border-slate-600/50 text-slate-100 placeholder:text-slate-500"
                                   value={model.elevenLabsVoiceIdDraft || ''}
                                   onChange={(e) => {
                                     const value = e.target.value.trim() || undefined;
-                                    setModels(prev => prev.map(m => 
-                                      m.id === model.id 
+                                    setModels(prev => prev.map(m =>
+                                      m.id === model.id
                                         ? { ...m, elevenLabsVoiceIdDraft: value, saveSuccess: false }
                                         : m
                                     ));
                                   }}
                                 />
-                                <p className="text-xs text-muted-foreground">
+                                <p className="text-xs text-slate-400">
                                   ID de la voix ElevenLabs. Consultez le dashboard ElevenLabs pour obtenir les IDs disponibles.
                                 </p>
                               </div>
                               <div className="space-y-2">
-                                <Label htmlFor={`elevenlabs-model-id-${model.id}`}>
+                                <Label htmlFor={`elevenlabs-model-id-${model.id}`} className="text-slate-300">
                                   Modèle TTS
                                 </Label>
                                 <select
                                   id={`elevenlabs-model-id-${model.id}`}
-                                  className="w-full rounded border border-input bg-background px-3 py-2 text-sm"
+                                  className="w-full rounded border border-slate-600/50 bg-slate-800/60 px-3 py-2 text-sm text-slate-100"
                                   value={model.elevenLabsModelIdDraft || ''}
                                   onChange={(e) => {
                                     const value = e.target.value || undefined;
-                                    setModels(prev => prev.map(m => 
-                                      m.id === model.id 
+                                    setModels(prev => prev.map(m =>
+                                      m.id === model.id
                                         ? { ...m, elevenLabsModelIdDraft: value, saveSuccess: false }
                                         : m
                                     ));
@@ -2379,7 +2382,7 @@ export default function AiConfigurationPage() {
                                   <option value="eleven_multilingual_v2">eleven_multilingual_v2 (Multilingue)</option>
                                   <option value="eleven_monolingual_v1">eleven_monolingual_v1 (Anglais uniquement)</option>
                                 </select>
-                                <p className="text-xs text-muted-foreground">
+                                <p className="text-xs text-slate-400">
                                   Modèle de synthèse vocale ElevenLabs.
                                 </p>
                               </div>
@@ -2390,7 +2393,7 @@ export default function AiConfigurationPage() {
                     </div>
 
                     {/* Bouton Enregistrer */}
-                    <div className="flex items-center gap-2 pt-4 border-t">
+                    <div className="flex items-center gap-2 pt-4 border-t border-slate-600/40">
                       <Button
                         onClick={async () => {
                           setModels(prev => prev.map(m => 
@@ -2476,24 +2479,23 @@ export default function AiConfigurationPage() {
                         <p className="text-sm text-destructive">{model.saveError}</p>
                       )}
                       {model.saveSuccess && (
-                        <p className="text-sm text-emerald-600">Modifications enregistrées.</p>
+                        <p className="text-sm text-emerald-400">Modifications enregistrées.</p>
                       )}
                     </div>
-                  </CardContent>
+                  </div>
                   )}
-                </Card>
+                </div>
               );
               })}
             </div>
           )}
-        </CardContent>
-      </Card>
+      </div>
 
       <div className="space-y-6">
         {isLoading && agents.length === 0 ? (
-          <p className="text-muted-foreground">Chargement des agents...</p>
+          <p className="text-slate-400">Chargement des agents...</p>
         ) : agents.length === 0 ? (
-          <p className="text-muted-foreground">Aucun agent configuré pour le moment.</p>
+          <p className="text-slate-400">Aucun agent configuré pour le moment.</p>
         ) : (
           groupedAgents.map(group => {
             const isCollapsed = collapsedGroups.has(group.key);
@@ -2535,7 +2537,7 @@ export default function AiConfigurationPage() {
                     {group.agents.map(agent => {
                       const isAgentCollapsed = collapsedAgents.has(agent.id);
                       return (
-                        <Card key={agent.id} className="border-muted bg-card">
+                        <Card key={agent.id} className="border-slate-600/40 bg-slate-800/30">
                           <CardHeader>
                             <div className="flex items-start justify-between gap-4">
                               <div className="flex-1">
@@ -2569,7 +2571,7 @@ export default function AiConfigurationPage() {
                             <div className="space-y-2">
                               <Label>Modèle principal</Label>
                               <select
-                                className="w-full rounded border border-input bg-background px-3 py-2 text-sm"
+                                className="w-full rounded border border-slate-600/50 bg-slate-800/60 px-3 py-2 text-sm text-slate-100"
                                 value={agent.modelConfigIdDraft ?? ''}
                                 onChange={event => handleModelChange(agent.id, "primary", event.target.value)}
                               >
@@ -2584,7 +2586,7 @@ export default function AiConfigurationPage() {
                             <div className="space-y-2">
                               <Label>Modèle de secours</Label>
                               <select
-                                className="w-full rounded border border-input bg-background px-3 py-2 text-sm"
+                                className="w-full rounded border border-slate-600/50 bg-slate-800/60 px-3 py-2 text-sm text-slate-100"
                                 value={agent.fallbackModelConfigIdDraft ?? ''}
                                 onChange={event => handleModelChange(agent.id, "fallback", event.target.value)}
                               >
@@ -2605,20 +2607,20 @@ export default function AiConfigurationPage() {
                                 id={`voice-${agent.id}`}
                                 checked={agent.voiceDraft}
                                 onChange={event => handleVoiceChange(agent.id, event.target.checked)}
-                                className="h-4 w-4 rounded border-gray-300"
+                                className="h-4 w-4 rounded border-slate-600 bg-slate-700"
                               />
                               <Label htmlFor={`voice-${agent.id}`} className="cursor-pointer">
                                 Agent vocal (utilise voiceAgentProvider du modèle)
                               </Label>
                             </div>
-                            <p className="text-xs text-muted-foreground">
+                            <p className="text-xs text-slate-400">
                               Si activé, l'agent utilisera le voiceAgentProvider du modèle configuré. Sinon, il utilisera le provider normal (texte/JSON).
                             </p>
                           </div>
 
                           <div className="grid gap-4 md:grid-cols-2">
                             <div className="space-y-2">
-                              <Label htmlFor={`system-${agent.id}`}>System prompt</Label>
+                              <Label htmlFor={`system-${agent.id}`} className="text-slate-300">System prompt</Label>
                               <AutoResizeTextarea
                                 id={`system-${agent.id}`}
                                 value={agent.systemPromptDraft}
@@ -2626,7 +2628,7 @@ export default function AiConfigurationPage() {
                               />
                             </div>
                             <div className="space-y-2">
-                              <Label htmlFor={`user-${agent.id}`}>User prompt</Label>
+                              <Label htmlFor={`user-${agent.id}`} className="text-slate-300">User prompt</Label>
                               <AutoResizeTextarea
                                 id={`user-${agent.id}`}
                                 value={agent.userPromptDraft}
@@ -2648,7 +2650,7 @@ export default function AiConfigurationPage() {
                                 
                                 if (detectedVars.length === 0) {
                                   return (
-                                    <p className="text-xs text-muted-foreground">
+                                    <p className="text-xs text-slate-400">
                                       Aucune variable détectée. Utilisez {"{{variable}}"} dans vos prompts.
                                     </p>
                                   );
@@ -2675,18 +2677,18 @@ export default function AiConfigurationPage() {
                             </CardDescription>
                             <div className="grid gap-3 md:grid-cols-2">
                               {sortedVariables.map(variable => (
-                                <div key={variable.key} className="rounded-lg border p-3 bg-muted/30">
+                                <div key={variable.key} className="rounded-lg border p-3 bg-slate-800/30">
                                   <div className="flex items-start justify-between gap-2">
                                     <p className="font-mono text-sm font-semibold">{variable.key}</p>
                                     {variable.type && (
-                                      <span className="text-xs px-2 py-0.5 rounded bg-muted text-muted-foreground">
+                                      <span className="text-xs px-2 py-0.5 rounded bg-slate-700/50 text-slate-400">
                                         {variable.type}
                                       </span>
                                     )}
                                   </div>
-                                  <p className="text-xs text-muted-foreground mt-1">{variable.description}</p>
+                                  <p className="text-xs text-slate-400 mt-1">{variable.description}</p>
                                   {variable.example && (
-                                    <p className="text-xs text-muted-foreground/70 mt-1 italic">Ex: {variable.example}</p>
+                                    <p className="text-xs text-slate-400/70 mt-1 italic">Ex: {variable.example}</p>
                                   )}
                                 </div>
                               ))}
@@ -2721,6 +2723,7 @@ export default function AiConfigurationPage() {
                               agentId={agent.id}
                               agentSlug={agent.slug}
                               onClose={() => setTestModeAgentId(null)}
+                              colorScheme={group.color}
                             />
                           )}
                             </CardContent>
@@ -2737,19 +2740,17 @@ export default function AiConfigurationPage() {
       </div>
 
       {/* Ask Prompt Templates Section */}
-      <Card className="mt-8">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Sparkles className="h-5 w-5" />
-            Templates de prompts ASK
-          </CardTitle>
-          <CardDescription>
-            Gérez les templates de prompts système pour les sessions ASK. Les templates peuvent être sélectionnés lors de la création ou modification d'une ASK.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
+      <div className="rounded-xl border border-emerald-400/40 bg-emerald-500/10 p-6 backdrop-blur-sm mt-8">
+        <div className="flex items-center gap-2 mb-2">
+          <Sparkles className="h-5 w-5 text-emerald-400" />
+          <h3 className="text-lg font-semibold text-emerald-400">Templates de prompts ASK</h3>
+        </div>
+        <p className="text-sm text-slate-400 mb-4">
+          Gérez les templates de prompts système pour les sessions ASK. Les templates peuvent être sélectionnés lors de la création ou modification d'une ASK.
+        </p>
+        <div className="space-y-4">
           {isLoadingTemplates ? (
-            <div className="flex items-center gap-2 text-muted-foreground">
+            <div className="flex items-center gap-2 text-slate-400">
               <Loader2 className="h-4 w-4 animate-spin" />
               <span>Chargement des templates...</span>
             </div>
@@ -2762,6 +2763,7 @@ export default function AiConfigurationPage() {
                     setNewTemplate({ name: "", description: "", systemPrompt: "" });
                   }}
                   disabled={isCreatingTemplate}
+                  className="border-emerald-400/40 bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30"
                 >
                   <Plus className="h-4 w-4 mr-2" />
                   Nouveau template
@@ -2769,38 +2771,39 @@ export default function AiConfigurationPage() {
               </div>
 
               {isCreatingTemplate && (
-                <Card className="border-primary">
-                  <CardHeader>
-                    <CardTitle>Créer un nouveau template</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
+                <div className="rounded-lg border border-emerald-400/30 p-4 bg-slate-800/50">
+                  <h4 className="text-md font-semibold text-slate-100 mb-4">Créer un nouveau template</h4>
+                  <div className="space-y-4">
                     <div className="space-y-2">
-                      <Label htmlFor="new-template-name">Nom</Label>
+                      <Label htmlFor="new-template-name" className="text-slate-300">Nom</Label>
                       <Input
                         id="new-template-name"
                         value={newTemplate.name}
                         onChange={(e) => setNewTemplate({ ...newTemplate, name: e.target.value })}
                         placeholder="Nom du template"
+                        className="bg-slate-800/60 border-slate-600/50 text-slate-100 placeholder:text-slate-500"
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="new-template-description">Description</Label>
+                      <Label htmlFor="new-template-description" className="text-slate-300">Description</Label>
                       <Textarea
                         id="new-template-description"
                         value={newTemplate.description}
                         onChange={(e) => setNewTemplate({ ...newTemplate, description: e.target.value })}
                         placeholder="Description du template (optionnel)"
                         rows={2}
+                        className="bg-slate-800/60 border-slate-600/50 text-slate-100 placeholder:text-slate-500"
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="new-template-prompt">System prompt</Label>
+                      <Label htmlFor="new-template-prompt" className="text-slate-300">System prompt</Label>
                       <Textarea
                         id="new-template-prompt"
                         value={newTemplate.systemPrompt}
                         onChange={(e) => setNewTemplate({ ...newTemplate, systemPrompt: e.target.value })}
                         placeholder="Contenu du prompt système"
                         rows={8}
+                        className="bg-slate-800/60 border-slate-600/50 text-slate-100 placeholder:text-slate-500"
                       />
                     </div>
                     <div className="flex gap-2">
@@ -2834,6 +2837,7 @@ export default function AiConfigurationPage() {
                             console.error(err);
                           }
                         }}
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white"
                       >
                         Créer
                       </Button>
@@ -2843,16 +2847,17 @@ export default function AiConfigurationPage() {
                           setIsCreatingTemplate(false);
                           setNewTemplate({ name: "", description: "", systemPrompt: "" });
                         }}
+                        className="border-slate-500/40 bg-slate-800/50 text-slate-200 hover:bg-slate-700/50"
                       >
                         Annuler
                       </Button>
                     </div>
-                  </CardContent>
-                </Card>
+                  </div>
+                </div>
               )}
 
               {templates.length === 0 ? (
-                <p className="text-muted-foreground">Aucun template créé pour le moment.</p>
+                <p className="text-slate-400">Aucun template créé pour le moment.</p>
               ) : (
                 <div className="space-y-4">
                   {templates.map((template) => {
@@ -2864,12 +2869,12 @@ export default function AiConfigurationPage() {
                     const isEditing = editingTemplateId === template.id;
 
                     return (
-                      <Card key={template.id}>
-                        <CardContent className="pt-6 space-y-4">
+                      <div key={template.id} className="rounded-lg border border-emerald-400/30 p-4 bg-slate-800/50">
+                        <div className="space-y-4">
                           {isEditing ? (
                             <>
                               <div className="space-y-2">
-                                <Label htmlFor={`template-name-${template.id}`}>Nom</Label>
+                                <Label htmlFor={`template-name-${template.id}`} className="text-slate-300">Nom</Label>
                                 <Input
                                   id={`template-name-${template.id}`}
                                   value={draft.name}
@@ -2878,10 +2883,11 @@ export default function AiConfigurationPage() {
                                       new Map(templateDrafts.set(template.id, { ...draft, name: e.target.value }))
                                     )
                                   }
+                                  className="bg-slate-800/60 border-slate-600/50 text-slate-100"
                                 />
                               </div>
                               <div className="space-y-2">
-                                <Label htmlFor={`template-description-${template.id}`}>Description</Label>
+                                <Label htmlFor={`template-description-${template.id}`} className="text-slate-300">Description</Label>
                                 <Textarea
                                   id={`template-description-${template.id}`}
                                   value={draft.description}
@@ -2891,10 +2897,11 @@ export default function AiConfigurationPage() {
                                     )
                                   }
                                   rows={2}
+                                  className="bg-slate-800/60 border-slate-600/50 text-slate-100"
                                 />
                               </div>
                               <div className="space-y-2">
-                                <Label htmlFor={`template-prompt-${template.id}`}>System prompt</Label>
+                                <Label htmlFor={`template-prompt-${template.id}`} className="text-slate-300">System prompt</Label>
                                 <Textarea
                                   id={`template-prompt-${template.id}`}
                                   value={draft.systemPrompt}
@@ -2904,6 +2911,7 @@ export default function AiConfigurationPage() {
                                     )
                                   }
                                   rows={8}
+                                  className="bg-slate-800/60 border-slate-600/50 text-slate-100"
                                 />
                               </div>
                               <div className="flex gap-2">
@@ -2968,6 +2976,7 @@ export default function AiConfigurationPage() {
                                       alert(`Erreur lors de la mise à jour du template: ${err instanceof Error ? err.message : 'Erreur inconnue'}`);
                                     }
                                   }}
+                                  className="bg-emerald-600 hover:bg-emerald-700 text-white"
                                 >
                                   Enregistrer
                                 </Button>
@@ -2977,6 +2986,7 @@ export default function AiConfigurationPage() {
                                     setEditingTemplateId(null);
                                     setTemplateDrafts(new Map());
                                   }}
+                                  className="border-slate-500/40 bg-slate-800/50 text-slate-200 hover:bg-slate-700/50"
                                 >
                                   Annuler
                                 </Button>
@@ -2986,9 +2996,9 @@ export default function AiConfigurationPage() {
                             <>
                               <div className="flex items-start justify-between">
                                 <div className="flex-1">
-                                  <h3 className="font-semibold text-lg">{template.name}</h3>
+                                  <h3 className="font-semibold text-lg text-slate-100">{template.name}</h3>
                                   {template.description && (
-                                    <p className="text-sm text-muted-foreground mt-1">{template.description}</p>
+                                    <p className="text-sm text-slate-400 mt-1">{template.description}</p>
                                   )}
                                 </div>
                                 <div className="flex gap-2">
@@ -3010,6 +3020,7 @@ export default function AiConfigurationPage() {
                                         ])
                                       );
                                     }}
+                                    className="border-emerald-400/40 bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30"
                                   >
                                     <Pencil className="h-4 w-4 mr-1" />
                                     Modifier
@@ -3037,28 +3048,29 @@ export default function AiConfigurationPage() {
                                         console.error(err);
                                       }
                                     }}
+                                    className="border-slate-500/40 bg-slate-800/50 text-slate-200 hover:bg-slate-700/50"
                                   >
                                     <Trash2 className="h-4 w-4 mr-1" />
                                     Supprimer
                                   </Button>
                                 </div>
                               </div>
-                              <div className="rounded-lg border bg-muted/30 p-3">
-                                <Label className="text-xs text-muted-foreground">System prompt</Label>
-                                <pre className="mt-2 text-sm whitespace-pre-wrap font-mono">{template.systemPrompt}</pre>
+                              <div className="rounded-lg border border-slate-600/40 bg-slate-900/50 p-3">
+                                <Label className="text-xs text-slate-400">System prompt</Label>
+                                <pre className="mt-2 text-sm whitespace-pre-wrap font-mono text-slate-300">{template.systemPrompt}</pre>
                               </div>
                             </>
                           )}
-                        </CardContent>
-                      </Card>
+                        </div>
+                      </div>
                     );
                   })}
                 </div>
               )}
             </>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </div>
       </div>
   );
 }

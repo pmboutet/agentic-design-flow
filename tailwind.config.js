@@ -178,7 +178,7 @@ module.exports = {
         'neumorphic-inset': 'inset 6px 6px 12px rgba(0, 0, 0, 0.08), inset -6px -6px 12px rgba(255, 255, 255, 0.9)',
         'glass': '0 8px 32px 0 rgba(31, 38, 135, 0.37)',
         // Neon glow shadows
-        'glow-cyan': '0 0 20px hsla(185, 100%, 50%, 0.3), 0 0 40px hsla(185, 100%, 50%, 0.1)',
+        'glow-cyan': '0 0 15px hsla(185, 100%, 50%, 0.2), 0 0 30px hsla(185, 100%, 50%, 0.06)',
         'glow-cyan-lg': '0 0 30px hsla(185, 100%, 50%, 0.5), 0 0 60px hsla(185, 100%, 50%, 0.2)',
         'glow-purple': '0 0 20px hsla(280, 100%, 60%, 0.3), 0 0 40px hsla(280, 100%, 60%, 0.1)',
         'glow-purple-lg': '0 0 30px hsla(280, 100%, 60%, 0.5), 0 0 60px hsla(280, 100%, 60%, 0.2)',
