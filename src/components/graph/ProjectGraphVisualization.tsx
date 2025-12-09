@@ -240,6 +240,7 @@ export function ProjectGraphVisualization({ projectId, refreshKey }: ProjectGrap
   const [isMounted, setIsMounted] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [selectedNode, setSelectedNode] = useState<ForceGraphNode | null>(null);
+  const [hoveredNode, setHoveredNode] = useState<ForceGraphNode | null>(null);
   const [visibleTypes, setVisibleTypes] = useState<Record<string, boolean>>({
     insight: true,
     entity: true,
@@ -253,6 +254,45 @@ export function ProjectGraphVisualization({ projectId, refreshKey }: ProjectGrap
   useEffect(() => {
     setIsMounted(true);
   }, []);
+
+  // Calculate node degree (number of connections) for hub detection
+  const nodeDegrees = useMemo(() => {
+    if (!graphData) return new Map<string, number>();
+
+    const degrees = new Map<string, number>();
+
+    // Initialize all nodes with 0 degree
+    graphData.nodes.forEach(node => degrees.set(node.id, 0));
+
+    // Count connections for each node
+    graphData.links.forEach((link) => {
+      const sourceId = typeof link.source === 'string' ? link.source : link.source.id;
+      const targetId = typeof link.target === 'string' ? link.target : link.target.id;
+
+      degrees.set(sourceId, (degrees.get(sourceId) || 0) + 1);
+      degrees.set(targetId, (degrees.get(targetId) || 0) + 1);
+    });
+
+    return degrees;
+  }, [graphData]);
+
+  // Identify hub nodes (top 10% by degree or nodes with 5+ connections)
+  const hubNodeIds = useMemo(() => {
+    if (!graphData || nodeDegrees.size === 0) return new Set<string>();
+
+    const allDegrees = Array.from(nodeDegrees.values()).sort((a, b) => b - a);
+    const topPercentileIndex = Math.max(0, Math.floor(allDegrees.length * 0.1) - 1);
+    const hubThreshold = Math.max(5, allDegrees[topPercentileIndex] || 5);
+
+    const hubs = new Set<string>();
+    nodeDegrees.forEach((degree, nodeId) => {
+      if (degree >= hubThreshold) {
+        hubs.add(nodeId);
+      }
+    });
+
+    return hubs;
+  }, [graphData, nodeDegrees]);
 
   // Get connected node IDs for selected node
   const connectedNodeIds = useMemo(() => {
@@ -386,6 +426,15 @@ export function ProjectGraphVisualization({ projectId, refreshKey }: ProjectGrap
     setSelectedNode(prev => prev?.id === forceNode.id ? null : forceNode);
   }, []);
 
+  // Handle node hover for showing labels on secondary nodes
+  const handleNodeHover = useCallback((node: { id?: string | number; [key: string]: unknown } | null) => {
+    if (node) {
+      setHoveredNode(node as unknown as ForceGraphNode);
+    } else {
+      setHoveredNode(null);
+    }
+  }, []);
+
   // Handle zoom change
   const handleZoom = useCallback((transform: { k: number; x: number; y: number }) => {
     setZoomLevel(transform.k);
@@ -427,13 +476,42 @@ export function ProjectGraphVisualization({ projectId, refreshKey }: ProjectGrap
   // Node canvas rendering with zoom-aware labels
   const nodeCanvasObject = useCallback((node: any, ctx: CanvasRenderingContext2D, globalScale: number) => {
     const isSelected = selectedNode?.id === node.id;
+    const isHovered = hoveredNode?.id === node.id;
     const isConnected = connectedNodeIds.has(node.id);
-    const shouldShowLabel = selectedNode ? isConnected : true;
+    const isHub = hubNodeIds.has(node.id);
+    const nodeDegree = nodeDegrees.get(node.id) || 0;
 
-    // Determine node importance for zoom-based visibility
-    const nodeImportance = node.type === 'challenge' ? 3 : node.type === 'synthesis' ? 2.5 : node.type === 'insight' ? 2 : 1;
-    const labelVisibilityThreshold = 0.3 / nodeImportance;
-    const showLabel = shouldShowLabel && (globalScale > labelVisibilityThreshold || isSelected);
+    // Zoom-based label visibility levels:
+    // Level 1 (zoom < 0.5): Only hubs, selected, and hovered nodes show labels
+    // Level 2 (zoom 0.5-1.2): Hubs + challenges + syntheses + high-degree nodes
+    // Level 3 (zoom > 1.2): All nodes show labels
+    const ZOOM_LEVEL_1 = 0.5;  // Very zoomed out
+    const ZOOM_LEVEL_2 = 1.2;  // Medium zoom
+
+    let showLabel = false;
+
+    // Always show labels for selected or hovered nodes
+    if (isSelected || isHovered) {
+      showLabel = true;
+    }
+    // When a node is selected, only show labels for connected nodes
+    else if (selectedNode) {
+      showLabel = isConnected && globalScale > ZOOM_LEVEL_1;
+    }
+    // Zoom-based visibility when nothing is selected
+    else if (globalScale >= ZOOM_LEVEL_2) {
+      // High zoom: show all labels
+      showLabel = true;
+    } else if (globalScale >= ZOOM_LEVEL_1) {
+      // Medium zoom: show hubs, challenges, syntheses, and nodes with 3+ connections
+      showLabel = isHub ||
+                  node.type === 'challenge' ||
+                  node.type === 'synthesis' ||
+                  nodeDegree >= 3;
+    } else {
+      // Low zoom: only show hub labels
+      showLabel = isHub;
+    }
 
     // Dim non-connected nodes when a node is selected
     const alpha = selectedNode && !isConnected ? 0.15 : 1;
@@ -521,7 +599,7 @@ export function ProjectGraphVisualization({ projectId, refreshKey }: ProjectGrap
         ctx.fillText(line, node.x, lineY);
       });
     }
-  }, [selectedNode, connectedNodeIds]);
+  }, [selectedNode, hoveredNode, connectedNodeIds, hubNodeIds, nodeDegrees]);
 
   // Link rendering with dimming for non-connected
   const linkColor = useCallback((link: any) => {
@@ -677,6 +755,7 @@ export function ProjectGraphVisualization({ projectId, refreshKey }: ProjectGrap
                   nodeCanvasObject={nodeCanvasObject}
                   nodeCanvasObjectMode={() => 'replace'}
                   onNodeClick={handleNodeClick}
+                  onNodeHover={handleNodeHover}
                   onZoom={handleZoom}
                   linkColor={linkColor}
                   linkWidth="width"
