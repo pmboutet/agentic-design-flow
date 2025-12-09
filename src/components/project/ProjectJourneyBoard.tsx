@@ -479,6 +479,7 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
   const [expandedCollectedInsightsAskIds, setExpandedCollectedInsightsAskIds] = useState<Set<string>>(new Set());
   const [isHeaderCollapsed, setIsHeaderCollapsed] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const [isInsightsModalOpen, setIsInsightsModalOpen] = useState(false);
   const [askParticipantEdits, setAskParticipantEdits] = useState<Record<string, { participantIds: string[]; spokespersonId: string }>>({});
   const [savingAskParticipants, setSavingAskParticipants] = useState<Set<string>>(new Set());
   const [hoveredAskMenu, setHoveredAskMenu] = useState(false);
@@ -1838,7 +1839,7 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
               )}
             >
               <div className="flex items-stretch">
-                <button type="button" className="flex-1 text-left" onClick={() => setActiveChallengeId(node.id)}>
+                <button type="button" className="flex-1 text-left" onClick={() => { setActiveChallengeId(node.id); setIsInsightsModalOpen(true); }}>
                   <div className={cn("flex flex-col gap-2", isActive ? "p-4" : "p-3")}
                     data-active={isActive}
                   >
@@ -3559,8 +3560,8 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
         </Card>
       ) : null}
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)] lg:items-start">
-        <div className="lg:max-h-[70vh] lg:overflow-y-auto lg:pr-2">
+      <div className="space-y-6">
+        <div>
           <section className="space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
@@ -3656,28 +3657,53 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
             )}
           </section>
         </div>
+      </div>
 
-        <div ref={rightColumnRef} className="lg:max-h-[70vh] lg:overflow-y-auto lg:pl-2 relative">
-          {/* Navigation Menu - Fixed */}
-          {activeChallenge && (
-            <div className="sticky top-0 z-20 mb-4 pointer-events-none">
-              <nav className="flex items-center gap-1.5 w-full rounded-xl border border-white/20 bg-slate-900/98 backdrop-blur-xl p-1.5 shadow-2xl pointer-events-auto ring-1 ring-white/5">
+      {/* Insights & ASKs Modal */}
+      <Dialog.Root open={isInsightsModalOpen} onOpenChange={setIsInsightsModalOpen}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md transition-opacity data-[state=closed]:opacity-0 data-[state=open]:opacity-100" />
+          <Dialog.Content className="fixed inset-4 z-50 flex flex-col overflow-hidden rounded-3xl border border-white/10 bg-slate-900/95 shadow-2xl backdrop-blur-xl data-[state=closed]:opacity-0 data-[state=open]:opacity-100">
+            <div className="flex items-center justify-between border-b border-white/10 px-6 py-4">
+              <div>
+                <Dialog.Title className="text-xl font-semibold text-white">
+                  {activeChallenge?.title ?? "Challenge Details"}
+                </Dialog.Title>
+                <Dialog.Description className="text-sm text-slate-300">
+                  Foundational insights and ASK sessions for this challenge
+                </Dialog.Description>
+              </div>
+              <Dialog.Close asChild>
                 <button
                   type="button"
-                  onClick={() => {
-                    const element = document.getElementById("foundational-insights");
-                    if (element && rightColumnRef.current) {
-                      const offset = element.getBoundingClientRect().top - rightColumnRef.current.getBoundingClientRect().top + rightColumnRef.current.scrollTop - 20;
-                      rightColumnRef.current.scrollTo({ top: offset, behavior: "smooth" });
-                    }
-                  }}
-                  className="group flex items-center justify-center gap-1.5 rounded-lg border border-emerald-400/30 bg-emerald-500/15 px-2.5 py-2 flex-1 min-w-0 transition-all duration-200 hover:bg-emerald-500/25 hover:border-emerald-400/50 hover:shadow-lg hover:shadow-emerald-500/20 hover:scale-[1.02] active:scale-[0.98]"
-                  title="Foundational insights"
+                  className="rounded-full border border-white/10 bg-white/10 p-2 text-white transition hover:bg-white/20"
+                  aria-label="Close"
                 >
-                  <Lightbulb className="h-4 w-4 text-emerald-300 transition-transform group-hover:scale-110 shrink-0" />
-                  <span className="text-xs font-medium text-emerald-50 truncate hidden sm:inline">Foundational insights</span>
-                  <span className="text-xs font-medium text-emerald-50 truncate sm:hidden">...</span>
+                  <X className="h-5 w-5" />
                 </button>
+              </Dialog.Close>
+            </div>
+            <div ref={rightColumnRef} className="flex-1 overflow-y-auto p-6 relative">
+              {/* Navigation Menu - Fixed */}
+              {activeChallenge && (
+                <div className="sticky top-0 z-20 mb-4 pointer-events-none">
+                  <nav className="flex items-center gap-1.5 w-full rounded-xl border border-white/20 bg-slate-900/98 backdrop-blur-xl p-1.5 shadow-2xl pointer-events-auto ring-1 ring-white/5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const element = document.getElementById("foundational-insights");
+                        if (element && rightColumnRef.current) {
+                          const offset = element.getBoundingClientRect().top - rightColumnRef.current.getBoundingClientRect().top + rightColumnRef.current.scrollTop - 20;
+                          rightColumnRef.current.scrollTo({ top: offset, behavior: "smooth" });
+                        }
+                      }}
+                      className="group flex items-center justify-center gap-1.5 rounded-lg border border-emerald-400/30 bg-emerald-500/15 px-2.5 py-2 flex-1 min-w-0 transition-all duration-200 hover:bg-emerald-500/25 hover:border-emerald-400/50 hover:shadow-lg hover:shadow-emerald-500/20 hover:scale-[1.02] active:scale-[0.98]"
+                      title="Foundational insights"
+                    >
+                      <Lightbulb className="h-4 w-4 text-emerald-300 transition-transform group-hover:scale-110 shrink-0" />
+                      <span className="text-xs font-medium text-emerald-50 truncate hidden sm:inline">Foundational insights</span>
+                      <span className="text-xs font-medium text-emerald-50 truncate sm:hidden">...</span>
+                    </button>
                 <div
                   className="relative flex-1 min-w-0"
                   onMouseEnter={() => {
@@ -4276,8 +4302,10 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
               </>
             )}
           </section>
-        </div>
-      </div>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
 
       <Dialog.Root
         open={isChallengeFormVisible}
