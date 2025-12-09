@@ -95,8 +95,9 @@ export function LoginForm({ redirectTo = "/admin" }: LoginFormProps) {
       <button
         type="submit"
         disabled={isProcessing}
-        className="w-full btn-primary py-3 px-6 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+        className="w-full py-3.5 px-6 font-semibold text-base rounded-xl bg-gradient-to-r from-cyan-400 to-blue-500 text-slate-900 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all duration-300 hover:shadow-[0_0_30px_hsla(185,100%,50%,0.5),0_0_60px_hsla(185,100%,50%,0.25)] hover:-translate-y-0.5 active:translate-y-0 relative overflow-hidden group"
       >
+        <span className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-500"></span>
         {isProcessing ? (
           <>
             <Loader2 className="h-5 w-5 animate-spin" />
@@ -109,10 +110,10 @@ export function LoginForm({ redirectTo = "/admin" }: LoginFormProps) {
 
       <div className="relative my-6">
         <div className="absolute inset-0 flex items-center">
-          <div className="divider-glow w-full"></div>
+          <div className="w-full h-px bg-gradient-to-r from-transparent via-cyan-500/30 to-transparent"></div>
         </div>
         <div className="relative flex justify-center text-sm">
-          <span className="px-3 bg-dark-800 text-slate-400">Or continue with</span>
+          <span className="px-4 bg-slate-900/80 text-slate-400">Or continue with</span>
         </div>
       </div>
 
@@ -120,7 +121,7 @@ export function LoginForm({ redirectTo = "/admin" }: LoginFormProps) {
         type="button"
         onClick={handleGoogleSignIn}
         disabled={isProcessing}
-        className="w-full flex items-center justify-center gap-3 btn-glass py-3 px-6 disabled:opacity-50 disabled:cursor-not-allowed"
+        className="w-full flex items-center justify-center gap-3 py-3.5 px-6 rounded-xl bg-slate-800/60 border border-cyan-500/20 text-slate-300 font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-300 hover:bg-slate-800/80 hover:border-cyan-500/40 hover:text-white hover:shadow-[0_0_20px_hsla(185,100%,50%,0.15)]"
       >
         <svg className="w-5 h-5" viewBox="0 0 24 24">
           <path

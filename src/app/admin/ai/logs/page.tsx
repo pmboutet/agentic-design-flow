@@ -13,7 +13,6 @@ import {
   Download
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { AiAgentLog } from "@/types";
@@ -55,7 +54,7 @@ function JsonSyntaxHighlighter({ children }: { children: string }) {
     // Fallback pendant le chargement
     return (
       <pre
-        className="whitespace-pre-wrap break-words rounded border bg-slate-900 p-3 text-xs text-white"
+        className="whitespace-pre-wrap break-words rounded border bg-slate-900 p-3 text-xs text-slate-300"
         style={{ wordBreak: "break-word", overflowWrap: "anywhere" }}
       >
         {children}
@@ -235,7 +234,7 @@ function HighlightedPrompt({
   // If no template, just show raw text
   if (!template) {
     return (
-      <pre className="whitespace-pre-wrap break-words rounded border bg-slate-900 p-3 text-xs text-white">
+      <pre className="whitespace-pre-wrap break-words rounded border bg-slate-900 p-3 text-xs text-slate-300">
         {text}
       </pre>
     );
@@ -246,7 +245,7 @@ function HighlightedPrompt({
 
   if (Object.keys(resolvedVariables).length === 0) {
     return (
-      <pre className="whitespace-pre-wrap break-words rounded border bg-slate-900 p-3 text-xs text-white">
+      <pre className="whitespace-pre-wrap break-words rounded border bg-slate-900 p-3 text-xs text-slate-300">
         {text}
       </pre>
     );
@@ -259,7 +258,7 @@ function HighlightedPrompt({
 
   if (sortedVars.length === 0) {
     return (
-      <pre className="whitespace-pre-wrap break-words rounded border bg-slate-900 p-3 text-xs text-white">
+      <pre className="whitespace-pre-wrap break-words rounded border bg-slate-900 p-3 text-xs text-slate-300">
         {text}
       </pre>
     );
@@ -317,13 +316,13 @@ function HighlightedPrompt({
   }
 
   return (
-    <pre className="whitespace-pre-wrap break-words rounded border bg-slate-900 p-3 text-xs text-white">
+    <pre className="whitespace-pre-wrap break-words rounded border bg-slate-900 p-3 text-xs text-slate-300">
       {segments.map((segment, index) => {
         if (segment.isVariable) {
           return (
             <span
               key={index}
-              className="bg-orange-500/30 text-orange-300 rounded px-0.5 border border-orange-500/50"
+              className="bg-cyan-500/20 text-cyan-300 rounded px-0.5 border border-cyan-400/40"
               title={`Variable: {{${segment.variableName}}}`}
             >
               {segment.text}
@@ -351,10 +350,10 @@ interface LogsResponse {
 }
 
 const statusColors = {
-  pending: "bg-yellow-100 text-yellow-800 border-yellow-200",
-  processing: "bg-blue-100 text-blue-800 border-blue-200", 
-  completed: "bg-green-100 text-green-800 border-green-200",
-  failed: "bg-red-100 text-red-800 border-red-200"
+  pending: "bg-yellow-500/20 text-yellow-300 border border-yellow-400/30",
+  processing: "bg-blue-500/20 text-blue-300 border border-blue-400/30",
+  completed: "bg-emerald-500/20 text-emerald-300 border border-emerald-400/30",
+  failed: "bg-red-500/20 text-red-300 border border-red-400/30"
 };
 
 const statusIcons = {
@@ -545,385 +544,378 @@ export default function AiLogsPage() {
           </p>
         </div>
 
-        <div className="mx-auto max-w-7xl rounded-3xl border border-white/10 bg-white/95 p-6 text-slate-900 shadow-xl backdrop-blur">
+        <div className="mx-auto max-w-7xl space-y-6">
           <div className="space-y-6">
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-lg">Filtres et actions</CardTitle>
-                  <div className="flex gap-2">
-                    <Button onClick={fetchLogs} disabled={loading} variant="outline" size="sm">
-                      <RefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-                      Actualiser
-                    </Button>
-                    <Button onClick={exportLogs} variant="outline" size="sm">
-                      <Download className="mr-2 h-4 w-4" />
-                      Exporter CSV
-                    </Button>
-                  </div>
+            <div className="rounded-xl border border-slate-500/30 bg-slate-900/40 p-6 backdrop-blur-sm">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-slate-100">Filtres et actions</h3>
+                <div className="flex gap-2">
+                  <Button onClick={fetchLogs} disabled={loading} variant="outline" size="sm" className="border-slate-500/40 bg-slate-800/50 text-slate-200 hover:bg-slate-700/50">
+                    <RefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+                    Actualiser
+                  </Button>
+                  <Button onClick={exportLogs} variant="outline" size="sm" className="border-slate-500/40 bg-slate-800/50 text-slate-200 hover:bg-slate-700/50">
+                    <Download className="mr-2 h-4 w-4" />
+                    Exporter CSV
+                  </Button>
                 </div>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-3 lg:grid-cols-4">
-                  <div>
-                    <Label htmlFor="search">Recherche</Label>
-                    <div className="relative">
-                      <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 transform text-slate-400" />
-                      <Input
-                        id="search"
-                        placeholder="Rechercher dans les logs..."
-                        value={filters.search}
-                        onChange={event => setFilters(prev => ({ ...prev, search: event.target.value }))}
-                        className="pl-10"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <Label htmlFor="status">Statut</Label>
-                    <select
-                      id="status"
-                      value={filters.status}
-                      onChange={event => setFilters(prev => ({ ...prev, status: event.target.value }))}
-                      className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm"
-                    >
-                      <option value="">Tous les statuts</option>
-                      <option value="pending">En attente</option>
-                      <option value="processing">En cours</option>
-                      <option value="completed">Terminé</option>
-                      <option value="failed">Échoué</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <Label htmlFor="interactionType">Type d'interaction</Label>
-                    <select
-                      id="interactionType"
-                      value={filters.interactionType}
-                      onChange={event => setFilters(prev => ({ ...prev, interactionType: event.target.value }))}
-                      className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm"
-                    >
-                      <option value="">Tous les types</option>
-                      <optgroup label="Chat & Conversations">
-                        <option value="ask.chat.response">Réponse Chat</option>
-                        <option value="ask.chat.response.streaming">Réponse Chat Streaming</option>
-                      </optgroup>
-                      <optgroup label="Insights">
-                        <option value="ask.insight.detection">Détection d'Insights</option>
-                        <option value="insight.synthesis">Synthèse d'Insights</option>
-                        <option value="insight.entity.extraction">Extraction d'Entités</option>
-                      </optgroup>
-                      <optgroup label="Défis & Questions">
-                        <option value="challenge.ask.generator">Générateur de Questions</option>
-                      </optgroup>
-                      <optgroup label="Gestion de Défis (Challenge Builder)">
-                        <option value="project_challenge_planning">Planification de Révision</option>
-                        <option value="project_challenge_update_detailed">Mise à Jour Détaillée</option>
-                        <option value="project_challenge_creation_detailed">Création Détaillée</option>
-                      </optgroup>
-                    </select>
-                  </div>
-
-                  <div>
-                    <Label htmlFor="dateFrom">Date début</Label>
+              </div>
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-3 lg:grid-cols-4">
+                <div>
+                  <Label htmlFor="search" className="text-slate-300">Recherche</Label>
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 transform text-slate-500" />
                     <Input
-                      id="dateFrom"
-                      type="datetime-local"
-                      value={filters.dateFrom ? new Date(filters.dateFrom).toISOString().slice(0, 16) : ""}
-                      onChange={event => {
-                        const date = event.target.value ? new Date(event.target.value).toISOString() : "";
-                        setFilters(prev => ({ ...prev, dateFrom: date }));
-                      }}
-                      className="w-full"
+                      id="search"
+                      placeholder="Rechercher dans les logs..."
+                      value={filters.search}
+                      onChange={event => setFilters(prev => ({ ...prev, search: event.target.value }))}
+                      className="pl-10 bg-slate-800/60 border-slate-600/50 text-slate-100 placeholder:text-slate-500"
                     />
                   </div>
+                </div>
+
+                <div>
+                  <Label htmlFor="status" className="text-slate-300">Statut</Label>
+                  <select
+                    id="status"
+                    value={filters.status}
+                    onChange={event => setFilters(prev => ({ ...prev, status: event.target.value }))}
+                    className="w-full rounded-md border border-slate-600/50 bg-slate-800/60 px-3 py-2 text-sm text-slate-100"
+                  >
+                    <option value="">Tous les statuts</option>
+                    <option value="pending">En attente</option>
+                    <option value="processing">En cours</option>
+                    <option value="completed">Terminé</option>
+                    <option value="failed">Échoué</option>
+                  </select>
+                </div>
 
                   <div>
-                    <Label htmlFor="dateTo">Date fin</Label>
-                    <Input
-                      id="dateTo"
-                      type="datetime-local"
-                      value={filters.dateTo ? new Date(filters.dateTo).toISOString().slice(0, 16) : ""}
-                      onChange={event => {
-                        const date = event.target.value ? new Date(event.target.value).toISOString() : "";
-                        setFilters(prev => ({ ...prev, dateTo: date }));
-                      }}
-                      className="w-full"
-                    />
-                  </div>
-
-                  <div className="flex items-end gap-2 md:col-span-2 lg:col-span-1">
-                    <Button
-                      onClick={() => {
-                        const today = new Date();
-                        const startOfDay = new Date(today);
-                        startOfDay.setHours(0, 0, 0, 0);
-                        const endOfDay = new Date(today);
-                        endOfDay.setHours(23, 59, 59, 999);
-                        setFilters(prev => ({ ...prev, dateFrom: startOfDay.toISOString(), dateTo: endOfDay.toISOString() }));
-                      }}
-                      variant="outline"
-                      size="sm"
-                      className="flex-1"
-                    >
-                      Aujourd'hui
-                    </Button>
-                    <Button
-                      onClick={() => setFilters({ status: "", interactionType: "", search: "", dateFrom: "", dateTo: "" })}
-                      variant="outline"
-                      size="sm"
-                      className="flex-1"
-                    >
-                      Effacer
-                    </Button>
-                  </div>
+                  <Label htmlFor="interactionType" className="text-slate-300">Type d'interaction</Label>
+                  <select
+                    id="interactionType"
+                    value={filters.interactionType}
+                    onChange={event => setFilters(prev => ({ ...prev, interactionType: event.target.value }))}
+                    className="w-full rounded-md border border-slate-600/50 bg-slate-800/60 px-3 py-2 text-sm text-slate-100"
+                  >
+                    <option value="">Tous les types</option>
+                    <optgroup label="Chat & Conversations">
+                      <option value="ask.chat.response">Réponse Chat</option>
+                      <option value="ask.chat.response.streaming">Réponse Chat Streaming</option>
+                    </optgroup>
+                    <optgroup label="Insights">
+                      <option value="ask.insight.detection">Détection d'Insights</option>
+                      <option value="insight.synthesis">Synthèse d'Insights</option>
+                      <option value="insight.entity.extraction">Extraction d'Entités</option>
+                    </optgroup>
+                    <optgroup label="Défis & Questions">
+                      <option value="challenge.ask.generator">Générateur de Questions</option>
+                    </optgroup>
+                    <optgroup label="Gestion de Défis (Challenge Builder)">
+                      <option value="project_challenge_planning">Planification de Révision</option>
+                      <option value="project_challenge_update_detailed">Mise à Jour Détaillée</option>
+                      <option value="project_challenge_creation_detailed">Création Détaillée</option>
+                    </optgroup>
+                  </select>
                 </div>
-              </CardContent>
-            </Card>
 
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
-              <Card className="bg-slate-50">
-                <CardContent className="p-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm text-slate-600">Total</p>
-                      <p className="text-2xl font-bold">{logs.length}</p>
-                    </div>
-                    <AlertCircle className="h-8 w-8 text-slate-400" />
-                  </div>
-                </CardContent>
-              </Card>
+                <div>
+                  <Label htmlFor="dateFrom" className="text-slate-300">Date début</Label>
+                  <Input
+                    id="dateFrom"
+                    type="datetime-local"
+                    value={filters.dateFrom ? new Date(filters.dateFrom).toISOString().slice(0, 16) : ""}
+                    onChange={event => {
+                      const date = event.target.value ? new Date(event.target.value).toISOString() : "";
+                      setFilters(prev => ({ ...prev, dateFrom: date }));
+                    }}
+                    className="w-full bg-slate-800/60 border-slate-600/50 text-slate-100"
+                  />
+                </div>
 
-              <Card className="bg-emerald-50">
-                <CardContent className="p-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm text-emerald-700">Terminés</p>
-                      <p className="text-2xl font-bold text-emerald-600">
-                        {logs.filter(log => log.status === "completed").length}
-                      </p>
-                    </div>
-                    <CheckCircle className="h-8 w-8 text-emerald-500" />
-                  </div>
-                </CardContent>
-              </Card>
+                <div>
+                  <Label htmlFor="dateTo" className="text-slate-300">Date fin</Label>
+                  <Input
+                    id="dateTo"
+                    type="datetime-local"
+                    value={filters.dateTo ? new Date(filters.dateTo).toISOString().slice(0, 16) : ""}
+                    onChange={event => {
+                      const date = event.target.value ? new Date(event.target.value).toISOString() : "";
+                      setFilters(prev => ({ ...prev, dateTo: date }));
+                    }}
+                    className="w-full bg-slate-800/60 border-slate-600/50 text-slate-100"
+                  />
+                </div>
 
-              <Card className="bg-blue-50">
-                <CardContent className="p-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm text-blue-700">En cours</p>
-                      <p className="text-2xl font-bold text-blue-600">
-                        {logs.filter(log => log.status === "processing").length}
-                      </p>
-                    </div>
-                    <RefreshCw className="h-8 w-8 text-blue-500" />
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card className="bg-red-50">
-                <CardContent className="p-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm text-red-700">Échoués</p>
-                      <p className="text-2xl font-bold text-red-600">
-                        {logs.filter(log => log.status === "failed").length}
-                      </p>
-                    </div>
-                    <XCircle className="h-8 w-8 text-red-500" />
-                  </div>
-                </CardContent>
-              </Card>
+                <div className="flex items-end gap-2 md:col-span-2 lg:col-span-1">
+                  <Button
+                    onClick={() => {
+                      const today = new Date();
+                      const startOfDay = new Date(today);
+                      startOfDay.setHours(0, 0, 0, 0);
+                      const endOfDay = new Date(today);
+                      endOfDay.setHours(23, 59, 59, 999);
+                      setFilters(prev => ({ ...prev, dateFrom: startOfDay.toISOString(), dateTo: endOfDay.toISOString() }));
+                    }}
+                    variant="outline"
+                    size="sm"
+                    className="flex-1 border-slate-500/40 bg-slate-800/50 text-slate-200 hover:bg-slate-700/50"
+                  >
+                    Aujourd'hui
+                  </Button>
+                  <Button
+                    onClick={() => setFilters({ status: "", interactionType: "", search: "", dateFrom: "", dateTo: "" })}
+                    variant="outline"
+                    size="sm"
+                    className="flex-1 border-slate-500/40 bg-slate-800/50 text-slate-200 hover:bg-slate-700/50"
+                  >
+                    Effacer
+                  </Button>
+                </div>
+              </div>
             </div>
 
-            <Card>
-              <CardHeader>
-                <CardTitle>Logs d'interactions IA</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {loading ? (
-                  <div className="flex items-center justify-center py-8">
-                    <RefreshCw className="mr-2 h-6 w-6 animate-spin" />
-                    <span>Chargement des logs...</span>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+              <div className="rounded-xl border border-slate-400/40 bg-slate-900/30 p-4 backdrop-blur-sm">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-slate-300">Total</p>
+                    <p className="text-2xl font-bold text-slate-100">{logs.length}</p>
                   </div>
-                ) : error ? (
-                  <div className="flex items-center justify-center py-8 text-red-600">
-                    <XCircle className="mr-2 h-6 w-6" />
-                    <span>{error}</span>
-                  </div>
-                ) : filteredLogs.length === 0 ? (
-                  <div className="flex items-center justify-center py-8 text-slate-500">
-                    <AlertCircle className="mr-2 h-6 w-6" />
-                    <span>Aucun log trouvé</span>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    <AnimatePresence>
-                      {filteredLogs.map(log => {
-                        const StatusIcon = statusIcons[log.status as keyof typeof statusIcons];
-                        const isExpanded = expandedLogs.has(log.id);
+                  <AlertCircle className="h-8 w-8 text-slate-400" />
+                </div>
+              </div>
 
-                        return (
-                          <motion.div
-                            key={log.id}
-                            initial={{ opacity: 0, y: 20 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: -20 }}
-                            transition={{ duration: 0.2 }}
-                          >
-                            <Card className="border-l-4 border-l-slate-200 transition-colors hover:border-l-slate-300">
-                              <CardContent
-                                className="cursor-pointer p-4 transition-colors hover:bg-slate-50"
-                                onClick={() => {
-                                  const payload = log.requestPayload as Record<string, unknown>;
-                                  const agentSlug = typeof payload.agentSlug === 'string' ? payload.agentSlug : undefined;
-                                  toggleLogExpansion(log.id, agentSlug);
-                                }}
-                              >
+              <div className="rounded-xl border border-emerald-400/40 bg-emerald-500/10 p-4 backdrop-blur-sm">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-emerald-300">Terminés</p>
+                    <p className="text-2xl font-bold text-emerald-400">
+                      {logs.filter(log => log.status === "completed").length}
+                    </p>
+                  </div>
+                  <CheckCircle className="h-8 w-8 text-emerald-400" />
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-blue-400/40 bg-blue-500/10 p-4 backdrop-blur-sm">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-blue-300">En cours</p>
+                    <p className="text-2xl font-bold text-blue-400">
+                      {logs.filter(log => log.status === "processing").length}
+                    </p>
+                  </div>
+                  <RefreshCw className="h-8 w-8 text-blue-400" />
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-red-400/40 bg-red-500/10 p-4 backdrop-blur-sm">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-red-300">Échoués</p>
+                    <p className="text-2xl font-bold text-red-400">
+                      {logs.filter(log => log.status === "failed").length}
+                    </p>
+                  </div>
+                  <XCircle className="h-8 w-8 text-red-400" />
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-slate-500/30 bg-slate-900/40 p-6 backdrop-blur-sm">
+              <h3 className="text-lg font-semibold text-slate-100 mb-4">Logs d'interactions IA</h3>
+              {loading ? (
+                <div className="flex items-center justify-center py-8 text-slate-300">
+                  <RefreshCw className="mr-2 h-6 w-6 animate-spin" />
+                  <span>Chargement des logs...</span>
+                </div>
+              ) : error ? (
+                <div className="flex items-center justify-center py-8 text-red-400">
+                  <XCircle className="mr-2 h-6 w-6" />
+                  <span>{error}</span>
+                </div>
+              ) : filteredLogs.length === 0 ? (
+                <div className="flex items-center justify-center py-8 text-slate-400">
+                  <AlertCircle className="mr-2 h-6 w-6" />
+                  <span>Aucun log trouvé</span>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <AnimatePresence>
+                    {filteredLogs.map(log => {
+                      const StatusIcon = statusIcons[log.status as keyof typeof statusIcons];
+                      const isExpanded = expandedLogs.has(log.id);
+
+                      // Define border color based on status
+                      const statusBorderColors = {
+                        pending: "border-yellow-400/40",
+                        processing: "border-blue-400/40",
+                        completed: "border-emerald-400/40",
+                        failed: "border-red-400/40"
+                      };
+                      const borderColor = statusBorderColors[log.status as keyof typeof statusBorderColors] || "border-slate-400/40";
+
+                      return (
+                        <motion.div
+                          key={log.id}
+                          initial={{ opacity: 0, y: 20 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -20 }}
+                          transition={{ duration: 0.2 }}
+                        >
+                          <div className={`rounded-lg border-l-4 ${borderColor} bg-slate-800/50 transition-colors hover:bg-slate-700/50`}>
+                            <div
+                              className="cursor-pointer p-4"
+                              onClick={() => {
+                                const payload = log.requestPayload as Record<string, unknown>;
+                                const agentSlug = typeof payload.agentSlug === 'string' ? payload.agentSlug : undefined;
+                                toggleLogExpansion(log.id, agentSlug);
+                              }}
+                            >
                                 <div className="flex items-center justify-between">
-                                  <div className="flex items-center gap-4">
-                                    <StatusIcon className="h-5 w-5 text-slate-600" />
-                                    <div>
-                                      <div className="flex items-center gap-2">
-                                        <span className={`rounded-full px-2 py-1 text-xs font-medium ${statusColors[log.status as keyof typeof statusColors]}`}>
-                                          {log.status}
-                                        </span>
-                                        <span className="font-medium">{log.interactionType}</span>
-                                      </div>
-                                      <p className="text-sm text-slate-600">
-                                        {log.agentId && `Agent: ${log.agentId}`}
-                                        {log.askSessionId && ` • Session: ${log.askSessionId.slice(0, 8)}...`}
-                                        {log.latencyMs && ` • Latence: ${formatLatency(log.latencyMs)}`}
-                                      </p>
+                                <div className="flex items-center gap-4">
+                                  <StatusIcon className="h-5 w-5 text-slate-400" />
+                                  <div>
+                                    <div className="flex items-center gap-2">
+                                      <span className={`rounded-full px-2 py-1 text-xs font-medium ${statusColors[log.status as keyof typeof statusColors]}`}>
+                                        {log.status}
+                                      </span>
+                                      <span className="font-medium text-slate-100">{log.interactionType}</span>
                                     </div>
-                                  </div>
-
-                                  <div className="flex items-center gap-2">
-                                    <span className="text-sm text-slate-500">{formatTimestamp(log.createdAt)}</span>
-                                    {isExpanded ? (
-                                      <span className="text-slate-400">▲</span>
-                                    ) : (
-                                      <span className="text-slate-400">▼</span>
-                                    )}
+                                    <p className="text-sm text-slate-400">
+                                      {log.agentId && `Agent: ${log.agentId}`}
+                                      {log.askSessionId && ` • Session: ${log.askSessionId.slice(0, 8)}...`}
+                                      {log.latencyMs && ` • Latence: ${formatLatency(log.latencyMs)}`}
+                                    </p>
                                   </div>
                                 </div>
 
-                                {log.errorMessage && (
-                                  <div className="mt-2 rounded border border-red-200 bg-red-50 p-2 text-sm text-red-700">
-                                    <strong>Erreur :</strong> {log.errorMessage}
+                                <div className="flex items-center gap-2">
+                                  <span className="text-sm text-slate-400">{formatTimestamp(log.createdAt)}</span>
+                                  {isExpanded ? (
+                                    <span className="text-slate-400">▲</span>
+                                  ) : (
+                                    <span className="text-slate-400">▼</span>
+                                  )}
+                                </div>
+                              </div>
+
+                              {log.errorMessage && (
+                                <div className="mt-2 rounded border border-red-400/40 bg-red-500/10 p-2 text-sm text-red-300">
+                                  <strong>Erreur :</strong> {log.errorMessage}
+                                </div>
+                              )}
+                            </div>
+
+                            {isExpanded && (() => {
+                              const payload = log.requestPayload as Record<string, unknown>;
+                              const systemPrompt = typeof payload.systemPrompt === 'string' ? payload.systemPrompt : null;
+                              const userPrompt = typeof payload.userPrompt === 'string' ? payload.userPrompt : null;
+                              const agentSlug = typeof payload.agentSlug === 'string' ? payload.agentSlug : undefined;
+
+                              // Get templates: prefer stored templates, fallback to fetched from agent
+                              const storedSystemTemplate = typeof payload.systemPromptTemplate === 'string' ? payload.systemPromptTemplate : undefined;
+                              const storedUserTemplate = typeof payload.userPromptTemplate === 'string' ? payload.userPromptTemplate : undefined;
+
+                              // Use cached agent templates if stored ones are not available
+                              const cachedTemplates = agentSlug ? agentTemplatesCache[agentSlug] : null;
+                              const systemPromptTemplate = storedSystemTemplate || cachedTemplates?.systemPrompt;
+                              const userPromptTemplate = storedUserTemplate || cachedTemplates?.userPrompt;
+                              const isLoadingTemplates = agentSlug ? loadingTemplates.has(agentSlug) : false;
+
+                              // Create a payload without the prompts for the JSON display
+                              const { systemPrompt: _sp, userPrompt: _up, systemPromptTemplate: _spt, userPromptTemplate: _upt, ...otherPayload } = payload;
+
+                              return (
+                                <div className="border-t border-slate-600/30 bg-slate-900/50 px-4 pb-4">
+                                  <div className="mt-4 space-y-4">
+                                    {/* System Prompt with highlighting */}
+                                    {systemPrompt && (
+                                      <div>
+                                        <h4 className="mb-2 text-sm font-medium text-slate-300">
+                                          System Prompt
+                                          {isLoadingTemplates && (
+                                            <span className="ml-2 text-xs font-normal text-blue-400">
+                                              (chargement des templates...)
+                                            </span>
+                                          )}
+                                          {!isLoadingTemplates && systemPromptTemplate && (
+                                            <span className="ml-2 text-xs font-normal text-orange-400">
+                                              (variables colorées)
+                                            </span>
+                                          )}
+                                        </h4>
+                                        <div className="overflow-x-auto rounded border border-slate-600/40">
+                                          <HighlightedPrompt
+                                            text={systemPrompt}
+                                            template={systemPromptTemplate}
+                                          />
+                                        </div>
+                                      </div>
+                                    )}
+
+                                    {/* User Prompt with highlighting */}
+                                    {userPrompt && (
+                                      <div>
+                                        <h4 className="mb-2 text-sm font-medium text-slate-300">
+                                          User Prompt
+                                          {isLoadingTemplates && (
+                                            <span className="ml-2 text-xs font-normal text-blue-400">
+                                              (chargement des templates...)
+                                            </span>
+                                          )}
+                                          {!isLoadingTemplates && userPromptTemplate && (
+                                            <span className="ml-2 text-xs font-normal text-orange-400">
+                                              (variables colorées)
+                                            </span>
+                                          )}
+                                        </h4>
+                                        <div className="overflow-x-auto rounded border border-slate-600/40">
+                                          <HighlightedPrompt
+                                            text={userPrompt}
+                                            template={userPromptTemplate}
+                                          />
+                                        </div>
+                                      </div>
+                                    )}
+
+                                    {/* Other payload data */}
+                                    {Object.keys(otherPayload).length > 0 && (
+                                      <div>
+                                        <h4 className="mb-2 text-sm font-medium text-slate-300">Autres données</h4>
+                                        <div className="overflow-x-auto rounded border border-slate-600/40">
+                                          <JsonSyntaxHighlighter>
+                                            {JSON.stringify(otherPayload, null, 2)}
+                                          </JsonSyntaxHighlighter>
+                                        </div>
+                                      </div>
+                                    )}
+
+                                    {/* Response payload */}
+                                    {log.responsePayload && (
+                                      <div>
+                                        <h4 className="mb-2 text-sm font-medium text-slate-300">Payload de réponse</h4>
+                                        <div className="overflow-x-auto rounded border border-slate-600/40">
+                                          <JsonSyntaxHighlighter>
+                                            {JSON.stringify(log.responsePayload, null, 2)}
+                                          </JsonSyntaxHighlighter>
+                                        </div>
+                                      </div>
+                                    )}
                                   </div>
-                                )}
-                              </CardContent>
-
-                              {isExpanded && (() => {
-                                const payload = log.requestPayload as Record<string, unknown>;
-                                const systemPrompt = typeof payload.systemPrompt === 'string' ? payload.systemPrompt : null;
-                                const userPrompt = typeof payload.userPrompt === 'string' ? payload.userPrompt : null;
-                                const agentSlug = typeof payload.agentSlug === 'string' ? payload.agentSlug : undefined;
-
-                                // Get templates: prefer stored templates, fallback to fetched from agent
-                                const storedSystemTemplate = typeof payload.systemPromptTemplate === 'string' ? payload.systemPromptTemplate : undefined;
-                                const storedUserTemplate = typeof payload.userPromptTemplate === 'string' ? payload.userPromptTemplate : undefined;
-
-                                // Use cached agent templates if stored ones are not available
-                                const cachedTemplates = agentSlug ? agentTemplatesCache[agentSlug] : null;
-                                const systemPromptTemplate = storedSystemTemplate || cachedTemplates?.systemPrompt;
-                                const userPromptTemplate = storedUserTemplate || cachedTemplates?.userPrompt;
-                                const isLoadingTemplates = agentSlug ? loadingTemplates.has(agentSlug) : false;
-
-                                // Create a payload without the prompts for the JSON display
-                                const { systemPrompt: _sp, userPrompt: _up, systemPromptTemplate: _spt, userPromptTemplate: _upt, ...otherPayload } = payload;
-
-                                return (
-                                  <div className="border-t bg-slate-50 px-4 pb-4">
-                                    <div className="mt-4 space-y-4">
-                                      {/* System Prompt with highlighting */}
-                                      {systemPrompt && (
-                                        <div>
-                                          <h4 className="mb-2 text-sm font-medium text-slate-700">
-                                            System Prompt
-                                            {isLoadingTemplates && (
-                                              <span className="ml-2 text-xs font-normal text-blue-600">
-                                                (chargement des templates...)
-                                              </span>
-                                            )}
-                                            {!isLoadingTemplates && systemPromptTemplate && (
-                                              <span className="ml-2 text-xs font-normal text-orange-600">
-                                                (variables colorées)
-                                              </span>
-                                            )}
-                                          </h4>
-                                          <div className="overflow-x-auto rounded border border-slate-200">
-                                            <HighlightedPrompt
-                                              text={systemPrompt}
-                                              template={systemPromptTemplate}
-                                            />
-                                          </div>
-                                        </div>
-                                      )}
-
-                                      {/* User Prompt with highlighting */}
-                                      {userPrompt && (
-                                        <div>
-                                          <h4 className="mb-2 text-sm font-medium text-slate-700">
-                                            User Prompt
-                                            {isLoadingTemplates && (
-                                              <span className="ml-2 text-xs font-normal text-blue-600">
-                                                (chargement des templates...)
-                                              </span>
-                                            )}
-                                            {!isLoadingTemplates && userPromptTemplate && (
-                                              <span className="ml-2 text-xs font-normal text-orange-600">
-                                                (variables colorées)
-                                              </span>
-                                            )}
-                                          </h4>
-                                          <div className="overflow-x-auto rounded border border-slate-200">
-                                            <HighlightedPrompt
-                                              text={userPrompt}
-                                              template={userPromptTemplate}
-                                            />
-                                          </div>
-                                        </div>
-                                      )}
-
-                                      {/* Other payload data */}
-                                      {Object.keys(otherPayload).length > 0 && (
-                                        <div>
-                                          <h4 className="mb-2 text-sm font-medium text-slate-700">Autres données</h4>
-                                          <div className="overflow-x-auto rounded border border-slate-200">
-                                            <JsonSyntaxHighlighter>
-                                              {JSON.stringify(otherPayload, null, 2)}
-                                            </JsonSyntaxHighlighter>
-                                          </div>
-                                        </div>
-                                      )}
-
-                                      {/* Response payload */}
-                                      {log.responsePayload && (
-                                        <div>
-                                          <h4 className="mb-2 text-sm font-medium text-slate-700">Payload de réponse</h4>
-                                          <div className="overflow-x-auto rounded border border-slate-200">
-                                            <JsonSyntaxHighlighter>
-                                              {JSON.stringify(log.responsePayload, null, 2)}
-                                            </JsonSyntaxHighlighter>
-                                          </div>
-                                        </div>
-                                      )}
-                                    </div>
-                                  </div>
-                                );
-                              })()}
-                            </Card>
-                          </motion.div>
-                        );
-                      })}
-                    </AnimatePresence>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+                                </div>
+                              );
+                            })()}
+                          </div>
+                        </motion.div>
+                      );
+                    })}
+                  </AnimatePresence>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>

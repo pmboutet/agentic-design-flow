@@ -2171,7 +2171,7 @@ export default function HomePage() {
   }
 
   return (
-    <div className="conversation-layout min-h-[100dvh] bg-gradient-to-br from-slate-50 via-white to-blue-50 overflow-x-hidden w-full max-w-full">
+    <div className="conversation-layout min-h-[100dvh] bg-gradient-to-br from-indigo-100 via-white to-indigo-200 overflow-x-hidden w-full max-w-full">
       {/* Beautiful Header */}
       <motion.header
         initial={{ opacity: 0, y: -20 }}

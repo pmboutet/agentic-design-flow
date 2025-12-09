@@ -8,95 +8,89 @@ body {
 
 @layer base {
   :root {
-    /* Futuristic Dark Theme - Always dark */
-    --background: 230 25% 7%; /* Very dark blue-black */
-    --foreground: 210 40% 98%; /* Light text */
+    --background: 224 71% 95%; /* Light Grayish Blue */
+    --foreground: 223 23% 41%; /* Dark Desaturated Blue */
 
-    --card: 230 30% 10%; /* Slightly lighter dark */
-    --card-foreground: 210 40% 98%;
+    --card: 224 71% 95%;
+    --card-foreground: 223 23% 41%;
 
-    --popover: 230 30% 12%;
-    --popover-foreground: 210 40% 98%;
+    --popover: 224 71% 95%;
+    --popover-foreground: 223 23% 41%;
 
-    --primary: 185 100% 50%; /* Cyan/Teal neon */
-    --primary-foreground: 230 25% 7%;
+    --primary: 225 67% 58%; /* Calming Blue */
+    --primary-foreground: 0 0% 100%;
 
-    --secondary: 280 100% 60%; /* Purple/Magenta */
-    --secondary-foreground: 0 0% 100%;
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
 
-    --muted: 230 20% 18%;
-    --muted-foreground: 215 20% 65%;
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
 
-    --accent: 320 100% 60%; /* Pink/Magenta accent */
+    --accent: 333 100% 50%; /* Vibrant Orange/Pink */
     --accent-foreground: 0 0% 100%;
 
-    --destructive: 0 84% 60%;
+    --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 210 40% 98%;
 
-    --border: 230 30% 20%;
-    --input: 230 30% 15%;
-    --ring: 185 100% 50%;
+    --border: 224 44% 86%;
+    --input: 224 44% 86%;
+    --ring: 225 67% 58%;
 
     --radius: 0.75rem;
 
-    /* Glow colors */
-    --glow-cyan: 185 100% 50%;
-    --glow-purple: 280 100% 60%;
-    --glow-pink: 320 100% 60%;
+    --chart-1: 12 76% 61%;
+    --chart-2: 173 58% 39%;
+    --chart-3: 197 37% 24%;
+    --chart-4: 43 74% 66%;
+    --chart-5: 27 87% 67%;
 
-    --chart-1: 185 100% 50%;
-    --chart-2: 280 100% 60%;
-    --chart-3: 320 100% 60%;
-    --chart-4: 45 100% 60%;
-    --chart-5: 150 100% 50%;
-
-    --sidebar-background: 230 30% 8%;
-    --sidebar-foreground: 210 40% 98%;
-    --sidebar-primary: 185 100% 50%;
-    --sidebar-primary-foreground: 230 25% 7%;
-    --sidebar-accent: 230 25% 15%;
-    --sidebar-accent-foreground: 210 40% 98%;
-    --sidebar-border: 230 30% 18%;
-    --sidebar-ring: 185 100% 50%;
+    --sidebar-background: 224 71% 95%;
+    --sidebar-foreground: 223 23% 41%;
+    --sidebar-primary: 10 89% 64%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 210 40% 96.1%;
+    --sidebar-accent-foreground: 222.2 47.4% 11.2%;
+    --sidebar-border: 224 44% 86%;
+    --sidebar-ring: 10 89% 64%;
   }
 
   .dark {
-    --background: 230 25% 7%;
-    --foreground: 210 40% 98%;
+    --background: 223 23% 15%;
+    --foreground: 0 0% 95%;
 
-    --card: 230 30% 10%;
-    --card-foreground: 210 40% 98%;
+    --card: 223 23% 15%;
+    --card-foreground: 0 0% 95%;
 
-    --popover: 230 30% 12%;
-    --popover-foreground: 210 40% 98%;
+    --popover: 223 23% 15%;
+    --popover-foreground: 0 0% 95%;
 
-    --primary: 185 100% 50%;
-    --primary-foreground: 230 25% 7%;
+    --primary: 225 67% 58%;
+    --primary-foreground: 0 0% 100%;
 
-    --secondary: 280 100% 60%;
-    --secondary-foreground: 0 0% 100%;
+    --secondary: 217.2 32.6% 17.5%;
+    --secondary-foreground: 0 0% 95%;
 
-    --muted: 230 20% 18%;
-    --muted-foreground: 215 20% 65%;
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
 
-    --accent: 320 100% 60%;
+    --accent: 333 100% 50%;
     --accent-foreground: 0 0% 100%;
 
     --destructive: 0 62.8% 30.6%;
     --destructive-foreground: 0 0% 98%;
 
-    --border: 230 30% 20%;
-    --input: 230 30% 15%;
-    --ring: 185 100% 50%;
+    --border: 217.2 32.6% 25%;
+    --input: 217.2 32.6% 25%;
+    --ring: 225 67% 58%;
 
-    --sidebar-background: 230 30% 8%;
-    --sidebar-foreground: 210 40% 98%;
-    --sidebar-primary: 185 100% 50%;
-    --sidebar-primary-foreground: 230 25% 7%;
-    --sidebar-accent: 230 25% 15%;
-    --sidebar-accent-foreground: 210 40% 98%;
-    --sidebar-border: 230 30% 18%;
-    --sidebar-ring: 185 100% 50%;
+    --sidebar-background: 223 23% 15%;
+    --sidebar-foreground: 0 0% 95%;
+    --sidebar-primary: 10 89% 64%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 217.2 32.6% 17.5%;
+    --sidebar-accent-foreground: 0 0% 95%;
+    --sidebar-border: 217.2 32.6% 25%;
+    --sidebar-ring: 10 89% 64%;
   }
 }
 
@@ -112,168 +106,21 @@ body {
     -webkit-text-size-adjust: 100%;
   }
   body {
-    @apply min-h-screen m-0 p-0 text-foreground;
-    background: #0B1120;
+    @apply min-h-screen m-0 p-0 bg-gradient-to-br from-indigo-100 via-white to-indigo-200 text-foreground;
     width: 100%;
     max-width: 100%;
     overflow-x: hidden;
     overscroll-behavior-x: none;
     -webkit-overflow-scrolling: touch;
   }
-}
-
-/* ==========================================
-   ANIMATED AURORA BACKGROUND
-   ========================================== */
-
-/* Aurora background container - fixed positioning */
-.aurora-background {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: -10;
-  overflow: hidden;
-  background: #0B1120;
-  pointer-events: none;
-}
-
-/* Aurora layers base */
-.aurora-layer {
-  position: absolute;
-  width: 200%;
-  height: 200%;
-  top: -50%;
-  left: -50%;
-  opacity: 0.6;
-}
-
-/* Cyan/Teal aurora wave */
-.aurora-cyan {
-  background:
-    radial-gradient(ellipse 40% 30% at 30% 40%,
-      hsla(185, 100%, 50%, 0.25) 0%,
-      transparent 70%),
-    radial-gradient(ellipse 35% 25% at 70% 60%,
-      hsla(185, 100%, 45%, 0.2) 0%,
-      transparent 60%),
-    radial-gradient(ellipse 30% 20% at 50% 80%,
-      hsla(195, 100%, 50%, 0.15) 0%,
-      transparent 50%);
-  animation: aurora-drift-1 30s ease-in-out infinite;
-  filter: blur(80px);
-}
-
-/* Pink/Magenta aurora wave */
-.aurora-pink {
-  background:
-    radial-gradient(ellipse 35% 25% at 70% 35%,
-      hsla(320, 100%, 50%, 0.2) 0%,
-      transparent 70%),
-    radial-gradient(ellipse 30% 20% at 25% 65%,
-      hsla(280, 100%, 55%, 0.18) 0%,
-      transparent 60%),
-    radial-gradient(ellipse 25% 18% at 60% 75%,
-      hsla(300, 100%, 50%, 0.12) 0%,
-      transparent 50%);
-  animation: aurora-drift-2 35s ease-in-out infinite;
-  filter: blur(80px);
-}
-
-/* Very slow drifting animations */
-@keyframes aurora-drift-1 {
-  0%, 100% {
-    transform: translate(0%, 0%) rotate(0deg);
-  }
-  25% {
-    transform: translate(8%, -5%) rotate(2deg);
-  }
-  50% {
-    transform: translate(-5%, 10%) rotate(-1deg);
-  }
-  75% {
-    transform: translate(-10%, -3%) rotate(3deg);
+  /* Override body background for admin pages to prevent white space at bottom */
+  body:has(.admin-layout) {
+    background: rgb(2 6 23); /* slate-950 */
   }
 }
 
-@keyframes aurora-drift-2 {
-  0%, 100% {
-    transform: translate(0%, 0%) rotate(0deg);
-  }
-  33% {
-    transform: translate(-8%, 6%) rotate(-2deg);
-  }
-  66% {
-    transform: translate(6%, -8%) rotate(2deg);
-  }
-}
-
-/* Admin layout - transparent to show aurora */
-.admin-layout {
-  background: transparent !important;
-}
-
-/* Futuristic glass card with glow */
 .glass-card {
-  @apply backdrop-blur-md rounded-2xl;
-  background: linear-gradient(135deg, hsla(230, 30%, 15%, 0.8) 0%, hsla(250, 25%, 12%, 0.9) 100%);
-  border: 1px solid hsla(185, 100%, 50%, 0.2);
-  box-shadow:
-    0 0 20px hsla(185, 100%, 50%, 0.1),
-    inset 0 1px 0 hsla(185, 100%, 50%, 0.1);
-}
-
-/* Neon glow card */
-.neon-card {
-  @apply backdrop-blur-md rounded-2xl;
-  background: linear-gradient(135deg, hsla(230, 30%, 12%, 0.9) 0%, hsla(250, 25%, 10%, 0.95) 100%);
-  border: 1px solid hsla(185, 100%, 50%, 0.3);
-  box-shadow:
-    0 0 30px hsla(185, 100%, 50%, 0.15),
-    0 0 60px hsla(185, 100%, 50%, 0.05),
-    inset 0 1px 0 hsla(185, 100%, 50%, 0.2);
-  transition: all 0.3s ease;
-}
-
-.neon-card:hover {
-  border-color: hsla(185, 100%, 50%, 0.5);
-  box-shadow:
-    0 0 40px hsla(185, 100%, 50%, 0.25),
-    0 0 80px hsla(185, 100%, 50%, 0.1),
-    inset 0 1px 0 hsla(185, 100%, 50%, 0.3);
-}
-
-/* Purple neon card variant */
-.neon-card-purple {
-  @apply backdrop-blur-md rounded-2xl;
-  background: linear-gradient(135deg, hsla(230, 30%, 12%, 0.9) 0%, hsla(270, 25%, 10%, 0.95) 100%);
-  border: 1px solid hsla(280, 100%, 60%, 0.3);
-  box-shadow:
-    0 0 30px hsla(280, 100%, 60%, 0.15),
-    0 0 60px hsla(280, 100%, 60%, 0.05),
-    inset 0 1px 0 hsla(280, 100%, 60%, 0.2);
-  transition: all 0.3s ease;
-}
-
-.neon-card-purple:hover {
-  border-color: hsla(280, 100%, 60%, 0.5);
-  box-shadow:
-    0 0 40px hsla(280, 100%, 60%, 0.25),
-    0 0 80px hsla(280, 100%, 60%, 0.1),
-    inset 0 1px 0 hsla(280, 100%, 60%, 0.3);
-}
-
-/* Pink/magenta neon card variant */
-.neon-card-pink {
-  @apply backdrop-blur-md rounded-2xl;
-  background: linear-gradient(135deg, hsla(230, 30%, 12%, 0.9) 0%, hsla(320, 25%, 10%, 0.95) 100%);
-  border: 1px solid hsla(320, 100%, 60%, 0.3);
-  box-shadow:
-    0 0 30px hsla(320, 100%, 60%, 0.15),
-    0 0 60px hsla(320, 100%, 60%, 0.05),
-    inset 0 1px 0 hsla(320, 100%, 60%, 0.2);
-  transition: all 0.3s ease;
+  @apply bg-white/60 backdrop-blur-md rounded-2xl shadow-lg;
 }
 
 /* Animations personnalisées pour le logo */
@@ -293,41 +140,46 @@ body {
   background-size: 200% 200%;
 }
 
-/* Futuristic neumorphic - dark theme */
 .neumorphic-shadow {
   border-radius: 14px;
-  background: linear-gradient(145deg, hsla(230, 30%, 15%, 0.9), hsla(230, 25%, 10%, 0.9));
-  box-shadow:
-    inset 2px 2px 4px hsla(185, 100%, 50%, 0.05),
-    inset -2px -2px 4px hsla(0, 0%, 0%, 0.3),
-    0 0 20px hsla(185, 100%, 50%, 0.05);
-  border: 1px solid hsla(185, 100%, 50%, 0.1);
+  background: #ffffff;
+  box-shadow: inset 6px 6px 12px rgba(0, 0, 0, 0.08), inset -6px -6px 12px rgba(255, 255, 255, 0.9);
   transition: all 0.2s ease-in-out;
 }
 
 button.neumorphic-shadow:active,
 a.neumorphic-shadow:active {
-  box-shadow:
-    2px 2px 4px hsla(0, 0%, 0%, 0.3),
-    -2px -2px 4px hsla(185, 100%, 50%, 0.05);
+  box-shadow: 6px 6px 12px rgba(0, 0, 0, 0.1), -6px -6px 12px rgba(255, 255, 255, 0.9);
 }
 
 .neumorphic-raised {
   border-radius: 14px;
-  background: linear-gradient(145deg, hsla(230, 30%, 18%, 0.9), hsla(230, 25%, 12%, 0.9));
-  box-shadow:
-    4px 4px 8px hsla(0, 0%, 0%, 0.4),
-    -2px -2px 4px hsla(185, 100%, 50%, 0.05),
-    0 0 15px hsla(185, 100%, 50%, 0.05);
-  border: 1px solid hsla(185, 100%, 50%, 0.15);
+  background-color: #ffffff;
+  box-shadow: 6px 6px 12px rgba(0, 0, 0, 0.1), -6px -6px 12px rgba(255, 255, 255, 0.9);
   transition: all 0.2s ease-in-out;
 }
 
 button.neumorphic-raised:active,
 a.neumorphic-raised:active {
-  box-shadow:
-    inset 2px 2px 4px hsla(0, 0%, 0%, 0.3),
-    inset -2px -2px 4px hsla(185, 100%, 50%, 0.03);
+  box-shadow: inset 6px 6px 12px rgba(0, 0, 0, 0.1), inset -6px -6px 12px rgba(255, 255, 255, 0.9);
+}
+
+.dark .neumorphic-shadow {
+  box-shadow: inset 6px 6px 12px rgba(0, 0, 0, 0.2), inset -6px -6px 12px rgba(55, 55, 55, 0.2);
+}
+
+.dark button.neumorphic-shadow:active,
+.dark a.neumorphic-shadow:active {
+  box-shadow: 6px 6px 12px rgba(0, 0, 0, 0.2), -6px -6px 12px rgba(55, 55, 55, 0.2);
+}
+
+.dark .neumorphic-raised {
+  box-shadow: 6px 6px 12px rgba(0, 0, 0, 0.2), -6px -6px 12px rgba(55, 55, 55, 0.2);
+}
+
+.dark button.neumorphic-raised:active,
+.dark a.neumorphic-raised:active {
+  box-shadow: inset 6px 6px 12px rgba(0, 0, 0, 0.2), inset -6px -6px 12px rgba(55, 55, 55, 0.2);
 }
 
 /* Adjust card comment container spacing */
@@ -492,125 +344,31 @@ a.neumorphic-raised:active {
   @apply neumorphic-shadow border-0 focus:ring-2 focus:ring-primary/50 focus:outline-none transition-all duration-200 resize-none;
 }
 
-/* Neon button styles */
+/* Button improvements */
 .btn-primary {
-  @apply rounded-xl text-sm font-medium transition-all duration-200 active:scale-95;
-  background: linear-gradient(135deg, hsl(185 100% 45%) 0%, hsl(185 100% 35%) 100%);
-  color: hsl(230 25% 7%);
-  border: 1px solid hsla(185, 100%, 50%, 0.5);
-  box-shadow:
-    0 0 20px hsla(185, 100%, 50%, 0.3),
-    0 0 40px hsla(185, 100%, 50%, 0.1),
-    inset 0 1px 0 hsla(185, 100%, 80%, 0.3);
-}
-
-.btn-primary:hover {
-  background: linear-gradient(135deg, hsl(185 100% 50%) 0%, hsl(185 100% 40%) 100%);
-  box-shadow:
-    0 0 30px hsla(185, 100%, 50%, 0.5),
-    0 0 60px hsla(185, 100%, 50%, 0.2),
-    inset 0 1px 0 hsla(185, 100%, 80%, 0.4);
+  @apply neumorphic-raised bg-gradient-to-r from-primary to-primary/80 text-primary-foreground border-0 hover:from-primary/90 hover:to-primary/70 active:scale-95 transition-all duration-200;
 }
 
 .btn-secondary {
-  @apply rounded-xl text-sm font-medium transition-all duration-200 active:scale-95;
-  background: linear-gradient(135deg, hsl(280 100% 55%) 0%, hsl(280 100% 45%) 100%);
-  color: white;
-  border: 1px solid hsla(280, 100%, 60%, 0.5);
-  box-shadow:
-    0 0 20px hsla(280, 100%, 60%, 0.3),
-    0 0 40px hsla(280, 100%, 60%, 0.1),
-    inset 0 1px 0 hsla(280, 100%, 80%, 0.3);
+  @apply neumorphic-shadow bg-secondary text-secondary-foreground hover:bg-secondary/80 active:scale-95 transition-all duration-200;
 }
 
-.btn-secondary:hover {
-  background: linear-gradient(135deg, hsl(280 100% 60%) 0%, hsl(280 100% 50%) 100%);
-  box-shadow:
-    0 0 30px hsla(280, 100%, 60%, 0.5),
-    0 0 60px hsla(280, 100%, 60%, 0.2),
-    inset 0 1px 0 hsla(280, 100%, 80%, 0.4);
-}
-
-/* Glass button styles */
+/* Glass button styles for better contrast */
 .btn-glass {
-  @apply border rounded-xl text-sm font-medium backdrop-blur-sm transition-all duration-200;
-  background: hsla(230, 30%, 15%, 0.5);
-  border-color: hsla(185, 100%, 50%, 0.2);
-  color: hsl(210 40% 98%);
-}
-
-.btn-glass:hover {
-  background: hsla(230, 30%, 20%, 0.6);
-  border-color: hsla(185, 100%, 50%, 0.4);
-  box-shadow: 0 0 15px hsla(185, 100%, 50%, 0.15);
+  @apply border border-white/20 bg-white/10 text-foreground hover:bg-white/20 hover:text-foreground backdrop-blur-sm transition-all duration-200;
 }
 
 .btn-glass-dark {
-  @apply border rounded-xl text-sm font-medium backdrop-blur-sm transition-all duration-200;
-  background: hsla(230, 30%, 10%, 0.7);
-  border-color: hsla(185, 100%, 50%, 0.15);
-  color: hsl(210 40% 98%);
+  @apply border border-white/20 bg-white/5 text-white hover:bg-white/10 hover:text-white backdrop-blur-sm transition-all duration-200;
 }
 
-.btn-glass-dark:hover {
-  background: hsla(230, 30%, 15%, 0.8);
-  border-color: hsla(185, 100%, 50%, 0.3);
-  box-shadow: 0 0 15px hsla(185, 100%, 50%, 0.1);
-}
-
-/* Neon outline button */
-.btn-neon-outline {
-  @apply rounded-xl text-sm font-medium transition-all duration-200 active:scale-95;
-  background: transparent;
-  color: hsl(185 100% 50%);
-  border: 1px solid hsla(185, 100%, 50%, 0.5);
-  box-shadow: 0 0 10px hsla(185, 100%, 50%, 0.2);
-}
-
-.btn-neon-outline:hover {
-  background: hsla(185, 100%, 50%, 0.1);
-  border-color: hsla(185, 100%, 50%, 0.8);
-  box-shadow:
-    0 0 20px hsla(185, 100%, 50%, 0.3),
-    inset 0 0 20px hsla(185, 100%, 50%, 0.05);
-}
-
-/* Pink neon button */
-.btn-neon-pink {
-  @apply rounded-xl text-sm font-medium transition-all duration-200 active:scale-95;
-  background: linear-gradient(135deg, hsl(320 100% 55%) 0%, hsl(320 100% 45%) 100%);
-  color: white;
-  border: 1px solid hsla(320, 100%, 60%, 0.5);
-  box-shadow:
-    0 0 20px hsla(320, 100%, 60%, 0.3),
-    0 0 40px hsla(320, 100%, 60%, 0.1),
-    inset 0 1px 0 hsla(320, 100%, 80%, 0.3);
-}
-
-.btn-neon-pink:hover {
-  background: linear-gradient(135deg, hsl(320 100% 60%) 0%, hsl(320 100% 50%) 100%);
-  box-shadow:
-    0 0 30px hsla(320, 100%, 60%, 0.5),
-    0 0 60px hsla(320, 100%, 60%, 0.2);
-}
-
-/* Session status indicator - neon style */
+/* Session status indicator */
 .session-active {
-  @apply px-3 py-1 rounded-full text-sm font-medium;
-  background: linear-gradient(135deg, hsl(160 100% 45%) 0%, hsl(160 100% 35%) 100%);
-  color: hsl(230 25% 7%);
-  border: 1px solid hsla(160, 100%, 50%, 0.5);
-  box-shadow:
-    0 0 15px hsla(160, 100%, 50%, 0.4),
-    0 0 30px hsla(160, 100%, 50%, 0.2);
+  @apply bg-gradient-to-r from-green-400 to-emerald-500 text-white px-3 py-1 rounded-full text-sm font-medium shadow-lg;
 }
 
 .session-closed {
-  @apply px-3 py-1 rounded-full text-sm font-medium;
-  background: linear-gradient(135deg, hsla(0, 70%, 50%, 0.8) 0%, hsla(0, 70%, 40%, 0.8) 100%);
-  color: white;
-  border: 1px solid hsla(0, 70%, 50%, 0.5);
-  box-shadow: 0 0 10px hsla(0, 70%, 50%, 0.3);
+  @apply bg-gradient-to-r from-red-400 to-rose-500 text-white px-3 py-1 rounded-full text-sm font-medium shadow-lg;
 }
 
 /* Enhanced focus states */
@@ -618,23 +376,9 @@ a.neumorphic-raised:active {
   @apply ring-2 ring-primary/50 ring-offset-2 ring-offset-background outline-none;
 }
 
-/* Gradient button styles - neon version */
+/* Gradient button styles */
 .btn-gradient {
-  @apply rounded-xl text-sm font-medium transition-all duration-200 active:scale-95;
-  background: linear-gradient(135deg, hsl(320 100% 55%) 0%, hsl(280 100% 55%) 50%, hsl(185 100% 50%) 100%);
-  background-size: 200% 200%;
-  color: white;
-  border: 1px solid hsla(280, 100%, 60%, 0.5);
-  box-shadow:
-    0 0 20px hsla(280, 100%, 60%, 0.3),
-    0 0 40px hsla(185, 100%, 50%, 0.15);
-  animation: gradient-shift 3s ease infinite;
-}
-
-.btn-gradient:hover {
-  box-shadow:
-    0 0 30px hsla(280, 100%, 60%, 0.5),
-    0 0 60px hsla(185, 100%, 50%, 0.25);
+  @apply bg-gradient-to-r from-pink-500 via-fuchsia-500 to-indigo-500 text-white shadow-lg hover:shadow-xl focus-visible:ring-white/70;
 }
 
 /* Smooth enter/exit animations */
@@ -699,114 +443,369 @@ a.neumorphic-raised:active {
 }
 
 /* ==========================================
-   FUTURISTIC NEON UTILITIES
+   ADMIN LAYOUT - FUTURISTIC DARK THEME
+   All styles below are scoped to .admin-layout
    ========================================== */
 
-/* Pulsing glow animation */
+/* Admin layout dark theme variables */
+.admin-layout {
+  --background: 230 25% 7%;
+  --foreground: 210 40% 98%;
+  --card: 230 30% 10%;
+  --card-foreground: 210 40% 98%;
+  --popover: 230 30% 12%;
+  --popover-foreground: 210 40% 98%;
+  --primary: 185 100% 50%;
+  --primary-foreground: 230 25% 7%;
+  --secondary: 280 100% 60%;
+  --secondary-foreground: 0 0% 100%;
+  --muted: 230 20% 18%;
+  --muted-foreground: 215 20% 65%;
+  --accent: 320 100% 60%;
+  --accent-foreground: 0 0% 100%;
+  --destructive: 0 62.8% 30.6%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 230 30% 20%;
+  --input: 230 30% 15%;
+  --ring: 185 100% 50%;
+  --glow-cyan: 185 100% 50%;
+  --glow-purple: 280 100% 60%;
+  --glow-pink: 320 100% 60%;
+  --sidebar-background: 230 30% 8%;
+  --sidebar-foreground: 210 40% 98%;
+  --sidebar-primary: 185 100% 50%;
+  --sidebar-primary-foreground: 230 25% 7%;
+  --sidebar-accent: 230 25% 15%;
+  --sidebar-accent-foreground: 210 40% 98%;
+  --sidebar-border: 230 30% 18%;
+  --sidebar-ring: 185 100% 50%;
+  background: transparent !important;
+}
+
+/* Aurora background */
+.aurora-background {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: -10;
+  overflow: hidden;
+  background: #0B1120;
+  pointer-events: none;
+}
+
+.aurora-layer {
+  position: absolute;
+  width: 200%;
+  height: 200%;
+  top: -50%;
+  left: -50%;
+  opacity: 0.6;
+}
+
+.aurora-cyan {
+  background:
+    radial-gradient(ellipse 40% 30% at 30% 40%, hsla(185, 100%, 50%, 0.25) 0%, transparent 70%),
+    radial-gradient(ellipse 35% 25% at 70% 60%, hsla(185, 100%, 45%, 0.2) 0%, transparent 60%),
+    radial-gradient(ellipse 30% 20% at 50% 80%, hsla(195, 100%, 50%, 0.15) 0%, transparent 50%);
+  animation: aurora-drift-1 30s ease-in-out infinite;
+  filter: blur(80px);
+}
+
+.aurora-pink {
+  background:
+    radial-gradient(ellipse 35% 25% at 70% 35%, hsla(320, 100%, 50%, 0.2) 0%, transparent 70%),
+    radial-gradient(ellipse 30% 20% at 25% 65%, hsla(280, 100%, 55%, 0.18) 0%, transparent 60%),
+    radial-gradient(ellipse 25% 18% at 60% 75%, hsla(300, 100%, 50%, 0.12) 0%, transparent 50%);
+  animation: aurora-drift-2 35s ease-in-out infinite;
+  filter: blur(80px);
+}
+
+@keyframes aurora-drift-1 {
+  0%, 100% { transform: translate(0%, 0%) rotate(0deg); }
+  25% { transform: translate(8%, -5%) rotate(2deg); }
+  50% { transform: translate(-5%, 10%) rotate(-1deg); }
+  75% { transform: translate(-10%, -3%) rotate(3deg); }
+}
+
+@keyframes aurora-drift-2 {
+  0%, 100% { transform: translate(0%, 0%) rotate(0deg); }
+  33% { transform: translate(-8%, 6%) rotate(-2deg); }
+  66% { transform: translate(6%, -8%) rotate(2deg); }
+}
+
+/* Admin glass card */
+.admin-layout .glass-card {
+  background: linear-gradient(135deg, hsla(230, 30%, 15%, 0.8) 0%, hsla(250, 25%, 12%, 0.9) 100%);
+  border: 1px solid hsla(185, 100%, 50%, 0.2);
+  box-shadow: 0 0 20px hsla(185, 100%, 50%, 0.1), inset 0 1px 0 hsla(185, 100%, 50%, 0.1);
+}
+
+/* Admin form elements - light backgrounds inside cards */
+.admin-layout [class*="CardContent"] input:not([type="checkbox"]):not([type="radio"]),
+.admin-layout [class*="CardContent"] textarea,
+.admin-layout [class*="CardContent"] select {
+  background-color: rgba(255, 255, 255, 0.9) !important;
+  color: #1e293b !important;
+  border-color: #e2e8f0 !important;
+}
+
+.admin-layout [class*="CardContent"] input:not([type="checkbox"]):not([type="radio"])::placeholder,
+.admin-layout [class*="CardContent"] textarea::placeholder {
+  color: #94a3b8 !important;
+}
+
+.admin-layout [class*="CardContent"] input:not([type="checkbox"]):not([type="radio"]):focus,
+.admin-layout [class*="CardContent"] textarea:focus,
+.admin-layout [class*="CardContent"] select:focus {
+  background-color: rgba(255, 255, 255, 0.95) !important;
+  border-color: #94a3b8 !important;
+}
+
+.admin-layout [class*="CardContent"] input:disabled,
+.admin-layout [class*="CardContent"] textarea:disabled,
+.admin-layout [class*="CardContent"] select:disabled {
+  background-color: rgba(241, 245, 249, 0.9) !important;
+  color: #64748b !important;
+}
+
+/* Admin select option styling */
+.admin-layout [class*="CardContent"] select option {
+  background-color: white;
+  color: #1e293b;
+}
+
+/* Admin labels inside cards */
+.admin-layout [class*="CardContent"] label {
+  color: #475569;
+}
+
+/* Admin Card light backgrounds with transparency */
+.admin-layout .bg-card {
+  background-color: rgba(255, 255, 255, 0.92) !important;
+  color: #1e293b !important;
+  border-color: rgba(226, 232, 240, 0.8) !important;
+  backdrop-filter: blur(8px);
+}
+
+.admin-layout .bg-card h3,
+.admin-layout .bg-card .text-2xl {
+  color: #0f172a !important;
+}
+
+.admin-layout .bg-card .text-muted-foreground {
+  color: #64748b !important;
+}
+
+.admin-layout .bg-card .text-sm {
+  color: #475569;
+}
+
+/* Admin Card stat boxes with colored backgrounds */
+.admin-layout .bg-slate-50,
+.admin-layout .bg-emerald-50,
+.admin-layout .bg-blue-50,
+.admin-layout .bg-red-50,
+.admin-layout .bg-orange-500\/10,
+.admin-layout .bg-muted\/30,
+.admin-layout .bg-muted\/20 {
+  backdrop-filter: blur(4px);
+}
+
+.admin-layout .bg-slate-50 {
+  background-color: rgba(248, 250, 252, 0.9) !important;
+}
+
+.admin-layout .bg-emerald-50 {
+  background-color: rgba(236, 253, 245, 0.9) !important;
+}
+
+.admin-layout .bg-blue-50 {
+  background-color: rgba(239, 246, 255, 0.9) !important;
+}
+
+.admin-layout .bg-red-50 {
+  background-color: rgba(254, 242, 242, 0.9) !important;
+}
+
+/* Admin colored border cards with light backgrounds */
+.admin-layout [class*="border-orange"],
+.admin-layout [class*="border-primary"],
+.admin-layout [class*="border-destructive"] {
+  background-color: rgba(255, 255, 255, 0.9) !important;
+  color: #1e293b !important;
+}
+
+.admin-layout [class*="border-orange"] .bg-white\/60 {
+  background-color: rgba(255, 255, 255, 0.8) !important;
+}
+
+/* Admin muted backgrounds */
+.admin-layout .bg-muted\/30,
+.admin-layout .bg-muted\/20 {
+  background-color: rgba(241, 245, 249, 0.8) !important;
+}
+
+/* Admin neumorphic */
+.admin-layout .neumorphic-shadow {
+  background: linear-gradient(145deg, hsla(230, 30%, 15%, 0.9), hsla(230, 25%, 10%, 0.9));
+  box-shadow: inset 2px 2px 4px hsla(185, 100%, 50%, 0.05), inset -2px -2px 4px hsla(0, 0%, 0%, 0.3), 0 0 20px hsla(185, 100%, 50%, 0.05);
+  border: 1px solid hsla(185, 100%, 50%, 0.1);
+}
+
+.admin-layout .neumorphic-raised {
+  background: linear-gradient(145deg, hsla(230, 30%, 18%, 0.9), hsla(230, 25%, 12%, 0.9));
+  box-shadow: 4px 4px 8px hsla(0, 0%, 0%, 0.4), -2px -2px 4px hsla(185, 100%, 50%, 0.05), 0 0 15px hsla(185, 100%, 50%, 0.05);
+  border: 1px solid hsla(185, 100%, 50%, 0.15);
+}
+
+/* Admin neon buttons */
+.admin-layout .btn-primary {
+  @apply rounded-xl;
+  background: linear-gradient(135deg, hsl(185 100% 45%) 0%, hsl(185 100% 35%) 100%);
+  color: hsl(230 25% 7%);
+  border: 1px solid hsla(185, 100%, 50%, 0.5);
+  box-shadow: 0 0 20px hsla(185, 100%, 50%, 0.3), 0 0 40px hsla(185, 100%, 50%, 0.1);
+}
+
+.admin-layout .btn-secondary {
+  @apply rounded-xl;
+  background: linear-gradient(135deg, hsl(280 100% 55%) 0%, hsl(280 100% 45%) 100%);
+  color: white;
+  border: 1px solid hsla(280, 100%, 60%, 0.5);
+  box-shadow: 0 0 20px hsla(280, 100%, 60%, 0.3);
+}
+
+/* Admin scrollbar */
+.admin-layout ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.admin-layout ::-webkit-scrollbar-track {
+  background: hsla(230, 30%, 10%, 0.5);
+  border-radius: 4px;
+}
+
+.admin-layout ::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, hsla(185, 100%, 50%, 0.4), hsla(280, 100%, 60%, 0.4));
+  border-radius: 4px;
+}
+
+/* Admin glass effects for cards */
+.admin-layout .bg-slate-900:not(input):not(textarea):not(select):not(button),
+.admin-layout .bg-slate-950:not(input):not(textarea):not(select):not(button) {
+  --tw-bg-opacity: 0.2 !important;
+  backdrop-filter: blur(20px);
+  background: hsla(230, 30%, 12%, 0.2) !important;
+}
+
+.admin-layout [class*="bg-white/5"] {
+  backdrop-filter: blur(20px);
+  background: hsla(230, 30%, 15%, 0.15) !important;
+}
+
+/* Neon card variants (admin only) */
+.neon-card {
+  @apply backdrop-blur-md rounded-2xl;
+  background: linear-gradient(135deg, hsla(230, 30%, 12%, 0.9) 0%, hsla(250, 25%, 10%, 0.95) 100%);
+  border: 1px solid hsla(185, 100%, 50%, 0.3);
+  box-shadow: 0 0 30px hsla(185, 100%, 50%, 0.15);
+  transition: all 0.3s ease;
+}
+
+.neon-card-purple {
+  @apply backdrop-blur-md rounded-2xl;
+  background: linear-gradient(135deg, hsla(230, 30%, 12%, 0.9) 0%, hsla(270, 25%, 10%, 0.95) 100%);
+  border: 1px solid hsla(280, 100%, 60%, 0.3);
+  box-shadow: 0 0 30px hsla(280, 100%, 60%, 0.15);
+}
+
+.neon-card-pink {
+  @apply backdrop-blur-md rounded-2xl;
+  background: linear-gradient(135deg, hsla(230, 30%, 12%, 0.9) 0%, hsla(320, 25%, 10%, 0.95) 100%);
+  border: 1px solid hsla(320, 100%, 60%, 0.3);
+  box-shadow: 0 0 30px hsla(320, 100%, 60%, 0.15);
+}
+
+.neon-card-red {
+  @apply backdrop-blur-md rounded-2xl;
+  background: linear-gradient(135deg, hsla(230, 30%, 12%, 0.9) 0%, hsla(0, 25%, 10%, 0.95) 100%);
+  border: 1px solid hsla(0, 100%, 50%, 0.3);
+  box-shadow: 0 0 30px hsla(0, 100%, 50%, 0.15);
+}
+
+/* Admin complex gradient backgrounds */
+.admin-layout [class*="bg-emerald-500/10"],
+.admin-layout [class*="bg-emerald-500/15"] {
+  background:
+    radial-gradient(ellipse 80% 50% at 0% 100%, hsla(280, 80%, 50%, 0.08) 0%, transparent 50%),
+    radial-gradient(ellipse 60% 40% at 100% 0%, hsla(160, 84%, 45%, 0.12) 0%, transparent 50%),
+    linear-gradient(135deg, hsla(160, 84%, 35%, 0.06) 0%, hsla(180, 70%, 30%, 0.08) 100%) !important;
+  box-shadow: 0 0 12px hsla(160, 84%, 45%, 0.2);
+  border: 1px solid hsla(160, 84%, 50%, 0.25) !important;
+}
+
+.admin-layout [class*="bg-indigo-500/10"],
+.admin-layout [class*="bg-indigo-500/15"] {
+  background:
+    radial-gradient(ellipse 70% 50% at 0% 0%, hsla(280, 80%, 55%, 0.1) 0%, transparent 50%),
+    radial-gradient(ellipse 80% 60% at 100% 100%, hsla(185, 90%, 50%, 0.08) 0%, transparent 50%),
+    linear-gradient(135deg, hsla(239, 84%, 55%, 0.06) 0%, hsla(250, 70%, 45%, 0.08) 100%) !important;
+  box-shadow: 0 0 12px hsla(239, 84%, 60%, 0.15);
+  border: 1px solid hsla(239, 84%, 65%, 0.25) !important;
+}
+
+/* Glow text effects */
+.text-glow-cyan {
+  text-shadow: 0 0 10px hsla(185, 100%, 50%, 0.5), 0 0 20px hsla(185, 100%, 50%, 0.3);
+}
+
+.text-glow-purple {
+  text-shadow: 0 0 10px hsla(280, 100%, 60%, 0.5), 0 0 20px hsla(280, 100%, 60%, 0.3);
+}
+
+.text-glow-pink {
+  text-shadow: 0 0 10px hsla(320, 100%, 60%, 0.5), 0 0 20px hsla(320, 100%, 60%, 0.3);
+}
+
+/* Pulsing glow animations */
 @keyframes pulse-glow {
-  0%, 100% {
-    box-shadow:
-      0 0 20px hsla(185, 100%, 50%, 0.3),
-      0 0 40px hsla(185, 100%, 50%, 0.1);
-  }
-  50% {
-    box-shadow:
-      0 0 30px hsla(185, 100%, 50%, 0.5),
-      0 0 60px hsla(185, 100%, 50%, 0.2);
-  }
-}
-
-@keyframes pulse-glow-purple {
-  0%, 100% {
-    box-shadow:
-      0 0 20px hsla(280, 100%, 60%, 0.3),
-      0 0 40px hsla(280, 100%, 60%, 0.1);
-  }
-  50% {
-    box-shadow:
-      0 0 30px hsla(280, 100%, 60%, 0.5),
-      0 0 60px hsla(280, 100%, 60%, 0.2);
-  }
-}
-
-@keyframes pulse-glow-pink {
-  0%, 100% {
-    box-shadow:
-      0 0 20px hsla(320, 100%, 60%, 0.3),
-      0 0 40px hsla(320, 100%, 60%, 0.1);
-  }
-  50% {
-    box-shadow:
-      0 0 30px hsla(320, 100%, 60%, 0.5),
-      0 0 60px hsla(320, 100%, 60%, 0.2);
-  }
-}
-
-/* Border glow animation */
-@keyframes border-glow {
-  0%, 100% {
-    border-color: hsla(185, 100%, 50%, 0.3);
-  }
-  50% {
-    border-color: hsla(185, 100%, 50%, 0.6);
-  }
+  0%, 100% { box-shadow: 0 0 20px hsla(185, 100%, 50%, 0.3); }
+  50% { box-shadow: 0 0 30px hsla(185, 100%, 50%, 0.5); }
 }
 
 .animate-pulse-glow {
   animation: pulse-glow 2s ease-in-out infinite;
 }
 
-.animate-pulse-glow-purple {
-  animation: pulse-glow-purple 2s ease-in-out infinite;
+/* Dashboard cards */
+.dashboard-card {
+  @apply rounded-3xl backdrop-blur-xl;
+  background: hsla(230, 30%, 10%, 0.4);
+  border: 1px solid hsla(185, 100%, 50%, 0.15);
+  box-shadow: 0 4px 30px hsla(0, 0%, 0%, 0.3);
 }
 
-.animate-pulse-glow-pink {
-  animation: pulse-glow-pink 2s ease-in-out infinite;
+.stat-card {
+  @apply rounded-3xl backdrop-blur-lg;
+  background: linear-gradient(135deg, hsla(230, 30%, 15%, 0.3) 0%, hsla(230, 25%, 10%, 0.4) 100%);
+  border: 1px solid hsla(185, 100%, 50%, 0.1);
 }
 
-.animate-border-glow {
-  animation: border-glow 2s ease-in-out infinite;
+/* Admin sidebar/header backgrounds */
+.bg-sidebar-aurora {
+  background: hsla(230, 30%, 6%, 0.85);
+  backdrop-filter: blur(20px);
 }
 
-/* Glow text effects */
-.text-glow-cyan {
-  text-shadow:
-    0 0 10px hsla(185, 100%, 50%, 0.5),
-    0 0 20px hsla(185, 100%, 50%, 0.3),
-    0 0 30px hsla(185, 100%, 50%, 0.2);
+.bg-header-aurora {
+  background: hsla(230, 30%, 5%, 0.75);
+  backdrop-filter: blur(20px);
 }
 
-.text-glow-purple {
-  text-shadow:
-    0 0 10px hsla(280, 100%, 60%, 0.5),
-    0 0 20px hsla(280, 100%, 60%, 0.3),
-    0 0 30px hsla(280, 100%, 60%, 0.2);
-}
-
-.text-glow-pink {
-  text-shadow:
-    0 0 10px hsla(320, 100%, 60%, 0.5),
-    0 0 20px hsla(320, 100%, 60%, 0.3),
-    0 0 30px hsla(320, 100%, 60%, 0.2);
-}
-
-/* Glowing border utilities */
-.border-glow-cyan {
-  border: 1px solid hsla(185, 100%, 50%, 0.4);
-  box-shadow: 0 0 15px hsla(185, 100%, 50%, 0.2);
-}
-
-.border-glow-purple {
-  border: 1px solid hsla(280, 100%, 60%, 0.4);
-  box-shadow: 0 0 15px hsla(280, 100%, 60%, 0.2);
-}
-
-.border-glow-pink {
-  border: 1px solid hsla(320, 100%, 60%, 0.4);
-  box-shadow: 0 0 15px hsla(320, 100%, 60%, 0.2);
-}
-
-/* Tag/badge styles */
+/* Tag styles */
 .tag-cyan {
   @apply px-2 py-0.5 rounded-md text-xs font-medium;
   background: hsla(185, 100%, 50%, 0.15);
@@ -840,1074 +839,4 @@ a.neumorphic-raised:active {
   background: hsla(45, 100%, 50%, 0.15);
   color: hsl(45 100% 60%);
   border: 1px solid hsla(45, 100%, 50%, 0.3);
-}
-
-/* Futuristic scrollbar */
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-
-::-webkit-scrollbar-track {
-  background: hsla(230, 30%, 10%, 0.5);
-  border-radius: 4px;
-}
-
-::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg, hsla(185, 100%, 50%, 0.4), hsla(280, 100%, 60%, 0.4));
-  border-radius: 4px;
-  border: 1px solid hsla(185, 100%, 50%, 0.2);
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(180deg, hsla(185, 100%, 50%, 0.6), hsla(280, 100%, 60%, 0.6));
-}
-
-/* Futuristic input styles */
-.input-futuristic {
-  @apply rounded-xl text-sm transition-all duration-200;
-  background: hsla(230, 30%, 12%, 0.8);
-  border: 1px solid hsla(185, 100%, 50%, 0.2);
-  color: hsl(210 40% 98%);
-}
-
-.input-futuristic::placeholder {
-  color: hsla(210, 40%, 70%, 0.5);
-}
-
-.input-futuristic:focus {
-  outline: none;
-  border-color: hsla(185, 100%, 50%, 0.5);
-  box-shadow:
-    0 0 15px hsla(185, 100%, 50%, 0.15),
-    inset 0 0 10px hsla(185, 100%, 50%, 0.05);
-}
-
-/* Divider with glow */
-.divider-glow {
-  height: 1px;
-  background: linear-gradient(90deg,
-    transparent,
-    hsla(185, 100%, 50%, 0.4) 20%,
-    hsla(185, 100%, 50%, 0.4) 80%,
-    transparent
-  );
-  box-shadow: 0 0 10px hsla(185, 100%, 50%, 0.3);
-}
-
-/* Background gradient utilities */
-.bg-futuristic {
-  background: #0B1120;
-}
-
-.bg-futuristic-card {
-  background: linear-gradient(135deg, hsla(230, 30%, 12%, 0.9) 0%, hsla(250, 25%, 10%, 0.95) 100%);
-}
-
-/* Sidebar and header semi-transparent backgrounds */
-.bg-sidebar-aurora {
-  background: hsla(230, 30%, 6%, 0.85);
-  backdrop-filter: blur(20px);
-}
-
-.bg-header-aurora {
-  background: hsla(230, 30%, 5%, 0.75);
-  backdrop-filter: blur(20px);
-}
-
-/* Dashboard glass card - transparent with blur to show aurora */
-.dashboard-card {
-  @apply rounded-3xl backdrop-blur-xl;
-  background: hsla(230, 30%, 10%, 0.4);
-  border: 1px solid hsla(185, 100%, 50%, 0.15);
-  box-shadow:
-    0 4px 30px hsla(0, 0%, 0%, 0.3),
-    inset 0 1px 0 hsla(185, 100%, 50%, 0.05);
-}
-
-.dashboard-card:hover {
-  border-color: hsla(185, 100%, 50%, 0.25);
-}
-
-/* Stat card with more transparency */
-.stat-card {
-  @apply rounded-3xl backdrop-blur-lg;
-  background: linear-gradient(135deg, hsla(230, 30%, 15%, 0.3) 0%, hsla(230, 25%, 10%, 0.4) 100%);
-  border: 1px solid hsla(185, 100%, 50%, 0.1);
-}
-
-/* ==========================================
-   ADMIN LAYOUT - GLASS EFFECT FOR CARDS
-   Scoped to .admin-layout to not affect public pages
-   ========================================== */
-
-/* Target bg-slate-900 SOLID in admin - exclude form elements */
-.admin-layout .bg-slate-900:not(input):not(textarea):not(select):not(button) {
-  --tw-bg-opacity: 0.2 !important;
-  -webkit-backdrop-filter: blur(20px);
-  backdrop-filter: blur(20px);
-  background: hsla(230, 30%, 12%, 0.2) !important;
-}
-
-/* Target bg-slate-950 SOLID in admin */
-.admin-layout .bg-slate-950:not(input):not(textarea):not(select):not(button) {
-  --tw-bg-opacity: 0.2 !important;
-  -webkit-backdrop-filter: blur(20px);
-  backdrop-filter: blur(20px);
-  background: hsla(230, 30%, 8%, 0.2) !important;
-}
-
-/* Target ALL bg-slate-900 variants with opacity in admin */
-.admin-layout div[class*="bg-slate-900/"],
-.admin-layout section[class*="bg-slate-900/"],
-.admin-layout article[class*="bg-slate-900/"],
-.admin-layout nav[class*="bg-slate-900/"],
-.admin-layout aside[class*="bg-slate-900/"],
-.admin-layout header[class*="bg-slate-900/"],
-.admin-layout footer[class*="bg-slate-900/"] {
-  -webkit-backdrop-filter: blur(20px);
-  backdrop-filter: blur(20px);
-  background: hsla(230, 30%, 12%, 0.2) !important;
-}
-
-/* Target ALL bg-slate-950 variants with opacity in admin */
-.admin-layout div[class*="bg-slate-950/"],
-.admin-layout section[class*="bg-slate-950/"],
-.admin-layout article[class*="bg-slate-950/"],
-.admin-layout nav[class*="bg-slate-950/"],
-.admin-layout aside[class*="bg-slate-950/"],
-.admin-layout header[class*="bg-slate-950/"],
-.admin-layout footer[class*="bg-slate-950/"] {
-  -webkit-backdrop-filter: blur(20px);
-  backdrop-filter: blur(20px);
-  background: hsla(230, 30%, 8%, 0.2) !important;
-}
-
-/* Admin form elements - visible background for readability */
-.admin-layout input[class*="bg-slate-900"],
-.admin-layout textarea[class*="bg-slate-900"],
-.admin-layout select[class*="bg-slate-900"] {
-  background: hsla(230, 30%, 12%, 0.6) !important;
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-}
-
-/* Target all elements with bg-white/5 in admin */
-.admin-layout [class*="bg-white/5"] {
-  -webkit-backdrop-filter: blur(20px);
-  backdrop-filter: blur(20px);
-  background: hsla(230, 30%, 15%, 0.15) !important;
-}
-
-/* Target all rounded border cards to ensure glass effect in admin */
-.admin-layout [class*="rounded-2xl"][class*="border-white"],
-.admin-layout [class*="rounded-3xl"][class*="border-white"],
-.admin-layout [class*="rounded-xl"][class*="border-white"],
-.admin-layout [class*="rounded-lg"][class*="border-white"] {
-  -webkit-backdrop-filter: blur(20px);
-  backdrop-filter: blur(20px);
-}
-
-/* Cards with gradient backgrounds also need glass effect in admin */
-.admin-layout [class*="bg-gradient-to-br"][class*="from-white/5"] {
-  -webkit-backdrop-filter: blur(20px);
-  backdrop-filter: blur(20px);
-  background: linear-gradient(135deg, hsla(230, 30%, 18%, 0.12) 0%, hsla(230, 25%, 14%, 0.15) 100%) !important;
-}
-
-/* Card component base glass effect in admin */
-.admin-layout .card,
-.admin-layout [class*="Card"] {
-  -webkit-backdrop-filter: blur(16px);
-  backdrop-filter: blur(16px);
-}
-
-
-/* ==========================================
-   CARD PADDING & OVERFLOW FIXES (Admin only)
-   ========================================== */
-
-/* Add more padding to challenge cards in admin */
-.admin-layout [class*="rounded-xl"][class*="border"][class*="bg-slate-900"] {
-  padding: 1rem;
-}
-
-/* Fix button overflow - ensure text doesn't clip in admin */
-.admin-layout button[class*="gap-2"] {
-  overflow: visible;
-  white-space: nowrap;
-}
-
-/* Ensure chevron icons don't get clipped in admin */
-.admin-layout [class*="ChevronRight"],
-.admin-layout svg[class*="h-4"][class*="w-4"],
-.admin-layout svg[class*="h-5"][class*="w-5"] {
-  flex-shrink: 0;
-}
-
-/* ==========================================
-   COMPLEX NEON GRADIENT BACKGROUNDS (Admin only)
-   Multi-color gradients with glow effects
-   ========================================== */
-
-/* Emerald/Green - Complex gradient with purple accent - VERY TRANSPARENT */
-.admin-layout [class*="bg-emerald-500/10"],
-.admin-layout [class*="bg-emerald-500/15"] {
-  position: relative;
-  overflow: visible;
-  background:
-    radial-gradient(ellipse 80% 50% at 0% 100%, hsla(280, 80%, 50%, 0.08) 0%, transparent 50%),
-    radial-gradient(ellipse 60% 40% at 100% 0%, hsla(160, 84%, 45%, 0.12) 0%, transparent 50%),
-    radial-gradient(ellipse 50% 50% at 50% 50%, hsla(185, 80%, 40%, 0.05) 0%, transparent 70%),
-    linear-gradient(135deg, hsla(160, 84%, 35%, 0.06) 0%, hsla(180, 70%, 30%, 0.08) 100%) !important;
-  box-shadow:
-    0 0 12px hsla(160, 84%, 45%, 0.2),
-    0 0 20px hsla(280, 80%, 50%, 0.08),
-    inset 0 1px 0 hsla(160, 84%, 60%, 0.1);
-  border: 1px solid hsla(160, 84%, 50%, 0.25) !important;
-}
-
-.admin-layout [class*="border-emerald-400"] {
-  border-color: hsla(160, 84%, 50%, 0.35) !important;
-}
-
-/* Indigo/Blue - Complex gradient with cyan and purple accents - VERY TRANSPARENT */
-.admin-layout [class*="bg-indigo-500/10"],
-.admin-layout [class*="bg-indigo-500/15"] {
-  position: relative;
-  overflow: visible;
-  background:
-    radial-gradient(ellipse 70% 50% at 0% 0%, hsla(280, 80%, 55%, 0.1) 0%, transparent 50%),
-    radial-gradient(ellipse 80% 60% at 100% 100%, hsla(185, 90%, 50%, 0.08) 0%, transparent 50%),
-    radial-gradient(ellipse 60% 40% at 50% 50%, hsla(239, 84%, 60%, 0.08) 0%, transparent 60%),
-    linear-gradient(135deg, hsla(239, 84%, 55%, 0.06) 0%, hsla(250, 70%, 45%, 0.08) 100%) !important;
-  box-shadow:
-    0 0 12px hsla(239, 84%, 60%, 0.15),
-    0 0 20px hsla(280, 80%, 55%, 0.08),
-    inset 0 1px 0 hsla(239, 84%, 75%, 0.1);
-  border: 1px solid hsla(239, 84%, 65%, 0.25) !important;
-}
-
-.admin-layout [class*="border-indigo-400"],
-.admin-layout [class*="border-indigo-500"] {
-  border-color: hsla(239, 84%, 65%, 0.35) !important;
-}
-
-/* Purple/Violet - Complex gradient with pink and blue accents */
-.admin-layout [class*="bg-purple-500"],
-.admin-layout [class*="bg-violet-500"] {
-  position: relative;
-  overflow: visible;
-  background:
-    radial-gradient(ellipse 70% 50% at 100% 0%, hsla(320, 80%, 55%, 0.2) 0%, transparent 50%),
-    radial-gradient(ellipse 60% 50% at 0% 100%, hsla(239, 80%, 60%, 0.15) 0%, transparent 50%),
-    radial-gradient(ellipse 50% 50% at 50% 50%, hsla(280, 84%, 55%, 0.2) 0%, transparent 60%),
-    linear-gradient(135deg, hsla(280, 80%, 50%, 0.15) 0%, hsla(290, 70%, 45%, 0.18) 100%) !important;
-  box-shadow:
-    0 0 30px hsla(280, 80%, 55%, 0.25),
-    0 0 60px hsla(320, 80%, 50%, 0.1),
-    inset 0 1px 0 hsla(280, 84%, 70%, 0.15);
-}
-
-/* Cyan/Teal - Complex gradient with purple accent */
-.admin-layout [class*="bg-cyan-500"],
-.admin-layout [class*="bg-teal-500"] {
-  position: relative;
-  overflow: visible;
-  background:
-    radial-gradient(ellipse 70% 50% at 0% 0%, hsla(280, 80%, 55%, 0.15) 0%, transparent 50%),
-    radial-gradient(ellipse 80% 60% at 100% 100%, hsla(160, 80%, 45%, 0.15) 0%, transparent 50%),
-    radial-gradient(ellipse 60% 40% at 50% 50%, hsla(185, 90%, 50%, 0.2) 0%, transparent 60%),
-    linear-gradient(135deg, hsla(185, 90%, 45%, 0.15) 0%, hsla(175, 80%, 40%, 0.18) 100%) !important;
-  box-shadow:
-    0 0 30px hsla(185, 90%, 50%, 0.25),
-    0 0 60px hsla(280, 80%, 50%, 0.1),
-    inset 0 1px 0 hsla(185, 90%, 65%, 0.15);
-}
-
-/* Yellow/Amber - Complex gradient with orange and pink accents */
-.admin-layout [class*="bg-yellow-500"],
-.admin-layout [class*="bg-amber-500"] {
-  position: relative;
-  overflow: visible;
-  background:
-    radial-gradient(ellipse 70% 50% at 100% 0%, hsla(320, 80%, 55%, 0.15) 0%, transparent 50%),
-    radial-gradient(ellipse 60% 50% at 0% 100%, hsla(30, 90%, 55%, 0.2) 0%, transparent 50%),
-    radial-gradient(ellipse 50% 50% at 50% 50%, hsla(45, 95%, 55%, 0.2) 0%, transparent 60%),
-    linear-gradient(135deg, hsla(45, 95%, 50%, 0.15) 0%, hsla(35, 90%, 45%, 0.18) 100%) !important;
-  box-shadow:
-    0 0 30px hsla(45, 95%, 55%, 0.25),
-    0 0 60px hsla(30, 90%, 50%, 0.1),
-    inset 0 1px 0 hsla(45, 95%, 70%, 0.15);
-}
-
-/* Enhanced hover states - subtle glow */
-.admin-layout [class*="bg-emerald-500"]:hover {
-  box-shadow:
-    0 0 16px hsla(160, 84%, 45%, 0.25),
-    0 0 24px hsla(280, 80%, 50%, 0.1),
-    inset 0 1px 0 hsla(160, 84%, 60%, 0.2);
-}
-
-.admin-layout [class*="bg-indigo-500"]:hover {
-  box-shadow:
-    0 0 16px hsla(239, 84%, 60%, 0.25),
-    0 0 24px hsla(280, 80%, 55%, 0.1),
-    inset 0 1px 0 hsla(239, 84%, 75%, 0.2);
-}
-
-/* Card glow wrapper - prevents clipping */
-.admin-layout .card-glow-wrapper {
-  padding: 4px;
-  margin: -4px;
-}
-
-/* Active/Selected state - subtle glow */
-.admin-layout [class*="bg-emerald"][class*="border-emerald"] {
-  box-shadow:
-    0 0 14px hsla(160, 84%, 45%, 0.25),
-    0 0 22px hsla(280, 80%, 50%, 0.08),
-    0 4px 16px hsla(0, 0%, 0%, 0.2),
-    inset 0 1px 0 hsla(160, 84%, 60%, 0.15);
-}
-
-.admin-layout [class*="bg-indigo"][class*="border-indigo"] {
-  box-shadow:
-    0 0 14px hsla(239, 84%, 60%, 0.25),
-    0 0 22px hsla(185, 80%, 50%, 0.08),
-    0 4px 16px hsla(0, 0%, 0%, 0.2),
-    inset 0 1px 0 hsla(239, 84%, 75%, 0.15);
-}
-
-/* ==========================================
-   CONVERSATION PAGE - ORIGINAL LIGHT THEME
-   Restored from pre-dark-theme CSS, scoped to conversation-layout
-   ========================================== */
-
-/* Base variables - Original light theme */
-.conversation-layout {
-  /* Original light theme colors */
-  --background: 224 71% 95%; /* Light Grayish Blue */
-  --foreground: 223 23% 41%; /* Dark Desaturated Blue */
-  --card: 224 71% 95%;
-  --card-foreground: 223 23% 41%;
-  --popover: 224 71% 95%;
-  --popover-foreground: 223 23% 41%;
-  --primary: 225 67% 58%; /* Calming Blue */
-  --primary-foreground: 0 0% 100%;
-  --secondary: 210 40% 96.1%;
-  --secondary-foreground: 222.2 47.4% 11.2%;
-  --muted: 210 40% 96.1%;
-  --muted-foreground: 215.4 16.3% 46.9%;
-  --accent: 333 100% 50%; /* Vibrant Orange/Pink */
-  --accent-foreground: 0 0% 100%;
-  --destructive: 0 84.2% 60.2%;
-  --destructive-foreground: 210 40% 98%;
-  --border: 224 44% 86%;
-  --input: 224 44% 86%;
-  --ring: 225 67% 58%;
-
-  min-height: 100vh;
-  background: linear-gradient(to bottom right, #e0e7ff, #ffffff, #c7d2fe) !important;
-  color: hsl(223 23% 41%);
-}
-
-/* Glass card - Original style */
-.conversation-layout .glass-card {
-  background: rgba(255, 255, 255, 0.6) !important;
-  backdrop-filter: blur(12px) !important;
-  -webkit-backdrop-filter: blur(12px) !important;
-  border-radius: 1rem !important;
-  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05) !important;
-  border: none !important;
-}
-
-/* Chat container - Original style */
-.conversation-layout .chat-container {
-  background: rgba(255, 255, 255, 0.6) !important;
-  backdrop-filter: blur(12px) !important;
-  -webkit-backdrop-filter: blur(12px) !important;
-  border-radius: 1rem !important;
-  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05) !important;
-  border: none !important;
-}
-
-/* Neumorphic shadow - Original style */
-.conversation-layout .neumorphic-shadow {
-  border-radius: 14px !important;
-  background: #ffffff !important;
-  box-shadow: inset 6px 6px 12px rgba(0, 0, 0, 0.08), inset -6px -6px 12px rgba(255, 255, 255, 0.9) !important;
-}
-
-.conversation-layout button.neumorphic-shadow:active,
-.conversation-layout a.neumorphic-shadow:active {
-  box-shadow: 6px 6px 12px rgba(0, 0, 0, 0.1), -6px -6px 12px rgba(255, 255, 255, 0.9) !important;
-}
-
-/* Neumorphic raised - Original style */
-.conversation-layout .neumorphic-raised {
-  border-radius: 14px !important;
-  background-color: #ffffff !important;
-  box-shadow: 6px 6px 12px rgba(0, 0, 0, 0.1), -6px -6px 12px rgba(255, 255, 255, 0.9) !important;
-}
-
-.conversation-layout button.neumorphic-raised:active,
-.conversation-layout a.neumorphic-raised:active {
-  box-shadow: inset 6px 6px 12px rgba(0, 0, 0, 0.1), inset -6px -6px 12px rgba(255, 255, 255, 0.9) !important;
-}
-
-/* Chat messages */
-.conversation-layout .chat-messages {
-  background: transparent;
-}
-
-.conversation-layout .chat-message {
-  border-radius: 14px;
-  background: #ffffff;
-  box-shadow: inset 6px 6px 12px rgba(0, 0, 0, 0.08), inset -6px -6px 12px rgba(255, 255, 255, 0.9);
-}
-
-.conversation-layout .chat-message.user {
-  background: hsl(225 67% 58% / 0.1) !important;
-}
-
-.conversation-layout .chat-message.ai {
-  background: hsl(210 40% 96.1% / 0.5) !important;
-}
-
-/* Chat input container - Original style */
-.conversation-layout .chat-input-container {
-  background: rgba(255, 255, 255, 0.4) !important;
-  backdrop-filter: blur(4px) !important;
-  -webkit-backdrop-filter: blur(4px) !important;
-  border-top: 1px solid hsl(224 44% 86% / 0.5) !important;
-}
-
-/* Cards */
-.conversation-layout .card,
-.conversation-layout [class*="Card"],
-.conversation-layout [data-slot="card"] {
-  background: rgba(255, 255, 255, 0.6) !important;
-  backdrop-filter: blur(12px) !important;
-  -webkit-backdrop-filter: blur(12px) !important;
-  border-radius: 1rem !important;
-  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05) !important;
-  border: none !important;
-}
-
-.conversation-layout [class*="CardHeader"],
-.conversation-layout [class*="CardContent"] {
-  background: transparent !important;
-}
-
-/* Challenge card - Original style */
-.conversation-layout .challenge-card {
-  background: rgba(255, 255, 255, 0.6) !important;
-  backdrop-filter: blur(12px) !important;
-  -webkit-backdrop-filter: blur(12px) !important;
-  border-radius: 1rem !important;
-  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05) !important;
-}
-
-.conversation-layout .challenge-card:hover {
-  transform: scale(1.02);
-  background: rgba(255, 255, 255, 0.7) !important;
-}
-
-/* Header - Original style */
-.conversation-layout header,
-.conversation-layout .header,
-.conversation-layout .app-header {
-  background: rgba(255, 255, 255, 0.8) !important;
-  backdrop-filter: blur(16px) !important;
-  -webkit-backdrop-filter: blur(16px) !important;
-  border: none !important;
-  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05) !important;
-}
-
-/* Input fields - Original style */
-.conversation-layout input,
-.conversation-layout textarea,
-.conversation-layout select {
-  background: #ffffff !important;
-  border: 1px solid hsl(224 44% 86%) !important;
-  border-radius: 14px !important;
-  color: hsl(223 23% 41%) !important;
-}
-
-.conversation-layout input::placeholder,
-.conversation-layout textarea::placeholder {
-  color: hsl(215.4 16.3% 46.9%) !important;
-}
-
-.conversation-layout input:focus,
-.conversation-layout textarea:focus,
-.conversation-layout select:focus {
-  outline: none !important;
-  box-shadow: 0 0 0 2px hsl(225 67% 58% / 0.5) !important;
-  border-color: hsl(225 67% 58%) !important;
-}
-
-/* Buttons - Original style */
-.conversation-layout .btn-primary,
-.conversation-layout button[class*="bg-primary"] {
-  background: linear-gradient(to right, hsl(225 67% 58%), hsl(225 67% 58% / 0.8)) !important;
-  color: white !important;
-  border: none !important;
-  border-radius: 14px !important;
-  box-shadow: 6px 6px 12px rgba(0, 0, 0, 0.1), -6px -6px 12px rgba(255, 255, 255, 0.9) !important;
-}
-
-.conversation-layout .btn-primary:hover,
-.conversation-layout button[class*="bg-primary"]:hover {
-  background: linear-gradient(to right, hsl(225 67% 58% / 0.9), hsl(225 67% 58% / 0.7)) !important;
-}
-
-.conversation-layout .btn-primary:active,
-.conversation-layout button[class*="bg-primary"]:active {
-  transform: scale(0.95);
-}
-
-.conversation-layout .btn-secondary {
-  background: hsl(210 40% 96.1%) !important;
-  color: hsl(222.2 47.4% 11.2%) !important;
-  border-radius: 14px !important;
-  box-shadow: inset 6px 6px 12px rgba(0, 0, 0, 0.08), inset -6px -6px 12px rgba(255, 255, 255, 0.9) !important;
-}
-
-.conversation-layout button[class*="ghost"] {
-  color: hsl(223 23% 41%) !important;
-}
-
-.conversation-layout button[class*="ghost"]:hover {
-  background: hsl(210 40% 96.1%) !important;
-}
-
-/* Session status - Original style */
-.conversation-layout .session-active {
-  background: linear-gradient(to right, #4ade80, #10b981) !important;
-  color: white !important;
-  padding: 0.25rem 0.75rem !important;
-  border-radius: 9999px !important;
-  font-size: 0.875rem !important;
-  font-weight: 500 !important;
-  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05) !important;
-}
-
-.conversation-layout .session-closed {
-  background: linear-gradient(to right, #f87171, #fb7185) !important;
-  color: white !important;
-  padding: 0.25rem 0.75rem !important;
-  border-radius: 9999px !important;
-  font-size: 0.875rem !important;
-  font-weight: 500 !important;
-  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05) !important;
-}
-
-/* Test mode badge - Original style */
-.conversation-layout .test-mode-badge {
-  background: linear-gradient(to right, #facc15, #f97316) !important;
-  color: white !important;
-  padding: 0.25rem 0.75rem !important;
-  border-radius: 9999px !important;
-  font-size: 0.75rem !important;
-  font-weight: 500 !important;
-  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05) !important;
-}
-
-/* Scrollbar - Original style */
-.conversation-layout ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-
-.conversation-layout ::-webkit-scrollbar-track {
-  background: hsl(210 40% 96.1% / 0.2);
-  border-radius: 9999px;
-}
-
-.conversation-layout ::-webkit-scrollbar-thumb {
-  background: hsl(225 67% 58% / 0.3);
-  border-radius: 9999px;
-}
-
-.conversation-layout ::-webkit-scrollbar-thumb:hover {
-  background: hsl(225 67% 58% / 0.5);
-}
-
-/* Text colors */
-.conversation-layout .text-foreground {
-  color: hsl(223 23% 41%) !important;
-}
-
-.conversation-layout .text-muted-foreground {
-  color: hsl(215.4 16.3% 46.9%) !important;
-}
-
-.conversation-layout .text-primary {
-  color: hsl(225 67% 58%) !important;
-}
-
-.conversation-layout [class*="CardTitle"] {
-  color: hsl(223 23% 41%) !important;
-}
-
-/* Override dark backgrounds */
-.conversation-layout [class*="bg-slate-900"],
-.conversation-layout [class*="bg-slate-950"],
-.conversation-layout [class*="bg-slate-800"] {
-  background: rgba(255, 255, 255, 0.6) !important;
-  backdrop-filter: blur(12px) !important;
-  -webkit-backdrop-filter: blur(12px) !important;
-}
-
-.conversation-layout [class*="bg-slate-50"],
-.conversation-layout [class*="bg-gray-50"] {
-  background: hsl(210 40% 96.1%) !important;
-}
-
-.conversation-layout .bg-muted {
-  background: hsl(210 40% 96.1%) !important;
-}
-
-/* Override dark text */
-.conversation-layout [class*="text-slate-"],
-.conversation-layout [class*="text-gray-"] {
-  color: hsl(223 23% 41%) !important;
-}
-
-.conversation-layout [class*="text-slate-500"],
-.conversation-layout [class*="text-slate-600"],
-.conversation-layout [class*="text-gray-500"],
-.conversation-layout [class*="text-gray-600"] {
-  color: hsl(215.4 16.3% 46.9%) !important;
-}
-
-/* Filter tabs/pills */
-.conversation-layout button[class*="rounded-full"][class*="border"] {
-  background: white !important;
-  border: 1px solid hsl(224 44% 86%) !important;
-  color: hsl(223 23% 41%) !important;
-}
-
-.conversation-layout button[class*="rounded-full"][class*="border"]:hover {
-  background: hsl(210 40% 96.1%) !important;
-}
-
-.conversation-layout button[class*="rounded-full"][class*="bg-primary"] {
-  background: hsl(225 67% 58%) !important;
-  color: white !important;
-  border: none !important;
-}
-
-/* KPI item - Original style */
-.conversation-layout .kpi-item {
-  background: linear-gradient(to right, hsl(225 67% 58% / 0.05), hsl(333 100% 50% / 0.05)) !important;
-  padding: 0.75rem !important;
-  border-radius: 0.5rem !important;
-  border: 1px solid hsl(225 67% 58% / 0.2) !important;
-}
-
-/* Pain/gain item - Original style */
-.conversation-layout .pain-gain-item {
-  border-radius: 14px !important;
-  background: #ffffff !important;
-  box-shadow: inset 6px 6px 12px rgba(0, 0, 0, 0.08), inset -6px -6px 12px rgba(255, 255, 255, 0.9) !important;
-}
-
-/* Links */
-.conversation-layout a {
-  color: hsl(225 67% 58%);
-}
-
-.conversation-layout a:hover {
-  color: hsl(225 67% 48%);
-}
-
-/* Dividers */
-.conversation-layout hr,
-.conversation-layout .divider {
-  border-color: hsl(224 44% 86%);
-}
-
-/* Neon card overrides - make them light */
-.conversation-layout .neon-card,
-.conversation-layout .neon-card-purple,
-.conversation-layout .neon-card-pink {
-  background: rgba(255, 255, 255, 0.6) !important;
-  backdrop-filter: blur(12px) !important;
-  -webkit-backdrop-filter: blur(12px) !important;
-  border-radius: 1rem !important;
-  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05) !important;
-  border: none !important;
-}
-
-/* Gradient overrides */
-.conversation-layout [class*="from-slate-"],
-.conversation-layout [class*="to-slate-"] {
-  --tw-gradient-from: rgba(255, 255, 255, 0.6) !important;
-  --tw-gradient-to: hsl(210 40% 96.1%) !important;
-}
-
-/* Empty state / dashed borders */
-.conversation-layout [class*="border-dashed"] {
-  background: rgba(255, 255, 255, 0.5) !important;
-  border-color: hsl(224 44% 86%) !important;
-}
-
-/* ==========================================
-   CONVERSATION LAYOUT - MOBILE OPTIMIZATIONS
-   ========================================== */
-
-@media (max-width: 768px) {
-  .conversation-layout {
-    position: fixed;
-    width: 100%;
-    height: 100%;
-    overflow: hidden;
-  }
-
-  .conversation-layout .chat-container,
-  .conversation-layout .chat-container > *,
-  .conversation-layout [class*="chat"] {
-    max-width: 100% !important;
-    width: 100% !important;
-    box-sizing: border-box !important;
-  }
-
-  /* Remove focus ring offset on mobile */
-  .conversation-layout input:focus,
-  .conversation-layout textarea:focus,
-  .conversation-layout [contenteditable]:focus {
-    outline: none !important;
-  }
-
-  /* Safe area insets for notched devices */
-  .conversation-layout .mobile-safe-area {
-    padding-left: env(safe-area-inset-left);
-    padding-right: env(safe-area-inset-right);
-    padding-bottom: env(safe-area-inset-bottom);
-  }
-
-  /* Prevent text zoom on input focus (iOS) */
-  .conversation-layout input,
-  .conversation-layout textarea,
-  .conversation-layout select {
-    font-size: 16px !important;
-  }
-
-  /* Smooth momentum scrolling */
-  .conversation-layout .scroll-container {
-    -webkit-overflow-scrolling: touch;
-    overscroll-behavior: contain;
-  }
-}
-
-/* ==========================================
-   CONVERSATION LAYOUT - PROGRESS BAR STYLES
-   ========================================== */
-
-/* Progress bar container */
-.conversation-layout .progress-bar-container {
-  background: rgba(255, 255, 255, 0.5) !important;
-  backdrop-filter: blur(4px) !important;
-  -webkit-backdrop-filter: blur(4px) !important;
-  border-bottom: 1px solid hsl(224 44% 86% / 0.5) !important;
-}
-
-/* Step indicators - completed (emerald) */
-.conversation-layout [class*="bg-emerald-500"],
-.conversation-layout [class*="bg-emerald-400"] {
-  background-color: #10b981 !important;
-}
-
-.conversation-layout [class*="bg-emerald-100"] {
-  background-color: #d1fae5 !important;
-}
-
-.conversation-layout [class*="bg-emerald-50"] {
-  background-color: #ecfdf5 !important;
-}
-
-.conversation-layout [class*="text-emerald-700"],
-.conversation-layout [class*="text-emerald-800"] {
-  color: #047857 !important;
-}
-
-.conversation-layout [class*="text-emerald-600"] {
-  color: #059669 !important;
-}
-
-.conversation-layout [class*="border-emerald-500"],
-.conversation-layout [class*="border-emerald-400"] {
-  border-color: #10b981 !important;
-}
-
-.conversation-layout [class*="border-emerald-100"] {
-  border-color: #a7f3d0 !important;
-}
-
-/* Step indicators - active (blue) */
-.conversation-layout [class*="bg-blue-500"],
-.conversation-layout [class*="bg-blue-400"] {
-  background-color: #3b82f6 !important;
-}
-
-.conversation-layout [class*="bg-blue-100"] {
-  background-color: #dbeafe !important;
-}
-
-.conversation-layout [class*="text-blue-700"] {
-  color: #1d4ed8 !important;
-}
-
-/* Step indicators - pending (gray) */
-.conversation-layout [class*="bg-gray-300"] {
-  background-color: #d1d5db !important;
-}
-
-.conversation-layout [class*="bg-gray-400"] {
-  background-color: #9ca3af !important;
-}
-
-.conversation-layout [class*="bg-gray-100"] {
-  background-color: #f3f4f6 !important;
-}
-
-.conversation-layout [class*="text-gray-600"] {
-  color: #4b5563 !important;
-}
-
-/* ==========================================
-   CONVERSATION LAYOUT - STEP COMPLETION UI
-   ========================================== */
-
-/* Step completion card */
-.conversation-layout .step-completion-card {
-  background: linear-gradient(to bottom right, #ecfdf5, #ffffff, #f0fdfa) !important;
-  border: 2px solid rgba(16, 185, 129, 0.3) !important;
-  border-radius: 1rem !important;
-}
-
-/* Step completion badge */
-.conversation-layout .step-completion-badge {
-  background: rgba(16, 185, 129, 0.1) !important;
-  color: #047857 !important;
-  border-radius: 9999px !important;
-}
-
-/* Interview completion celebration */
-.conversation-layout .interview-completion {
-  background: linear-gradient(to bottom right, #ecfdf5, #ffffff, #f0fdfa) !important;
-  border: 2px solid rgba(16, 185, 129, 0.3) !important;
-  border-radius: 1rem !important;
-}
-
-/* Teal accents for completion */
-.conversation-layout [class*="from-teal-50"] {
-  --tw-gradient-from: #f0fdfa !important;
-}
-
-.conversation-layout [class*="to-teal-50"] {
-  --tw-gradient-to: #f0fdfa !important;
-}
-
-/* ==========================================
-   CONVERSATION LAYOUT - FILE UPLOAD
-   ========================================== */
-
-.conversation-layout .file-upload-area {
-  border-radius: 14px !important;
-  background: #ffffff !important;
-  border: 2px dashed hsl(225 67% 58% / 0.3) !important;
-  box-shadow: inset 6px 6px 12px rgba(0, 0, 0, 0.08), inset -6px -6px 12px rgba(255, 255, 255, 0.9) !important;
-}
-
-.conversation-layout .file-upload-area:hover {
-  background: hsl(225 67% 58% / 0.05) !important;
-}
-
-.conversation-layout .file-upload-area.drag-over {
-  border-color: hsl(225 67% 58%) !important;
-  border-style: solid !important;
-  background: hsl(225 67% 58% / 0.1) !important;
-  transform: scale(1.02);
-}
-
-/* ==========================================
-   CONVERSATION LAYOUT - AUDIO RECORDING
-   ========================================== */
-
-.conversation-layout .audio-recording {
-  background-color: #ef4444 !important;
-  box-shadow: 0 10px 15px -3px rgba(239, 68, 68, 0.4), 0 4px 6px -2px rgba(239, 68, 68, 0.2) !important;
-  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-}
-
-/* ==========================================
-   CONVERSATION LAYOUT - FORM ELEMENTS
-   ========================================== */
-
-.conversation-layout .form-input {
-  border-radius: 14px !important;
-  background: #ffffff !important;
-  box-shadow: inset 6px 6px 12px rgba(0, 0, 0, 0.08), inset -6px -6px 12px rgba(255, 255, 255, 0.9) !important;
-  border: none !important;
-}
-
-.conversation-layout .form-input:focus {
-  box-shadow: 0 0 0 2px hsl(225 67% 58% / 0.5), inset 6px 6px 12px rgba(0, 0, 0, 0.08), inset -6px -6px 12px rgba(255, 255, 255, 0.9) !important;
-}
-
-.conversation-layout .form-textarea {
-  border-radius: 14px !important;
-  background: #ffffff !important;
-  box-shadow: inset 6px 6px 12px rgba(0, 0, 0, 0.08), inset -6px -6px 12px rgba(255, 255, 255, 0.9) !important;
-  border: none !important;
-  resize: none !important;
-}
-
-.conversation-layout .form-textarea:focus {
-  box-shadow: 0 0 0 2px hsl(225 67% 58% / 0.5), inset 6px 6px 12px rgba(0, 0, 0, 0.08), inset -6px -6px 12px rgba(255, 255, 255, 0.9) !important;
-}
-
-/* ==========================================
-   CONVERSATION LAYOUT - LOADING STATES
-   ========================================== */
-
-.conversation-layout .pulse-soft {
-  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-  opacity: 0.7;
-}
-
-.conversation-layout .loading-shimmer {
-  background: linear-gradient(90deg, transparent, rgba(99, 102, 241, 0.2), transparent) !important;
-  background-size: 200% 100%;
-  animation: shimmer 1.5s infinite;
-}
-
-/* ==========================================
-   CONVERSATION LAYOUT - ANIMATIONS
-   ========================================== */
-
-.conversation-layout .slide-in-right {
-  animation: slideInRight 0.3s ease-out;
-}
-
-.conversation-layout .slide-in-left {
-  animation: slideInLeft 0.3s ease-out;
-}
-
-.conversation-layout .animate-gradient-shift {
-  animation: gradient-shift 3s ease infinite;
-  background-size: 200% 200%;
-}
-
-/* ==========================================
-   CONVERSATION LAYOUT - POPOVER & TOOLTIPS
-   ========================================== */
-
-.conversation-layout [data-radix-popper-content-wrapper] {
-  z-index: 50 !important;
-}
-
-.conversation-layout [role="tooltip"],
-.conversation-layout [data-state="open"][data-side] {
-  background: rgba(255, 255, 255, 0.95) !important;
-  backdrop-filter: blur(12px) !important;
-  -webkit-backdrop-filter: blur(12px) !important;
-  border: 1px solid hsl(224 44% 86%) !important;
-  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05) !important;
-  color: hsl(223 23% 41%) !important;
-}
-
-/* ==========================================
-   CONVERSATION LAYOUT - TYPING INDICATOR
-   ========================================== */
-
-.conversation-layout .typing-indicator {
-  background: hsl(210 40% 96.1%) !important;
-  border-radius: 14px !important;
-  padding: 0.75rem 1rem !important;
-}
-
-.conversation-layout .typing-indicator .dot {
-  background-color: hsl(225 67% 58%) !important;
-  animation: typing-bounce 1.4s infinite ease-in-out both;
-}
-
-.conversation-layout .typing-indicator .dot:nth-child(1) {
-  animation-delay: -0.32s;
-}
-
-.conversation-layout .typing-indicator .dot:nth-child(2) {
-  animation-delay: -0.16s;
-}
-
-@keyframes typing-bounce {
-  0%, 80%, 100% {
-    transform: scale(0.8);
-    opacity: 0.5;
-  }
-  40% {
-    transform: scale(1);
-    opacity: 1;
-  }
-}
-
-/* ==========================================
-   CONVERSATION LAYOUT - PROSE/MARKDOWN
-   ========================================== */
-
-.conversation-layout .prose {
-  color: hsl(223 23% 41%) !important;
-}
-
-.conversation-layout .prose h1,
-.conversation-layout .prose h2,
-.conversation-layout .prose h3,
-.conversation-layout .prose h4,
-.conversation-layout .prose h5,
-.conversation-layout .prose h6 {
-  color: hsl(223 23% 31%) !important;
-}
-
-.conversation-layout .prose a {
-  color: hsl(225 67% 58%) !important;
-}
-
-.conversation-layout .prose a:hover {
-  color: hsl(225 67% 48%) !important;
-}
-
-.conversation-layout .prose code {
-  background: hsl(210 40% 96.1%) !important;
-  color: hsl(223 23% 31%) !important;
-  padding: 0.125rem 0.25rem !important;
-  border-radius: 0.25rem !important;
-}
-
-.conversation-layout .prose pre {
-  background: hsl(223 23% 95%) !important;
-  border: 1px solid hsl(224 44% 86%) !important;
-  border-radius: 0.5rem !important;
-}
-
-.conversation-layout .prose pre code {
-  background: transparent !important;
-  padding: 0 !important;
-}
-
-.conversation-layout .prose blockquote {
-  border-left-color: hsl(225 67% 58%) !important;
-  color: hsl(215.4 16.3% 46.9%) !important;
-}
-
-.conversation-layout .prose hr {
-  border-color: hsl(224 44% 86%) !important;
-}
-
-.conversation-layout .prose ul > li::marker,
-.conversation-layout .prose ol > li::marker {
-  color: hsl(225 67% 58%) !important;
 }

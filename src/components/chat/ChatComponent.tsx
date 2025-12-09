@@ -585,7 +585,7 @@ export function ChatComponent({
                   value={inputValue}
                   onChange={(e) => handleInputChange(e.target.value)}
                   placeholder="Type your response..."
-                  className="border-0 shadow-none resize-none min-h-[60px] focus-visible:ring-0 focus-visible:ring-offset-0 w-full max-w-full min-w-0 box-border text-base"
+                  className="border-0 shadow-none resize-none min-h-[60px] focus-visible:ring-0 focus-visible:ring-offset-0 w-full max-w-full min-w-0 box-border text-sm"
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && !e.shiftKey) {
                       e.preventDefault();
@@ -717,10 +717,10 @@ function MessageBubble({
   const isSystem = message.senderType === 'system';
   const isAgent = message.senderType === 'ai';
   const bubbleClass = isSystem
-    ? 'bg-muted text-muted-foreground message-system'
+    ? 'bg-muted text-muted-foreground'
     : isUser
-      ? 'bg-primary text-primary-foreground message-user'
-      : 'bg-white border border-gray-200 text-foreground shadow-sm message-agent';
+      ? 'bg-primary text-primary-foreground'
+      : 'bg-muted text-foreground';
 
   // Check if this is an interim message (streaming update)
   const isInterim = message.metadata?.isInterim === true;
