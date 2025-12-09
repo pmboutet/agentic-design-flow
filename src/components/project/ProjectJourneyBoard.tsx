@@ -477,6 +477,8 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
   const [expandedAskParticipants, setExpandedAskParticipants] = useState<Set<string>>(new Set());
   const [isFoundationalInsightsExpanded, setIsFoundationalInsightsExpanded] = useState(true);
   const [expandedCollectedInsightsAskIds, setExpandedCollectedInsightsAskIds] = useState<Set<string>>(new Set());
+  const [isHeaderCollapsed, setIsHeaderCollapsed] = useState(false);
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const [askParticipantEdits, setAskParticipantEdits] = useState<Record<string, { participantIds: string[]; spokespersonId: string }>>({});
   const [savingAskParticipants, setSavingAskParticipants] = useState<Set<string>>(new Set());
   const [hoveredAskMenu, setHoveredAskMenu] = useState(false);
@@ -575,6 +577,39 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
     const timeoutId = window.setTimeout(() => setAskAiFeedback(null), 3500);
     return () => window.clearTimeout(timeoutId);
   }, [askAiFeedback]);
+
+  // Collapse header when scrolling down
+  useEffect(() => {
+    // Find the nearest scrollable ancestor (the main element with overflow-y-auto)
+    const findScrollableParent = (element: HTMLElement | null): HTMLElement | null => {
+      if (!element) return null;
+      let current = element.parentElement;
+      while (current) {
+        const style = window.getComputedStyle(current);
+        if (style.overflowY === "auto" || style.overflowY === "scroll") {
+          return current;
+        }
+        current = current.parentElement;
+      }
+      return null;
+    };
+
+    const container = scrollContainerRef.current;
+    const scrollParent = findScrollableParent(container);
+
+    if (!scrollParent) {
+      return;
+    }
+
+    const handleScroll = () => {
+      const scrollTop = scrollParent.scrollTop;
+      // Collapse header when scrolled past 50px
+      setIsHeaderCollapsed(scrollTop > 50);
+    };
+
+    scrollParent.addEventListener("scroll", handleScroll, { passive: true });
+    return () => scrollParent.removeEventListener("scroll", handleScroll);
+  }, []);
 
   // Poll for AI challenge builder results when running
   useEffect(() => {
@@ -3289,7 +3324,7 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
         />
       ) : null}
 
-      <div className="space-y-8 text-slate-100">
+      <div ref={scrollContainerRef} className="space-y-8 text-slate-100">
       {error ? (
         <Alert variant="destructive">
           <AlertTitle>Live data unavailable</AlertTitle>
@@ -3309,14 +3344,33 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
       ) : null}
 
       {boardData ? (
-      <header className="rounded-xl border border-white/10 bg-slate-900/70 p-6 shadow-sm">
-        <div className="flex flex-wrap items-start justify-between gap-4">
+      <header className={cn(
+        "rounded-xl border border-white/10 bg-slate-900/70 shadow-sm transition-all duration-300",
+        isHeaderCollapsed ? "p-4" : "p-6"
+      )}>
+        <div className={cn(
+          "flex flex-wrap justify-between gap-4",
+          isHeaderCollapsed ? "items-center" : "items-start"
+        )}>
           <div className="flex-1">
-            <p className="text-xs uppercase tracking-wide text-indigo-200">Exploration projet</p>
-            <h1 className="text-2xl font-semibold text-white">{boardData.projectName}</h1>
-            {boardData.clientName ? (
-              <p className="mt-1 text-sm text-slate-300">Client: {boardData.clientName}</p>
-            ) : null}
+            <div className={cn(
+              "flex items-center gap-3",
+              isHeaderCollapsed ? "flex-row" : "flex-col items-start"
+            )}>
+              <div>
+                <p className={cn(
+                  "text-xs uppercase tracking-wide text-indigo-200",
+                  isHeaderCollapsed && "sr-only"
+                )}>Exploration projet</p>
+                <h1 className={cn(
+                  "font-semibold text-white transition-all duration-300",
+                  isHeaderCollapsed ? "text-lg" : "text-2xl"
+                )}>{boardData.projectName}</h1>
+              </div>
+              {!isHeaderCollapsed && boardData.clientName ? (
+                <p className="text-sm text-slate-300">Client: {boardData.clientName}</p>
+              ) : null}
+            </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {isEditingProject ? (
@@ -3379,34 +3433,38 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
           </div>
         </div>
 
-        <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <div>
-            <p className="text-xs uppercase tracking-wide text-slate-400">Status</p>
-            <p className="mt-1 text-sm font-medium text-slate-100 capitalize">
-              {boardData.projectStatus ?? "unknown"}
-            </p>
-          </div>
-          <div>
-            <p className="text-xs uppercase tracking-wide text-slate-400">Timeline</p>
-            <p className="mt-1 text-sm font-medium text-slate-100">
-              {boardData.timeframe ?? "Not specified"}
-            </p>
-          </div>
-          <div>
-            <p className="text-xs uppercase tracking-wide text-slate-400">Start date</p>
-            <p className="mt-1 text-sm font-medium text-slate-100">{projectStart ?? "—"}</p>
-          </div>
-          <div>
-            <p className="text-xs uppercase tracking-wide text-slate-400">End date</p>
-            <p className="mt-1 text-sm font-medium text-slate-100">{projectEnd ?? "—"}</p>
-          </div>
-        </div>
+        {!isHeaderCollapsed && (
+          <>
+            <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <div>
+                <p className="text-xs uppercase tracking-wide text-slate-400">Status</p>
+                <p className="mt-1 text-sm font-medium text-slate-100 capitalize">
+                  {boardData.projectStatus ?? "unknown"}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs uppercase tracking-wide text-slate-400">Timeline</p>
+                <p className="mt-1 text-sm font-medium text-slate-100">
+                  {boardData.timeframe ?? "Not specified"}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs uppercase tracking-wide text-slate-400">Start date</p>
+                <p className="mt-1 text-sm font-medium text-slate-100">{projectStart ?? "—"}</p>
+              </div>
+              <div>
+                <p className="text-xs uppercase tracking-wide text-slate-400">End date</p>
+                <p className="mt-1 text-sm font-medium text-slate-100">{projectEnd ?? "—"}</p>
+              </div>
+            </div>
 
-        {boardData.projectDescription ? (
-          <p className="mt-4 text-sm text-slate-300">{boardData.projectDescription}</p>
-        ) : null}
+            {boardData.projectDescription ? (
+              <p className="mt-4 text-sm text-slate-300">{boardData.projectDescription}</p>
+            ) : null}
+          </>
+        )}
 
-        {boardData.projectSystemPrompt && !isEditingProject ? (
+        {boardData.projectSystemPrompt && !isEditingProject && !isHeaderCollapsed ? (
           <div className="mt-4 max-h-64 overflow-y-auto rounded-lg border border-white/10 bg-slate-900/60 p-4 text-sm text-slate-200">
             <p className="mb-2 font-semibold text-slate-100">Project system prompt</p>
             <pre className="whitespace-pre-wrap leading-relaxed text-slate-200">{boardData.projectSystemPrompt}</pre>
