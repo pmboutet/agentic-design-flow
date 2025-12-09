@@ -542,17 +542,17 @@ export function ProjectGraphVisualization({ projectId, refreshKey }: ProjectGrap
       {/* Header */}
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-2">
-          <Layers className="h-4 w-4 text-muted-foreground" />
+          <Layers className="h-4 w-4 text-slate-400" />
           <div>
             <p className="text-sm font-medium text-white">Visualisation du graphe</p>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-xs text-slate-400">
               Insights, entités et challenges liés au projet.
             </p>
           </div>
         </div>
         <div className="flex items-center gap-2">
           {stats && (
-            <div className="hidden sm:flex items-center gap-2 text-[11px] text-muted-foreground">
+            <div className="hidden sm:flex items-center gap-2 text-[11px] text-slate-400">
               <span>{stats.insights} insights</span>
               <span>•</span>
               <span>{stats.entities} entités</span>
@@ -563,7 +563,7 @@ export function ProjectGraphVisualization({ projectId, refreshKey }: ProjectGrap
           <Button
             size="sm"
             variant="outline"
-            className="gap-2"
+            className="gap-2 border-slate-600/50 bg-slate-800/60 text-slate-200 hover:bg-slate-700/60"
             onClick={loadGraph}
             disabled={isLoading || !projectId}
           >
@@ -573,6 +573,7 @@ export function ProjectGraphVisualization({ projectId, refreshKey }: ProjectGrap
           <Button
             size="sm"
             variant="outline"
+            className="border-slate-600/50 bg-slate-800/60 text-slate-200 hover:bg-slate-700/60"
             onClick={toggleFullscreen}
             title={isFullscreen ? "Quitter le plein écran" : "Plein écran"}
           >
@@ -583,7 +584,7 @@ export function ProjectGraphVisualization({ projectId, refreshKey }: ProjectGrap
 
       {/* Legend */}
       <div className="flex flex-wrap items-center gap-3 py-2">
-        <span className="text-xs text-muted-foreground">Légende:</span>
+        <span className="text-xs text-slate-400">Légende:</span>
         {Object.entries(nodeLabels).map(([type, label]) => (
           <button
             key={type}
@@ -616,13 +617,13 @@ export function ProjectGraphVisualization({ projectId, refreshKey }: ProjectGrap
       )}
 
       {!projectId && (
-        <div className="rounded-md border border-dashed bg-background px-4 py-8 text-center text-sm text-muted-foreground">
+        <div className="rounded-md border border-dashed border-slate-600/50 bg-slate-800/40 px-4 py-8 text-center text-sm text-slate-400">
           Choisissez un projet pour afficher son graphe de connaissances.
         </div>
       )}
 
       {projectId && (
-        <div className="rounded-md border bg-background/60 p-2 relative">
+        <div className="rounded-md border border-slate-600/50 bg-slate-800/40 p-2 relative">
           {/* Selected node info panel */}
           {selectedNode && (
             <div className="absolute top-4 left-4 z-10 max-w-xs rounded-lg border border-white/20 bg-slate-900/95 p-3 backdrop-blur shadow-lg">
@@ -657,7 +658,7 @@ export function ProjectGraphVisualization({ projectId, refreshKey }: ProjectGrap
 
           {isLoading && !graphData ? (
             <div className={`flex items-center justify-center ${isFullscreen ? 'h-screen' : 'h-[420px]'}`}>
-              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+              <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
             </div>
           ) : filteredGraphData && isMounted ? (
             <div
@@ -692,7 +693,7 @@ export function ProjectGraphVisualization({ projectId, refreshKey }: ProjectGrap
               )}
             </div>
           ) : (
-            <div className={`flex items-center justify-center text-sm text-muted-foreground ${isFullscreen ? 'h-screen' : 'h-[420px]'}`}>
+            <div className={`flex items-center justify-center text-sm text-slate-400 ${isFullscreen ? 'h-screen' : 'h-[420px]'}`}>
               Aucun graphe à afficher pour le moment.
             </div>
           )}
@@ -713,7 +714,7 @@ export function ProjectGraphVisualization({ projectId, refreshKey }: ProjectGrap
   }
 
   return (
-    <div className="space-y-3 rounded-lg border bg-card p-4" ref={containerRef}>
+    <div className="space-y-3 rounded-lg border border-white/10 bg-slate-900/40 p-4 backdrop-blur-sm" ref={containerRef}>
       {graphContent}
     </div>
   );
