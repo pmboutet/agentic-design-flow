@@ -12,7 +12,8 @@ export type RelationshipType =
   | "RELATED_TO"
   | "CONTAINS"
   | "SYNTHESIZES"
-  | "MENTIONS";
+  | "MENTIONS"
+  | "HAS_TYPE";
 
 interface GraphEdge {
   sourceId: string;

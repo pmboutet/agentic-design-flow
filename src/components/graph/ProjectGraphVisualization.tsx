@@ -57,7 +57,7 @@ const ForceGraph2D = dynamic(
 // TYPES
 // ============================================================================
 
-type GraphNodeType = "insight" | "entity" | "challenge" | "synthesis";
+type GraphNodeType = "insight" | "entity" | "challenge" | "synthesis" | "insight_type";
 
 interface GraphNodeResponse {
   id: string;
@@ -82,6 +82,7 @@ interface GraphStats {
   entities: number;
   challenges: number;
   syntheses: number;
+  insightTypes: number;
   edges: number;
 }
 
@@ -157,6 +158,11 @@ const NODE_COLORS: Record<GraphNodeType | "default", { fill: string; solid: stri
     fill: "rgba(168, 85, 247, 0.9)",   // purple-500
     solid: "#A855F7",
   },
+  // Insight Type: Rose/Pink (category nodes for insight types)
+  insight_type: {
+    fill: "rgba(244, 63, 94, 0.9)",    // rose-500
+    solid: "#F43F5E",
+  },
   default: {
     fill: "rgba(148, 163, 184, 0.9)",  // slate-400
     solid: "#94A3B8",
@@ -170,6 +176,7 @@ const EDGE_COLORS: Record<string, string> = {
   MENTIONS: "rgba(14, 165, 233, 0.5)",     // cyan - entity mentions
   SYNTHESIZES: "rgba(168, 85, 247, 0.5)",  // purple - synthesis connections
   CONTAINS: "rgba(16, 185, 129, 0.5)",     // emerald - containment
+  HAS_TYPE: "rgba(244, 63, 94, 0.5)",      // rose - insight type classification
   INDIRECT: "rgba(148, 163, 184, 0.35)",   // slate - virtual/indirect links (dashed visually)
   default: "rgba(148, 163, 184, 0.4)",     // slate default
 };
@@ -180,6 +187,7 @@ const NODE_LABELS: Record<GraphNodeType, string> = {
   entity: "Entités",
   challenge: "Challenges",
   synthesis: "Synthèses",
+  insight_type: "Types d'insight",
 };
 
 // Base node sizes by type
@@ -188,6 +196,7 @@ const NODE_SIZES: Record<GraphNodeType | "default", number> = {
   challenge: 7,
   synthesis: 6,
   entity: 4,
+  insight_type: 8,  // Larger for category nodes
   default: 4,
 };
 
@@ -327,6 +336,7 @@ export function ProjectGraphVisualization({ projectId, clientId, refreshKey }: P
     entity: true,
     challenge: true,
     synthesis: true,
+    insight_type: true,
   });
   const [filters, setFilters] = useState<FiltersPayload | null>(null);
   const [selectedClientId, setSelectedClientId] = useState<string | null>(
@@ -989,6 +999,9 @@ export function ProjectGraphVisualization({ projectId, clientId, refreshKey }: P
               </span>
               <span className="rounded bg-indigo-500/20 px-1.5 py-0.5 text-indigo-300">
                 {stats.challenges} challenges
+              </span>
+              <span className="rounded bg-rose-500/20 px-1.5 py-0.5 text-rose-300">
+                {stats.insightTypes} types
               </span>
               <span className="text-slate-500">•</span>
               <span>{stats.edges} liens</span>

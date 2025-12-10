@@ -58,6 +58,7 @@ interface GraphVisualizationResponse {
     entities: number;
     challenges: number;
     syntheses: number;
+    insightTypes: number;
     edges: number;
   };
 }
@@ -79,10 +80,22 @@ function relationshipLabel(type: string): string {
       return "Synthèse";
     case "CONTAINS":
       return "Contient";
+    case "HAS_TYPE":
+      return "Type";
     default:
       return type;
   }
 }
+
+// French labels for insight types
+const INSIGHT_TYPE_LABELS: Record<string, string> = {
+  pain: "Pain Point",
+  gain: "Gain",
+  opportunity: "Opportunité",
+  risk: "Risque",
+  signal: "Signal",
+  idea: "Idée",
+};
 
 /**
  * Get all child challenge IDs recursively for a given challenge
@@ -141,7 +154,7 @@ export async function GET(request: NextRequest) {
     // Build the base query for insights
     let insightQuery = supabase
       .from("insights")
-      .select("id, summary, content, created_at, ask_session_id, challenge_id")
+      .select("id, summary, content, created_at, ask_session_id, challenge_id, type")
       .order("created_at", { ascending: false })
       .limit(limit);
 
@@ -172,7 +185,7 @@ export async function GET(request: NextRequest) {
       if (!askSessions || askSessions.length === 0) {
         return NextResponse.json<ApiResponse<GraphVisualizationResponse>>({
           success: true,
-          data: { nodes: [], edges: [], stats: { insights: 0, entities: 0, challenges: 0, syntheses: 0, edges: 0 } },
+          data: { nodes: [], edges: [], stats: { insights: 0, entities: 0, challenges: 0, syntheses: 0, insightTypes: 0, edges: 0 } },
           message: "Aucun ASK trouvé pour ce projet",
         });
       }
@@ -192,7 +205,7 @@ export async function GET(request: NextRequest) {
       if (!projects || projects.length === 0) {
         return NextResponse.json<ApiResponse<GraphVisualizationResponse>>({
           success: true,
-          data: { nodes: [], edges: [], stats: { insights: 0, entities: 0, challenges: 0, syntheses: 0, edges: 0 } },
+          data: { nodes: [], edges: [], stats: { insights: 0, entities: 0, challenges: 0, syntheses: 0, insightTypes: 0, edges: 0 } },
           message: "Aucun projet trouvé pour ce client",
         });
       }
@@ -232,17 +245,55 @@ export async function GET(request: NextRequest) {
     const nodes: Map<string, GraphNode> = new Map();
     const nodeTypes: Map<string, GraphNodeType> = new Map();
 
+    // Track insight types used and create HAS_TYPE edges
+    const insightTypesUsed = new Set<string>();
+    const hasTypeEdges: GraphEdge[] = [];
+
     for (const insight of insights ?? []) {
+      // Determine the insight type (default to 'idea' if not set)
+      const insightType = (insight.type as string)?.toLowerCase() || "idea";
+      const validTypes = ["pain", "gain", "opportunity", "risk", "signal", "idea"];
+      const resolvedType = validTypes.includes(insightType) ? insightType : "idea";
+
       nodes.set(insight.id, {
         id: insight.id,
         type: "insight",
         label: formatInsightLabel(insight),
+        subtitle: INSIGHT_TYPE_LABELS[resolvedType] || resolvedType,
         meta: {
           createdAt: insight.created_at,
           challengeId: insight.challenge_id,
+          insightType: resolvedType,
         },
       });
       nodeTypes.set(insight.id, "insight");
+
+      // Track the insight type and create HAS_TYPE edge
+      insightTypesUsed.add(resolvedType);
+      hasTypeEdges.push({
+        id: `has-type-${insight.id}-${resolvedType}`,
+        source: insight.id,
+        target: `insight-type-${resolvedType}`,
+        relationshipType: "HAS_TYPE",
+        label: relationshipLabel("HAS_TYPE"),
+        weight: 1,
+        confidence: 1,
+      });
+    }
+
+    // Create insight_type nodes for each type used
+    for (const typeName of insightTypesUsed) {
+      const typeNodeId = `insight-type-${typeName}`;
+      nodes.set(typeNodeId, {
+        id: typeNodeId,
+        type: "insight_type",
+        label: INSIGHT_TYPE_LABELS[typeName] || typeName,
+        subtitle: `Type d'insight`,
+        meta: {
+          insightTypeName: typeName,
+        },
+      });
+      nodeTypes.set(typeNodeId, "insight_type");
     }
 
     if (insightIds.length === 0) {
@@ -251,7 +302,7 @@ export async function GET(request: NextRequest) {
         data: {
           nodes: Array.from(nodes.values()),
           edges: [],
-          stats: { insights: 0, entities: 0, challenges: 0, syntheses: 0, edges: 0 },
+          stats: { insights: 0, entities: 0, challenges: 0, syntheses: 0, insightTypes: 0, edges: 0 },
         },
       });
     }
@@ -472,17 +523,21 @@ export async function GET(request: NextRequest) {
     const uniqueEntityIds = new Set<string>();
     entityIdMapping.forEach((canonicalId) => uniqueEntityIds.add(canonicalId));
 
+    // Combine deduplicated edges with HAS_TYPE edges
+    const allEdges = [...deduplicatedEdges, ...hasTypeEdges];
+
     return NextResponse.json<ApiResponse<GraphVisualizationResponse>>({
       success: true,
       data: {
         nodes: Array.from(nodes.values()),
-        edges: deduplicatedEdges,
+        edges: allEdges,
         stats: {
           insights: (insights ?? []).length,
           entities: uniqueEntityIds.size,
           challenges: Array.from(challengeIds).length,
           syntheses: Array.from(synthesisIds).length,
-          edges: deduplicatedEdges.length,
+          insightTypes: insightTypesUsed.size,
+          edges: allEdges.length,
         },
       },
     });
