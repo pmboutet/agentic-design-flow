@@ -542,6 +542,17 @@ a.neumorphic-raised:active {
   box-shadow: 0 0 20px hsla(185, 100%, 50%, 0.1), inset 0 1px 0 hsla(185, 100%, 50%, 0.1);
 }
 
+/* Admin textarea dark styling (outside cards) */
+.admin-layout textarea:not([class*="CardContent"] textarea) {
+  background-color: rgba(30, 41, 59, 0.6) !important;
+  color: #f1f5f9 !important;
+  border-color: rgba(71, 85, 105, 0.5) !important;
+}
+
+.admin-layout textarea:not([class*="CardContent"] textarea)::placeholder {
+  color: #64748b !important;
+}
+
 /* Admin form elements - light backgrounds inside cards */
 .admin-layout [class*="CardContent"] input:not([type="checkbox"]):not([type="radio"]),
 .admin-layout [class*="CardContent"] textarea,

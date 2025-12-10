@@ -340,8 +340,8 @@ export function AdminPageLayout({ children }: AdminPageLayoutProps) {
             isSidebarCollapsed ? "justify-center" : ""
           )}
         >
-          {/* Logo with neon glow */}
-          <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-neon-cyan via-neon-purple to-neon-pink text-sm font-bold text-dark-900 shadow-glow-cyan">
+          {/* Logo with primary/accent gradient */}
+          <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-accent text-sm font-bold text-white shadow-lg">
             AD
           </div>
           {!isSidebarCollapsed && (
