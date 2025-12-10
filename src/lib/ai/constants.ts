@@ -167,6 +167,14 @@ export const PROMPT_VARIABLES: PromptVariableDefinition[] = [
     category: "participants",
   },
   {
+    key: "participant_description",
+    label: "Description du participant",
+    description: "Description/bio du participant qui vient d'envoyer le message (depuis son profil utilisateur)",
+    example: "Product Manager avec 5 ans d'expérience dans la transformation digitale",
+    type: "string",
+    category: "participants",
+  },
+  {
     key: "participants",
     label: "Participants (texte)",
     description: "Participants sérialisés au format texte (obsolète, préférer participants_list)",

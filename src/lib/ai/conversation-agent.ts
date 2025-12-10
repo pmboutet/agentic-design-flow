@@ -11,6 +11,7 @@ import {
 export interface ConversationParticipantSummary {
   name: string;
   role?: string | null;
+  description?: string | null;
 }
 
 export interface ConversationMessageSummary {
@@ -311,6 +312,11 @@ export function buildConversationAgentVariables(context: ConversationAgentContex
   );
   const timeTrackingVariables = formatTimeTrackingVariables(timeTrackingStats);
 
+  // Find the participant who sent the last message to get their description
+  const lastUserParticipant = lastUserMessage?.senderName
+    ? context.participants.find(p => p.name === lastUserMessage.senderName)
+    : null;
+
   // Build base variables
   const variables: PromptVariables = {
     ask_key: context.ask.ask_key,
@@ -320,6 +326,7 @@ export function buildConversationAgentVariables(context: ConversationAgentContex
     participants: participantsSummary,
     participants_list: context.participants,
     participant_name: lastUserMessage?.senderName ?? '',
+    participant_description: lastUserParticipant?.description ?? '',
     // Messages (modern JSON format)
     messages_json: JSON.stringify(conversationMessagesPayload),
     // Internal: messages as array for Handlebars helpers (recentMessages)

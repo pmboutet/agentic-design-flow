@@ -57,6 +57,7 @@ interface UserRow {
   full_name?: string | null;
   first_name?: string | null;
   last_name?: string | null;
+  description?: string | null;
 }
 
 interface MessageRow {
@@ -1497,7 +1498,7 @@ export async function POST(
     if (participantUserIds.length > 0) {
       const { data: userRows, error: userError } = await supabase
         .from('profiles')
-        .select('id, email, full_name, first_name, last_name')
+        .select('id, email, full_name, first_name, last_name, description')
         .in('id', participantUserIds);
 
       if (userError) {
@@ -1517,6 +1518,7 @@ export async function POST(
         name: buildParticipantDisplayName(row, user, index),
         email: row.participant_email ?? user?.email ?? null,
         role: row.role ?? null,
+        description: user?.description ?? null,
         isSpokesperson: Boolean(row.is_spokesperson),
         isActive: true,
       };
@@ -1621,7 +1623,7 @@ export async function POST(
     if (additionalUserIds.length > 0) {
       const { data: extraUsers, error: extraUsersError } = await supabase
         .from('profiles')
-        .select('id, email, full_name, first_name, last_name')
+        .select('id, email, full_name, first_name, last_name, description')
         .in('id', additionalUserIds);
 
       if (extraUsersError) {
@@ -1736,7 +1738,7 @@ export async function POST(
       challengeData = data ?? null;
     }
 
-    const participantSummaries = participants.map(p => ({ name: p.name, role: p.role ?? null }));
+    const participantSummaries = participants.map(p => ({ name: p.name, role: p.role ?? null, description: p.description ?? null }));
 
     // Load conversation plan if thread exists
     let conversationPlan = null;

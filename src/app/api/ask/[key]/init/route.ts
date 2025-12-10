@@ -50,6 +50,7 @@ interface UserRow {
   full_name?: string | null;
   first_name?: string | null;
   last_name?: string | null;
+  description?: string | null;
 }
 
 interface ProjectRow {
@@ -238,7 +239,7 @@ export async function POST(
     if (participantUserIds.length > 0) {
       const { data: userRows, error: userError } = await dataClient
         .from('profiles')
-        .select('id, email, full_name, first_name, last_name')
+        .select('id, email, full_name, first_name, last_name, description')
         .in('id', participantUserIds);
 
       if (userError) {
@@ -261,12 +262,14 @@ export async function POST(
         id: row.id,
         name: buildParticipantDisplayName(row, user, index),
         role: row.role ?? null,
+        description: user?.description ?? null,
       };
     });
 
     const participantSummaries = participants.map(participant => ({
       name: participant.name,
       role: participant.role,
+      description: participant.description,
     }));
 
     // Fetch related prompts context
