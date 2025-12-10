@@ -464,6 +464,22 @@ export function ProjectGraphVisualization({ projectId, clientId, refreshKey }: P
     return connected;
   }, [selectedNode, graphData]);
 
+  // Get connected node IDs for hover highlighting (same focus effect as selection)
+  const hoveredConnectedNodeIds = useMemo(() => {
+    if (!hoveredNode || !graphData || selectedNode) return new Set<string>();
+    const connected = new Set<string>([hoveredNode.id]);
+
+    graphData.links.forEach((link) => {
+      const sourceId = typeof link.source === "string" ? link.source : link.source.id;
+      const targetId = typeof link.target === "string" ? link.target : link.target.id;
+
+      if (sourceId === hoveredNode.id) connected.add(targetId);
+      if (targetId === hoveredNode.id) connected.add(sourceId);
+    });
+
+    return connected;
+  }, [hoveredNode, graphData, selectedNode]);
+
   // Hub detection (nodes with many connections)
   const hubNodeIds = useMemo(() => {
     if (!graphData) return new Set<string>();
@@ -793,12 +809,14 @@ export function ProjectGraphVisualization({ projectId, clientId, refreshKey }: P
       const isSelected = selectedNode?.id === n.id;
       const isHovered = hoveredNode?.id === n.id;
       const isConnected = selectedNode ? connectedNodeIds.has(n.id) : true;
+      const isHoverConnected = hoveredNode && !selectedNode ? hoveredConnectedNodeIds.has(n.id) : true;
       const isHub = hubNodeIds.has(n.id);
       const isSearchMatch = searchMatchIds ? searchMatchIds.has(n.id) : true;
 
-      // Determine opacity
+      // Determine opacity - apply focus effect on both selection and hover
       let alpha = 1;
       if (selectedNode && !isConnected) alpha = 0.15;
+      else if (hoveredNode && !selectedNode && !isHoverConnected) alpha = 0.15;
       if (searchMatchIds && !isSearchMatch) alpha = 0.1;
 
       // Parse color and apply alpha
@@ -848,6 +866,9 @@ export function ProjectGraphVisualization({ projectId, clientId, refreshKey }: P
         showLabel = true;
       } else if (selectedNode && isConnected) {
         showLabel = globalScale > ZOOM_L1;
+      } else if (hoveredNode && !selectedNode && isHoverConnected) {
+        // Show labels for connected nodes on hover (same as selection)
+        showLabel = globalScale > ZOOM_L1;
       } else if (globalScale >= ZOOM_L3) {
         showLabel = true;
       } else if (globalScale >= ZOOM_L2) {
@@ -880,9 +901,10 @@ export function ProjectGraphVisualization({ projectId, clientId, refreshKey }: P
       }
       if (currentLine) lines.push(currentLine);
 
-      // Limit lines
-      const displayLines = lines.slice(0, 3);
-      if (lines.length > 3) {
+      // Limit lines - show full text when hovered
+      const maxLines = isHovered ? lines.length : 3;
+      const displayLines = lines.slice(0, maxLines);
+      if (!isHovered && lines.length > 3) {
         displayLines[2] = displayLines[2].slice(0, -3) + "...";
       }
 
@@ -910,20 +932,33 @@ export function ProjectGraphVisualization({ projectId, clientId, refreshKey }: P
         ctx.fillText(line, node.x, lineY);
       });
     },
-    [selectedNode, hoveredNode, connectedNodeIds, hubNodeIds, searchMatchIds, semanticResults, isSemanticSearch]
+    [selectedNode, hoveredNode, connectedNodeIds, hoveredConnectedNodeIds, hubNodeIds, searchMatchIds, semanticResults, isSemanticSearch]
   );
 
   const linkColor = useCallback(
     (link: any) => {
-      if (!selectedNode) return link.color;
       const sourceId = typeof link.source === "string" ? link.source : link.source.id;
       const targetId = typeof link.target === "string" ? link.target : link.target.id;
-      if (connectedNodeIds.has(sourceId) && connectedNodeIds.has(targetId)) {
-        return link.color;
+
+      // Selection takes priority
+      if (selectedNode) {
+        if (connectedNodeIds.has(sourceId) && connectedNodeIds.has(targetId)) {
+          return link.color;
+        }
+        return "rgba(148, 163, 184, 0.08)";
       }
-      return "rgba(148, 163, 184, 0.08)";
+
+      // Hover effect - same focus behavior as selection
+      if (hoveredNode) {
+        if (hoveredConnectedNodeIds.has(sourceId) && hoveredConnectedNodeIds.has(targetId)) {
+          return link.color;
+        }
+        return "rgba(148, 163, 184, 0.08)";
+      }
+
+      return link.color;
     },
-    [selectedNode, connectedNodeIds]
+    [selectedNode, connectedNodeIds, hoveredNode, hoveredConnectedNodeIds]
   );
 
   // ========================================================================
