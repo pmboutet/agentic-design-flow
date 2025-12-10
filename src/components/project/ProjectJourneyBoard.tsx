@@ -3484,62 +3484,41 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {isEditingProject ? (
-              <>
-                <Button
-                  type="button"
-                  variant="glassDark"
-                  onClick={handleProjectSave}
-                  disabled={isSavingProject}
-                  className="gap-2"
-                >
-                  {isSavingProject ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                  Enregistrer
-                </Button>
-                <Button type="button" variant="glassDark" onClick={handleEditToggle} disabled={isSavingProject} className="gap-2">
-                  <X className="h-4 w-4" />
-                  Annuler
-                </Button>
-              </>
-            ) : (
-              <>
-                <Button
-                  type="button"
-                  variant="glassDark"
-                  onClick={() => setShowAddParticipantsDialog(true)}
-                  className="gap-2"
-                >
-                  <UserPlus className="h-4 w-4" />
-                  Ajouter des participants
-                </Button>
-                <Button
-                  type="button"
-                  variant="glassDark"
-                  onClick={handleEditToggle}
-                  className="gap-2"
-                >
-                  <Pencil className="h-4 w-4" />
-                  Éditer
-                </Button>
-                <Button
-                  type="button"
-                  variant="glassDark"
-                  onClick={() => window.location.href = `/admin/projects/${projectId}/synthesis`}
-                  className="gap-2"
-                >
-                  <Sparkles className="h-4 w-4" />
-                  Synthèse
-                </Button>
-                {onClose && (
-                  <Button
-                    type="button"
-                    variant="glassDark"
-                    onClick={onClose}
-                  >
-                    Fermer
-                  </Button>
-                )}
-              </>
+            <Button
+              type="button"
+              variant="glassDark"
+              onClick={() => setShowAddParticipantsDialog(true)}
+              className="gap-2"
+            >
+              <UserPlus className="h-4 w-4" />
+              Ajouter des participants
+            </Button>
+            <Button
+              type="button"
+              variant="glassDark"
+              onClick={handleEditToggle}
+              className="gap-2"
+            >
+              <Pencil className="h-4 w-4" />
+              Éditer
+            </Button>
+            <Button
+              type="button"
+              variant="glassDark"
+              onClick={() => window.location.href = `/admin/projects/${projectId}/synthesis`}
+              className="gap-2"
+            >
+              <Sparkles className="h-4 w-4" />
+              Synthèse
+            </Button>
+            {onClose && (
+              <Button
+                type="button"
+                variant="glassDark"
+                onClick={onClose}
+              >
+                Fermer
+              </Button>
             )}
           </div>
         </div>
@@ -3596,79 +3575,121 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
         />
       )}
 
-      {isEditingProject ? (
-        <Card className="border border-white/15 bg-slate-900/70">
-          <CardHeader>
-            <CardTitle>Edit project details</CardTitle>
-            <p className="text-sm text-slate-300">Adjust the information below, including the system prompt used by the AI.</p>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="project-name">Name</Label>
-                <Input
-                  id="project-name"
-                  value={editValues.name}
-                  onChange={handleInputChange("name")}
-                  placeholder="Project name"
-                />
+      {/* Edit Project Dialog */}
+      <Dialog.Root open={isEditingProject} onOpenChange={(open) => { if (!open) handleEditToggle(); }}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm transition-opacity data-[state=closed]:opacity-0 data-[state=open]:opacity-100" />
+          <Dialog.Content className="fixed left-1/2 top-1/2 z-50 flex max-h-[85vh] w-[90vw] max-w-2xl -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl border border-white/15 bg-slate-900/95 shadow-2xl backdrop-blur-xl data-[state=closed]:opacity-0 data-[state=open]:opacity-100">
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-white/10 px-6 py-4">
+              <div>
+                <Dialog.Title className="text-lg font-semibold text-white">Edit project details</Dialog.Title>
+                <Dialog.Description className="mt-1 text-sm text-slate-300">
+                  Adjust the information below, including the system prompt used by the AI.
+                </Dialog.Description>
               </div>
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="project-status">Status</Label>
-                <Input
-                  id="project-status"
-                  value={editValues.status}
-                  onChange={handleInputChange("status")}
-                  placeholder="active"
-                />
-              </div>
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="project-start">Start date</Label>
-                <DateTimePicker
-                  id="project-start"
-                  value={editValues.startDate}
-                  onChange={handleProjectDateChange("startDate")}
-                  placeholder="Select start date"
-                />
-              </div>
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="project-end">End date</Label>
-                <DateTimePicker
-                  id="project-end"
-                  value={editValues.endDate}
-                  onChange={handleProjectDateChange("endDate")}
-                  placeholder="Select end date"
-                />
-              </div>
-              <div className="md:col-span-2 flex flex-col gap-2">
-                <Label htmlFor="project-description">Description</Label>
-                <Textarea
-                  id="project-description"
-                  rows={3}
-                  value={editValues.description}
-                  onChange={handleInputChange("description")}
-                  placeholder="What is the goal of this project?"
-                />
-              </div>
-              <div className="md:col-span-2 flex flex-col gap-2">
-                <Label htmlFor="project-prompt">System prompt</Label>
-                <Textarea
-                  id="project-prompt"
-                  rows={6}
-                  value={editValues.systemPrompt}
-                  onChange={handleInputChange("systemPrompt")}
-                  placeholder="Provide the system prompt used by the AI for this project"
-                />
+              <Dialog.Close className="rounded-full p-1.5 text-slate-400 transition-colors hover:bg-white/10 hover:text-white">
+                <X className="h-5 w-5" />
+              </Dialog.Close>
+            </div>
+
+            {/* Body */}
+            <div className="flex-1 overflow-y-auto px-6 py-4">
+              <div className="space-y-4">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="flex flex-col gap-2">
+                    <Label htmlFor="project-name" className="text-slate-200">Name</Label>
+                    <Input
+                      id="project-name"
+                      value={editValues.name}
+                      onChange={handleInputChange("name")}
+                      placeholder="Project name"
+                      className="border-white/20 bg-slate-800/80 text-white placeholder:text-slate-500 focus-visible:ring-indigo-400"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <Label htmlFor="project-status" className="text-slate-200">Status</Label>
+                    <Input
+                      id="project-status"
+                      value={editValues.status}
+                      onChange={handleInputChange("status")}
+                      placeholder="active"
+                      className="border-white/20 bg-slate-800/80 text-white placeholder:text-slate-500 focus-visible:ring-indigo-400"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <Label htmlFor="project-start" className="text-slate-200">Start date</Label>
+                    <DateTimePicker
+                      id="project-start"
+                      value={editValues.startDate}
+                      onChange={handleProjectDateChange("startDate")}
+                      placeholder="Select start date"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <Label htmlFor="project-end" className="text-slate-200">End date</Label>
+                    <DateTimePicker
+                      id="project-end"
+                      value={editValues.endDate}
+                      onChange={handleProjectDateChange("endDate")}
+                      placeholder="Select end date"
+                    />
+                  </div>
+                  <div className="md:col-span-2 flex flex-col gap-2">
+                    <Label htmlFor="project-description" className="text-slate-200">Description</Label>
+                    <Textarea
+                      id="project-description"
+                      rows={3}
+                      value={editValues.description}
+                      onChange={handleInputChange("description")}
+                      placeholder="What is the goal of this project?"
+                      className="border-white/20 bg-slate-800/80 text-white placeholder:text-slate-500 focus-visible:ring-indigo-400"
+                    />
+                  </div>
+                  <div className="md:col-span-2 flex flex-col gap-2">
+                    <Label htmlFor="project-prompt" className="text-slate-200">System prompt</Label>
+                    <Textarea
+                      id="project-prompt"
+                      rows={6}
+                      value={editValues.systemPrompt}
+                      onChange={handleInputChange("systemPrompt")}
+                      placeholder="Provide the system prompt used by the AI for this project"
+                      className="border-white/20 bg-slate-800/80 text-white placeholder:text-slate-500 focus-visible:ring-indigo-400"
+                    />
+                  </div>
+                </div>
+                <div className="text-xs text-slate-400">
+                  {'Tip: keep the system prompt concise and use placeholders such as {{project_name}} or {{client_name}} to reuse across projects.'}
+                </div>
               </div>
             </div>
-            <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
-              <span>
-                {'Tip: keep the system prompt concise and use placeholders such as {{project_name}} or {{client_name}} to reuse across projects.'}
-              </span>
+
+            {/* Footer */}
+            <div className="flex items-center justify-end gap-3 border-t border-white/10 px-6 py-4">
+              <Button
+                type="button"
+                variant="glassDark"
+                onClick={handleEditToggle}
+                disabled={isSavingProject}
+                className="gap-2"
+              >
+                <X className="h-4 w-4" />
+                Annuler
+              </Button>
+              <Button
+                type="button"
+                variant="glassDark"
+                onClick={handleProjectSave}
+                disabled={isSavingProject}
+                className="gap-2 border-indigo-400/30 bg-indigo-500/20 hover:bg-indigo-500/30"
+              >
+                {isSavingProject ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                Enregistrer
+              </Button>
             </div>
-          </CardContent>
-        </Card>
-      ) : null}
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
 
 
       <div className="space-y-6">

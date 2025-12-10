@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { FolderKanban, ChevronDown, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useProjectContext } from "./ProjectContext";
+import { useClientContext } from "./ClientContext";
 
 interface ProjectSelectorProps {
   collapsed?: boolean;
@@ -17,10 +18,11 @@ export function ProjectSelector({ collapsed = false }: ProjectSelectorProps) {
     selectedProjectId,
     setSelectedProjectId,
     projects,
+    allProjects,
     isLoading,
-    selectedProject,
     hasMultipleProjects,
   } = useProjectContext();
+  const { setSelectedClientId } = useClientContext();
 
   // Check if we're on a project detail page
   const isOnProjectDetailPage = useMemo(() => {
@@ -32,6 +34,14 @@ export function ProjectSelector({ collapsed = false }: ProjectSelectorProps) {
   const handleProjectChange = useCallback((newProjectId: string) => {
     setSelectedProjectId(newProjectId);
 
+    // Auto-select the corresponding client when a specific project is selected
+    if (newProjectId !== "all") {
+      const project = allProjects.find(p => p.id === newProjectId);
+      if (project?.clientId) {
+        setSelectedClientId(project.clientId);
+      }
+    }
+
     // If we're on a project detail page, navigate to the new project or projects list
     if (isOnProjectDetailPage) {
       if (newProjectId === "all") {
@@ -40,14 +50,7 @@ export function ProjectSelector({ collapsed = false }: ProjectSelectorProps) {
         router.push(`/admin/projects/${newProjectId}`);
       }
     }
-  }, [setSelectedProjectId, isOnProjectDetailPage, router]);
-
-  const displayName = useMemo(() => {
-    if (selectedProjectId === "all") {
-      return "Tous les projets";
-    }
-    return selectedProject?.name ?? "Sélectionner un projet";
-  }, [selectedProjectId, selectedProject]);
+  }, [setSelectedProjectId, allProjects, setSelectedClientId, isOnProjectDetailPage, router]);
 
   if (isLoading) {
     return (
@@ -108,16 +111,6 @@ export function ProjectSelector({ collapsed = false }: ProjectSelectorProps) {
           collapsed ? "right-1" : "right-2"
         )} />
       </div>
-      {!collapsed && selectedProject && (
-        <div className="rounded-lg bg-white/5 p-2 text-xs text-slate-400">
-          {selectedProject.clientName && (
-            <p className="truncate">{selectedProject.clientName}</p>
-          )}
-          {selectedProject.description && (
-            <p className="truncate text-slate-500">{selectedProject.description}</p>
-          )}
-        </div>
-      )}
     </div>
   );
 }
