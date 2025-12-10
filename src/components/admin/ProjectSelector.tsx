@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useCallback } from "react";
+import { usePathname, useRouter } from "next/navigation";
 import { FolderKanban, ChevronDown, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useProjectContext } from "./ProjectContext";
@@ -10,6 +11,8 @@ interface ProjectSelectorProps {
 }
 
 export function ProjectSelector({ collapsed = false }: ProjectSelectorProps) {
+  const pathname = usePathname();
+  const router = useRouter();
   const {
     selectedProjectId,
     setSelectedProjectId,
@@ -18,6 +21,26 @@ export function ProjectSelector({ collapsed = false }: ProjectSelectorProps) {
     selectedProject,
     hasMultipleProjects,
   } = useProjectContext();
+
+  // Check if we're on a project detail page
+  const isOnProjectDetailPage = useMemo(() => {
+    const match = pathname.match(/^\/admin\/projects\/([^/]+)$/);
+    return match ? match[1] : null;
+  }, [pathname]);
+
+  // Handle project selection change with navigation
+  const handleProjectChange = useCallback((newProjectId: string) => {
+    setSelectedProjectId(newProjectId);
+
+    // If we're on a project detail page, navigate to the new project or projects list
+    if (isOnProjectDetailPage) {
+      if (newProjectId === "all") {
+        router.push("/admin/projects");
+      } else if (newProjectId !== isOnProjectDetailPage) {
+        router.push(`/admin/projects/${newProjectId}`);
+      }
+    }
+  }, [setSelectedProjectId, isOnProjectDetailPage, router]);
 
   const displayName = useMemo(() => {
     if (selectedProjectId === "all") {
@@ -60,7 +83,7 @@ export function ProjectSelector({ collapsed = false }: ProjectSelectorProps) {
       <div className="relative">
         <select
           value={selectedProjectId}
-          onChange={(e) => setSelectedProjectId(e.target.value)}
+          onChange={(e) => handleProjectChange(e.target.value)}
           className={cn(
             "w-full appearance-none rounded-xl border border-white/10 bg-white/5 text-sm text-white transition",
             "hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-purple-500/50",

@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useCallback } from "react";
+import { usePathname, useRouter } from "next/navigation";
 import { Building2, ChevronDown, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useClientContext } from "./ClientContext";
@@ -10,6 +11,8 @@ interface ClientSelectorProps {
 }
 
 export function ClientSelector({ collapsed = false }: ClientSelectorProps) {
+  const pathname = usePathname();
+  const router = useRouter();
   const {
     selectedClientId,
     setSelectedClientId,
@@ -18,6 +21,22 @@ export function ClientSelector({ collapsed = false }: ClientSelectorProps) {
     selectedClient,
     hasMultipleClients,
   } = useClientContext();
+
+  // Check if we're on a project detail page
+  const isOnProjectDetailPage = useMemo(() => {
+    return /^\/admin\/projects\/[^/]+$/.test(pathname);
+  }, [pathname]);
+
+  // Handle client selection change with navigation
+  const handleClientChange = useCallback((newClientId: string) => {
+    setSelectedClientId(newClientId);
+
+    // If we're on a project detail page, navigate to the projects list
+    // since the current project may not belong to the new client
+    if (isOnProjectDetailPage) {
+      router.push("/admin/projects");
+    }
+  }, [setSelectedClientId, isOnProjectDetailPage, router]);
 
   const displayName = useMemo(() => {
     if (selectedClientId === "all") {
@@ -60,7 +79,7 @@ export function ClientSelector({ collapsed = false }: ClientSelectorProps) {
       <div className="relative">
         <select
           value={selectedClientId}
-          onChange={(e) => setSelectedClientId(e.target.value)}
+          onChange={(e) => handleClientChange(e.target.value)}
           className={cn(
             "w-full appearance-none rounded-xl border border-white/10 bg-white/5 text-sm text-white transition",
             "hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-purple-500/50",
