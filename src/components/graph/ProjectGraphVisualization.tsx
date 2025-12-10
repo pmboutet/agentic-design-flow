@@ -169,6 +169,7 @@ const EDGE_COLORS: Record<string, string> = {
   MENTIONS: "rgba(14, 165, 233, 0.5)",     // cyan - entity mentions
   SYNTHESIZES: "rgba(168, 85, 247, 0.5)",  // purple - synthesis connections
   CONTAINS: "rgba(16, 185, 129, 0.5)",     // emerald - containment
+  INDIRECT: "rgba(148, 163, 184, 0.35)",   // slate - virtual/indirect links (dashed visually)
   default: "rgba(148, 163, 184, 0.4)",     // slate default
 };
 
@@ -393,26 +394,115 @@ export function ProjectGraphVisualization({ projectId, refreshKey }: ProjectGrap
     );
   }, [searchQuery, graphData]);
 
-  // Filter graph data
+  // Filter graph data with virtual links for hidden intermediary nodes
   const filteredGraphData = useMemo(() => {
     if (!graphData) return null;
 
-    // Filter by type visibility and search
-    let visibleNodes = graphData.nodes.filter((node) => {
+    // Filter nodes by type visibility and search
+    const visibleNodes = graphData.nodes.filter((node) => {
       if (!visibleTypes[node.type]) return false;
       if (searchMatchIds && !searchMatchIds.has(node.id)) return false;
       return true;
     });
 
     const visibleNodeIds = new Set(visibleNodes.map((n) => n.id));
+    const hiddenNodeIds = new Set(
+      graphData.nodes.filter((n) => !visibleNodeIds.has(n.id)).map((n) => n.id)
+    );
 
-    const visibleLinks = graphData.links.filter((link) => {
+    // Build adjacency map for hidden nodes to create virtual links
+    // When insights are hidden, we want to show direct links between challenges and entities
+    const hiddenNodeConnections = new Map<string, Set<string>>();
+
+    // First pass: collect all connections through hidden nodes
+    for (const link of graphData.links) {
+      const sourceId = typeof link.source === "string" ? link.source : link.source.id;
+      const targetId = typeof link.target === "string" ? link.target : link.target.id;
+
+      // If one end is hidden and the other is visible, track the connection
+      if (hiddenNodeIds.has(sourceId) && visibleNodeIds.has(targetId)) {
+        if (!hiddenNodeConnections.has(sourceId)) {
+          hiddenNodeConnections.set(sourceId, new Set());
+        }
+        hiddenNodeConnections.get(sourceId)!.add(targetId);
+      }
+      if (hiddenNodeIds.has(targetId) && visibleNodeIds.has(sourceId)) {
+        if (!hiddenNodeConnections.has(targetId)) {
+          hiddenNodeConnections.set(targetId, new Set());
+        }
+        hiddenNodeConnections.get(targetId)!.add(sourceId);
+      }
+    }
+
+    // Create virtual links: connect visible nodes that share a hidden intermediary
+    const virtualLinks: ForceGraphLink[] = [];
+    const seenVirtualLinks = new Set<string>();
+
+    for (const [_hiddenId, connectedVisibleIds] of hiddenNodeConnections) {
+      const visibleArray = Array.from(connectedVisibleIds);
+      // Create links between all pairs of visible nodes connected through this hidden node
+      for (let i = 0; i < visibleArray.length; i++) {
+        for (let j = i + 1; j < visibleArray.length; j++) {
+          const nodeA = visibleArray[i];
+          const nodeB = visibleArray[j];
+
+          // Create a consistent key regardless of order
+          const linkKey = nodeA < nodeB ? `${nodeA}-${nodeB}` : `${nodeB}-${nodeA}`;
+
+          if (!seenVirtualLinks.has(linkKey)) {
+            seenVirtualLinks.add(linkKey);
+
+            // Determine link color based on connected node types
+            const nodeAType = graphData.nodes.find((n) => n.id === nodeA)?.type;
+            const nodeBType = graphData.nodes.find((n) => n.id === nodeB)?.type;
+
+            let color = EDGE_COLORS.default;
+            if (nodeAType === "challenge" || nodeBType === "challenge") {
+              color = EDGE_COLORS.RELATED_TO;
+            } else if (nodeAType === "entity" || nodeBType === "entity") {
+              color = EDGE_COLORS.MENTIONS;
+            }
+
+            virtualLinks.push({
+              source: nodeA,
+              target: nodeB,
+              label: "Lien indirect",
+              color,
+              width: 0.8,
+              relationshipType: "INDIRECT",
+            });
+          }
+        }
+      }
+    }
+
+    // Filter original links (only between visible nodes)
+    const directLinks = graphData.links.filter((link) => {
       const sourceId = typeof link.source === "string" ? link.source : link.source.id;
       const targetId = typeof link.target === "string" ? link.target : link.target.id;
       return visibleNodeIds.has(sourceId) && visibleNodeIds.has(targetId);
     });
 
-    return { nodes: visibleNodes, links: visibleLinks };
+    // Combine direct and virtual links, avoiding duplicates
+    const allLinks = [...directLinks];
+    for (const vLink of virtualLinks) {
+      const sourceId = typeof vLink.source === "string" ? vLink.source : vLink.source.id;
+      const targetId = typeof vLink.target === "string" ? vLink.target : vLink.target.id;
+
+      // Check if a direct link already exists
+      const exists = directLinks.some((dLink) => {
+        const dSourceId = typeof dLink.source === "string" ? dLink.source : dLink.source.id;
+        const dTargetId = typeof dLink.target === "string" ? dLink.target : dLink.target.id;
+        return (dSourceId === sourceId && dTargetId === targetId) ||
+               (dSourceId === targetId && dTargetId === sourceId);
+      });
+
+      if (!exists) {
+        allLinks.push(vLink);
+      }
+    }
+
+    return { nodes: visibleNodes, links: allLinks };
   }, [graphData, visibleTypes, searchMatchIds]);
 
   // Dimensions
