@@ -2190,7 +2190,7 @@ export default function HomePage() {
               </div>
               <div>
                 <h1 className="text-lg font-semibold sm:text-xl bg-gradient-to-r from-pink-500 to-violet-600 bg-clip-text text-transparent">
-                  Agentic Design Flow
+                  Insido.ai
                 </h1>
                 {isTestMode && (
                   <span className="test-mode-badge">TEST MODE</span>

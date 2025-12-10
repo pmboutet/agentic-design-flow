@@ -5,9 +5,9 @@ import { DevUserSwitcher } from "@/components/dev/DevUserSwitcher";
 import { DevUserSwitcherSpacer } from "@/components/dev/DevUserSwitcherSpacer";
 
 export const metadata: Metadata = {
-  title: "Agentic Design Flow",
+  title: "insido.ai",
   description: "Collective idea emergence and specification system with AI-driven chat and challenge management",
-  keywords: ["ai", "chat", "collaboration", "design", "agentic", "webhooks"],
+  keywords: ["ai", "chat", "collaboration", "design", "agentic", "webhooks", "insido"],
   authors: [{ name: "pmboutet" }],
 };
 
