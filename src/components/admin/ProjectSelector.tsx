@@ -1,9 +1,9 @@
 "use client";
 
-import { useMemo } from "react";
 import { FolderKanban, ChevronDown, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useProjectContext } from "./ProjectContext";
+import { useClientContext } from "./ClientContext";
 
 interface ProjectSelectorProps {
   collapsed?: boolean;
@@ -14,17 +14,22 @@ export function ProjectSelector({ collapsed = false }: ProjectSelectorProps) {
     selectedProjectId,
     setSelectedProjectId,
     projects,
+    allProjects,
     isLoading,
-    selectedProject,
     hasMultipleProjects,
   } = useProjectContext();
+  const { setSelectedClientId } = useClientContext();
 
-  const displayName = useMemo(() => {
-    if (selectedProjectId === "all") {
-      return "Tous les projets";
+  const handleProjectChange = (projectId: string) => {
+    setSelectedProjectId(projectId);
+    // Auto-select the corresponding client when a specific project is selected
+    if (projectId !== "all") {
+      const project = allProjects.find(p => p.id === projectId);
+      if (project?.clientId) {
+        setSelectedClientId(project.clientId);
+      }
     }
-    return selectedProject?.name ?? "Sélectionner un projet";
-  }, [selectedProjectId, selectedProject]);
+  };
 
   if (isLoading) {
     return (
@@ -60,7 +65,7 @@ export function ProjectSelector({ collapsed = false }: ProjectSelectorProps) {
       <div className="relative">
         <select
           value={selectedProjectId}
-          onChange={(e) => setSelectedProjectId(e.target.value)}
+          onChange={(e) => handleProjectChange(e.target.value)}
           className={cn(
             "w-full appearance-none rounded-xl border border-white/10 bg-white/5 text-sm text-white transition",
             "hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-purple-500/50",
@@ -85,16 +90,6 @@ export function ProjectSelector({ collapsed = false }: ProjectSelectorProps) {
           collapsed ? "right-1" : "right-2"
         )} />
       </div>
-      {!collapsed && selectedProject && (
-        <div className="rounded-lg bg-white/5 p-2 text-xs text-slate-400">
-          {selectedProject.clientName && (
-            <p className="truncate">{selectedProject.clientName}</p>
-          )}
-          {selectedProject.description && (
-            <p className="truncate text-slate-500">{selectedProject.description}</p>
-          )}
-        </div>
-      )}
     </div>
   );
 }
