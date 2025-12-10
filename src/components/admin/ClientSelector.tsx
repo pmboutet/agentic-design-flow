@@ -1,6 +1,5 @@
 "use client";
 
-import { useMemo } from "react";
 import { Building2, ChevronDown, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useClientContext } from "./ClientContext";
@@ -15,16 +14,8 @@ export function ClientSelector({ collapsed = false }: ClientSelectorProps) {
     setSelectedClientId,
     clients,
     isLoading,
-    selectedClient,
     hasMultipleClients,
   } = useClientContext();
-
-  const displayName = useMemo(() => {
-    if (selectedClientId === "all") {
-      return "Tous les clients";
-    }
-    return selectedClient?.name ?? "Sélectionner un client";
-  }, [selectedClientId, selectedClient]);
 
   if (isLoading) {
     return (
@@ -85,16 +76,6 @@ export function ClientSelector({ collapsed = false }: ClientSelectorProps) {
           collapsed ? "right-1" : "right-2"
         )} />
       </div>
-      {!collapsed && selectedClient && (
-        <div className="rounded-lg bg-white/5 p-2 text-xs text-slate-400">
-          {selectedClient.company && (
-            <p className="truncate">{selectedClient.company}</p>
-          )}
-          {selectedClient.industry && (
-            <p className="truncate text-slate-500">{selectedClient.industry}</p>
-          )}
-        </div>
-      )}
     </div>
   );
 }
