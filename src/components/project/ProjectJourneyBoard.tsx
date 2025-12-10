@@ -54,6 +54,7 @@ import {
   type ProjectParticipantSummary,
 } from "@/types";
 import { AiChallengeBuilderModal } from "@/components/project/AiChallengeBuilderModal";
+import { AiChallengeBuilderContent } from "@/components/project/AiChallengeBuilderPanel";
 import { AiAskGeneratorPanel } from "@/components/project/AiAskGeneratorPanel";
 import { AddParticipantsDialog } from "@/components/project/AddParticipantsDialog";
 import { AskPromptTemplateSelector } from "@/components/admin/AskPromptTemplateSelector";
@@ -480,7 +481,7 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
   const [isHeaderCollapsed, setIsHeaderCollapsed] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const [isInsightsModalOpen, setIsInsightsModalOpen] = useState(false);
-  const [modalActiveTab, setModalActiveTab] = useState<"insights" | "asks">("insights");
+  const [modalActiveTab, setModalActiveTab] = useState<"insights" | "asks" | "ai">("insights");
   const [askParticipantEdits, setAskParticipantEdits] = useState<Record<string, { participantIds: string[]; spokespersonId: string }>>({});
   const [savingAskParticipants, setSavingAskParticipants] = useState<Set<string>>(new Set());
   const [hoveredAskMenu, setHoveredAskMenu] = useState(false);
@@ -517,6 +518,65 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
     const isDevFlag = devFlag === "true" || devFlag === "1";
     return process.env.NODE_ENV === "production" && !isDevFlag;
   }, []);
+
+  // Load AI builder results from the API
+  const loadAiBuilderResults = useCallback(async () => {
+    try {
+      const response = await fetch(`/api/admin/projects/${projectId}/ai/challenge-builder/results`, {
+        cache: "no-store",
+        credentials: "include",
+      });
+      const payload = await response.json();
+
+      if (response.ok && payload.success && payload.data) {
+        const data = payload.data as {
+          suggestions: AiChallengeUpdateSuggestion[];
+          newChallenges: AiNewChallengeSuggestion[];
+          errors: Array<{ challengeId: string | null; message: string }> | null;
+          lastRunAt: string;
+        };
+        setAiSuggestions(data.suggestions || []);
+        setAiNewChallenges(data.newChallenges || []);
+        setAiBuilderErrors(data.errors);
+        setAiBuilderLastRunAt(data.lastRunAt);
+        setHasAiBuilderResults(true);
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error("Failed to load AI builder results:", error);
+      return false;
+    }
+  }, [projectId]);
+
+  // Load AI results on mount and when modal opens with AI tab
+  useEffect(() => {
+    loadAiBuilderResults();
+  }, [loadAiBuilderResults]);
+
+  useEffect(() => {
+    if (isInsightsModalOpen && modalActiveTab === "ai") {
+      loadAiBuilderResults();
+    }
+  }, [isInsightsModalOpen, modalActiveTab, loadAiBuilderResults]);
+
+  // Poll for AI results when builder is running
+  useEffect(() => {
+    if (!isAiBuilderRunning) return;
+
+    const pollInterval = setInterval(async () => {
+      const hasResults = await loadAiBuilderResults();
+      if (hasResults && aiSuggestions.length > 0) {
+        setIsAiBuilderRunning(false);
+        setAiBuilderFeedback({
+          type: "success",
+          message: "Analyse IA terminée. Cliquez sur l'onglet AI Suggestions pour voir les résultats.",
+        });
+      }
+    }, 3000);
+
+    return () => clearInterval(pollInterval);
+  }, [isAiBuilderRunning, loadAiBuilderResults, aiSuggestions.length]);
 
   const pruneAiSuggestionNodes = (suggestion: AiChallengeUpdateSuggestion): AiChallengeUpdateSuggestion | null => {
     const hasChallengeUpdates = Boolean(
@@ -596,21 +656,39 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
       return null;
     };
 
-    const container = scrollContainerRef.current;
-    const scrollParent = findScrollableParent(container);
+    // Use requestAnimationFrame to ensure DOM is fully rendered
+    const rafId = requestAnimationFrame(() => {
+      const container = scrollContainerRef.current;
+      if (!container) return;
 
-    if (!scrollParent) {
-      return;
-    }
+      const scrollParent = findScrollableParent(container);
 
-    const handleScroll = () => {
-      const scrollTop = scrollParent.scrollTop;
-      // Collapse header when scrolled past 50px
-      setIsHeaderCollapsed(scrollTop > 50);
+      if (!scrollParent) {
+        return;
+      }
+
+      const handleScroll = () => {
+        const scrollTop = scrollParent.scrollTop;
+        // Collapse header when scrolled past 50px
+        setIsHeaderCollapsed(scrollTop > 50);
+      };
+
+      scrollParent.addEventListener("scroll", handleScroll, { passive: true });
+
+      // Store cleanup function
+      (container as HTMLElement & { _scrollCleanup?: () => void })._scrollCleanup = () => {
+        scrollParent.removeEventListener("scroll", handleScroll);
+      };
+    });
+
+    return () => {
+      cancelAnimationFrame(rafId);
+      const container = scrollContainerRef.current;
+      if (container) {
+        const cleanup = (container as HTMLElement & { _scrollCleanup?: () => void })._scrollCleanup;
+        if (cleanup) cleanup();
+      }
     };
-
-    scrollParent.addEventListener("scroll", handleScroll, { passive: true });
-    return () => scrollParent.removeEventListener("scroll", handleScroll);
   }, []);
 
   // Poll for AI challenge builder results when running
@@ -1820,7 +1898,7 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
 
   const renderChallengeList = (nodes: ProjectChallengeNode[], depth = 0) => {
     return (
-      <div className={cn("space-y-3", depth > 0 && "border-l border-white/10 pl-4")}
+      <div className={cn("space-y-3", depth === 0 && "mt-2", depth > 0 && "border-l border-white/10 pl-4 mt-3")}
         data-depth={depth}
       >
         {nodes.map(node => {
@@ -1840,7 +1918,7 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
               )}
             >
               <div className="flex items-stretch">
-                <button type="button" className="flex-1 text-left" onClick={() => { setActiveChallengeId(node.id); setIsInsightsModalOpen(true); }}>
+                <button type="button" className="flex-1 text-left" onClick={() => { setActiveChallengeId(node.id); }}>
                   <div className={cn("flex flex-col gap-2", isActive ? "p-4" : "p-3")}
                     data-active={isActive}
                   >
@@ -1865,10 +1943,6 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
                       <div className="flex flex-wrap items-center gap-2 text-xs font-medium text-slate-200">
                         <span className={cn("rounded-full border px-2.5 py-1", impactClasses[node.impact])}>
                           {impactLabels[node.impact]}
-                        </span>
-                        <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2.5 py-1 text-slate-200">
-                          <Lightbulb className="h-3.5 w-3.5" />
-                          {insightCount} insight{insightCount > 1 ? "s" : ""}
                         </span>
                         {subChallengeCount > 0 ? (
                           <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2.5 py-1 text-slate-200">
@@ -1900,10 +1974,6 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
                         <span className={cn("rounded-full border px-2 py-0.5", impactClasses[node.impact])}>
                           {impactLabels[node.impact]}
                         </span>
-                        <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2 py-0.5 text-slate-200">
-                          <Lightbulb className="h-3 w-3" />
-                          {insightCount}
-                        </span>
                         {ownerCount > 0 ? (
                           <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2 py-0.5 text-slate-200">
                             <Users className="h-3 w-3" />
@@ -1923,25 +1993,63 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
                   </div>
                 </button>
                 <div className={cn("flex shrink-0 items-start gap-1", isActive ? "p-4" : "p-3")}>
+                  {insightCount > 0 ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="gap-1.5 text-yellow-400 hover:bg-yellow-500/20 hover:text-yellow-300"
+                      onClick={event => {
+                        event.stopPropagation();
+                        event.preventDefault();
+                        setActiveChallengeId(node.id);
+                        setModalActiveTab("insights");
+                        setIsInsightsModalOpen(true);
+                      }}
+                      title="Voir les insights"
+                    >
+                      <Lightbulb className="h-4 w-4" />
+                      <span className="text-xs">{insightCount}</span>
+                      <span className="sr-only">Voir les {insightCount} insights de {node.title}</span>
+                    </Button>
+                  ) : null}
+                  {(() => {
+                    const askCount = asksByChallenge.get(node.id)?.length ?? 0;
+                    return askCount > 0 ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        className="gap-1.5 text-emerald-400 hover:bg-emerald-500/20 hover:text-emerald-300"
+                        onClick={event => {
+                          event.stopPropagation();
+                          event.preventDefault();
+                          setActiveChallengeId(node.id);
+                          setModalActiveTab("asks");
+                          setIsInsightsModalOpen(true);
+                        }}
+                        title="Voir les asks"
+                      >
+                        <MessageSquare className="h-4 w-4" />
+                        <span className="text-xs">{askCount}</span>
+                        <span className="sr-only">Voir les {askCount} asks de {node.title}</span>
+                      </Button>
+                    ) : null;
+                  })()}
                   <Button
                     type="button"
                     size="icon"
                     variant="ghost"
                     className="text-indigo-300 hover:bg-indigo-500/20 hover:text-indigo-100"
-                    disabled={isAiBuilderRunning}
                     onClick={event => {
                       event.stopPropagation();
                       event.preventDefault();
-                      handleLaunchAiChallengeBuilder(node.id);
+                      setActiveChallengeId(node.id);
+                      setModalActiveTab("ai");
+                      setIsInsightsModalOpen(true);
                     }}
-                    title="Analyser ce challenge avec l'IA"
+                    title="Suggestions IA pour ce challenge"
                   >
-                    {isAiBuilderRunning ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Sparkles className="h-4 w-4" />
-                    )}
-                    <span className="sr-only">Analyser {node.title} avec l'IA</span>
+                    <Sparkles className="h-4 w-4" />
+                    <span className="sr-only">Voir les suggestions IA pour {node.title}</span>
                   </Button>
                   <Button
                     type="button"
@@ -1954,6 +2062,7 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
                       event.preventDefault();
                       handleChallengeEditStart(node.id);
                     }}
+                    title="Modifier ce challenge"
                   >
                     <Pencil className="h-4 w-4" />
                     <span className="sr-only">Edit challenge {node.title}</span>
@@ -3572,32 +3681,51 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="gap-2 border-indigo-300/40 bg-indigo-500/10 text-indigo-100 hover:bg-indigo-500/20"
-                  onClick={() => handleLaunchAiChallengeBuilder()}
-                  disabled={isAiBuilderRunning}
-                >
-                  {isAiBuilderRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-                  {isAiBuilderRunning ? "Analyse en cours..." : "Lancer l'analyse IA"}
-                </Button>
                 {hasAiBuilderResults && !isAiBuilderRunning ? (
+                  <div className="inline-flex rounded-md shadow-sm">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="gap-2 rounded-r-none border-r-0 border-indigo-300/40 bg-indigo-500/10 text-indigo-100 hover:bg-indigo-500/20"
+                      onClick={() => setIsAiPanelOpen(true)}
+                      title="Voir et appliquer les suggestions générées par l'IA"
+                    >
+                      <Sparkles className="h-4 w-4" />
+                      Edit & create challenges
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      className="rounded-l-none border-indigo-300/40 bg-indigo-500/10 text-indigo-100 hover:bg-indigo-500/20"
+                      onClick={() => handleLaunchAiChallengeBuilder()}
+                      disabled={isAiBuilderRunning}
+                      title="Relancer l'analyse IA"
+                    >
+                      <RefreshCw className="h-4 w-4" />
+                      <span className="sr-only">Refresh</span>
+                    </Button>
+                  </div>
+                ) : (
                   <Button
                     type="button"
                     variant="outline"
-                    className="gap-2 border-emerald-300/40 bg-emerald-500/10 text-emerald-100 hover:bg-emerald-500/20"
-                    onClick={() => setIsAiPanelOpen(true)}
+                    className="gap-2 border-indigo-300/40 bg-indigo-500/10 text-indigo-100 hover:bg-indigo-500/20"
+                    onClick={() => handleLaunchAiChallengeBuilder()}
+                    disabled={isAiBuilderRunning}
+                    title="Analyser les insights et générer des suggestions de challenges via l'IA"
                   >
-                    <Sparkles className="h-4 w-4" />
-                    Voir les propositions
+                    {isAiBuilderRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                    {isAiBuilderRunning ? "Generating..." : "Generate challenges with AI"}
                   </Button>
-                ) : null}
+                )}
                 <Button
                   type="button"
-                  className="gap-2 btn-gradient bg-primary hover:bg-primary/90 h-10 px-4 py-2"
+                  variant="ghost"
+                  className="gap-2 bg-gradient-to-r from-indigo-600/75 via-indigo-500/70 to-violet-500/75 text-white shadow-lg hover:shadow-xl hover:from-indigo-500/85 hover:via-indigo-400/80 hover:to-violet-400/85 hover:bg-transparent h-10 px-4 py-2"
                   onClick={() => handleChallengeStart()}
                   disabled={isSavingChallenge}
+                  title="Créer un nouveau challenge manuellement"
                 >
                   <Plus className="h-4 w-4" />
                   New challenge
@@ -3663,7 +3791,7 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
       {/* Insights & ASKs Modal */}
       <Dialog.Root open={isInsightsModalOpen} onOpenChange={(open) => { setIsInsightsModalOpen(open); if (!open) setModalActiveTab("insights"); }}>
         <Dialog.Portal>
-          <Dialog.Overlay className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm transition-opacity data-[state=closed]:opacity-0 data-[state=open]:opacity-100" />
+          <Dialog.Overlay className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm transition-opacity data-[state=closed]:opacity-0 data-[state=open]:opacity-100" onClick={() => { setIsInsightsModalOpen(false); setModalActiveTab("insights"); }} />
           <Dialog.Content className="fixed left-1/2 top-1/2 z-50 flex max-h-[85vh] w-[90vw] max-w-4xl -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl border border-white/15 bg-slate-900/80 shadow-2xl backdrop-blur-xl data-[state=closed]:opacity-0 data-[state=open]:opacity-100">
             {/* Header */}
             <div className="flex items-center justify-between border-b border-white/10 px-5 py-3">
@@ -3742,18 +3870,73 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
                       </span>
                     )}
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => setModalActiveTab("ai")}
+                    className={cn(
+                      "group flex items-center gap-2 px-4 py-2.5 text-sm font-medium transition-all duration-200 border-b-2",
+                      modalActiveTab === "ai"
+                        ? "border-indigo-400 text-indigo-300"
+                        : "border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-600"
+                    )}
+                  >
+                    <Sparkles className={cn(
+                      "h-4 w-4 transition-colors",
+                      modalActiveTab === "ai" ? "text-indigo-400" : "text-slate-500 group-hover:text-slate-400"
+                    )} />
+                    AI Suggestions
+                    {(() => {
+                      // Count suggestions for active challenge and all its descendants
+                      const getDescendantIds = (node: ProjectChallengeNode): string[] => {
+                        const ids: string[] = [node.id];
+                        if (node.children) {
+                          for (const child of node.children) {
+                            ids.push(...getDescendantIds(child));
+                          }
+                        }
+                        return ids;
+                      };
+                      const relevantIds = new Set<string>();
+                      if (activeChallengeId) {
+                        relevantIds.add(activeChallengeId);
+                        const activeNode = allChallenges.find(c => c.id === activeChallengeId);
+                        if (activeNode?.children) {
+                          for (const child of activeNode.children) {
+                            getDescendantIds(child).forEach(id => relevantIds.add(id));
+                          }
+                        }
+                      }
+                      const count = aiSuggestions.filter(s => relevantIds.has(s.challengeId)).length;
+                      return count > 0 ? (
+                        <span className={cn(
+                          "rounded-full px-1.5 py-0.5 text-[10px] font-semibold",
+                          modalActiveTab === "ai"
+                            ? "bg-indigo-400/20 text-indigo-300"
+                            : "bg-slate-700 text-slate-400"
+                        )}>
+                          {count}
+                        </span>
+                      ) : null;
+                    })()}
+                  </button>
                 </nav>
               </div>
             )}
 
             {/* Tab Content with slide animation */}
-            <div ref={rightColumnRef} className="flex-1 overflow-hidden relative">
+            <div ref={rightColumnRef} className="flex-1 overflow-x-hidden overflow-y-auto relative">
               <div
                 className="flex transition-transform duration-300 ease-out h-full"
-                style={{ transform: modalActiveTab === "asks" ? "translateX(-100%)" : "translateX(0)" }}
+                style={{
+                  transform: modalActiveTab === "insights"
+                    ? "translateX(0)"
+                    : modalActiveTab === "asks"
+                      ? "translateX(-100%)"
+                      : "translateX(-200%)"
+                }}
               >
                 {/* Insights Tab */}
-                <div className="w-full flex-shrink-0 overflow-y-auto p-5">
+                <div className="w-full flex-shrink-0 overflow-y-auto p-5 custom-scrollbar">
                   {!activeChallenge ? (
                     <Card className="border-dashed border-white/10 bg-slate-900/60">
                       <CardContent className="py-10 text-center text-sm text-slate-300">
@@ -3811,7 +3994,7 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
                 </div>
 
                 {/* ASKs Tab */}
-                <div className="w-full flex-shrink-0 overflow-y-auto p-5">
+                <div className="w-full flex-shrink-0 overflow-y-auto p-5 custom-scrollbar">
                   {!activeChallenge ? (
                     <Card className="border-dashed border-white/10 bg-slate-900/60">
                       <CardContent className="py-10 text-center text-sm text-slate-300">
@@ -3936,8 +4119,7 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
                                 <Button
                                   type="button"
                                   size="sm"
-                                  variant="glassDark"
-                                  className="gap-1 h-8"
+                                  className="gap-1 h-8 bg-blue-500/20 text-blue-300 border border-blue-400/30 hover:bg-blue-500/30 hover:text-blue-200"
                                   onClick={() => void handleAskEditStart(ask.id)}
                                   disabled={isSavingAsk || isLoadingAskDetails}
                                 >
@@ -4225,6 +4407,130 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
                     </div>
                   )}
                 </div>
+
+                {/* AI Suggestions Tab */}
+                <div className="w-full flex-shrink-0 overflow-y-auto p-5 custom-scrollbar">
+                  {!activeChallenge ? (
+                    <Card className="border-dashed border-white/10 bg-slate-900/60">
+                      <CardContent className="py-10 text-center text-sm text-slate-300">
+                        Choose a challenge from the list to see AI suggestions.
+                      </CardContent>
+                    </Card>
+                  ) : (
+                    <div className="space-y-4">
+                      {/* AI Suggestions Header */}
+                      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-indigo-400/30 bg-indigo-500/10 px-4 py-3">
+                        <div>
+                          <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+                            <Sparkles className="h-4 w-4 text-indigo-400" />
+                            Suggestions IA pour "{activeChallenge.title}"
+                          </h3>
+                          <p className="text-xs text-slate-400 mt-0.5">
+                            Modifications et sous-challenges suggérés par l'analyse IA.
+                          </p>
+                        </div>
+                        <Button
+                          type="button"
+                          size="sm"
+                          className="gap-1.5 bg-indigo-500 text-white hover:bg-indigo-400 h-8 text-xs"
+                          onClick={() => handleLaunchAiChallengeBuilder(activeChallengeId ?? undefined)}
+                          disabled={isAiBuilderRunning}
+                        >
+                          {isAiBuilderRunning ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <RefreshCw className="h-3.5 w-3.5" />
+                          )}
+                          {isAiBuilderRunning ? "Analyse en cours..." : "Relancer l'analyse"}
+                        </Button>
+                      </div>
+
+                      {/* AI Suggestions Content - Using shared component filtered by current challenge */}
+                      {(() => {
+                        // Get all descendant IDs of the active challenge
+                        const getDescendantIds = (node: ProjectChallengeNode): string[] => {
+                          const ids: string[] = [node.id];
+                          if (node.children) {
+                            for (const child of node.children) {
+                              ids.push(...getDescendantIds(child));
+                            }
+                          }
+                          return ids;
+                        };
+
+                        const relevantIds = new Set<string>();
+                        if (activeChallengeId) {
+                          relevantIds.add(activeChallengeId);
+                          const activeNode = allChallenges.find(c => c.id === activeChallengeId);
+                          if (activeNode?.children) {
+                            for (const child of activeNode.children) {
+                              getDescendantIds(child).forEach(id => relevantIds.add(id));
+                            }
+                          }
+                        }
+
+                        // Filter suggestions for this challenge and its descendants
+                        const filteredSuggestions = aiSuggestions.filter(s => relevantIds.has(s.challengeId));
+
+                        if (filteredSuggestions.length === 0 && !hasAiBuilderResults) {
+                          return (
+                            <Card className="border-dashed border-indigo-400/20 bg-slate-900/40">
+                              <CardContent className="py-8 text-center">
+                                <Sparkles className="h-8 w-8 text-indigo-400/50 mx-auto mb-3" />
+                                <p className="text-sm text-slate-400">
+                                  Aucune analyse IA n'a encore été effectuée.
+                                </p>
+                                <p className="text-xs text-slate-500 mt-1">
+                                  Cliquez sur "Relancer l'analyse" pour générer des suggestions.
+                                </p>
+                              </CardContent>
+                            </Card>
+                          );
+                        }
+
+                        if (filteredSuggestions.length === 0) {
+                          return (
+                            <Card className="border-dashed border-emerald-400/20 bg-emerald-500/5">
+                              <CardContent className="py-8 text-center">
+                                <Check className="h-8 w-8 text-emerald-400/50 mx-auto mb-3" />
+                                <p className="text-sm text-slate-300">
+                                  Aucune suggestion en attente pour ce challenge.
+                                </p>
+                                <p className="text-xs text-slate-500 mt-1">
+                                  Toutes les suggestions ont été appliquées ou ignorées.
+                                </p>
+                              </CardContent>
+                            </Card>
+                          );
+                        }
+
+                        // Use the shared AiChallengeBuilderContent component
+                        return (
+                          <AiChallengeBuilderContent
+                            isRunning={isAiBuilderRunning}
+                            suggestions={filteredSuggestions}
+                            newChallenges={[]}
+                            challengeLookup={challengeById}
+                            onApplyChallengeUpdates={handleApplyChallengeUpdate}
+                            onDismissChallengeUpdates={handleDismissChallengeUpdate}
+                            onDismissSuggestion={handleDismissChallengeUpdate}
+                            applyingChallengeUpdateIds={applyingChallengeUpdateIds}
+                            onApplySubChallengeUpdate={handleApplySubChallengeUpdate}
+                            onDismissSubChallengeUpdate={handleDismissSubChallengeUpdate}
+                            applyingSubChallengeUpdateIds={applyingSubChallengeUpdateIds}
+                            onApplySuggestedNewSubChallenge={handleApplySuggestedNewSubChallenge}
+                            onDismissSuggestedNewSubChallenge={handleDismissSuggestedNewSubChallenge}
+                            applyingNewSubChallengeKeys={applyingNewSubChallengeKeys}
+                            onApplyNewChallenge={() => {}}
+                            onDismissNewChallenge={() => {}}
+                            applyingNewChallengeIndices={new Set()}
+                            showLoader={false}
+                          />
+                        );
+                      })()}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </Dialog.Content>
@@ -4243,8 +4549,8 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
       >
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm transition-opacity data-[state=closed]:opacity-0 data-[state=open]:opacity-100" />
-          <Dialog.Content className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto">
-            <Card className="relative w-full max-w-3xl border border-indigo-300/40 bg-slate-900/80 shadow-xl my-4">
+          <Dialog.Content className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto" onClick={handleChallengeCancel}>
+            <Card className="relative w-full max-w-3xl border border-indigo-400/50 bg-gradient-to-br from-slate-900/95 via-slate-900/90 to-indigo-950/80 shadow-xl shadow-indigo-500/10 my-4 backdrop-blur-xl" onClick={(e) => e.stopPropagation()}>
               <Dialog.Close asChild>
                 <button
                   type="button"
@@ -4274,16 +4580,17 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
                 ) : null}
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="flex flex-col gap-2">
-                    <Label htmlFor="challenge-title">Title</Label>
+                    <Label htmlFor="challenge-title" className="text-indigo-300">Title</Label>
                     <Input
                       id="challenge-title"
                       value={challengeFormValues.title}
                       onChange={handleChallengeFieldChange("title")}
                       placeholder="What problem are you addressing?"
+                      className="focus:border-indigo-400 focus:ring-indigo-400/20"
                     />
                   </div>
                   <div className="flex flex-col gap-2">
-                    <Label htmlFor="challenge-status">Status</Label>
+                    <Label htmlFor="challenge-status" className="text-indigo-300">Status</Label>
                     <select
                       id="challenge-status"
                       value={challengeFormValues.status}
@@ -4298,7 +4605,7 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
                     </select>
                   </div>
                   <div className="flex flex-col gap-2">
-                    <Label htmlFor="challenge-impact">Impact</Label>
+                    <Label htmlFor="challenge-impact" className="text-indigo-300">Impact</Label>
                     <select
                       id="challenge-impact"
                       value={challengeFormValues.impact}
@@ -4314,7 +4621,7 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
                   </div>
                   {(parentChallengeOptions.length > 0 || challengeFormValues.parentId) ? (
                     <div className="md:col-span-2 flex flex-col gap-2">
-                      <Label htmlFor="challenge-parent">Parent challenge</Label>
+                      <Label htmlFor="challenge-parent" className="text-indigo-300">Parent challenge</Label>
                       <select
                         id="challenge-parent"
                         value={challengeFormValues.parentId}
@@ -4340,19 +4647,20 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
                     </div>
                   ) : null}
                   <div className="md:col-span-2 flex flex-col gap-2">
-                    <Label htmlFor="challenge-description">Description</Label>
+                    <Label htmlFor="challenge-description" className="text-indigo-300">Description</Label>
                     <Textarea
                       id="challenge-description"
                       rows={3}
                       value={challengeFormValues.description}
                       onChange={handleChallengeFieldChange("description")}
                       placeholder="Provide useful context so the team understands the challenge."
+                      className="focus:border-indigo-400 focus:ring-indigo-400/20"
                     />
                   </div>
                 </div>
                 {availableUsers.length ? (
                   <div className="flex flex-col gap-2">
-                    <Label>Owners</Label>
+                    <Label className="text-indigo-300">Owners</Label>
                     <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                       {availableUsers.map(user => {
                         const isSelected = challengeFormValues.ownerIds.includes(user.id);
@@ -4385,7 +4693,8 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
                 <div className="flex flex-wrap items-center gap-2">
                   <Button
                     type="button"
-                    className="gap-2"
+                    variant="ghost"
+                    className="gap-2 bg-gradient-to-r from-indigo-600/75 via-indigo-500/70 to-violet-500/75 text-white shadow-lg hover:shadow-xl hover:from-indigo-500/85 hover:via-indigo-400/80 hover:to-violet-400/85 hover:bg-transparent"
                     onClick={handleChallengeSave}
                     disabled={isSavingChallenge || !challengeFormValues.title.trim()}
                   >
@@ -4432,40 +4741,34 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
         }}
       >
         <Dialog.Portal>
-          <Dialog.Overlay className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm transition-opacity data-[state=closed]:opacity-0 data-[state=open]:opacity-100" />
-          <Dialog.Content className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto">
-            <Card className="relative w-full max-w-5xl border border-indigo-400/40 bg-slate-950/80 shadow-xl my-4">
+          <Dialog.Overlay className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm transition-opacity data-[state=closed]:opacity-0 data-[state=open]:opacity-100" onClick={handleAskCancel} />
+          <Dialog.Content className={cn("fixed left-1/2 top-1/2 z-50 flex max-h-[85vh] w-[90vw] max-w-5xl -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl border bg-slate-900/80 shadow-2xl backdrop-blur-xl data-[state=closed]:opacity-0 data-[state=open]:opacity-100", isEditingAsk ? "border-blue-400/30" : "border-emerald-400/30")}>
+            {/* Header */}
+            <div className={cn("flex items-center justify-between border-b px-5 py-3", isEditingAsk ? "border-blue-400/20" : "border-emerald-400/20")}>
+              <div className="min-w-0 flex-1">
+                <Dialog.Title className="text-lg font-semibold text-white truncate">
+                  {isEditingAsk ? "Edit ASK session" : "Create ASK session"}
+                </Dialog.Title>
+                <Dialog.Description className="text-xs text-slate-400">
+                  {isEditingAsk
+                    ? "Adjust the ASK details, participants and schedule without leaving the journey board."
+                    : "Define the ASK session so collaborators know how to facilitate it and capture insights."}
+                </Dialog.Description>
+              </div>
               <Dialog.Close asChild>
                 <button
                   type="button"
                   onClick={handleAskCancel}
-                  className="absolute right-4 top-4 rounded-full border border-white/10 bg-white/10 p-1 text-white transition hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-indigo-400/60"
+                  className="ml-3 rounded-full border border-white/10 bg-white/5 p-1.5 text-slate-400 transition hover:bg-white/10 hover:text-white"
                   aria-label="Close ASK form"
                 >
                   <X className="h-4 w-4" />
                 </button>
               </Dialog.Close>
-              <CardHeader className="pr-10">
-                <Dialog.Title asChild>
-                  <CardTitle>{isEditingAsk ? "Edit ASK session" : "Create ASK session"}</CardTitle>
-                </Dialog.Title>
-                <Dialog.Description className="text-sm text-slate-300">
-                  {isEditingAsk
-                    ? "Adjust the ASK details, participants and schedule without leaving the journey board."
-                    : "Define the ASK session so collaborators know how to facilitate it and capture insights."}
-                </Dialog.Description>
-              </CardHeader>
-              <CardContent className="space-y-4">
+            </div>
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto p-5">
                 <form onSubmit={handleAskFormSubmit} className="space-y-4">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <h3 className="text-base font-semibold text-white">
-                      {isEditingAsk ? "Edit ASK session" : "Create ASK session"}
-                    </h3>
-                    {isEditingAsk ? (
-                      <span className="text-xs font-medium text-indigo-200">Editing current session</span>
-                    ) : null}
-                  </div>
-
                   {askFeedback ? (
                     <Alert
                       className={cn(
@@ -4777,7 +5080,7 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
                   <div className="flex flex-wrap items-center gap-2">
                     <Button
                       type="submit"
-                      className="gap-2"
+                      className={cn("gap-2", isEditingAsk ? "bg-blue-500 hover:bg-blue-600" : "bg-emerald-500 hover:bg-emerald-600")}
                       disabled={isSavingAsk || isLoadingAskDetails}
                     >
                       {isSavingAsk ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
@@ -4806,8 +5109,7 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
                     </Button>
                   </div>
                 </form>
-              </CardContent>
-            </Card>
+            </div>
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>

@@ -292,12 +292,6 @@ function SuggestionCard({
       <div className="flex items-start justify-between gap-4">
         <div className="flex-1 space-y-2">
           <h4 className="text-base font-semibold text-white">{originalTitle}</h4>
-          <EditableText
-            value={draft.summary ?? ""}
-            onChange={handleSummaryChange}
-            placeholder="Ajoutez ou ajustez le résumé de la recommandation"
-            className="border-slate-700 bg-slate-900/80"
-          />
         </div>
         <div className="flex flex-col gap-2 sm:flex-row">
           <Button
@@ -324,7 +318,7 @@ function SuggestionCard({
               </Button>
               <Button
                 type="button"
-                className="gap-2 bg-emerald-500/90 text-emerald-100 hover:bg-emerald-500"
+                className="gap-2 bg-gradient-to-r from-indigo-500 to-emerald-500 text-white hover:from-indigo-600 hover:to-emerald-600"
                 onClick={handleApplyChallenge}
                 disabled={!hasChallengeUpdate || applyingChallengeUpdate}
               >
@@ -341,35 +335,6 @@ function SuggestionCard({
       </div>
 
       <div className="mt-3 space-y-4 text-sm text-slate-200">
-        {draft.foundationInsights?.length ? (
-          <div className="space-y-3">
-            <SectionTitle>Foundation Insights</SectionTitle>
-            <div className="space-y-2">
-              {draft.foundationInsights.map((insight, index) => (
-                <div
-                  key={`${insight.insightId}-${index}`}
-                  className="rounded-md border border-blue-400/30 bg-blue-500/10 px-3 py-2"
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex-1">
-                      <h5 className="text-sm font-medium text-blue-100">{insight.title}</h5>
-                      <p className="text-xs text-blue-200/80 mt-1">{insight.reason}</p>
-                    </div>
-                    <span className={`inline-flex items-center rounded-full px-2 py-1 text-[10px] font-medium ${
-                      insight.priority === 'critical' ? 'bg-red-500/20 text-red-200 border border-red-400/30' :
-                      insight.priority === 'high' ? 'bg-orange-500/20 text-orange-200 border border-orange-400/30' :
-                      insight.priority === 'medium' ? 'bg-yellow-500/20 text-yellow-200 border border-yellow-400/30' :
-                      'bg-green-500/20 text-green-200 border border-green-400/30'
-                    }`}>
-                      {insight.priority}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : null}
-
         {(updatedTitle && updatedTitle !== originalTitle) || isEditingTitle ? (
           <div>
             <SectionTitle>Title</SectionTitle>
@@ -479,6 +444,35 @@ function SuggestionCard({
             <p className="mt-1 rounded-md border border-slate-700 bg-slate-900/80 px-3 py-2 text-xs text-slate-200">
               {formatStatusSummary("Owner", formatOwnerList(challenge?.owners), formatOwnerList(updatedOwners))}
             </p>
+          </div>
+        ) : null}
+
+        {draft.foundationInsights?.length ? (
+          <div className="space-y-3">
+            <SectionTitle>Foundation Insights</SectionTitle>
+            <div className="space-y-2">
+              {draft.foundationInsights.map((insight, index) => (
+                <div
+                  key={`${insight.insightId}-${index}`}
+                  className="rounded-md border border-yellow-400/30 bg-yellow-500/10 px-3 py-2"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex-1">
+                      <h5 className="text-sm font-medium text-yellow-100">{insight.title}</h5>
+                      <p className="text-xs text-yellow-200/80 mt-1">{insight.reason}</p>
+                    </div>
+                    <span className={`inline-flex items-center rounded-full px-2 py-1 text-[10px] font-medium ${
+                      insight.priority === 'critical' ? 'bg-red-500/20 text-red-200 border border-red-400/30' :
+                      insight.priority === 'high' ? 'bg-orange-500/20 text-orange-200 border border-orange-400/30' :
+                      insight.priority === 'medium' ? 'bg-yellow-500/20 text-yellow-200 border border-yellow-400/30' :
+                      'bg-green-500/20 text-green-200 border border-green-400/30'
+                    }`}>
+                      {insight.priority}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         ) : null}
 
@@ -632,20 +626,20 @@ function SuggestionCard({
               return (
                 <div
                   key={`${suggestion.challengeId}-${index}`}
-                  className="space-y-3 rounded-md border border-emerald-400/30 bg-emerald-500/10 px-3 py-2"
+                  className="space-y-3 rounded-md border border-indigo-400/30 bg-gradient-to-r from-indigo-500/15 to-emerald-500/15 px-3 py-2"
                 >
                   <Input
                     value={newChallenge.title}
                     onChange={event => handleNewSubChallengeChange(index, "title", event.target.value)}
-                    className="border border-emerald-300/40 bg-emerald-500/15 text-sm font-semibold text-emerald-100 placeholder:text-emerald-200/70"
+                    className="border-0 bg-transparent text-sm font-semibold text-white placeholder:text-slate-400 focus-visible:ring-0 focus-visible:ring-offset-0 hover:bg-white/5 transition-colors rounded-md"
                     disabled={isApplying}
                 />
                 <EditableText
                   value={newChallenge.description ?? ""}
                   onChange={value => handleNewSubChallengeChange(index, "description", value)}
                   placeholder="Describe the new sub-challenge"
-                  className="border-emerald-300/40 bg-emerald-500/15 text-xs text-emerald-100"
-                  textClassName="text-xs text-emerald-100"
+                  className="border-indigo-300/30 bg-gradient-to-r from-indigo-500/10 to-emerald-500/10 text-xs text-slate-200"
+                  textClassName="text-xs text-slate-200"
                   disabled={isApplying}
                 />
                 {newChallenge.summary ? (
@@ -653,24 +647,24 @@ function SuggestionCard({
                     value={newChallenge.summary}
                     onChange={value => handleNewSubChallengeChange(index, "summary", value)}
                     placeholder="Résumé"
-                    className="border-emerald-300/40 bg-emerald-500/15 text-xs text-emerald-100"
-                    textClassName="text-xs text-emerald-100"
+                    className="border-indigo-300/30 bg-gradient-to-r from-indigo-500/10 to-emerald-500/10 text-xs text-slate-200"
+                    textClassName="text-xs text-slate-200"
                     disabled={isApplying}
                   />
                 ) : null}
-                <div className="flex flex-wrap gap-2 text-[11px] text-emerald-100/80">
+                <div className="flex flex-wrap gap-2 text-[11px] text-slate-300">
                   {newChallenge.status ? (
-                    <span className="rounded-full border border-emerald-300/50 px-2 py-0.5">
+                    <span className="rounded-full border border-indigo-300/40 bg-indigo-500/10 px-2 py-0.5">
                       Status: {newChallenge.status}
                     </span>
                   ) : null}
                   {newChallenge.impact ? (
-                    <span className="rounded-full border border-emerald-300/50 px-2 py-0.5">
+                    <span className="rounded-full border border-indigo-300/40 bg-indigo-500/10 px-2 py-0.5">
                       Impact: {newChallenge.impact}
                     </span>
                   ) : null}
                   {newChallenge.owners?.length ? (
-                    <span className="rounded-full border border-emerald-300/50 px-2 py-0.5">
+                    <span className="rounded-full border border-indigo-300/40 bg-indigo-500/10 px-2 py-0.5">
                       Owners: {formatOwnerList(newChallenge.owners)}
                     </span>
                   ) : null}
@@ -680,7 +674,7 @@ function SuggestionCard({
                     type="button"
                     variant="outline"
                     size="sm"
-                    className="border-emerald-300/40 bg-emerald-500/15 text-emerald-100 hover:bg-emerald-500/25"
+                    className="border-slate-600 bg-slate-800/60 text-slate-200 hover:bg-slate-700/60"
                     onClick={() => onDismissNewSubChallenge(index)}
                     disabled={isApplying}
                   >
@@ -689,7 +683,7 @@ function SuggestionCard({
                   <Button
                     type="button"
                     size="sm"
-                    className="gap-1 bg-emerald-500/90 text-emerald-100 hover:bg-emerald-500"
+                    className="gap-1 bg-gradient-to-r from-indigo-500 to-emerald-500 text-white hover:from-indigo-600 hover:to-emerald-600"
                     onClick={() => handleApplyNewSubChallenge(index)}
                     disabled={isApplying}
                   >
@@ -707,6 +701,151 @@ function SuggestionCard({
           </div>
         ) : null}
       </div>
+    </div>
+  );
+}
+
+// Exported interface for the reusable content component
+export interface AiChallengeBuilderContentProps {
+  isRunning: boolean;
+  suggestions: AiChallengeUpdateSuggestion[];
+  newChallenges: AiNewChallengeSuggestion[];
+  errors?: Array<{ challengeId: string | null; message: string }> | null;
+  challengeLookup: Map<string, ProjectChallengeNode>;
+  onApplyChallengeUpdates: (
+    challengeId: string,
+    updates?: AiChallengeUpdateSuggestion["updates"] | null,
+    foundationInsights?: AiFoundationInsight[],
+  ) => void | Promise<void>;
+  onDismissChallengeUpdates: (challengeId: string) => void;
+  onDismissSuggestion: (challengeId: string) => void;
+  applyingChallengeUpdateIds: Set<string>;
+  onApplySubChallengeUpdate: (challengeId: string, update: AiSubChallengeUpdateSuggestion) => void | Promise<void>;
+  onDismissSubChallengeUpdate: (challengeId: string, subChallengeId: string) => void;
+  applyingSubChallengeUpdateIds: Set<string>;
+  onApplySuggestedNewSubChallenge: (
+    challengeId: string,
+    index: number,
+    suggestion: AiNewChallengeSuggestion,
+  ) => void | Promise<void>;
+  onDismissSuggestedNewSubChallenge: (challengeId: string, index: number) => void;
+  applyingNewSubChallengeKeys: Set<string>;
+  onApplyNewChallenge: (suggestion: AiNewChallengeSuggestion, index: number) => void | Promise<void>;
+  onDismissNewChallenge: (index: number) => void;
+  applyingNewChallengeIndices: Set<number>;
+  /** Optional: show loading animation with snippets */
+  showLoader?: boolean;
+  loaderProgress?: number;
+  loaderSnippets?: string[];
+}
+
+/**
+ * Reusable content component for AI Challenge Builder suggestions.
+ * Can be embedded in any container (modal, tab panel, etc.)
+ */
+export function AiChallengeBuilderContent({
+  isRunning,
+  suggestions,
+  newChallenges,
+  errors,
+  challengeLookup,
+  onApplyChallengeUpdates,
+  onDismissChallengeUpdates,
+  onDismissSuggestion,
+  applyingChallengeUpdateIds,
+  onApplySubChallengeUpdate,
+  onDismissSubChallengeUpdate,
+  applyingSubChallengeUpdateIds,
+  onApplySuggestedNewSubChallenge,
+  onDismissSuggestedNewSubChallenge,
+  applyingNewSubChallengeKeys,
+  onApplyNewChallenge,
+  onDismissNewChallenge,
+  applyingNewChallengeIndices,
+  showLoader = true,
+  loaderProgress,
+  loaderSnippets,
+}: AiChallengeBuilderContentProps) {
+  const hasSuggestions = suggestions.length > 0;
+  const hasNewChallenges = newChallenges.length > 0;
+
+  return (
+    <div className="space-y-4">
+      {isRunning && showLoader && loaderProgress !== undefined ? (
+        <LoaderInsightConstellation progress={loaderProgress} className="mb-6" snippets={loaderSnippets} />
+      ) : null}
+
+      {errors?.length ? (
+        <div className="rounded-lg border border-amber-400/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+          <p className="font-semibold">Some steps failed</p>
+          <ul className="mt-2 space-y-1">
+            {errors.map((error, index) => (
+              <li key={`${error.challengeId ?? "global"}-${index}`}>
+                {error.challengeId ? `Challenge ${error.challengeId}: ` : ""}
+                {error.message}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {hasSuggestions ? (
+        <section className="space-y-4">
+          <SectionTitle>Challenge updates</SectionTitle>
+          {suggestions.map(suggestion => (
+            <SuggestionCard
+              key={suggestion.challengeId}
+              suggestion={suggestion}
+              challenge={challengeLookup.get(suggestion.challengeId)}
+              applyingChallengeUpdate={applyingChallengeUpdateIds.has(suggestion.challengeId)}
+              applyingSubChallengeUpdateIds={applyingSubChallengeUpdateIds}
+              applyingNewSubChallengeKeys={applyingNewSubChallengeKeys}
+              onApplyChallengeUpdate={(updates, foundationInsights) =>
+                onApplyChallengeUpdates(suggestion.challengeId, updates, foundationInsights)
+              }
+              onDismissChallengeUpdate={() => onDismissChallengeUpdates(suggestion.challengeId)}
+              onDismissSuggestion={() => onDismissSuggestion(suggestion.challengeId)}
+              onApplySubChallengeUpdate={update =>
+                onApplySubChallengeUpdate(suggestion.challengeId, update)
+              }
+              onDismissSubChallengeUpdate={subId =>
+                onDismissSubChallengeUpdate(suggestion.challengeId, subId)
+              }
+              onApplyNewSubChallenge={(index, newSuggestion) =>
+                onApplySuggestedNewSubChallenge(suggestion.challengeId, index, newSuggestion)
+              }
+              onDismissNewSubChallenge={index =>
+                onDismissSuggestedNewSubChallenge(suggestion.challengeId, index)
+              }
+            />
+          ))}
+        </section>
+      ) : !isRunning ? (
+        <div className="rounded-lg border border-slate-800 bg-slate-900/70 px-4 py-5 text-sm text-slate-300">
+          <div className="space-y-2">
+            <p className="font-medium text-slate-200">No challenge updates proposed</p>
+            <p className="text-slate-400">
+              The AI didn't find enough insights or ASK session data to suggest meaningful updates to existing challenges.
+              To get recommendations, ensure your challenges have associated ASK sessions with insights.
+            </p>
+          </div>
+        </div>
+      ) : null}
+
+      {hasNewChallenges ? (
+        <section className="mt-8 space-y-4">
+          <SectionTitle>New challenges to create</SectionTitle>
+          {newChallenges.map((suggestion, index) => (
+            <NewChallengeCard
+              key={`${suggestion.title}-${index}`}
+              suggestion={suggestion}
+              applying={applyingNewChallengeIndices.has(index)}
+              onApply={updated => onApplyNewChallenge(updated, index)}
+              onDismiss={() => onDismissNewChallenge(index)}
+            />
+          ))}
+        </section>
+      ) : null}
     </div>
   );
 }
@@ -772,7 +911,7 @@ function NewChallengeCard({
           </Button>
           <Button
             type="button"
-            className="gap-2 bg-emerald-500/90 text-emerald-100 hover:bg-emerald-500"
+            className="gap-2 bg-gradient-to-r from-indigo-500 to-emerald-500 text-white hover:from-indigo-600 hover:to-emerald-600"
             onClick={() => onApply(draft)}
             disabled={applying}
           >
@@ -789,12 +928,12 @@ function NewChallengeCard({
               {draft.foundationInsights.map((insight, index) => (
                 <div
                   key={`${insight.insightId}-${index}`}
-                  className="rounded-md border border-blue-400/30 bg-blue-500/10 px-3 py-2"
+                  className="rounded-md border border-yellow-400/30 bg-yellow-500/10 px-3 py-2"
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex-1">
-                      <h5 className="text-sm font-medium text-blue-100">{insight.title}</h5>
-                      <p className="text-xs text-blue-200/80 mt-1">{insight.reason}</p>
+                      <h5 className="text-sm font-medium text-yellow-100">{insight.title}</h5>
+                      <p className="text-xs text-yellow-200/80 mt-1">{insight.reason}</p>
                     </div>
                     <span className={`inline-flex items-center rounded-full px-2 py-1 text-[10px] font-medium ${
                       insight.priority === 'critical' ? 'bg-red-500/20 text-red-200 border border-red-400/30' :
@@ -898,7 +1037,7 @@ export function AiChallengeBuilderPanel({
         <Dialog.Content className="fixed inset-0 z-50 m-auto flex max-h-[90vh] w-[min(960px,95vw)] flex-col overflow-hidden rounded-2xl border border-slate-700 bg-slate-950/95 shadow-2xl">
           <div className="flex items-center justify-between border-b border-slate-800 px-6 py-4">
             <div>
-              <Dialog.Title className="text-lg font-semibold text-white">{panelTitle}</Dialog.Title>
+              <Dialog.Title className="text-lg font-semibold text-slate-300">{panelTitle}</Dialog.Title>
               <Dialog.Description className="text-sm text-slate-300">
                 {projectName ? `Project: ${projectName}` : "AI builder output"}
               </Dialog.Description>
@@ -923,80 +1062,29 @@ export function AiChallengeBuilderPanel({
           </div>
 
           <div className="flex-1 overflow-y-auto px-6 py-5">
-            {isRunning ? (
-              <LoaderInsightConstellation progress={progress} className="mb-6" snippets={insightSnippets} />
-            ) : null}
-            {errors?.length ? (
-              <div className="mb-5 rounded-lg border border-amber-400/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
-                <p className="font-semibold">Some steps failed</p>
-                <ul className="mt-2 space-y-1">
-                  {errors.map((error, index) => (
-                    <li key={`${error.challengeId ?? "global"}-${index}`}>
-                      {error.challengeId ? `Challenge ${error.challengeId}: ` : ""}
-                      {error.message}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-
-            {hasSuggestions ? (
-              <section className="space-y-4">
-                <SectionTitle>Challenge updates</SectionTitle>
-                {suggestions.map(suggestion => (
-                  <SuggestionCard
-                    key={suggestion.challengeId}
-                    suggestion={suggestion}
-                    challenge={challengeLookup.get(suggestion.challengeId)}
-                    applyingChallengeUpdate={applyingChallengeUpdateIds.has(suggestion.challengeId)}
-                    applyingSubChallengeUpdateIds={applyingSubChallengeUpdateIds}
-                    applyingNewSubChallengeKeys={applyingNewSubChallengeKeys}
-                    onApplyChallengeUpdate={(updates, foundationInsights) =>
-                      onApplyChallengeUpdates(suggestion.challengeId, updates, foundationInsights)
-                    }
-                    onDismissChallengeUpdate={() => onDismissChallengeUpdates(suggestion.challengeId)}
-                    onDismissSuggestion={() => onDismissSuggestion(suggestion.challengeId)}
-                    onApplySubChallengeUpdate={update =>
-                      onApplySubChallengeUpdate(suggestion.challengeId, update)
-                    }
-                    onDismissSubChallengeUpdate={subId =>
-                      onDismissSubChallengeUpdate(suggestion.challengeId, subId)
-                    }
-                    onApplyNewSubChallenge={(index, newSuggestion) =>
-                      onApplySuggestedNewSubChallenge(suggestion.challengeId, index, newSuggestion)
-                    }
-                    onDismissNewSubChallenge={index =>
-                      onDismissSuggestedNewSubChallenge(suggestion.challengeId, index)
-                    }
-                  />
-                ))}
-              </section>
-            ) : !isRunning ? (
-              <div className="rounded-lg border border-slate-800 bg-slate-900/70 px-4 py-5 text-sm text-slate-300">
-                <div className="space-y-2">
-                  <p className="font-medium text-slate-200">No challenge updates proposed</p>
-                  <p className="text-slate-400">
-                    The AI didn't find enough insights or ASK session data to suggest meaningful updates to existing challenges. 
-                    To get recommendations, ensure your challenges have associated ASK sessions with insights.
-                  </p>
-                </div>
-              </div>
-            ) : null}
-
-            {hasNewChallenges ? (
-              <section className="mt-8 space-y-4">
-                <SectionTitle>New challenges to create</SectionTitle>
-                {newChallenges.map((suggestion, index) => (
-                  <NewChallengeCard
-                    key={`${suggestion.title}-${index}`}
-                    suggestion={suggestion}
-                    applying={applyingNewChallengeIndices.has(index)}
-                    onApply={updated => onApplyNewChallenge(updated, index)}
-                    onDismiss={() => onDismissNewChallenge(index)}
-                  />
-                ))}
-              </section>
-            ) : null}
+            <AiChallengeBuilderContent
+              isRunning={isRunning}
+              suggestions={suggestions}
+              newChallenges={newChallenges}
+              errors={errors}
+              challengeLookup={challengeLookup}
+              onApplyChallengeUpdates={onApplyChallengeUpdates}
+              onDismissChallengeUpdates={onDismissChallengeUpdates}
+              onDismissSuggestion={onDismissSuggestion}
+              applyingChallengeUpdateIds={applyingChallengeUpdateIds}
+              onApplySubChallengeUpdate={onApplySubChallengeUpdate}
+              onDismissSubChallengeUpdate={onDismissSubChallengeUpdate}
+              applyingSubChallengeUpdateIds={applyingSubChallengeUpdateIds}
+              onApplySuggestedNewSubChallenge={onApplySuggestedNewSubChallenge}
+              onDismissSuggestedNewSubChallenge={onDismissSuggestedNewSubChallenge}
+              applyingNewSubChallengeKeys={applyingNewSubChallengeKeys}
+              onApplyNewChallenge={onApplyNewChallenge}
+              onDismissNewChallenge={onDismissNewChallenge}
+              applyingNewChallengeIndices={applyingNewChallengeIndices}
+              showLoader={true}
+              loaderProgress={progress}
+              loaderSnippets={insightSnippets}
+            />
           </div>
         </Dialog.Content>
       </Dialog.Portal>
