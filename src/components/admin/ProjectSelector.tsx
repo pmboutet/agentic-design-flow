@@ -1,5 +1,7 @@
 "use client";
 
+import { useMemo, useCallback } from "react";
+import { usePathname, useRouter } from "next/navigation";
 import { FolderKanban, ChevronDown, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useProjectContext } from "./ProjectContext";
@@ -10,6 +12,8 @@ interface ProjectSelectorProps {
 }
 
 export function ProjectSelector({ collapsed = false }: ProjectSelectorProps) {
+  const pathname = usePathname();
+  const router = useRouter();
   const {
     selectedProjectId,
     setSelectedProjectId,
@@ -20,16 +24,33 @@ export function ProjectSelector({ collapsed = false }: ProjectSelectorProps) {
   } = useProjectContext();
   const { setSelectedClientId } = useClientContext();
 
-  const handleProjectChange = (projectId: string) => {
-    setSelectedProjectId(projectId);
+  // Check if we're on a project detail page
+  const isOnProjectDetailPage = useMemo(() => {
+    const match = pathname.match(/^\/admin\/projects\/([^/]+)$/);
+    return match ? match[1] : null;
+  }, [pathname]);
+
+  // Handle project selection change with navigation
+  const handleProjectChange = useCallback((newProjectId: string) => {
+    setSelectedProjectId(newProjectId);
+
     // Auto-select the corresponding client when a specific project is selected
-    if (projectId !== "all") {
-      const project = allProjects.find(p => p.id === projectId);
+    if (newProjectId !== "all") {
+      const project = allProjects.find(p => p.id === newProjectId);
       if (project?.clientId) {
         setSelectedClientId(project.clientId);
       }
     }
-  };
+
+    // If we're on a project detail page, navigate to the new project or projects list
+    if (isOnProjectDetailPage) {
+      if (newProjectId === "all") {
+        router.push("/admin/projects");
+      } else if (newProjectId !== isOnProjectDetailPage) {
+        router.push(`/admin/projects/${newProjectId}`);
+      }
+    }
+  }, [setSelectedProjectId, allProjects, setSelectedClientId, isOnProjectDetailPage, router]);
 
   if (isLoading) {
     return (
