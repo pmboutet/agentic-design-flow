@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import { motion } from "framer-motion";
+import { Pause } from "lucide-react";
 import {
   Popover,
   PopoverContent,
@@ -22,9 +23,11 @@ export interface ConversationProgressBarProps {
   currentStepId: string;
   expectedDurationMinutes?: number | null;
   elapsedMinutes?: number;
+  /** Whether the timer is currently paused */
+  isTimerPaused?: boolean;
 }
 
-export function ConversationProgressBar({ steps, currentStepId, expectedDurationMinutes, elapsedMinutes = 0 }: ConversationProgressBarProps) {
+export function ConversationProgressBar({ steps, currentStepId, expectedDurationMinutes, elapsedMinutes = 0, isTimerPaused = false }: ConversationProgressBarProps) {
   const [hoveredStep, setHoveredStep] = useState<string | null>(null);
 
   if (!steps || steps.length === 0) {
@@ -78,11 +81,15 @@ export function ConversationProgressBar({ steps, currentStepId, expectedDuration
               ~{duration} min total ({durationPerStep} min/étape)
             </span>
           </div>
-          {elapsedMinutes > 0 && (
-            <span className="text-[10px] text-gray-500">
-              {elapsedMinutes} min écoulées
-            </span>
-          )}
+          <span className={`text-[10px] flex items-center gap-1 ${isTimerPaused ? 'text-amber-600' : 'text-gray-500'}`}>
+            {elapsedMinutes} min écoulées
+            {isTimerPaused && (
+              <span className="inline-flex items-center gap-0.5 px-1 py-0.5 rounded bg-amber-100 text-amber-700">
+                <Pause className="h-2.5 w-2.5" />
+                <span className="text-[9px] font-medium">pause</span>
+              </span>
+            )}
+          </span>
         </div>
         <div className="flex items-center gap-1">
           {steps.map((step, index) => {
