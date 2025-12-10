@@ -344,11 +344,11 @@ export function AdminPageLayout({ children }: AdminPageLayoutProps) {
         >
           {/* Logo with primary/accent gradient */}
           <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-accent text-sm font-bold text-white shadow-lg">
-            AD
+            IN
           </div>
           {!isSidebarCollapsed && (
             <div className="overflow-hidden">
-              <div className="text-sm font-semibold text-white truncate">Agentic Admin</div>
+              <div className="text-sm font-semibold text-white truncate">Insido.ai</div>
               <p className="text-xs text-neon-cyan/60 truncate">Control center</p>
             </div>
           )}
