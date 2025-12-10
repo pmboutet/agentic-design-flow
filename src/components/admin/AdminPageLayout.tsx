@@ -1,8 +1,8 @@
 "use client";
 
-import { useMemo, useState, useRef, useCallback, type ReactNode } from "react";
+import { useMemo, useState, useRef, useCallback, useEffect, type ReactNode } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   Bot,
   Building2,
@@ -22,15 +22,16 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { UserProfileMenu } from "@/components/auth/UserProfileMenu";
-import { AdminSearchProvider, useAdminSearch } from "./AdminSearchContext";
+import { AdminSearchProvider, useAdminSearch, type SearchResultItem } from "./AdminSearchContext";
 import { AdminAuthGuard } from "./AdminAuthGuard";
-import { ClientProvider } from "./ClientContext";
+import { ClientProvider, useClientContext } from "./ClientContext";
 import { ClientSelector } from "./ClientSelector";
-import { ProjectProvider } from "./ProjectContext";
+import { ProjectProvider, useProjectContext } from "./ProjectContext";
 import { ProjectSelector } from "./ProjectSelector";
 import { Input } from "@/components/ui/input";
 import { AnimatePresence, motion } from "framer-motion";
 import { useAuth } from "@/components/auth/AuthProvider";
+import { useAdminSearchData } from "./useAdminSearchData";
 
 interface AdminPageLayoutProps {
   children: ReactNode;
@@ -216,9 +217,13 @@ function AdminSearchBar() {
   );
 }
 
-export function AdminPageLayout({ children }: AdminPageLayoutProps) {
+function AdminLayoutInner({ children }: AdminPageLayoutProps) {
   const pathname = usePathname();
+  const router = useRouter();
   const { profile } = useAuth();
+  const { setSelectedClientId } = useClientContext();
+  const { setSelectedProjectId } = useProjectContext();
+  const { search } = useAdminSearchData();
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
 
@@ -231,21 +236,26 @@ export function AdminPageLayout({ children }: AdminPageLayoutProps) {
     });
   }, [userRole]);
 
-  // Search state - will be overridden by AdminDashboard if it provides its own
+  // Search state
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const [useVectorSearch, setUseVectorSearch] = useState(false);
-  const [isVectorSearching, setIsVectorSearching] = useState(false);
+  const [isVectorSearching] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const searchBlurTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const [enhancedSearchResults, setEnhancedSearchResults] = useState<any[]>([]);
-  const [searchResultTypeConfig, setSearchResultTypeConfig] = useState<Record<string, any>>({
+
+  const searchResultTypeConfig = useMemo(() => ({
     client: { label: "Client", icon: Building2 },
     project: { label: "Project", icon: FolderKanban },
     challenge: { label: "Challenge", icon: Target },
     ask: { label: "ASK Session", icon: MessageSquare },
     user: { label: "User", icon: Users },
-  });
+  }), []);
+
+  // Compute search results when query changes
+  const enhancedSearchResults = useMemo(() => {
+    return search(searchQuery);
+  }, [search, searchQuery]);
 
   const hasSearchResults = enhancedSearchResults.length > 0;
   const showSearchDropdown = isSearchFocused && (searchQuery.trim().length > 0 || (useVectorSearch && enhancedSearchResults.length > 0));
@@ -290,11 +300,53 @@ export function AdminPageLayout({ children }: AdminPageLayoutProps) {
     searchInputRef.current?.focus();
   }, []);
 
-  const handleSearchSelect = useCallback(() => {
-    // This will be overridden by AdminDashboard
-  }, []);
+  const handleSearchSelect = useCallback((result: SearchResultItem) => {
+    if (searchBlurTimeoutRef.current) {
+      clearTimeout(searchBlurTimeoutRef.current);
+      searchBlurTimeoutRef.current = null;
+    }
 
-  const defaultSearchContext = {
+    // Set client context if applicable
+    if (result.clientId) {
+      setSelectedClientId(result.clientId);
+    } else if (result.type === "client") {
+      setSelectedClientId(result.id);
+    }
+
+    // Set project context if applicable
+    if (result.projectId) {
+      setSelectedProjectId(result.projectId);
+    } else if (result.type === "project") {
+      setSelectedProjectId(result.id);
+    }
+
+    // Navigate to appropriate page
+    switch (result.type) {
+      case "client":
+        router.push("/admin/projects");
+        break;
+      case "project":
+        router.push(`/admin/projects/${result.id}`);
+        break;
+      case "challenge":
+      case "ask":
+        if (result.projectId) {
+          router.push(`/admin/projects/${result.projectId}`);
+        } else {
+          router.push("/admin");
+        }
+        break;
+      case "user":
+        router.push("/admin/users");
+        break;
+    }
+
+    setSearchQuery("");
+    setIsSearchFocused(false);
+    searchInputRef.current?.blur();
+  }, [router, setSelectedClientId, setSelectedProjectId]);
+
+  const searchContext = useMemo(() => ({
     searchQuery,
     setSearchQuery,
     isSearchFocused,
@@ -313,7 +365,22 @@ export function AdminPageLayout({ children }: AdminPageLayoutProps) {
     handleSearchKeyDown,
     handleClearSearch,
     handleSearchSelect,
-  };
+  }), [
+    searchQuery,
+    isSearchFocused,
+    useVectorSearch,
+    isVectorSearching,
+    enhancedSearchResults,
+    hasSearchResults,
+    showSearchDropdown,
+    searchResultTypeConfig,
+    handleSearchChange,
+    handleSearchFocus,
+    handleSearchBlur,
+    handleSearchKeyDown,
+    handleClearSearch,
+    handleSearchSelect,
+  ]);
 
   const activeHref = useMemo(() => {
     // Filter all matching items, then pick the most specific (longest href)
@@ -400,75 +467,81 @@ export function AdminPageLayout({ children }: AdminPageLayoutProps) {
   );
 
   return (
-    <ClientProvider>
-      <ProjectProvider>
-        <AdminSearchProvider value={defaultSearchContext}>
-          {/* Aurora animated background */}
-          <div className="aurora-background" aria-hidden="true">
-            <div className="aurora-layer aurora-cyan" />
-            <div className="aurora-layer aurora-pink" />
-          </div>
+    <AdminSearchProvider value={searchContext}>
+      {/* Aurora animated background */}
+      <div className="aurora-background" aria-hidden="true">
+        <div className="aurora-layer aurora-cyan" />
+        <div className="aurora-layer aurora-pink" />
+      </div>
 
-          <div className="admin-layout min-h-screen h-screen overflow-hidden text-slate-100 relative z-0">
-            <div className="flex h-full min-h-0">
-              {/* Sidebar with neon glow border */}
-              <aside
-                className={cn(
-                  "hidden border-r border-neon-cyan/20 bg-dark-800/70 px-5 py-6 backdrop-blur-xl md:flex",
-                  "shadow-[inset_-1px_0_0_hsla(185,100%,50%,0.1)]",
-                  isSidebarCollapsed ? "w-20" : "w-64"
-                )}
-              >
+      <div className="admin-layout min-h-screen h-screen overflow-hidden text-slate-100 relative z-0">
+        <div className="flex h-full min-h-0">
+          {/* Sidebar with neon glow border */}
+          <aside
+            className={cn(
+              "hidden border-r border-neon-cyan/20 bg-dark-800/70 px-5 py-6 backdrop-blur-xl md:flex",
+              "shadow-[inset_-1px_0_0_hsla(185,100%,50%,0.1)]",
+              isSidebarCollapsed ? "w-20" : "w-64"
+            )}
+          >
+            {sidebarContent}
+          </aside>
+
+          {/* Mobile sidebar overlay */}
+          {isMobileSidebarOpen ? (
+            <div className="fixed inset-0 z-50 flex md:hidden">
+              <button
+                type="button"
+                className="absolute inset-0 bg-dark-900/80 backdrop-blur-sm"
+                onClick={() => setIsMobileSidebarOpen(false)}
+                aria-label="Close navigation"
+              />
+              <div className="relative z-10 h-full w-72 border-r border-neon-cyan/20 bg-dark-800/95 px-5 py-6 shadow-glow-cyan">
                 {sidebarContent}
-              </aside>
-
-              {/* Mobile sidebar overlay */}
-              {isMobileSidebarOpen ? (
-                <div className="fixed inset-0 z-50 flex md:hidden">
-                  <button
-                    type="button"
-                    className="absolute inset-0 bg-dark-900/80 backdrop-blur-sm"
-                    onClick={() => setIsMobileSidebarOpen(false)}
-                    aria-label="Close navigation"
-                  />
-                  <div className="relative z-10 h-full w-72 border-r border-neon-cyan/20 bg-dark-800/95 px-5 py-6 shadow-glow-cyan">
-                    {sidebarContent}
-                  </div>
-                </div>
-              ) : null}
-
-              <div className="flex flex-1 flex-col min-h-0">
-                {/* Header with subtle glow */}
-                <header className="sticky top-0 z-40 border-b border-neon-cyan/10 bg-dark-900/80 backdrop-blur-xl">
-                  <div className="flex items-center justify-between px-4 py-4 md:px-6">
-                    <div className="flex items-center gap-3">
-                      <button
-                        type="button"
-                        className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-neon-cyan/20 bg-dark-700/50 text-foreground transition hover:bg-dark-600/50 hover:border-neon-cyan/40 hover:shadow-glow-cyan md:hidden"
-                        onClick={() => setIsMobileSidebarOpen(true)}
-                        aria-label="Open navigation"
-                      >
-                        <Menu className="h-5 w-5" />
-                      </button>
-                      <div className="hidden text-sm text-slate-400 md:block">Admin console</div>
-                      <AdminSearchBar />
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <UserProfileMenu />
-                    </div>
-                  </div>
-                </header>
-
-                {/* Main content area */}
-                <main className="flex-1 overflow-y-auto px-4 py-6 md:px-6 lg:px-10">
-                  <AdminAuthGuard>
-                    {children}
-                  </AdminAuthGuard>
-                </main>
               </div>
             </div>
+          ) : null}
+
+          <div className="flex flex-1 flex-col min-h-0">
+            {/* Header with subtle glow */}
+            <header className="sticky top-0 z-40 border-b border-neon-cyan/10 bg-dark-900/80 backdrop-blur-xl">
+              <div className="flex items-center justify-between px-4 py-4 md:px-6">
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-neon-cyan/20 bg-dark-700/50 text-foreground transition hover:bg-dark-600/50 hover:border-neon-cyan/40 hover:shadow-glow-cyan md:hidden"
+                    onClick={() => setIsMobileSidebarOpen(true)}
+                    aria-label="Open navigation"
+                  >
+                    <Menu className="h-5 w-5" />
+                  </button>
+                  <div className="hidden text-sm text-slate-400 md:block">Admin console</div>
+                  <AdminSearchBar />
+                </div>
+                <div className="flex items-center gap-3">
+                  <UserProfileMenu />
+                </div>
+              </div>
+            </header>
+
+            {/* Main content area */}
+            <main className="flex-1 overflow-y-auto px-4 py-6 md:px-6 lg:px-10">
+              <AdminAuthGuard>
+                {children}
+              </AdminAuthGuard>
+            </main>
           </div>
-        </AdminSearchProvider>
+        </div>
+      </div>
+    </AdminSearchProvider>
+  );
+}
+
+export function AdminPageLayout({ children }: AdminPageLayoutProps) {
+  return (
+    <ClientProvider>
+      <ProjectProvider>
+        <AdminLayoutInner>{children}</AdminLayoutInner>
       </ProjectProvider>
     </ClientProvider>
   );
