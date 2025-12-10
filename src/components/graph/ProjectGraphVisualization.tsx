@@ -329,7 +329,7 @@ export function ProjectGraphVisualization({ projectId, refreshKey }: ProjectGrap
   });
   const [filters, setFilters] = useState<FiltersPayload | null>(null);
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
-  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(projectId ?? null);
   const [selectedChallengeId, setSelectedChallengeId] = useState<string | null>(null);
   const [showFilters, setShowFilters] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -348,6 +348,13 @@ export function ProjectGraphVisualization({ projectId, refreshKey }: ProjectGrap
   useEffect(() => {
     setIsMounted(true);
   }, []);
+
+  // Sync selectedProjectId when prop changes
+  useEffect(() => {
+    if (projectId) {
+      setSelectedProjectId(projectId);
+    }
+  }, [projectId]);
 
   // Semantic search effect with debounce
   useEffect(() => {
@@ -608,7 +615,10 @@ export function ProjectGraphVisualization({ projectId, refreshKey }: ProjectGrap
   // ========================================================================
 
   const loadGraph = useCallback(async () => {
-    if (!projectId) {
+    // Use selectedProjectId (which can be set from prop or user selection)
+    const effectiveProjectId = selectedProjectId || projectId;
+
+    if (!effectiveProjectId) {
       setError("Sélectionnez un projet pour afficher le graphe.");
       setGraphData(null);
       return;
@@ -619,7 +629,7 @@ export function ProjectGraphVisualization({ projectId, refreshKey }: ProjectGrap
 
     try {
       // Build URL with filters
-      const params = new URLSearchParams({ projectId, limit: "500" });
+      const params = new URLSearchParams({ projectId: effectiveProjectId, limit: "500" });
       if (selectedClientId) params.set("clientId", selectedClientId);
       if (selectedChallengeId) params.set("challengeId", selectedChallengeId);
 
@@ -643,7 +653,7 @@ export function ProjectGraphVisualization({ projectId, refreshKey }: ProjectGrap
     } finally {
       setIsLoading(false);
     }
-  }, [projectId, selectedClientId, selectedChallengeId]);
+  }, [projectId, selectedProjectId, selectedClientId, selectedChallengeId]);
 
   const loadFilters = useCallback(async () => {
     try {
