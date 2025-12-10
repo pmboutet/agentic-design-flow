@@ -234,16 +234,23 @@ export function buildConversationAgentVariables(context: ConversationAgentContex
     let currentStep = getCurrentStep(context.conversationPlan);
 
     // Fallback: if no current step but plan has steps, find first active or pending step
-    if (!currentStep && 'steps' in context.conversationPlan && Array.isArray(context.conversationPlan.steps) && context.conversationPlan.steps.length > 0) {
+    // Check both normalized steps and legacy plan_data.steps
+    const normalizedSteps = 'steps' in context.conversationPlan && Array.isArray(context.conversationPlan.steps)
+      ? context.conversationPlan.steps
+      : [];
+    const legacySteps = context.conversationPlan.plan_data?.steps ?? [];
+    const availableSteps = normalizedSteps.length > 0 ? normalizedSteps : legacySteps;
+
+    if (!currentStep && availableSteps.length > 0) {
       // First try to find active step
-      currentStep = context.conversationPlan.steps.find((s: any) => s.status === 'active') ?? null;
+      currentStep = availableSteps.find((s: any) => s.status === 'active') ?? null;
       // If no active, find first pending step
       if (!currentStep) {
-        currentStep = context.conversationPlan.steps.find((s: any) => s.status === 'pending') ?? null;
+        currentStep = availableSteps.find((s: any) => s.status === 'pending') ?? null;
       }
       // If still no step (all completed or skipped), use the last step
       if (!currentStep) {
-        currentStep = context.conversationPlan.steps[context.conversationPlan.steps.length - 1];
+        currentStep = availableSteps[availableSteps.length - 1];
       }
     }
 

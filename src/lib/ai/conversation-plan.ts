@@ -242,25 +242,37 @@ export async function getConversationPlanWithSteps(
   }
 
   // Ensure the legacy plan_data structure stays in sync with normalized steps
-  const legacySteps: LegacyConversationPlanStep[] = (steps || []).map((step) => ({
-    id: step.step_identifier,
-    title: step.title,
-    objective: step.objective,
-    status: step.status,
-    summary: step.summary,
-    created_at: step.created_at,
-    completed_at: step.completed_at,
-  }));
+  // BUT preserve original plan_data.steps if no normalized steps exist (pre-migration plans)
+  const normalizedSteps = steps || [];
+  const hasNormalizedSteps = normalizedSteps.length > 0;
 
-  const planDataWithSyncedSteps: LegacyConversationPlanData = {
-    ...(plan.plan_data ?? { steps: [] }),
-    steps: legacySteps,
-  };
+  let planDataWithSyncedSteps: LegacyConversationPlanData;
+
+  if (hasNormalizedSteps) {
+    // Sync plan_data.steps from normalized steps (source of truth)
+    const legacySteps: LegacyConversationPlanStep[] = normalizedSteps.map((step) => ({
+      id: step.step_identifier,
+      title: step.title,
+      objective: step.objective,
+      status: step.status,
+      summary: step.summary,
+      created_at: step.created_at,
+      completed_at: step.completed_at,
+    }));
+
+    planDataWithSyncedSteps = {
+      ...(plan.plan_data ?? { steps: [] }),
+      steps: legacySteps,
+    };
+  } else {
+    // No normalized steps - preserve original plan_data (pre-migration plans)
+    planDataWithSyncedSteps = plan.plan_data ?? { steps: [] };
+  }
 
   return {
     ...plan,
     plan_data: planDataWithSyncedSteps,
-    steps: (steps || []) as ConversationPlanStep[],
+    steps: normalizedSteps as ConversationPlanStep[],
   } as ConversationPlanWithSteps;
 }
 
