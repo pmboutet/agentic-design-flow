@@ -3426,7 +3426,7 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                 {/* Knowledge Graph Visualization - Full Width */}
                 {!showOnlyChallengeWorkspace && (
                   <section className="space-y-4">
-                    <ProjectGraphVisualization projectId={selectedProjectId} />
+                    <ProjectGraphVisualization projectId={selectedProjectId} clientId={selectedClientId} />
                   </section>
                 )}
 

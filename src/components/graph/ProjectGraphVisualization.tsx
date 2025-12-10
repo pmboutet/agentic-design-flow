@@ -197,6 +197,7 @@ const NODE_SIZES: Record<GraphNodeType | "default", number> = {
 
 interface ProjectGraphVisualizationProps {
   projectId?: string | null;
+  clientId?: string | null;
   refreshKey?: number;
 }
 
@@ -306,7 +307,7 @@ function buildForceGraphData(payload: GraphPayload): ForceGraphData {
 // MAIN COMPONENT
 // ============================================================================
 
-export function ProjectGraphVisualization({ projectId, refreshKey }: ProjectGraphVisualizationProps) {
+export function ProjectGraphVisualization({ projectId, clientId, refreshKey }: ProjectGraphVisualizationProps) {
   // State
   const [graphData, setGraphData] = useState<ForceGraphData | null>(null);
   const [stats, setStats] = useState<GraphStats | null>(null);
@@ -328,7 +329,7 @@ export function ProjectGraphVisualization({ projectId, refreshKey }: ProjectGrap
     synthesis: true,
   });
   const [filters, setFilters] = useState<FiltersPayload | null>(null);
-  const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
+  const [selectedClientId, setSelectedClientId] = useState<string | null>(clientId ?? null);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(projectId ?? null);
   const [selectedChallengeId, setSelectedChallengeId] = useState<string | null>(null);
   const [showFilters, setShowFilters] = useState(false);
@@ -344,9 +345,31 @@ export function ProjectGraphVisualization({ projectId, refreshKey }: ProjectGrap
   const fgRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
+  // Container dimensions for responsive sizing
+  const [containerWidth, setContainerWidth] = useState(900);
+
   // Mount effect
   useEffect(() => {
     setIsMounted(true);
+  }, []);
+
+  // Track container width with ResizeObserver
+  useEffect(() => {
+    if (!containerRef.current) return;
+
+    const resizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.contentRect.width > 0) {
+          setContainerWidth(entry.contentRect.width);
+        }
+      }
+    });
+
+    resizeObserver.observe(containerRef.current);
+    // Initial measurement
+    setContainerWidth(containerRef.current.offsetWidth || 900);
+
+    return () => resizeObserver.disconnect();
   }, []);
 
   // Sync selectedProjectId when prop changes
@@ -355,6 +378,12 @@ export function ProjectGraphVisualization({ projectId, refreshKey }: ProjectGrap
       setSelectedProjectId(projectId);
     }
   }, [projectId]);
+
+  // Sync selectedClientId when prop changes
+  useEffect(() => {
+    // Handle "all" case: clientId prop can be "all" which means no filter
+    setSelectedClientId(clientId === "all" ? null : (clientId ?? null));
+  }, [clientId]);
 
   // Semantic search effect with debounce
   useEffect(() => {
@@ -599,7 +628,7 @@ export function ProjectGraphVisualization({ projectId, refreshKey }: ProjectGrap
     return { nodes: visibleNodes, links: allLinks };
   }, [graphData, visibleTypes, searchMatchIds]);
 
-  // Dimensions
+  // Dimensions - responsive to container width
   const dimensions = useMemo(() => {
     if (isFullscreen) {
       return {
@@ -607,8 +636,9 @@ export function ProjectGraphVisualization({ projectId, refreshKey }: ProjectGrap
         height: typeof window !== "undefined" ? window.innerHeight : 800,
       };
     }
-    return { width: 900, height: 500 };
-  }, [isFullscreen]);
+    // Use container width, with a reasonable height ratio
+    return { width: containerWidth, height: 500 };
+  }, [isFullscreen, containerWidth]);
 
   // ========================================================================
   // DATA LOADING
@@ -617,9 +647,12 @@ export function ProjectGraphVisualization({ projectId, refreshKey }: ProjectGrap
   const loadGraph = useCallback(async () => {
     // Use selectedProjectId (which can be set from prop or user selection)
     const effectiveProjectId = selectedProjectId || projectId;
+    // Use selectedClientId (which can be set from prop or user selection)
+    const effectiveClientId = selectedClientId;
 
-    if (!effectiveProjectId) {
-      setError("Sélectionnez un projet pour afficher le graphe.");
+    // Need at least a project or client to filter by
+    if (!effectiveProjectId && !effectiveClientId) {
+      setError("Sélectionnez un projet ou un client pour afficher le graphe.");
       setGraphData(null);
       return;
     }
@@ -629,8 +662,9 @@ export function ProjectGraphVisualization({ projectId, refreshKey }: ProjectGrap
 
     try {
       // Build URL with filters
-      const params = new URLSearchParams({ projectId: effectiveProjectId, limit: "500" });
-      if (selectedClientId) params.set("clientId", selectedClientId);
+      const params = new URLSearchParams({ limit: "500" });
+      if (effectiveProjectId) params.set("projectId", effectiveProjectId);
+      if (effectiveClientId) params.set("clientId", effectiveClientId);
       if (selectedChallengeId) params.set("challengeId", selectedChallengeId);
 
       const response = await fetch(`/api/admin/graph/visualization?${params}`, {
@@ -1136,23 +1170,23 @@ export function ProjectGraphVisualization({ projectId, refreshKey }: ProjectGrap
       )}
 
       {/* Graph area */}
-      <div className="relative flex-1">
-        {!projectId && (
+      <div className="relative flex-1" ref={containerRef}>
+        {!projectId && !clientId && !selectedProjectId && !selectedClientId && (
           <div className="flex h-full items-center justify-center">
             <div className="rounded-lg border border-dashed border-slate-600/50 bg-slate-800/40 px-8 py-12 text-center">
               <Layers className="mx-auto mb-3 h-10 w-10 text-slate-500" />
-              <p className="text-sm text-slate-400">Sélectionnez un projet pour afficher son graphe de connaissances</p>
+              <p className="text-sm text-slate-400">Sélectionnez un client ou un projet pour afficher le graphe de connaissances</p>
             </div>
           </div>
         )}
 
-        {projectId && isLoading && !graphData && (
+        {(projectId || clientId || selectedProjectId || selectedClientId) && isLoading && !graphData && (
           <div className="flex h-full items-center justify-center">
             <Loader2 className="h-10 w-10 animate-spin text-yellow-500/50" />
           </div>
         )}
 
-        {projectId && filteredGraphData && isMounted && (
+        {(projectId || clientId || selectedProjectId || selectedClientId) && filteredGraphData && isMounted && (
           <>
             {/* Selected node info */}
             {selectedNode && (
