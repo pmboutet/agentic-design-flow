@@ -329,7 +329,9 @@ export function ProjectGraphVisualization({ projectId, clientId, refreshKey }: P
     synthesis: true,
   });
   const [filters, setFilters] = useState<FiltersPayload | null>(null);
-  const [selectedClientId, setSelectedClientId] = useState<string | null>(clientId ?? null);
+  const [selectedClientId, setSelectedClientId] = useState<string | null>(
+    clientId === "all" ? null : (clientId ?? null)
+  );
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(projectId ?? null);
   const [selectedChallengeId, setSelectedChallengeId] = useState<string | null>(null);
   const [showFilters, setShowFilters] = useState(false);
