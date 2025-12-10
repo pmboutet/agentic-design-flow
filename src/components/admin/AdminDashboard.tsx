@@ -47,6 +47,7 @@ import { useAuth } from "@/components/auth/AuthProvider";
 import { UserSearchCombobox } from "@/components/ui/user-search-combobox";
 import { useAdminSearch, type SearchResultType, type SearchResultItem } from "./AdminSearchContext";
 import { useClientContext } from "./ClientContext";
+import { useProjectContext, type ProjectSelection } from "./ProjectContext";
 import type { ApiResponse, AskSessionRecord, ChallengeRecord, ClientRecord, ManagedUser, ProjectRecord } from "@/types";
 
 interface AdminDashboardProps {
@@ -801,7 +802,24 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
   // Get client selection from context (managed in sidebar)
   const { selectedClientId, setSelectedClientId, clients: contextClients, selectedClient: contextSelectedClient } = useClientContext();
 
-  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(initialProjectId ?? null);
+  // Get project selection from context (managed in sidebar)
+  const {
+    selectedProjectId: globalProjectId,
+    setSelectedProjectId: setGlobalProjectId,
+    selectedProject: contextSelectedProject
+  } = useProjectContext();
+
+  // Local state for project selection, synced with global context
+  const [selectedProjectId, setSelectedProjectIdLocal] = useState<string | null>(initialProjectId ?? null);
+
+  // Sync local selection with global context
+  const setSelectedProjectId = useCallback((projectId: string | null) => {
+    setSelectedProjectIdLocal(projectId);
+    // Also update global context when changing project in dashboard
+    if (projectId) {
+      setGlobalProjectId(projectId);
+    }
+  }, [setGlobalProjectId]);
   const [selectedChallengeId, setSelectedChallengeId] = useState<string | null>(null);
 
   const [showProjectForm, setShowProjectForm] = useState(false);
@@ -1424,20 +1442,39 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
     searchInputRef.current?.focus();
   }, []);
 
-  const projectsForClient = useMemo(
+  // Filter projects by client first
+  const projectsFilteredByClient = useMemo(
     () => selectedClientId === "all"
       ? projects
       : projects.filter(project => project.clientId === selectedClientId),
     [projects, selectedClientId]
   );
 
+  // Further filter by global project selection from sidebar
+  const projectsForClient = useMemo(
+    () => globalProjectId === "all"
+      ? projectsFilteredByClient
+      : projectsFilteredByClient.filter(project => project.id === globalProjectId),
+    [projectsFilteredByClient, globalProjectId]
+  );
+
+  // Sync local project selection with global context when it changes
+  useEffect(() => {
+    if (globalProjectId !== "all") {
+      // A specific project is selected in the sidebar
+      if (projectsFilteredByClient.some(p => p.id === globalProjectId)) {
+        setSelectedProjectIdLocal(globalProjectId);
+      }
+    }
+  }, [globalProjectId, projectsFilteredByClient]);
+
   useEffect(() => {
     if (projectsForClient.length > 0) {
       if (!selectedProjectId || !projectsForClient.some(project => project.id === selectedProjectId)) {
-        setSelectedProjectId(projectsForClient[0].id);
+        setSelectedProjectIdLocal(projectsForClient[0].id);
       }
     } else {
-      setSelectedProjectId(null);
+      setSelectedProjectIdLocal(null);
     }
   }, [projectsForClient, selectedProjectId]);
 
