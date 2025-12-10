@@ -2014,7 +2014,7 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
                   ) : null}
                   {(() => {
                     const askCount = asksByChallenge.get(node.id)?.length ?? 0;
-                    return askCount > 0 ? (
+                    return (
                       <Button
                         type="button"
                         variant="ghost"
@@ -2026,13 +2026,13 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
                           setModalActiveTab("asks");
                           setIsInsightsModalOpen(true);
                         }}
-                        title="Voir les asks"
+                        title={askCount > 0 ? "Voir les asks" : "Créer une ask"}
                       >
                         <MessageSquare className="h-4 w-4" />
                         <span className="text-xs">{askCount}</span>
-                        <span className="sr-only">Voir les {askCount} asks de {node.title}</span>
+                        <span className="sr-only">{askCount > 0 ? `Voir les ${askCount} asks de ${node.title}` : `Créer une ask pour ${node.title}`}</span>
                       </Button>
-                    ) : null;
+                    );
                   })()}
                   <Button
                     type="button"
@@ -3881,16 +3881,14 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
                       modalActiveTab === "asks" ? "text-emerald-400" : "text-slate-500 group-hover:text-slate-400"
                     )} />
                     ASKs
-                    {activeChallengeAsks && activeChallengeAsks.length > 0 && (
-                      <span className={cn(
-                        "rounded-full px-1.5 py-0.5 text-[10px] font-semibold",
-                        modalActiveTab === "asks"
-                          ? "bg-emerald-400/20 text-emerald-300"
-                          : "bg-slate-700 text-slate-400"
-                      )}>
-                        {activeChallengeAsks.length}
-                      </span>
-                    )}
+                    <span className={cn(
+                      "rounded-full px-1.5 py-0.5 text-[10px] font-semibold",
+                      modalActiveTab === "asks"
+                        ? "bg-emerald-400/20 text-emerald-300"
+                        : "bg-slate-700 text-slate-400"
+                    )}>
+                      {activeChallengeAsks?.length ?? 0}
+                    </span>
                   </button>
                   <button
                     type="button"
