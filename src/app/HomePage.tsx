@@ -157,33 +157,28 @@ function MobileLayout({
   };
 
   return (
-    <div className="flex flex-col h-[calc(100dvh-88px)] overflow-hidden min-w-0 w-full max-w-full overflow-x-hidden touch-pan-y">
-      {/* Collapsible Header */}
+    <div className="flex flex-col h-[calc(100dvh-44px)] overflow-hidden min-w-0 w-full max-w-full overflow-x-hidden touch-pan-y">
+      {/* Collapsible Header - Compact */}
       {askDetails && (
         <motion.div
           initial={false}
           animate={{
-            height: isMobileHeaderExpanded ? 'auto' : '60px',
+            height: isMobileHeaderExpanded ? 'auto' : '48px',
           }}
-          className="overflow-hidden border-b border-white/50 bg-white/80 backdrop-blur"
+          className="overflow-hidden border-b border-white/50 bg-white/80 backdrop-blur flex-shrink-0"
         >
-          <div className="px-4 py-3">
-            <div className="flex items-center justify-between">
-              <div className="flex-1 min-w-0 pr-2">
-                <h3 className="font-semibold text-sm leading-tight text-foreground truncate">
+          <div className="px-3 py-2">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex-1 min-w-0">
+                <h3 className="font-semibold text-xs leading-tight text-foreground line-clamp-2">
                   {askDetails.question}
                 </h3>
-                {askDetails.description && !isMobileHeaderExpanded && (
-                  <p className="text-xs text-muted-foreground mt-1 line-clamp-1">
-                    {askDetails.description}
-                  </p>
-                )}
               </div>
               <Button
                 variant="ghost"
                 size="sm"
                 onClick={() => setIsMobileHeaderExpanded(!isMobileHeaderExpanded)}
-                className="flex-shrink-0"
+                className="flex-shrink-0 h-7 w-7 p-0"
               >
                 {isMobileHeaderExpanded ? (
                   <ChevronUp className="h-4 w-4" />
@@ -302,13 +297,15 @@ function MobileLayout({
           >
             <div className="h-full flex flex-col min-w-0 max-w-full">
               {sessionData.conversationPlan && (
-                <ConversationProgressBar
-                  steps={sessionData.conversationPlan.plan_data.steps}
-                  currentStepId={sessionData.conversationPlan.current_step_id}
-                  elapsedMinutes={estimateActiveDuration(sessionData.messages)}
-                />
+                <div className="flex-shrink-0">
+                  <ConversationProgressBar
+                    steps={sessionData.conversationPlan.plan_data.steps}
+                    currentStepId={sessionData.conversationPlan.current_step_id}
+                    elapsedMinutes={estimateActiveDuration(sessionData.messages)}
+                  />
+                </div>
               )}
-              <div className="flex-1 p-2 md:p-4 overflow-y-auto min-w-0 max-w-full overflow-x-hidden">
+              <div className="flex-1 p-1.5 overflow-y-auto min-w-0 max-w-full overflow-x-hidden">
                 <ChatComponent
                   key={`chat-${sessionDataAskKey}`}
                   askKey={sessionDataAskKey}
@@ -355,8 +352,8 @@ function MobileLayout({
         </motion.div>
       </div>
 
-      {/* Panel Indicator */}
-      <div className="flex items-center justify-center gap-2 py-3 bg-white/50 backdrop-blur border-t border-white/50">
+      {/* Panel Indicator - with safe area for mobile browsers */}
+      <div className="flex items-center justify-center gap-2 py-2 bg-white/50 backdrop-blur border-t border-white/50" style={{ paddingBottom: 'max(8px, env(safe-area-inset-bottom))' }}>
         <button
           onClick={() => setMobileActivePanel('chat')}
           className={`flex items-center gap-2 px-4 py-2 rounded-full transition-all ${
@@ -2172,38 +2169,38 @@ export default function HomePage() {
 
   return (
     <div className="conversation-layout min-h-[100dvh] bg-gradient-to-br from-indigo-100 via-white to-indigo-200 overflow-x-hidden w-full max-w-full">
-      {/* Beautiful Header */}
+      {/* Beautiful Header - Compact on mobile */}
       <motion.header
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
         className="bg-white border-b border-gray-100 sticky top-0 z-50 shadow-sm"
       >
-        <div className="container mx-auto px-4 sm:px-6 py-3 space-y-4">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="container mx-auto px-3 sm:px-6 py-1.5 sm:py-3">
+          <div className="flex items-center justify-between gap-2">
             <motion.div
-              className="flex items-center gap-2.5"
+              className="flex items-center gap-2"
               whileHover={{ scale: 1.02 }}
               transition={{ type: "spring", stiffness: 400 }}
             >
-              <div className="w-9 h-9 bg-gradient-to-br from-pink-500 to-violet-600 rounded-xl flex items-center justify-center shadow-md">
-                <MessageSquare className="h-5 w-5 text-white" />
+              <div className="w-7 h-7 sm:w-9 sm:h-9 bg-gradient-to-br from-pink-500 to-violet-600 rounded-lg sm:rounded-xl flex items-center justify-center shadow-md">
+                <MessageSquare className="h-4 w-4 sm:h-5 sm:w-5 text-white" />
               </div>
               <div>
-                <h1 className="text-lg font-semibold sm:text-xl bg-gradient-to-r from-pink-500 to-violet-600 bg-clip-text text-transparent">
+                <h1 className="text-base font-semibold sm:text-xl bg-gradient-to-r from-pink-500 to-violet-600 bg-clip-text text-transparent">
                   Insido.ai
                 </h1>
                 {isTestMode && (
-                  <span className="test-mode-badge">TEST MODE</span>
+                  <span className="test-mode-badge text-[10px]">TEST</span>
                 )}
-                {debugAuthId && (
+                {debugAuthId && !isMobile && (
                   <div className="mt-1 text-xs font-mono bg-yellow-100 px-2 py-1 rounded border border-yellow-300">
                     🔑 Auth ID: {debugAuthId}
                   </div>
                 )}
               </div>
             </motion.div>
-            <div className="flex flex-col items-end gap-2">
-              {currentParticipantName && (
+            <div className="flex items-center gap-2">
+              {currentParticipantName && !isMobile && (
                 <div className="inline-flex items-center gap-2 rounded-full border border-white/40 bg-white/80 px-3 py-1 text-xs font-medium text-foreground shadow-sm">
                   <span className="text-muted-foreground/80">Profil</span>
                   <span className="font-semibold text-foreground">{currentParticipantName}</span>

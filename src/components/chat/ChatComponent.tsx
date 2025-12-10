@@ -380,9 +380,9 @@ export function ChatComponent({
 
   return (
     <Card className="h-full flex flex-col overflow-hidden max-w-full w-full min-w-0">
-      <CardHeader className="pb-3 border-b border-border/40 min-w-0">
-        <div className="flex items-center justify-between gap-3 min-w-0">
-          <CardTitle className="text-base font-semibold truncate min-w-0">Conversation</CardTitle>
+      <CardHeader className="py-2 px-3 sm:pb-3 sm:px-6 border-b border-border/40 min-w-0 flex-shrink-0">
+        <div className="flex items-center justify-between gap-2 min-w-0">
+          <CardTitle className="text-sm sm:text-base font-semibold truncate min-w-0">Conversation</CardTitle>
           {participants.length > 0 && (
             <span className="text-xs text-muted-foreground flex-shrink-0">
               {participants.length} participant{participants.length > 1 ? 's' : ''}
