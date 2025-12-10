@@ -26,6 +26,8 @@ import { AdminSearchProvider, useAdminSearch } from "./AdminSearchContext";
 import { AdminAuthGuard } from "./AdminAuthGuard";
 import { ClientProvider } from "./ClientContext";
 import { ClientSelector } from "./ClientSelector";
+import { ProjectProvider } from "./ProjectContext";
+import { ProjectSelector } from "./ProjectSelector";
 import { Input } from "@/components/ui/input";
 import { AnimatePresence, motion } from "framer-motion";
 import { useAuth } from "@/components/auth/AuthProvider";
@@ -362,6 +364,7 @@ export function AdminPageLayout({ children }: AdminPageLayoutProps) {
       </div>
 
       <ClientSelector collapsed={isSidebarCollapsed} />
+      <ProjectSelector collapsed={isSidebarCollapsed} />
 
       <nav className="flex flex-1 flex-col gap-1 overflow-hidden">
         {visibleNavItems.map(item => {
@@ -398,73 +401,75 @@ export function AdminPageLayout({ children }: AdminPageLayoutProps) {
 
   return (
     <ClientProvider>
-      <AdminSearchProvider value={defaultSearchContext}>
-        {/* Aurora animated background */}
-        <div className="aurora-background" aria-hidden="true">
-          <div className="aurora-layer aurora-cyan" />
-          <div className="aurora-layer aurora-pink" />
-        </div>
+      <ProjectProvider>
+        <AdminSearchProvider value={defaultSearchContext}>
+          {/* Aurora animated background */}
+          <div className="aurora-background" aria-hidden="true">
+            <div className="aurora-layer aurora-cyan" />
+            <div className="aurora-layer aurora-pink" />
+          </div>
 
-        <div className="admin-layout min-h-screen h-screen overflow-hidden text-slate-100 relative z-0">
-          <div className="flex h-full min-h-0">
-            {/* Sidebar with neon glow border */}
-            <aside
-              className={cn(
-                "hidden border-r border-neon-cyan/20 bg-dark-800/70 px-5 py-6 backdrop-blur-xl md:flex",
-                "shadow-[inset_-1px_0_0_hsla(185,100%,50%,0.1)]",
-                isSidebarCollapsed ? "w-20" : "w-64"
-              )}
-            >
-              {sidebarContent}
-            </aside>
+          <div className="admin-layout min-h-screen h-screen overflow-hidden text-slate-100 relative z-0">
+            <div className="flex h-full min-h-0">
+              {/* Sidebar with neon glow border */}
+              <aside
+                className={cn(
+                  "hidden border-r border-neon-cyan/20 bg-dark-800/70 px-5 py-6 backdrop-blur-xl md:flex",
+                  "shadow-[inset_-1px_0_0_hsla(185,100%,50%,0.1)]",
+                  isSidebarCollapsed ? "w-20" : "w-64"
+                )}
+              >
+                {sidebarContent}
+              </aside>
 
-            {/* Mobile sidebar overlay */}
-            {isMobileSidebarOpen ? (
-              <div className="fixed inset-0 z-50 flex md:hidden">
-                <button
-                  type="button"
-                  className="absolute inset-0 bg-dark-900/80 backdrop-blur-sm"
-                  onClick={() => setIsMobileSidebarOpen(false)}
-                  aria-label="Close navigation"
-                />
-                <div className="relative z-10 h-full w-72 border-r border-neon-cyan/20 bg-dark-800/95 px-5 py-6 shadow-glow-cyan">
-                  {sidebarContent}
+              {/* Mobile sidebar overlay */}
+              {isMobileSidebarOpen ? (
+                <div className="fixed inset-0 z-50 flex md:hidden">
+                  <button
+                    type="button"
+                    className="absolute inset-0 bg-dark-900/80 backdrop-blur-sm"
+                    onClick={() => setIsMobileSidebarOpen(false)}
+                    aria-label="Close navigation"
+                  />
+                  <div className="relative z-10 h-full w-72 border-r border-neon-cyan/20 bg-dark-800/95 px-5 py-6 shadow-glow-cyan">
+                    {sidebarContent}
+                  </div>
                 </div>
+              ) : null}
+
+              <div className="flex flex-1 flex-col min-h-0">
+                {/* Header with subtle glow */}
+                <header className="sticky top-0 z-40 border-b border-neon-cyan/10 bg-dark-900/80 backdrop-blur-xl">
+                  <div className="flex items-center justify-between px-4 py-4 md:px-6">
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-neon-cyan/20 bg-dark-700/50 text-foreground transition hover:bg-dark-600/50 hover:border-neon-cyan/40 hover:shadow-glow-cyan md:hidden"
+                        onClick={() => setIsMobileSidebarOpen(true)}
+                        aria-label="Open navigation"
+                      >
+                        <Menu className="h-5 w-5" />
+                      </button>
+                      <div className="hidden text-sm text-slate-400 md:block">Admin console</div>
+                      <AdminSearchBar />
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <UserProfileMenu />
+                    </div>
+                  </div>
+                </header>
+
+                {/* Main content area */}
+                <main className="flex-1 overflow-y-auto px-4 py-6 md:px-6 lg:px-10">
+                  <AdminAuthGuard>
+                    {children}
+                  </AdminAuthGuard>
+                </main>
               </div>
-            ) : null}
-
-            <div className="flex flex-1 flex-col min-h-0">
-              {/* Header with subtle glow */}
-              <header className="sticky top-0 z-40 border-b border-neon-cyan/10 bg-dark-900/80 backdrop-blur-xl">
-                <div className="flex items-center justify-between px-4 py-4 md:px-6">
-                  <div className="flex items-center gap-3">
-                    <button
-                      type="button"
-                      className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-neon-cyan/20 bg-dark-700/50 text-foreground transition hover:bg-dark-600/50 hover:border-neon-cyan/40 hover:shadow-glow-cyan md:hidden"
-                      onClick={() => setIsMobileSidebarOpen(true)}
-                      aria-label="Open navigation"
-                    >
-                      <Menu className="h-5 w-5" />
-                    </button>
-                    <div className="hidden text-sm text-slate-400 md:block">Admin console</div>
-                    <AdminSearchBar />
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <UserProfileMenu />
-                  </div>
-                </div>
-              </header>
-
-              {/* Main content area */}
-              <main className="flex-1 overflow-y-auto px-4 py-6 md:px-6 lg:px-10">
-                <AdminAuthGuard>
-                  {children}
-                </AdminAuthGuard>
-              </main>
             </div>
           </div>
-        </div>
-      </AdminSearchProvider>
+        </AdminSearchProvider>
+      </ProjectProvider>
     </ClientProvider>
   );
 }

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { type ProjectRecord } from "@/types";
 import { useClientContext } from "./ClientContext";
+import { useProjectContext } from "./ProjectContext";
 import { ProjectCreateDialog } from "./ProjectCreateDialog";
 
 interface ApiResponse<T> {
@@ -37,6 +38,7 @@ interface ProjectGroup {
 
 export function ProjectsAdminView() {
   const { selectedClientId, selectedClient, clients } = useClientContext();
+  const { selectedProjectId: globalProjectId, selectedProject: globalSelectedProject } = useProjectContext();
   const [projects, setProjects] = useState<ProjectRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -64,19 +66,31 @@ export function ProjectsAdminView() {
     void loadProjects();
   }, []);
 
-  // Filter and group projects based on selected client
+  // Filter and group projects based on selected client and project
   const { filteredProjects, projectGroups, showGrouped } = useMemo(() => {
     let filtered: ProjectRecord[];
 
+    // First, filter by client
     if (selectedClientId === "all") {
-      // Show all projects, sorted by client name then project name
-      filtered = [...projects].sort((a, b) => {
-        const clientCompare = (a.clientName ?? "").localeCompare(b.clientName ?? "");
-        if (clientCompare !== 0) return clientCompare;
-        return a.name.localeCompare(b.name);
-      });
+      filtered = [...projects];
+    } else {
+      filtered = projects.filter(p => p.clientId === selectedClientId);
+    }
 
-      // Group by client for display
+    // Then, filter by global project selection from sidebar
+    if (globalProjectId !== "all") {
+      filtered = filtered.filter(p => p.id === globalProjectId);
+    }
+
+    // Sort
+    filtered = filtered.sort((a, b) => {
+      const clientCompare = (a.clientName ?? "").localeCompare(b.clientName ?? "");
+      if (clientCompare !== 0) return clientCompare;
+      return a.name.localeCompare(b.name);
+    });
+
+    // Group by client when showing multiple clients
+    if (selectedClientId === "all" && globalProjectId === "all") {
       const groupMap = new Map<string, ProjectGroup>();
       for (const project of filtered) {
         const clientId = project.clientId;
@@ -90,29 +104,35 @@ export function ProjectsAdminView() {
         groupMap.get(clientId)!.projects.push(project);
       }
 
-      // Sort groups by client name
       const groups = Array.from(groupMap.values()).sort((a, b) =>
         a.clientName.localeCompare(b.clientName)
       );
 
       return { filteredProjects: filtered, projectGroups: groups, showGrouped: groups.length > 1 };
-    } else {
-      // Filter by selected client
-      filtered = projects
-        .filter(p => p.clientId === selectedClientId)
-        .sort((a, b) => a.name.localeCompare(b.name));
-
-      return { filteredProjects: filtered, projectGroups: [], showGrouped: false };
     }
-  }, [projects, selectedClientId]);
 
-  const title = selectedClientId === "all"
-    ? "Tous les projets"
-    : `Projets de ${selectedClient?.name ?? ""}`;
+    return { filteredProjects: filtered, projectGroups: [], showGrouped: false };
+  }, [projects, selectedClientId, globalProjectId]);
 
-  const subtitle = selectedClientId === "all"
-    ? "Accédez à tous les projets, triés par client."
-    : "Accédez aux projets de ce client, inspectez le journey board et gérez les challenges.";
+  const title = useMemo(() => {
+    if (globalProjectId !== "all" && globalSelectedProject) {
+      return globalSelectedProject.name;
+    }
+    if (selectedClientId === "all") {
+      return "Tous les projets";
+    }
+    return `Projets de ${selectedClient?.name ?? ""}`;
+  }, [globalProjectId, globalSelectedProject, selectedClientId, selectedClient]);
+
+  const subtitle = useMemo(() => {
+    if (globalProjectId !== "all" && globalSelectedProject) {
+      return `Projet sélectionné • ${globalSelectedProject.clientName ?? ""}`;
+    }
+    if (selectedClientId === "all") {
+      return "Accédez à tous les projets, triés par client.";
+    }
+    return "Accédez aux projets de ce client, inspectez le journey board et gérez les challenges.";
+  }, [globalProjectId, globalSelectedProject, selectedClientId]);
 
   return (
     <div className="space-y-6">
