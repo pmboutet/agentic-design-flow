@@ -153,6 +153,7 @@ export interface PromptVariables {
   ask_question?: string;
   ask_description?: string;
   participant_name?: string;
+  participant_description?: string;
   participant_role?: string;
   project_name?: string;
   challenge_name?: string;
@@ -163,7 +164,7 @@ export interface PromptVariables {
   system_prompt_project?: string;
   system_prompt_challenge?: string;
   participants?: string; // Comma-separated string for templates
-  participants_list?: Array<{ name: string; role?: string | null }>; // Array for Handlebars
+  participants_list?: Array<{ name: string; role?: string | null; description?: string | null }>; // Array for Handlebars
   // Pacing variables (static configuration)
   expected_duration_minutes?: string;
   duration_per_step?: string;

@@ -27,6 +27,7 @@ function createMockParticipant(overrides: Partial<ConversationParticipantSummary
   return {
     name: 'Alice Martin',
     role: 'Manager',
+    description: null,
     ...overrides,
   };
 }
@@ -346,6 +347,65 @@ describe('Agent Variables', () => {
       expect(variables.participant_name).toBe('');
     });
 
+    test('should include participant_description from last user message sender', () => {
+      const context = createMinimalContext();
+      context.participants = [
+        createMockParticipant({ name: 'Alice', role: 'Manager', description: 'Senior PM with 10 years experience' }),
+        createMockParticipant({ name: 'Bob', role: 'Developer', description: 'Full-stack developer specializing in React' }),
+      ];
+      context.messages = [
+        createMockMessage({ senderType: 'user', senderName: 'Alice', content: 'First message' }),
+        createMockMessage({ senderType: 'ai', senderName: null, content: 'AI response' }),
+        createMockMessage({ senderType: 'user', senderName: 'Bob', content: 'Last message' }),
+      ];
+
+      const variables = buildConversationAgentVariables(context);
+
+      expect(variables.participant_description).toBe('Full-stack developer specializing in React');
+    });
+
+    test('should return empty string for participant_description when participant not found', () => {
+      const context = createMinimalContext();
+      context.participants = [
+        createMockParticipant({ name: 'Alice', description: 'Alice description' }),
+      ];
+      context.messages = [
+        createMockMessage({ senderType: 'user', senderName: 'Unknown', content: 'Message' }),
+      ];
+
+      const variables = buildConversationAgentVariables(context);
+
+      expect(variables.participant_description).toBe('');
+    });
+
+    test('should return empty string for participant_description when description is null', () => {
+      const context = createMinimalContext();
+      context.participants = [
+        createMockParticipant({ name: 'Alice', description: null }),
+      ];
+      context.messages = [
+        createMockMessage({ senderType: 'user', senderName: 'Alice', content: 'Message' }),
+      ];
+
+      const variables = buildConversationAgentVariables(context);
+
+      expect(variables.participant_description).toBe('');
+    });
+
+    test('should return empty string for participant_description when no user messages', () => {
+      const context = createMinimalContext();
+      context.participants = [
+        createMockParticipant({ name: 'Alice', description: 'Alice description' }),
+      ];
+      context.messages = [
+        createMockMessage({ senderType: 'ai', senderName: null, content: 'AI message' }),
+      ];
+
+      const variables = buildConversationAgentVariables(context);
+
+      expect(variables.participant_description).toBe('');
+    });
+
     test('should format participants as comma-separated string (legacy format)', () => {
       const context = createMinimalContext();
       context.participants = [
@@ -373,15 +433,16 @@ describe('Agent Variables', () => {
     test('should include participants_list as array for Handlebars iteration', () => {
       const context = createMinimalContext();
       context.participants = [
-        createMockParticipant({ name: 'Alice', role: 'Manager' }),
-        createMockParticipant({ name: 'Bob', role: 'Developer' }),
+        createMockParticipant({ name: 'Alice', role: 'Manager', description: 'PM expert' }),
+        createMockParticipant({ name: 'Bob', role: 'Developer', description: null }),
       ];
 
       const variables = buildConversationAgentVariables(context);
 
       expect(Array.isArray(variables.participants_list)).toBe(true);
       expect(variables.participants_list).toHaveLength(2);
-      expect(variables.participants_list![0]).toEqual({ name: 'Alice', role: 'Manager' });
+      expect(variables.participants_list![0]).toEqual({ name: 'Alice', role: 'Manager', description: 'PM expert' });
+      expect(variables.participants_list![1]).toEqual({ name: 'Bob', role: 'Developer', description: null });
     });
 
     test('should handle empty participants list', () => {
@@ -866,6 +927,7 @@ describe('PROMPT_VARIABLES Constants', () => {
     const keys = participantVars.map(v => v.key);
 
     expect(keys).toContain('participant_name');
+    expect(keys).toContain('participant_description');
     expect(keys).toContain('participants');
     expect(keys).toContain('participants_list');
   });
