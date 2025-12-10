@@ -631,15 +631,19 @@ export async function POST(
               if (fullContent.trim()) {
                 const aiMetadata = { senderName: 'Agent' } satisfies Record<string, unknown>;
 
+                // Use admin client for AI message insertion to bypass RLS
+                // This ensures AI responses are always saved, regardless of user permissions
+                const insertClient = await getAdminClient();
+
                 // Trouver le dernier message utilisateur pour le lier comme parent
                 // On récupère les messages depuis la base pour trouver le dernier message utilisateur
-                const { data: recentMessages } = await dataClient
+                const { data: recentMessages } = await insertClient
                   .from('messages')
                   .select('id, sender_type')
                   .eq('ask_session_id', askRow.id)
                   .order('created_at', { ascending: false })
                   .limit(10);
-                
+
                 const lastUserMessage = (recentMessages ?? []).find(msg => msg.sender_type === 'user');
                 const parentMessageId = lastUserMessage?.id ?? null;
 
@@ -647,9 +651,9 @@ export async function POST(
                 let planStepId: string | null = null;
                 if (conversationThread) {
                   try {
-                    const plan = await getConversationPlanWithSteps(dataClient, conversationThread.id);
+                    const plan = await getConversationPlanWithSteps(insertClient, conversationThread.id);
                     if (plan) {
-                      const activeStep = await getActiveStep(dataClient, plan.id);
+                      const activeStep = await getActiveStep(insertClient, plan.id);
                       if (activeStep) {
                         planStepId = activeStep.id;
                       }
@@ -660,7 +664,7 @@ export async function POST(
                   }
                 }
 
-                const { data: insertedRows, error: insertError } = await dataClient
+                const { data: insertedRows, error: insertError } = await insertClient
                   .from('messages')
                   .insert({
                     ask_session_id: askRow.id,
@@ -676,11 +680,13 @@ export async function POST(
                   .limit(1);
 
                 if (insertError) {
-                  if (isPermissionDenied(insertError)) {
-                    console.error('Permission denied while storing AI response:', insertError);
-                  } else {
-                    console.error('Error storing AI response:', insertError);
-                  }
+                  console.error('Error storing AI response:', insertError);
+                  // Send error event to client so they know the message wasn't saved
+                  const errorData = JSON.stringify({
+                    type: 'error',
+                    error: 'Failed to save AI response to database'
+                  });
+                  controller.enqueue(encoder.encode(`data: ${errorData}\n\n`));
                 } else {
                   const inserted = insertedRows?.[0] as MessageRow | undefined;
                   if (inserted) {
@@ -709,7 +715,9 @@ export async function POST(
                       const detectedStepId = detectStepCompletion(fullContent.trim());
                       if (detectedStepId) {
                         try {
-                          const plan = await getConversationPlanWithSteps(dataClient, conversationThread.id);
+                          // Use admin client to ensure we can read the plan regardless of RLS
+                          const adminForPlan = await getAdminClient();
+                          const plan = await getConversationPlanWithSteps(adminForPlan, conversationThread.id);
                           if (plan) {
                             const currentStep = getCurrentStep(plan);
 
