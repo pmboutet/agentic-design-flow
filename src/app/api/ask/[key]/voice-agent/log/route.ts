@@ -36,6 +36,7 @@ interface ParticipantRow {
   participant_name?: string | null;
   participant_email?: string | null;
   role?: string | null;
+  description?: string | null;
   user_id?: string | null;
 }
 
@@ -149,6 +150,7 @@ export async function POST(
         name: buildParticipantDisplayName(row, user, index),
         email: row.participant_email ?? user?.email ?? null,
         role: row.role ?? null,
+        description: row.description ?? null,
         isSpokesperson: Boolean(row.is_spokesperson),
         isActive: true,
       };
@@ -263,7 +265,7 @@ export async function POST(
       }
     }
 
-    const participantSummaries = participants.map(p => ({ name: p.name, role: p.role ?? null }));
+    const participantSummaries = participants.map(p => ({ name: p.name, role: p.role ?? null, description: p.description ?? null }));
 
     // Format messages as JSON (same as agent-config/route.ts)
     const conversationMessagesPayload = messages.map(message => ({

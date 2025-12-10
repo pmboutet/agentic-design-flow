@@ -44,7 +44,7 @@ async function main() {
 
   const { data: participantRows } = await supabase
     .from('ask_participants')
-    .select('id, participant_name, role')
+    .select('id, participant_name, role, description')
     .eq('ask_session_id', askRow.id)
     .order('joined_at', { ascending: true });
 
@@ -52,6 +52,7 @@ async function main() {
     (participantRows ?? []).map((row: any) => ({
       name: row.participant_name ?? 'Participant',
       role: row.role ?? null,
+      description: row.description ?? null,
     }));
 
   const variables = buildConversationAgentVariables({
