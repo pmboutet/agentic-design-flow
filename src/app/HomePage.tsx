@@ -423,9 +423,11 @@ export default function HomePage() {
   const [isReplyBoxFocused, setIsReplyBoxFocused] = useState(false);
   const [isVoiceModeActive, setIsVoiceModeActive] = useState(false);
 
-  // Session timer with intelligent pause/resume logic
+  // Session timer with intelligent pause/resume logic and persistence
   const sessionTimer = useSessionTimer({
     inactivityTimeout: 30000, // 30 seconds before pause
+    askKey: sessionData.askKey || undefined, // Enable persistence when askKey is available
+    inviteToken: sessionData.inviteToken,
   });
 
   const autoCollapseTriggeredRef = useRef(false);

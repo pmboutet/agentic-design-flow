@@ -3,16 +3,43 @@
  * @jest-environment jsdom
  */
 
-import { renderHook, act } from '@testing-library/react';
+import { renderHook, act, waitFor } from '@testing-library/react';
 import { useSessionTimer } from '../useSessionTimer';
+
+// Mock fetch for server sync tests
+const mockFetch = jest.fn();
+
+// Mock navigator.sendBeacon
+const mockSendBeacon = jest.fn();
 
 describe('useSessionTimer', () => {
   beforeEach(() => {
     jest.useFakeTimers();
+    mockFetch.mockReset();
+    mockSendBeacon.mockReset();
+    localStorage.clear();
+
+    // Setup global mocks
+    global.fetch = mockFetch;
+    Object.defineProperty(navigator, 'sendBeacon', {
+      value: mockSendBeacon,
+      writable: true,
+      configurable: true,
+    });
+
+    // Default mock for fetch - returns empty data
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({
+        success: true,
+        data: { elapsedActiveSeconds: 0, participantId: 'p1' },
+      }),
+    });
   });
 
   afterEach(() => {
     jest.useRealTimers();
+    jest.clearAllMocks();
   });
 
   describe('initialization', () => {
@@ -32,6 +59,11 @@ describe('useSessionTimer', () => {
 
       expect(result.current.elapsedSeconds).toBe(120);
       expect(result.current.elapsedMinutes).toBe(2);
+    });
+
+    it('should initialize isSyncing as false', () => {
+      const { result } = renderHook(() => useSessionTimer());
+      expect(result.current.isSyncing).toBe(false);
     });
   });
 
@@ -330,6 +362,274 @@ describe('useSessionTimer', () => {
     });
   });
 
+  describe('localStorage persistence', () => {
+    it('should save to localStorage when askKey is provided', () => {
+      const { result } = renderHook(() =>
+        useSessionTimer({ askKey: 'test-ask-123' })
+      );
+
+      act(() => {
+        jest.advanceTimersByTime(5000);
+      });
+
+      const stored = localStorage.getItem('session_timer_test-ask-123');
+      expect(stored).toBe('5');
+    });
+
+    it('should load from localStorage on mount when askKey is provided', () => {
+      localStorage.setItem('session_timer_test-ask-456', '120');
+
+      const { result } = renderHook(() =>
+        useSessionTimer({ askKey: 'test-ask-456' })
+      );
+
+      expect(result.current.elapsedSeconds).toBe(120);
+    });
+
+    it('should use max of localStorage and initialElapsedSeconds', () => {
+      localStorage.setItem('session_timer_test-ask-789', '50');
+
+      const { result } = renderHook(() =>
+        useSessionTimer({
+          askKey: 'test-ask-789',
+          initialElapsedSeconds: 100,
+        })
+      );
+
+      // Should use initialElapsedSeconds (100) because it's higher
+      expect(result.current.elapsedSeconds).toBe(100);
+    });
+
+    it('should not use localStorage when askKey is not provided', () => {
+      localStorage.setItem('session_timer_some-key', '200');
+
+      const { result } = renderHook(() => useSessionTimer());
+
+      expect(result.current.elapsedSeconds).toBe(0);
+    });
+
+    it('should update localStorage on reset', () => {
+      localStorage.setItem('session_timer_test-reset', '100');
+
+      const { result } = renderHook(() =>
+        useSessionTimer({ askKey: 'test-reset' })
+      );
+
+      expect(result.current.elapsedSeconds).toBe(100);
+
+      act(() => {
+        result.current.reset();
+      });
+
+      expect(result.current.elapsedSeconds).toBe(0);
+      expect(localStorage.getItem('session_timer_test-reset')).toBe('0');
+    });
+  });
+
+  describe('server sync', () => {
+    it('should fetch from server on mount when askKey is provided', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({
+          success: true,
+          data: { elapsedActiveSeconds: 150, participantId: 'p1' },
+        }),
+      });
+
+      renderHook(() =>
+        useSessionTimer({ askKey: 'test-server-fetch' })
+      );
+
+      // Flush promises
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/ask/test-server-fetch/timer',
+        expect.any(Object)
+      );
+    });
+
+    it('should include invite token in fetch headers when provided', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({
+          success: true,
+          data: { elapsedActiveSeconds: 0, participantId: 'p1' },
+        }),
+      });
+
+      renderHook(() =>
+        useSessionTimer({
+          askKey: 'test-token',
+          inviteToken: 'my-invite-token',
+        })
+      );
+
+      // Flush promises
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/ask/test-token/timer',
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            'X-Invite-Token': 'my-invite-token',
+          }),
+        })
+      );
+    });
+
+    it('should use max of localStorage and server value', async () => {
+      localStorage.setItem('session_timer_test-max', '50');
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({
+          success: true,
+          data: { elapsedActiveSeconds: 100, participantId: 'p1' },
+        }),
+      });
+
+      const { result } = renderHook(() =>
+        useSessionTimer({ askKey: 'test-max' })
+      );
+
+      // Initially loads from localStorage
+      expect(result.current.elapsedSeconds).toBe(50);
+
+      // Flush promises to let server fetch complete
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      // After server fetch, should use server value (100 > 50)
+      expect(result.current.elapsedSeconds).toBe(100);
+    });
+
+    it('should sync to server periodically when running', async () => {
+      const { result } = renderHook(() =>
+        useSessionTimer({ askKey: 'test-periodic' })
+      );
+
+      // Flush initial fetch
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      mockFetch.mockClear();
+
+      // Keep timer running with activity
+      act(() => {
+        result.current.notifyUserTyping(true);
+      });
+
+      // Advance 30 seconds (sync interval)
+      act(() => {
+        jest.advanceTimersByTime(30000);
+      });
+
+      // Flush promises
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      // Should have made a PATCH request
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/ask/test-periodic/timer',
+        expect.objectContaining({
+          method: 'PATCH',
+        })
+      );
+    });
+
+    it('should sync to server on pause', async () => {
+      const { result } = renderHook(() =>
+        useSessionTimer({
+          askKey: 'test-pause-sync',
+          inactivityTimeout: 5000,
+        })
+      );
+
+      // Wait for initial fetch
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      mockFetch.mockClear();
+
+      // Let it pause
+      act(() => {
+        jest.advanceTimersByTime(5000);
+      });
+
+      // Flush promises
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(result.current.isPaused).toBe(true);
+
+      // Should have synced to server on pause
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/ask/test-pause-sync/timer',
+        expect.objectContaining({
+          method: 'PATCH',
+        })
+      );
+    });
+
+    it('should call onServerSync callback when syncing', async () => {
+      const onServerSync = jest.fn();
+
+      const { result } = renderHook(() =>
+        useSessionTimer({
+          askKey: 'test-callback',
+          onServerSync,
+        })
+      );
+
+      await act(async () => {
+        await result.current.syncToServer();
+      });
+
+      expect(onServerSync).toHaveBeenCalledWith(
+        expect.any(Number),
+        true
+      );
+    });
+
+    it('should return false from syncToServer when askKey is not provided', async () => {
+      const { result } = renderHook(() => useSessionTimer());
+
+      let syncResult: boolean = true;
+      await act(async () => {
+        syncResult = await result.current.syncToServer();
+      });
+
+      expect(syncResult).toBe(false);
+    });
+
+    it('should handle server fetch errors gracefully', async () => {
+      mockFetch.mockRejectedValueOnce(new Error('Network error'));
+
+      const { result } = renderHook(() =>
+        useSessionTimer({ askKey: 'test-error' })
+      );
+
+      // Should not throw - flush promises
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      // Timer should still work
+      expect(result.current.elapsedSeconds).toBe(0);
+      expect(result.current.timerState).toBe('running');
+    });
+  });
+
   describe('cleanup', () => {
     it('should cleanup timers on unmount', () => {
       const { result, unmount } = renderHook(() => useSessionTimer());
@@ -342,10 +642,23 @@ describe('useSessionTimer', () => {
 
       unmount();
 
-      // Should not throw or cause issues
-      act(() => {
-        jest.advanceTimersByTime(100000);
-      });
+      // Should not throw or cause issues - advance timers after unmount
+      jest.advanceTimersByTime(100000);
+    });
+
+    it('should use sendBeacon on page unload when askKey is provided', () => {
+      renderHook(() =>
+        useSessionTimer({ askKey: 'test-beacon' })
+      );
+
+      // Simulate beforeunload
+      const event = new Event('beforeunload');
+      window.dispatchEvent(event);
+
+      expect(mockSendBeacon).toHaveBeenCalledWith(
+        '/api/ask/test-beacon/timer',
+        expect.any(Blob)
+      );
     });
   });
 });
