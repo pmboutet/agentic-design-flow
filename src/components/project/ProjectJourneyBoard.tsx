@@ -2139,7 +2139,7 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
     return (
       <div className="space-y-3">
         {rows.map(row => (
-          <div key={row.id} className="rounded-lg border border-white/10 bg-slate-900/70 p-4 shadow-sm">
+          <div key={row.id} className="rounded-lg border border-yellow-400/30 bg-yellow-500/10 p-4 shadow-sm">
             <div className="flex flex-wrap items-center gap-2 text-xs font-semibold text-slate-200">
               <span className={cn("rounded-full border px-2 py-0.5", insightTypeClasses[row.type])}>
                 {row.type.toUpperCase()}
