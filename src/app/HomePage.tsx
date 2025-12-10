@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SessionData, Ask, Message, Insight, Challenge, ApiResponse, ConversationPlan } from "@/types";
 import { ConversationProgressBar } from "@/components/conversation/ConversationProgressBar";
-import { estimateActiveDuration } from "@/lib/pacing";
+import { useSessionTimer } from "@/hooks/useSessionTimer";
 import {
   validateAskKey,
   parseErrorMessage,
@@ -82,6 +82,12 @@ interface MobileLayoutProps {
   timelineLabel: string | null;
   timeRemaining: string | null;
   onInsightUpdate: (insightId: string, newContent: string) => void;
+  /** Session timer elapsed minutes */
+  sessionElapsedMinutes: number;
+  /** Whether the session timer is paused */
+  isSessionTimerPaused: boolean;
+  /** Notify session timer of user typing */
+  onUserTyping: (isTyping: boolean) => void;
 }
 
 /**
@@ -112,6 +118,9 @@ function MobileLayout({
   timelineLabel,
   timeRemaining,
   onInsightUpdate,
+  sessionElapsedMinutes,
+  isSessionTimerPaused,
+  onUserTyping,
 }: MobileLayoutProps) {
   const [panelWidth, setPanelWidth] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -301,7 +310,8 @@ function MobileLayout({
                   <ConversationProgressBar
                     steps={sessionData.conversationPlan.plan_data.steps}
                     currentStepId={sessionData.conversationPlan.current_step_id}
-                    elapsedMinutes={estimateActiveDuration(sessionData.messages)}
+                    elapsedMinutes={sessionElapsedMinutes}
+                    isTimerPaused={isSessionTimerPaused}
                   />
                 </div>
               )}
@@ -314,6 +324,7 @@ function MobileLayout({
                   conversationPlan={sessionData.conversationPlan}
                   onSendMessage={onSendMessage}
                   isLoading={sessionData.isLoading}
+                  onHumanTyping={onUserTyping}
                   currentParticipantName={currentParticipantName}
                   isMultiUser={Boolean(sessionData.ask && sessionData.ask.participants.length > 1)}
                   showAgentTyping={awaitingAiResponse && !isDetectingInsights}
@@ -411,6 +422,12 @@ export default function HomePage() {
   const [isDetailsCollapsed, setIsDetailsCollapsed] = useState(false);
   const [isReplyBoxFocused, setIsReplyBoxFocused] = useState(false);
   const [isVoiceModeActive, setIsVoiceModeActive] = useState(false);
+
+  // Session timer with intelligent pause/resume logic
+  const sessionTimer = useSessionTimer({
+    inactivityTimeout: 30000, // 30 seconds before pause
+  });
+
   const autoCollapseTriggeredRef = useRef(false);
   const previousMessageCountRef = useRef(0);
   // Mobile view states
@@ -462,7 +479,17 @@ export default function HomePage() {
     activeAiResponsesRef.current = Math.max(0, activeAiResponsesRef.current - 1);
     setAwaitingAiResponse(activeAiResponsesRef.current > 0);
   }, [setAwaitingAiResponse]);
-  
+
+  // Connect AI streaming state to session timer
+  useEffect(() => {
+    sessionTimer.notifyAiStreaming(awaitingAiResponse);
+  }, [awaitingAiResponse, sessionTimer]);
+
+  // Connect voice mode state to session timer
+  useEffect(() => {
+    sessionTimer.notifyVoiceActive(isVoiceModeActive);
+  }, [isVoiceModeActive, sessionTimer]);
+
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
       if (data?.user?.id) {
@@ -2239,6 +2266,9 @@ export default function HomePage() {
           timelineLabel={timelineLabel}
           timeRemaining={timeRemaining}
           onInsightUpdate={handleInsightUpdate}
+          sessionElapsedMinutes={sessionTimer.elapsedMinutes}
+          isSessionTimerPaused={sessionTimer.isPaused}
+          onUserTyping={sessionTimer.notifyUserTyping}
         />
       ) : (
         <main className="flex h-[calc(100dvh-88px)] overflow-hidden gap-6 p-6 min-w-0">
@@ -2254,7 +2284,8 @@ export default function HomePage() {
                 <ConversationProgressBar
                   steps={sessionData.conversationPlan.plan_data.steps}
                   currentStepId={sessionData.conversationPlan.current_step_id}
-                  elapsedMinutes={estimateActiveDuration(sessionData.messages)}
+                  elapsedMinutes={sessionTimer.elapsedMinutes}
+                  isTimerPaused={sessionTimer.isPaused}
                 />
               )}
               <div className="flex-1 overflow-hidden">
@@ -2266,6 +2297,7 @@ export default function HomePage() {
                   conversationPlan={sessionData.conversationPlan}
                   onSendMessage={handleSendMessage}
                   isLoading={sessionData.isLoading}
+                  onHumanTyping={sessionTimer.notifyUserTyping}
                   currentParticipantName={currentParticipantName}
                   isMultiUser={Boolean(sessionData.ask && sessionData.ask.participants.length > 1)}
                   showAgentTyping={awaitingAiResponse && !isDetectingInsights}
