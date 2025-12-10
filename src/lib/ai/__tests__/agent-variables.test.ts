@@ -3,7 +3,7 @@
  * Tests all variables for both text conversation agents and voice/speech agents
  */
 
-import { buildConversationAgentVariables, ConversationAgentContext, ConversationMessageSummary, ConversationParticipantSummary } from '../conversation-agent';
+import { buildConversationAgentVariables, buildParticipantDetails, ConversationAgentContext, ConversationMessageSummary, ConversationParticipantSummary } from '../conversation-agent';
 import { PROMPT_VARIABLES, HANDLEBARS_HELPERS_DOC } from '../constants';
 import type { Insight } from '@/types';
 
@@ -469,6 +469,90 @@ describe('Agent Variables', () => {
       // The participants string should only include valid participants
       expect(variables.participants).toBe('Alice (Manager), Bob (Analyst)');
     });
+
+    test('should include participant_details with name, role, and description', () => {
+      const context = createMinimalContext();
+      context.participants = [
+        createMockParticipant({
+          name: 'Alice Martin',
+          role: 'Product Manager',
+          description: '5 ans d\'expérience en transformation digitale',
+        }),
+      ];
+      context.messages = [
+        createMockMessage({ senderType: 'user', senderName: 'Alice Martin', content: 'Hello' }),
+      ];
+
+      const variables = buildConversationAgentVariables(context);
+
+      expect(variables.participant_details).toContain('Nom: Alice Martin');
+      expect(variables.participant_details).toContain('Rôle: Product Manager');
+      expect(variables.participant_details).toContain('Description: 5 ans d\'expérience en transformation digitale');
+    });
+
+    test('should include participant_details with only name and role when no description', () => {
+      const context = createMinimalContext();
+      context.participants = [
+        createMockParticipant({
+          name: 'Bob Dupont',
+          role: 'Developer',
+          description: null,
+        }),
+      ];
+      context.messages = [
+        createMockMessage({ senderType: 'user', senderName: 'Bob Dupont', content: 'Hello' }),
+      ];
+
+      const variables = buildConversationAgentVariables(context);
+
+      expect(variables.participant_details).toContain('Nom: Bob Dupont');
+      expect(variables.participant_details).toContain('Rôle: Developer');
+      expect(variables.participant_details).not.toContain('Description:');
+    });
+
+    test('should include participant_details with only name when no role or description', () => {
+      const context = createMinimalContext();
+      context.participants = [
+        createMockParticipant({
+          name: 'Charlie',
+          role: null,
+          description: null,
+        }),
+      ];
+      context.messages = [
+        createMockMessage({ senderType: 'user', senderName: 'Charlie', content: 'Hello' }),
+      ];
+
+      const variables = buildConversationAgentVariables(context);
+
+      expect(variables.participant_details).toBe('Nom: Charlie');
+    });
+
+    test('should return empty participant_details when participant not found', () => {
+      const context = createMinimalContext();
+      context.participants = [
+        createMockParticipant({ name: 'Alice' }),
+      ];
+      context.messages = [
+        createMockMessage({ senderType: 'user', senderName: 'Unknown', content: 'Hello' }),
+      ];
+
+      const variables = buildConversationAgentVariables(context);
+
+      expect(variables.participant_details).toBe('');
+    });
+
+    test('should return empty participant_details when no user messages', () => {
+      const context = createMinimalContext();
+      context.participants = [
+        createMockParticipant({ name: 'Alice', role: 'Manager', description: 'Expert PM' }),
+      ];
+      context.messages = [];
+
+      const variables = buildConversationAgentVariables(context);
+
+      expect(variables.participant_details).toBe('');
+    });
   });
 
   // --------------------------------------------------------------------------
@@ -928,6 +1012,7 @@ describe('PROMPT_VARIABLES Constants', () => {
 
     expect(keys).toContain('participant_name');
     expect(keys).toContain('participant_description');
+    expect(keys).toContain('participant_details');
     expect(keys).toContain('participants');
     expect(keys).toContain('participants_list');
   });
@@ -1390,6 +1475,120 @@ describe('Time Tracking Variables (Activity-Based Estimation)', () => {
     // Should be 0.75 + 1.5 = 2.25 min, NOT 5 hours!
     const elapsed = parseFloat(variables.conversation_elapsed_minutes as string);
     expect(elapsed).toBeCloseTo(2.3, 1);
+  });
+});
+
+// ============================================================================
+// buildParticipantDetails FUNCTION TESTS
+// ============================================================================
+
+describe('buildParticipantDetails', () => {
+  test('should return formatted string with name, role, and description', () => {
+    const participant = {
+      name: 'Alice Martin',
+      role: 'Product Manager',
+      description: 'Expert en transformation digitale',
+    };
+
+    const result = buildParticipantDetails(participant);
+
+    expect(result).toBe('Nom: Alice Martin\nRôle: Product Manager\nDescription: Expert en transformation digitale');
+  });
+
+  test('should return formatted string with name and role when no description', () => {
+    const participant = {
+      name: 'Bob Dupont',
+      role: 'Developer',
+      description: null,
+    };
+
+    const result = buildParticipantDetails(participant);
+
+    expect(result).toBe('Nom: Bob Dupont\nRôle: Developer');
+  });
+
+  test('should return formatted string with name only when no role or description', () => {
+    const participant = {
+      name: 'Charlie',
+      role: null,
+      description: null,
+    };
+
+    const result = buildParticipantDetails(participant);
+
+    expect(result).toBe('Nom: Charlie');
+  });
+
+  test('should return empty string when name is empty', () => {
+    const participant = {
+      name: '',
+      role: 'Manager',
+      description: 'Some description',
+    };
+
+    const result = buildParticipantDetails(participant);
+
+    expect(result).toBe('');
+  });
+
+  test('should return empty string when name is whitespace only', () => {
+    const participant = {
+      name: '   ',
+      role: 'Manager',
+      description: 'Some description',
+    };
+
+    const result = buildParticipantDetails(participant);
+
+    expect(result).toBe('');
+  });
+
+  test('should trim whitespace from name, role, and description', () => {
+    const participant = {
+      name: '  Alice Martin  ',
+      role: '  Product Manager  ',
+      description: '  Expert PM  ',
+    };
+
+    const result = buildParticipantDetails(participant);
+
+    expect(result).toBe('Nom: Alice Martin\nRôle: Product Manager\nDescription: Expert PM');
+  });
+
+  test('should skip empty role', () => {
+    const participant = {
+      name: 'Alice',
+      role: '   ',
+      description: 'Expert PM',
+    };
+
+    const result = buildParticipantDetails(participant);
+
+    expect(result).toBe('Nom: Alice\nDescription: Expert PM');
+  });
+
+  test('should skip empty description', () => {
+    const participant = {
+      name: 'Alice',
+      role: 'Manager',
+      description: '   ',
+    };
+
+    const result = buildParticipantDetails(participant);
+
+    expect(result).toBe('Nom: Alice\nRôle: Manager');
+  });
+
+  test('should handle undefined role and description', () => {
+    const participant = {
+      name: 'Alice',
+      role: undefined,
+      description: undefined,
+    };
+
+    const result = buildParticipantDetails(participant);
+
+    expect(result).toBe('Nom: Alice');
   });
 });
 
