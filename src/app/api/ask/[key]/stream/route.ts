@@ -497,9 +497,11 @@ export async function POST(
     const participantSummaries = participants.map(p => ({ name: p.name, role: p.role ?? null }));
 
     // Load conversation plan if thread exists
+    // Use admin client to bypass RLS and ensure we always get the plan data
     let conversationPlan = null;
     if (conversationThread) {
-      conversationPlan = await getConversationPlanWithSteps(dataClient, conversationThread.id);
+      const planClient = await getAdminClient();
+      conversationPlan = await getConversationPlanWithSteps(planClient, conversationThread.id);
     }
 
     // Parse the request body to get the new user message
