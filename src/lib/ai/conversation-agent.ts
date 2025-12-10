@@ -58,6 +58,32 @@ function buildParticipantsSummary(participants: ConversationParticipantSummary[]
 }
 
 /**
+ * Build a detailed participant string with name, role, and description
+ */
+export function buildParticipantDetails(participant: ConversationParticipantSummary): string {
+  const parts: string[] = [];
+
+  // Name is required
+  const name = participant.name?.trim();
+  if (!name) {
+    return '';
+  }
+  parts.push(`Nom: ${name}`);
+
+  // Add role if present
+  if (participant.role?.trim()) {
+    parts.push(`Rôle: ${participant.role.trim()}`);
+  }
+
+  // Add description if present
+  if (participant.description?.trim()) {
+    parts.push(`Description: ${participant.description.trim()}`);
+  }
+
+  return parts.join('\n');
+}
+
+/**
  * Helper function to format message history as text (legacy format)
  */
 function formatMessageHistory(messages: ConversationMessageSummary[]): string {
@@ -317,6 +343,11 @@ export function buildConversationAgentVariables(context: ConversationAgentContex
     ? context.participants.find(p => p.name === lastUserMessage.senderName)
     : null;
 
+  // Build participant_details with full info (name, role, description)
+  const participantDetails = lastUserParticipant
+    ? buildParticipantDetails(lastUserParticipant)
+    : '';
+
   // Build base variables
   const variables: PromptVariables = {
     ask_key: context.ask.ask_key,
@@ -327,6 +358,7 @@ export function buildConversationAgentVariables(context: ConversationAgentContex
     participants_list: context.participants,
     participant_name: lastUserMessage?.senderName ?? '',
     participant_description: lastUserParticipant?.description ?? '',
+    participant_details: participantDetails,
     // Messages (modern JSON format)
     messages_json: JSON.stringify(conversationMessagesPayload),
     // Internal: messages as array for Handlebars helpers (recentMessages)
