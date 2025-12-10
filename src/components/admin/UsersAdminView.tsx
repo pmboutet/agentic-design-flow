@@ -19,6 +19,7 @@ import { Label } from "@/components/ui/label";
 import { UserSearchCombobox } from "@/components/ui/user-search-combobox";
 import { UserEditModal } from "@/components/admin/UserEditModal";
 import { useClientContext } from "@/components/admin/ClientContext";
+import { useProjectContext } from "@/components/admin/ProjectContext";
 import type { ClientRecord, ClientRole, ManagedUser, ProjectRecord } from "@/types";
 
 const userRoles = ["full_admin", "client_admin", "facilitator", "manager", "participant"] as const;
@@ -83,6 +84,8 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
 export function UsersAdminView() {
   // Get global client selection from context
   const { selectedClientId: contextClientId, clients: contextClients } = useClientContext();
+  // Get global project selection from context
+  const { selectedProjectId: contextProjectId, selectedProject: contextSelectedProject } = useProjectContext();
 
   const [users, setUsers] = useState<ManagedUser[]>([]);
   const [clients, setClients] = useState<ClientRecord[]>([]);
@@ -94,7 +97,8 @@ export function UsersAdminView() {
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   // Local filter only used when contextClientId is "all"
   const [localClientFilter, setLocalClientFilter] = useState<string | null>(null);
-  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  // Local project filter only used when contextProjectId is "all"
+  const [localProjectFilter, setLocalProjectFilter] = useState<string | null>(null);
   const [selectedUserForProject, setSelectedUserForProject] = useState<ManagedUser | null>(null);
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<ManagedUser | null>(null);
@@ -103,11 +107,15 @@ export function UsersAdminView() {
   const isContextClientSpecific = contextClientId !== "all";
   const selectedClientId = isContextClientSpecific ? contextClientId : localClientFilter;
 
-  // Reset local filters when context client changes
+  // Effective project ID: use context selection if specific, otherwise use local filter
+  const isContextProjectSpecific = contextProjectId !== "all";
+  const selectedProjectId = isContextProjectSpecific ? contextProjectId : localProjectFilter;
+
+  // Reset local filters when context client or project changes
   useEffect(() => {
     setLocalClientFilter(null);
-    setSelectedProjectId(null);
-  }, [contextClientId]);
+    setLocalProjectFilter(null);
+  }, [contextClientId, contextProjectId]);
 
   const userForm = useForm<UserFormInput>({
     resolver: zodResolver(userFormSchema),
@@ -157,8 +165,8 @@ export function UsersAdminView() {
   );
 
   const selectedProject = useMemo(
-    () => projects.find(p => p.id === selectedProjectId),
-    [projects, selectedProjectId]
+    () => contextSelectedProject ?? projects.find(p => p.id === selectedProjectId) ?? null,
+    [contextSelectedProject, projects, selectedProjectId]
   );
 
   const projectsForClient = useMemo(
@@ -178,11 +186,9 @@ export function UsersAdminView() {
       );
     }
 
-    // If a project is selected, sort members first
+    // If a project is selected, filter to only show project members
     if (selectedProjectId) {
-      const members = result.filter(u => u.projectIds?.includes(selectedProjectId));
-      const nonMembers = result.filter(u => !u.projectIds?.includes(selectedProjectId));
-      result = [...members, ...nonMembers];
+      result = result.filter(u => u.projectIds?.includes(selectedProjectId));
     }
 
     return result;
@@ -561,53 +567,57 @@ export function UsersAdminView() {
         </Alert>
       )}
 
-      {/* Filters */}
-      <div className={`grid gap-4 ${isContextClientSpecific ? "md:grid-cols-1" : "md:grid-cols-2"}`}>
-        {/* Client Filter - only show when "all" is selected in sidebar */}
-        {!isContextClientSpecific && (
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-            <div className="flex items-center gap-2 mb-3">
-              <Building2 className="h-4 w-4 text-indigo-300" />
-              <Label className="text-sm font-medium text-white">Filter by Client</Label>
+      {/* Filters - only show when "all" is selected in sidebar for respective filter */}
+      {(!isContextClientSpecific || !isContextProjectSpecific) && (
+        <div className={`grid gap-4 ${!isContextClientSpecific && !isContextProjectSpecific ? "md:grid-cols-2" : "md:grid-cols-1"}`}>
+          {/* Client Filter - only show when "all" is selected in sidebar */}
+          {!isContextClientSpecific && (
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <Building2 className="h-4 w-4 text-indigo-300" />
+                <Label className="text-sm font-medium text-white">Filter by Client</Label>
+              </div>
+              <select
+                className="w-full h-10 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm text-white"
+                value={localClientFilter ?? ""}
+                onChange={e => {
+                  setLocalClientFilter(e.target.value || null);
+                  setLocalProjectFilter(null);
+                }}
+              >
+                <option value="">All clients</option>
+                {clients.map(client => (
+                  <option key={client.id} value={client.id}>
+                    {client.name}
+                  </option>
+                ))}
+              </select>
             </div>
-            <select
-              className="w-full h-10 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm text-white"
-              value={localClientFilter ?? ""}
-              onChange={e => {
-                setLocalClientFilter(e.target.value || null);
-                setSelectedProjectId(null);
-              }}
-            >
-              <option value="">All clients</option>
-              {clients.map(client => (
-                <option key={client.id} value={client.id}>
-                  {client.name}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
+          )}
 
-        {/* Project Filter */}
-        <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-          <div className="flex items-center gap-2 mb-3">
-            <FolderKanban className="h-4 w-4 text-purple-300" />
-            <Label className="text-sm font-medium text-white">Filter by Project</Label>
-          </div>
-          <select
-            className="w-full h-10 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm text-white"
-            value={selectedProjectId ?? ""}
-            onChange={e => setSelectedProjectId(e.target.value || null)}
-          >
-            <option value="">All projects</option>
-            {projectsForClient.map(project => (
-              <option key={project.id} value={project.id}>
-                {project.name}
-              </option>
-            ))}
-          </select>
+          {/* Project Filter - only show when "all" is selected in sidebar */}
+          {!isContextProjectSpecific && (
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <FolderKanban className="h-4 w-4 text-purple-300" />
+                <Label className="text-sm font-medium text-white">Filter by Project</Label>
+              </div>
+              <select
+                className="w-full h-10 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm text-white"
+                value={localProjectFilter ?? ""}
+                onChange={e => setLocalProjectFilter(e.target.value || null)}
+              >
+                <option value="">All projects</option>
+                {projectsForClient.map(project => (
+                  <option key={project.id} value={project.id}>
+                    {project.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
-      </div>
+      )}
 
       {/* Users Section */}
       <div className="rounded-3xl border border-white/10 bg-white/5 p-5 backdrop-blur">
@@ -624,7 +634,7 @@ export function UsersAdminView() {
             </p>
             {selectedProject && (
               <p className="text-[11px] text-slate-500">
-                Members of {selectedProject.name} appear first, with other client users ready to add.
+                Showing members of {selectedProject.name} only.
               </p>
             )}
           </div>
