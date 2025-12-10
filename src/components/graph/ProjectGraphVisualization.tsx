@@ -14,6 +14,7 @@ import {
   Plus,
   RefreshCw,
   Search,
+  Sparkles,
   X,
   ZoomIn,
   ZoomOut,
@@ -333,6 +334,12 @@ export function ProjectGraphVisualization({ projectId, refreshKey }: ProjectGrap
   const [showFilters, setShowFilters] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
 
+  // Semantic search state
+  const [isSemanticSearch, setIsSemanticSearch] = useState(false);
+  const [semanticResults, setSemanticResults] = useState<Map<string, number> | null>(null);
+  const [isSearching, setIsSearching] = useState(false);
+  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
   // Refs
   const fgRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -341,6 +348,63 @@ export function ProjectGraphVisualization({ projectId, refreshKey }: ProjectGrap
   useEffect(() => {
     setIsMounted(true);
   }, []);
+
+  // Semantic search effect with debounce
+  useEffect(() => {
+    // Clear previous timeout
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+
+    // Clear results if search is empty or semantic mode is off
+    if (!isSemanticSearch || !searchQuery.trim()) {
+      setSemanticResults(null);
+      setIsSearching(false);
+      return;
+    }
+
+    // Debounce search - wait 500ms after user stops typing
+    setIsSearching(true);
+    searchTimeoutRef.current = setTimeout(async () => {
+      try {
+        const response = await fetch("/api/admin/graph/search", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            query: searchQuery,
+            searchType: "semantic",
+            projectId: projectId,
+            limit: 50,
+            threshold: 0.6, // Lower threshold to get more results
+          }),
+        });
+
+        const data = await response.json();
+
+        if (data.success && data.data) {
+          // Build map of insight ID -> similarity score
+          const resultsMap = new Map<string, number>();
+          for (const result of data.data) {
+            resultsMap.set(result.id, result.score ?? 0.7);
+          }
+          setSemanticResults(resultsMap);
+        } else {
+          setSemanticResults(null);
+        }
+      } catch (error) {
+        console.error("Semantic search error:", error);
+        setSemanticResults(null);
+      } finally {
+        setIsSearching(false);
+      }
+    }, 500);
+
+    return () => {
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current);
+      }
+    };
+  }, [searchQuery, isSemanticSearch, projectId]);
 
   // ========================================================================
   // COMPUTED VALUES
@@ -383,16 +447,39 @@ export function ProjectGraphVisualization({ projectId, refreshKey }: ProjectGrap
     return hubs;
   }, [graphData]);
 
-  // Search filter
+  // Search filter - supports both text and semantic search
   const searchMatchIds = useMemo(() => {
     if (!searchQuery.trim() || !graphData) return null;
+
+    // If semantic search is enabled, use the semantic results
+    if (isSemanticSearch && semanticResults) {
+      // For semantic search, also include connected entities/challenges via graph links
+      const matchedIds = new Set<string>(semanticResults.keys());
+
+      // Expand matches to include directly connected nodes (entities, challenges)
+      for (const link of graphData.links) {
+        const sourceId = typeof link.source === "string" ? link.source : link.source.id;
+        const targetId = typeof link.target === "string" ? link.target : link.target.id;
+
+        if (matchedIds.has(sourceId)) {
+          matchedIds.add(targetId);
+        }
+        if (matchedIds.has(targetId)) {
+          matchedIds.add(sourceId);
+        }
+      }
+
+      return matchedIds;
+    }
+
+    // Fallback to text search
     const query = searchQuery.toLowerCase();
     return new Set(
       graphData.nodes
         .filter((n) => n.label.toLowerCase().includes(query) || n.subtitle?.toLowerCase().includes(query))
         .map((n) => n.id)
     );
-  }, [searchQuery, graphData]);
+  }, [searchQuery, graphData, isSemanticSearch, semanticResults]);
 
   // Filter graph data with virtual links for hidden intermediary nodes
   const filteredGraphData = useMemo(() => {
@@ -687,10 +774,17 @@ export function ProjectGraphVisualization({ projectId, refreshKey }: ProjectGrap
         ctx.stroke();
       }
 
-      // Search highlight ring
+      // Search highlight ring - purple for semantic, yellow for text search
       if (searchMatchIds && isSearchMatch && !isSelected && !isHovered) {
-        ctx.strokeStyle = "rgba(251, 191, 36, 0.8)";
-        ctx.lineWidth = 2 / globalScale;
+        const semanticScore = semanticResults?.get(n.id);
+        if (isSemanticSearch && semanticScore !== undefined) {
+          // Purple ring for semantic matches, intensity based on score
+          ctx.strokeStyle = `rgba(168, 85, 247, ${0.5 + semanticScore * 0.5})`;
+          ctx.lineWidth = (1.5 + semanticScore * 1.5) / globalScale;
+        } else {
+          ctx.strokeStyle = "rgba(251, 191, 36, 0.8)";
+          ctx.lineWidth = 2 / globalScale;
+        }
         ctx.stroke();
       }
 
@@ -770,7 +864,7 @@ export function ProjectGraphVisualization({ projectId, refreshKey }: ProjectGrap
         ctx.fillText(line, node.x, lineY);
       });
     },
-    [selectedNode, hoveredNode, connectedNodeIds, hubNodeIds, searchMatchIds]
+    [selectedNode, hoveredNode, connectedNodeIds, hubNodeIds, searchMatchIds, semanticResults, isSemanticSearch]
   );
 
   const linkColor = useCallback(
@@ -841,25 +935,59 @@ export function ProjectGraphVisualization({ projectId, refreshKey }: ProjectGrap
 
       {/* Toolbar: Search + Filters + Legend */}
       <div className="flex flex-wrap items-center gap-2 border-b border-slate-700/50 px-4 py-2">
-        {/* Search */}
-        <div className="relative">
-          <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
-          <input
-            type="text"
-            placeholder="Rechercher..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="h-8 w-40 rounded-md border border-slate-600/50 bg-slate-800/60 pl-8 pr-3 text-xs text-white placeholder-slate-400 focus:border-yellow-500/50 focus:outline-none focus:ring-1 focus:ring-yellow-500/30"
-          />
-          {searchQuery && (
-            <button
-              onClick={() => setSearchQuery("")}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
-            >
-              <X className="h-3 w-3" />
-            </button>
-          )}
+        {/* Search with semantic toggle */}
+        <div className="flex items-center gap-1">
+          <div className="relative">
+            {isSearching ? (
+              <Loader2 className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 animate-spin text-purple-400" />
+            ) : isSemanticSearch ? (
+              <Sparkles className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-purple-400" />
+            ) : (
+              <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+            )}
+            <input
+              type="text"
+              placeholder={isSemanticSearch ? "Recherche sémantique..." : "Rechercher..."}
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className={`h-8 w-48 rounded-md border bg-slate-800/60 pl-8 pr-8 text-xs text-white placeholder-slate-400 focus:outline-none focus:ring-1 ${
+                isSemanticSearch
+                  ? "border-purple-500/50 focus:border-purple-500/70 focus:ring-purple-500/30"
+                  : "border-slate-600/50 focus:border-yellow-500/50 focus:ring-yellow-500/30"
+              }`}
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery("")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            )}
+          </div>
+
+          {/* Semantic search toggle */}
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setIsSemanticSearch(!isSemanticSearch)}
+            title={isSemanticSearch ? "Recherche sémantique (IA)" : "Recherche textuelle"}
+            className={`h-8 w-8 p-0 ${
+              isSemanticSearch
+                ? "border-purple-500/50 bg-purple-500/20 text-purple-300 hover:bg-purple-500/30"
+                : "border-slate-600/50 bg-slate-800/60 text-slate-400 hover:bg-slate-700/60 hover:text-slate-200"
+            }`}
+          >
+            <Sparkles className="h-3.5 w-3.5" />
+          </Button>
         </div>
+
+        {/* Semantic search results count */}
+        {isSemanticSearch && semanticResults && searchQuery && (
+          <span className="text-xs text-purple-300">
+            {semanticResults.size} résultat{semanticResults.size !== 1 ? "s" : ""} sémantique{semanticResults.size !== 1 ? "s" : ""}
+          </span>
+        )}
 
         {/* Filter toggle */}
         <Button
