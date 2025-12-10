@@ -4608,7 +4608,7 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
                       value={challengeFormValues.title}
                       onChange={handleChallengeFieldChange("title")}
                       placeholder="What problem are you addressing?"
-                      className="focus:border-indigo-400 focus:ring-indigo-400/20"
+                      className="border-white/10 bg-slate-950/80 text-slate-100 placeholder:text-slate-400 focus:border-indigo-400 focus:ring-indigo-400/20"
                     />
                   </div>
                   <div className="flex flex-col gap-2">
@@ -4676,7 +4676,7 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
                       value={challengeFormValues.description}
                       onChange={handleChallengeFieldChange("description")}
                       placeholder="Provide useful context so the team understands the challenge."
-                      className="focus:border-indigo-400 focus:ring-indigo-400/20"
+                      className="border-white/10 bg-slate-950/80 text-slate-100 placeholder:text-slate-400 focus:border-indigo-400 focus:ring-indigo-400/20"
                     />
                   </div>
                 </div>
