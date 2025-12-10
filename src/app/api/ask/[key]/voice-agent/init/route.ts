@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabaseServer';
 import { executeAgent } from '@/lib/ai/service';
-import { buildChatAgentVariables, DEFAULT_CHAT_AGENT_SLUG, type PromptVariables } from '@/lib/ai/agent-config';
+import { DEFAULT_CHAT_AGENT_SLUG } from '@/lib/ai/agent-config';
 import { getAskSessionByKey, getOrCreateConversationThread, getMessagesForThread } from '@/lib/asks';
 import { getConversationPlanWithSteps, getActiveStep } from '@/lib/ai/conversation-plan';
 import { getAdminSupabaseClient } from '@/lib/supabaseAdmin';
@@ -22,6 +22,7 @@ interface AskSessionRow {
   project_id?: string | null;
   challenge_id?: string | null;
   conversation_mode?: string | null;
+  expected_duration_minutes?: number | null;
 }
 
 interface ParticipantRow {
@@ -40,6 +41,7 @@ interface UserRow {
   full_name?: string | null;
   first_name?: string | null;
   last_name?: string | null;
+  description?: string | null;
 }
 
 interface ProjectRow {
@@ -89,7 +91,7 @@ export async function POST(
     const { row: askRow, error: askError } = await getAskSessionByKey<AskSessionRow>(
       supabase,
       key,
-      'id, ask_key, question, description, status, system_prompt, project_id, challenge_id, conversation_mode'
+      'id, ask_key, question, description, status, system_prompt, project_id, challenge_id, conversation_mode, expected_duration_minutes'
     );
 
     if (askError || !askRow) {
@@ -100,7 +102,6 @@ export async function POST(
     }
 
     // Get or create conversation thread
-    // For voice mode, we need to determine the thread to check for existing messages
     const askConfig = {
       conversation_mode: askRow.conversation_mode ?? null,
     };
@@ -130,14 +131,91 @@ export async function POST(
       askConfig
     );
 
+    // Fetch participants (needed for both initial message and voice agent)
+    const { data: participantRows, error: participantError } = await supabase
+      .from('ask_participants')
+      .select('*')
+      .eq('ask_session_id', askRow.id)
+      .order('joined_at', { ascending: true });
+
+    if (participantError) {
+      throw participantError;
+    }
+
+    const participantUserIds = (participantRows ?? [])
+      .map(row => row.user_id)
+      .filter((value): value is string => Boolean(value));
+
+    let usersById: Record<string, UserRow> = {};
+    if (participantUserIds.length > 0) {
+      const { data: userRows, error: userError } = await supabase
+        .from('profiles')
+        .select('id, email, full_name, first_name, last_name, description')
+        .in('id', participantUserIds);
+
+      if (userError) {
+        throw userError;
+      }
+
+      usersById = (userRows ?? []).reduce<Record<string, UserRow>>((acc, user) => {
+        acc[user.id] = user;
+        return acc;
+      }, {});
+    }
+
+    const participantSummaries = (participantRows ?? []).map((row, index) => {
+      const user = row.user_id ? usersById[row.user_id] ?? null : null;
+      return {
+        name: buildParticipantDisplayName(row, user, index),
+        role: row.role ?? null,
+        description: user?.description ?? null,
+      };
+    });
+
+    // Fetch project data
+    let projectData: ProjectRow | null = null;
+    if (askRow.project_id) {
+      const { data, error } = await supabase
+        .from('projects')
+        .select('id, name, system_prompt')
+        .eq('id', askRow.project_id)
+        .maybeSingle<ProjectRow>();
+
+      if (!error) {
+        projectData = data ?? null;
+      }
+    }
+
+    // Fetch challenge data
+    let challengeData: ChallengeRow | null = null;
+    if (askRow.challenge_id) {
+      const { data, error } = await supabase
+        .from('challenges')
+        .select('id, name, system_prompt')
+        .eq('id', askRow.challenge_id)
+        .maybeSingle<ChallengeRow>();
+
+      if (!error) {
+        challengeData = data ?? null;
+      }
+    }
+
+    // Fetch conversation plan if thread exists
+    let conversationPlan = null;
+    if (conversationThread) {
+      conversationPlan = await getConversationPlanWithSteps(supabase, conversationThread.id);
+    }
+
     // Check if there are any messages in the thread
     let hasMessages = false;
+    let messages: any[] = [];
     if (conversationThread) {
       const { messages: threadMessages } = await getMessagesForThread(
         supabase,
         conversationThread.id
       );
-      hasMessages = (threadMessages ?? []).length > 0;
+      messages = threadMessages ?? [];
+      hasMessages = messages.length > 0;
     } else {
       // Check for messages without thread
       const { data: messagesWithoutThread } = await supabase
@@ -149,95 +227,27 @@ export async function POST(
       hasMessages = (messagesWithoutThread ?? []).length > 0;
     }
 
+    // Build agent variables using THE SAME function as text/stream mode
+    // This ensures 100% consistency between voice and text modes
+    const agentVariables = buildConversationAgentVariables({
+      ask: askRow,
+      project: projectData,
+      challenge: challengeData,
+      messages: messages.map(msg => ({
+        id: msg.id,
+        senderType: msg.sender_type ?? 'user',
+        senderName: msg.sender_name ?? (msg.sender_type === 'ai' ? 'Agent' : 'Participant'),
+        content: msg.content,
+        timestamp: msg.created_at ?? new Date().toISOString(),
+        planStepId: msg.plan_step_id ?? null,
+      })),
+      participants: participantSummaries,
+      conversationPlan,
+    });
+
     // If no messages exist, initiate conversation with agent
     if (!hasMessages) {
       try {
-        const { data: participantRows, error: participantError } = await supabase
-          .from('ask_participants')
-          .select('*')
-          .eq('ask_session_id', askRow.id)
-          .order('joined_at', { ascending: true });
-
-        if (participantError) {
-          throw participantError;
-        }
-
-        const participantUserIds = (participantRows ?? [])
-          .map(row => row.user_id)
-          .filter((value): value is string => Boolean(value));
-
-        let usersById: Record<string, UserRow> = {};
-        if (participantUserIds.length > 0) {
-          const { data: userRows, error: userError } = await supabase
-            .from('profiles')
-            .select('id, email, full_name, first_name, last_name')
-            .in('id', participantUserIds);
-
-          if (userError) {
-            throw userError;
-          }
-
-          usersById = (userRows ?? []).reduce<Record<string, UserRow>>((acc, user) => {
-            acc[user.id] = user;
-            return acc;
-          }, {});
-        }
-
-        const participants = (participantRows ?? []).map((row, index) => {
-          const user = row.user_id ? usersById[row.user_id] ?? null : null;
-          return {
-            id: row.id,
-            name: buildParticipantDisplayName(row, user, index),
-            role: row.role ?? null,
-          };
-        });
-
-        const participantSummaries = participants.map(participant => ({
-          name: participant.name,
-          role: participant.role,
-        }));
-
-        let projectData: ProjectRow | null = null;
-        if (askRow.project_id) {
-          const { data, error } = await supabase
-            .from('projects')
-            .select('id, name, system_prompt')
-            .eq('id', askRow.project_id)
-            .maybeSingle<ProjectRow>();
-
-          if (!error) {
-            projectData = data ?? null;
-          }
-        }
-
-        let challengeData: ChallengeRow | null = null;
-        if (askRow.challenge_id) {
-          const { data, error } = await supabase
-            .from('challenges')
-            .select('id, name, system_prompt')
-            .eq('id', askRow.challenge_id)
-            .maybeSingle<ChallengeRow>();
-
-          if (!error) {
-            challengeData = data ?? null;
-          }
-        }
-
-        // Fetch conversation plan if thread exists
-        let conversationPlan = null;
-        if (conversationThread) {
-          conversationPlan = await getConversationPlanWithSteps(supabase, conversationThread.id);
-        }
-
-        const agentVariables = buildConversationAgentVariables({
-          ask: askRow,
-          project: projectData,
-          challenge: challengeData,
-          messages: [],
-          participants: participantSummaries,
-          conversationPlan,
-        });
-        
         // Execute agent to get initial response
         // Use 'ask.chat.response' for initial message (same as text mode)
         const agentResult = await executeAgent({
@@ -266,7 +276,7 @@ export async function POST(
           }
 
           // Insert the initial AI message
-          const { data: insertedRows, error: insertError } = await supabase
+          const { error: insertError } = await supabase
             .from('messages')
             .insert({
               ask_session_id: askRow.id,
@@ -276,9 +286,7 @@ export async function POST(
               metadata: { senderName: 'Agent' },
               conversation_thread_id: conversationThread?.id ?? null,
               plan_step_id: initialPlanStepId,
-            })
-            .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at, conversation_thread_id')
-            .limit(1);
+            });
 
           if (insertError) {
             console.error('Voice agent init: Failed to insert initial message:', insertError);
@@ -286,28 +294,18 @@ export async function POST(
         }
       } catch (error) {
         // Don't fail the request - voice agent can still initialize
+        console.error('Voice agent init: Failed to generate initial message:', error);
       }
     }
 
-    // Build complete variables including system_prompt_* from database
-    // This ensures consistency with other modes (text, streaming)
-    const baseVariables = await buildChatAgentVariables(supabase, askRow.id);
-    
-    // For voice agent init, we need minimal variables but still include system_prompt_*
-    // The full conversation context will be added later when messages are sent
-    const promptVariables: PromptVariables = {
-      ...baseVariables,
-      // Additional variables can be added here if needed for voice init
-    };
-
     // Execute agent to get voice agent response
-    // executeAgent will use getAgentConfigForAsk internally which handles system_prompt_* correctly
+    // Uses the same agentVariables as the initial message for consistency
     const result = await executeAgent({
       supabase,
       agentSlug: CHAT_AGENT_SLUG,
       askSessionId: askRow.id,
       interactionType: CHAT_INTERACTION_TYPE,
-      variables: promptVariables,
+      variables: agentVariables,
     });
 
     // Check if result is a voice agent response
@@ -333,4 +331,3 @@ export async function POST(
     }, { status: 500 });
   }
 }
-
