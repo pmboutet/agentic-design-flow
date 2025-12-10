@@ -59,7 +59,6 @@ import { AiAskGeneratorPanel } from "@/components/project/AiAskGeneratorPanel";
 import { AddParticipantsDialog } from "@/components/project/AddParticipantsDialog";
 import { AskPromptTemplateSelector } from "@/components/admin/AskPromptTemplateSelector";
 import { GraphRAGPanel } from "@/components/admin/GraphRAGPanel";
-import { ProjectGraphVisualization } from "@/components/graph/ProjectGraphVisualization";
 import { useAuth } from "@/components/auth/AuthProvider";
 
 interface ProjectJourneyBoardProps {
@@ -3671,10 +3670,6 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
         </Card>
       ) : null}
 
-      {/* Knowledge Graph Visualization - Full Width */}
-      <div className="mb-6">
-        <ProjectGraphVisualization projectId={projectId} refreshKey={synthesisRefreshKey} />
-      </div>
 
       <div className="space-y-6">
         <div>
