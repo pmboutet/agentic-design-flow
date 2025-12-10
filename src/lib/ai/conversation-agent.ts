@@ -182,8 +182,9 @@ export function buildConversationAgentVariables(context: ConversationAgentContex
   const lastUserMessage = [...context.messages].reverse().find(message => message.senderType === 'user');
 
   // Add conversation plan variables if plan is available
+  // Default values when no plan exists - these should never show as empty in the prompt
   let conversationPlanFormatted = '';
-  let currentStepFormatted = '';
+  let currentStepFormatted = 'Aucune étape active';
   let currentStepId = '';
   // Default value: always provide a message, even if no plan exists
   let completedStepsSummaryFormatted = 'Aucune étape complétée pour le moment';
