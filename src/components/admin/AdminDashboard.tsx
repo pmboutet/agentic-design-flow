@@ -39,6 +39,7 @@ import { ProjectJourneyBoard } from "@/components/project/ProjectJourneyBoard";
 import { AskRelationshipCanvas } from "./AskRelationshipCanvas";
 import { FormDateTimeField } from "./FormDateTimeField";
 import { GraphRAGPanel } from "./GraphRAGPanel";
+import { ProjectGraphVisualization } from "@/components/graph/ProjectGraphVisualization";
 import { SecurityPanel } from "./SecurityPanel";
 import { AskPromptTemplateSelector } from "./AskPromptTemplateSelector";
 import { useAdminResources } from "./useAdminResources";
@@ -3419,6 +3420,13 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                         );
                       })}
                     </div>
+                  </section>
+                )}
+
+                {/* Knowledge Graph Visualization - Full Width */}
+                {!showOnlyChallengeWorkspace && (
+                  <section className="space-y-4">
+                    <ProjectGraphVisualization projectId={selectedProjectId} clientId={selectedClientId} />
                   </section>
                 )}
 

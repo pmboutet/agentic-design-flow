@@ -3524,7 +3524,7 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
                 <Button
                   type="button"
                   variant="glassDark"
-                  onClick={() => window.open(`/admin/projects/${projectId}/synthesis`, '_blank')}
+                  onClick={() => window.location.href = `/admin/projects/${projectId}/synthesis`}
                   className="gap-2"
                 >
                   <Sparkles className="h-4 w-4" />
@@ -3669,6 +3669,7 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
           </CardContent>
         </Card>
       ) : null}
+
 
       <div className="space-y-6">
         <div>

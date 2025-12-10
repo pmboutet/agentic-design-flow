@@ -84,25 +84,86 @@ function relationshipLabel(type: string): string {
   }
 }
 
+/**
+ * Get all child challenge IDs recursively for a given challenge
+ */
+async function getChallengeWithChildren(
+  supabase: ReturnType<typeof getAdminSupabaseClient>,
+  challengeId: string
+): Promise<string[]> {
+  const allChallengeIds = new Set<string>([challengeId]);
+
+  // Fetch all challenges and build hierarchy locally (more efficient than recursive queries)
+  const { data: allChallenges, error } = await supabase
+    .from("challenges")
+    .select("id, parent_challenge_id");
+
+  if (error || !allChallenges) {
+    return [challengeId];
+  }
+
+  // Build parent-to-children map
+  const childrenMap = new Map<string, string[]>();
+  for (const challenge of allChallenges) {
+    if (challenge.parent_challenge_id) {
+      if (!childrenMap.has(challenge.parent_challenge_id)) {
+        childrenMap.set(challenge.parent_challenge_id, []);
+      }
+      childrenMap.get(challenge.parent_challenge_id)!.push(challenge.id);
+    }
+  }
+
+  // BFS to find all descendants
+  const queue = [challengeId];
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    const children = childrenMap.get(current) || [];
+    for (const child of children) {
+      if (!allChallengeIds.has(child)) {
+        allChallengeIds.add(child);
+        queue.push(child);
+      }
+    }
+  }
+
+  return Array.from(allChallengeIds);
+}
+
 export async function GET(request: NextRequest) {
   const supabase = getAdminSupabaseClient();
   const searchParams = request.nextUrl.searchParams;
   const projectId = searchParams.get("projectId");
+  const clientId = searchParams.get("clientId");
+  const challengeId = searchParams.get("challengeId");
   const limit = Math.min(parseInt(searchParams.get("limit") || "200", 10), 500);
 
   try {
-    // Fetch insights for the project (or latest if no projectId)
+    // Build the base query for insights
     let insightQuery = supabase
       .from("insights")
       .select("id, summary, content, created_at, ask_session_id, challenge_id")
       .order("created_at", { ascending: false })
       .limit(limit);
 
+    // Get relevant ASK session IDs based on filters
+    let askSessionIds: string[] = [];
+    let filterChallengeIds: string[] = [];
+
+    // Apply challenge filter (includes children)
+    if (challengeId) {
+      filterChallengeIds = await getChallengeWithChildren(supabase, challengeId);
+    }
+
+    // Apply project/client filter to get relevant ask sessions
     if (projectId) {
-      const { data: askSessions, error: askError } = await supabase
-        .from("ask_sessions")
-        .select("id")
-        .eq("project_id", projectId);
+      let projectQuery = supabase.from("ask_sessions").select("id").eq("project_id", projectId);
+
+      // If we have challenge filter, also filter by challenge
+      if (filterChallengeIds.length > 0) {
+        projectQuery = projectQuery.in("challenge_id", filterChallengeIds);
+      }
+
+      const { data: askSessions, error: askError } = await projectQuery;
 
       if (askError) {
         throw askError;
@@ -116,8 +177,50 @@ export async function GET(request: NextRequest) {
         });
       }
 
-      const askSessionIds = askSessions.map((session) => session.id);
+      askSessionIds = askSessions.map((session) => session.id);
+    } else if (clientId) {
+      // Filter by client: get all projects for this client, then their ask sessions
+      const { data: projects, error: projectError } = await supabase
+        .from("projects")
+        .select("id")
+        .eq("client_id", clientId);
+
+      if (projectError) {
+        throw projectError;
+      }
+
+      if (!projects || projects.length === 0) {
+        return NextResponse.json<ApiResponse<GraphVisualizationResponse>>({
+          success: true,
+          data: { nodes: [], edges: [], stats: { insights: 0, entities: 0, challenges: 0, syntheses: 0, edges: 0 } },
+          message: "Aucun projet trouvé pour ce client",
+        });
+      }
+
+      const projectIds = projects.map((p) => p.id);
+      let askQuery = supabase.from("ask_sessions").select("id").in("project_id", projectIds);
+
+      if (filterChallengeIds.length > 0) {
+        askQuery = askQuery.in("challenge_id", filterChallengeIds);
+      }
+
+      const { data: askSessions, error: askError } = await askQuery;
+
+      if (askError) {
+        throw askError;
+      }
+
+      askSessionIds = (askSessions || []).map((session) => session.id);
+    }
+
+    // Apply ask session filter if we have IDs
+    if (askSessionIds.length > 0) {
       insightQuery = insightQuery.in("ask_session_id", askSessionIds);
+    }
+
+    // Also filter insights by challenge_id if challenge filter is set
+    if (filterChallengeIds.length > 0) {
+      insightQuery = insightQuery.in("challenge_id", filterChallengeIds);
     }
 
     const { data: insights, error: insightError } = await insightQuery;
@@ -159,7 +262,7 @@ export async function GET(request: NextRequest) {
       .select("source_id, source_type, target_id, target_type, relationship_type, similarity_score, confidence, metadata")
       .eq("source_type", "insight")
       .in("source_id", insightIds)
-      .limit(limit);
+      .limit(limit * 2);
 
     if (sourceError) {
       throw sourceError;
@@ -170,7 +273,7 @@ export async function GET(request: NextRequest) {
       .select("source_id, source_type, target_id, target_type, relationship_type, similarity_score, confidence, metadata")
       .eq("target_type", "insight")
       .in("target_id", insightIds)
-      .limit(limit);
+      .limit(limit * 2);
 
     if (targetError) {
       throw targetError;
@@ -224,7 +327,6 @@ export async function GET(request: NextRequest) {
     }
 
     // Entities - with deduplication by normalized name
-    // Maps original entity IDs to their canonical (deduplicated) ID
     const entityIdMapping = new Map<string, string>();
 
     if (entityIds.size > 0) {
@@ -241,7 +343,7 @@ export async function GET(request: NextRequest) {
       const normalizedNameToEntities = new Map<string, typeof entities>();
       for (const entity of entities ?? []) {
         const normalizedName = normalizeEntityNameForVisualization(entity.name || "");
-        const key = `${normalizedName}:${entity.type}`; // Include type in key to avoid merging different types
+        const key = `${normalizedName}:${entity.type}`;
 
         if (!normalizedNameToEntities.has(key)) {
           normalizedNameToEntities.set(key, []);
@@ -250,21 +352,16 @@ export async function GET(request: NextRequest) {
       }
 
       // For each group, select the canonical entity (highest frequency or first)
-      // and create mapping from all IDs to the canonical ID
       for (const [, entityGroup] of normalizedNameToEntities) {
         if (!entityGroup || entityGroup.length === 0) continue;
 
-        // Sort by frequency (desc) to pick the most used entity as canonical
         entityGroup.sort((a, b) => (b.frequency || 0) - (a.frequency || 0));
         const canonicalEntity = entityGroup[0];
 
-        // Map all IDs in this group to the canonical ID
         for (const entity of entityGroup) {
           entityIdMapping.set(entity.id, canonicalEntity.id);
         }
 
-        // Add only the canonical entity to nodes
-        // Combine frequencies from all duplicates for accurate representation
         const totalFrequency = entityGroup.reduce((sum, e) => sum + (e.frequency || 0), 0);
 
         nodes.set(canonicalEntity.id, {
@@ -287,14 +384,11 @@ export async function GET(request: NextRequest) {
     const seenEdgeKeys = new Set<string>();
 
     for (const edge of edges) {
-      // Remap source and target if they are deduplicated entities
       const remappedSource = entityIdMapping.get(edge.source) || edge.source;
       const remappedTarget = entityIdMapping.get(edge.target) || edge.target;
 
-      // Skip self-loops created by deduplication
       if (remappedSource === remappedTarget) continue;
 
-      // Create unique key for deduplication after remapping
       const edgeKey = `${remappedSource}-${remappedTarget}-${edge.relationshipType}`;
       if (seenEdgeKeys.has(edgeKey)) continue;
       seenEdgeKeys.add(edgeKey);
@@ -399,7 +493,7 @@ export async function GET(request: NextRequest) {
         success: false,
         error: error instanceof Error ? error.message : "Unknown error",
       },
-      { status: 500 },
+      { status: 500 }
     );
   }
 }
