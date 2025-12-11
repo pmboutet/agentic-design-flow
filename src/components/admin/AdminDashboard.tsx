@@ -483,6 +483,7 @@ function AskDetailDialog({ ask, projectName, challengeName, onClose }: AskDetail
                   <p className="mt-1 text-sm font-medium text-white">
                     {ask.conversationMode === "individual_parallel" ? "Individuel parallèle" :
                      ask.conversationMode === "group_reporter" ? "Groupe avec rapporteur" :
+                     ask.conversationMode === "consultant" ? "Consultant (écoute passive)" :
                      "Collaboratif"}
                   </p>
                 </div>
@@ -2763,11 +2764,13 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                             <option value="individual_parallel">Individual parallel responses</option>
                             <option value="collaborative">Multi-voice conversation</option>
                             <option value="group_reporter">Group with reporter</option>
+                            <option value="consultant">Consultant (passive listening)</option>
                           </select>
                           <p className="text-xs text-slate-400">
                             {selectedConversationMode === "individual_parallel" && "Each person responds separately, no cross-visibility"}
                             {selectedConversationMode === "collaborative" && "Everyone sees and can respond to each other"}
                             {selectedConversationMode === "group_reporter" && "Everyone sees everything, one reporter consolidates"}
+                            {selectedConversationMode === "consultant" && "AI listens and suggests questions to the consultant, no TTS"}
                           </p>
                         </div>
                       </div>
@@ -3260,6 +3263,7 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                             <span className="rounded-full bg-white/10 px-2 py-1">
                               {session.conversationMode === "individual_parallel" ? "Individuel" :
                                session.conversationMode === "group_reporter" ? "Groupe + rapporteur" :
+                               session.conversationMode === "consultant" ? "Consultant" :
                                "Collaboratif"}
                             </span>
                           </div>
