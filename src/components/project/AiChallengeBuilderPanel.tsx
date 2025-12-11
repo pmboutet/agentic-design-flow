@@ -1055,7 +1055,8 @@ export function AiChallengeBuilderPanel({
               </Button>
               <Dialog.Close asChild>
                 <Button type="button" variant="ghost" className="text-slate-300 hover:bg-slate-800">
-                  <X className="h-5 w-5" />
+                  <X className="h-5 w-5 mr-1" />
+                  <span>Fermer</span>
                 </Button>
               </Dialog.Close>
             </div>

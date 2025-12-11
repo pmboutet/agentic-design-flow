@@ -560,8 +560,9 @@ export function UsersAdminView() {
         >
           <AlertDescription className="flex items-center justify-between">
             <span>{feedback.message}</span>
-            <button type="button" onClick={() => setFeedback(null)} className="p-1 hover:opacity-70">
+            <button type="button" onClick={() => setFeedback(null)} className="p-1 hover:opacity-70 flex items-center gap-1 text-xs">
               <X className="h-4 w-4" />
+              <span>Fermer</span>
             </button>
           </AlertDescription>
         </Alert>

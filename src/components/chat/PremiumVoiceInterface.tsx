@@ -19,7 +19,7 @@
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, MicOff, Volume2, VolumeX, Pencil, Check, Settings } from 'lucide-react';
+import { X, MicOff, Volume2, VolumeX, Pencil, Check, Settings, Type } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { DeepgramVoiceAgent, DeepgramMessageEvent } from '@/lib/ai/deepgram';
@@ -176,6 +176,8 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
   const [microphoneSensitivity, setMicrophoneSensitivity] = useState<number>(1.5);
   // Activation de l'isolation vocale (filtre le bruit de fond)
   const [voiceIsolationEnabled, setVoiceIsolationEnabled] = useState<boolean>(true);
+  // Mode texte uniquement (désactive TTS, l'agent répond en texte seulement)
+  const [textOnlyMode, setTextOnlyMode] = useState<boolean>(false);
   // Liste des microphones disponibles sur le système
   const [availableMicrophones, setAvailableMicrophones] = useState<MediaDeviceInfo[]>([]);
   // Affichage du panneau de paramètres du microphone
@@ -627,12 +629,12 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
 
   /**
    * Sauvegarde les préférences du microphone dans localStorage
-   * 
+   *
    * Les préférences sauvegardées sont :
    * - ID du microphone sélectionné
    * - Sensibilité du microphone (0.5 - 3.0)
    * - État de l'isolation vocale (true/false)
-   * 
+   *
    * Ces préférences sont restaurées automatiquement au chargement du composant.
    */
   const savePreferences = useCallback(() => {
@@ -1027,8 +1029,8 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
           llmModel: modelConfig?.speechmaticsLlmModel,
           elevenLabsVoiceId: modelConfig?.elevenLabsVoiceId,
           elevenLabsModelId: modelConfig?.elevenLabsModelId || "eleven_turbo_v2_5",
-          // In consultant mode, TTS is disabled - AI listens but doesn't speak
-          disableElevenLabsTTS: consultantMode || modelConfig?.disableElevenLabsTTS || false,
+          // TTS disabled in consultant mode (AI listens only) or text-only mode (dictation)
+          disableElevenLabsTTS: consultantMode || textOnlyMode || modelConfig?.disableElevenLabsTTS || false,
           microphoneSensitivity, // Sensibilité du microphone (1.5 par défaut)
           microphoneDeviceId: selectedMicrophoneId || undefined,
           voiceIsolation: voiceIsolationEnabled,
@@ -1039,7 +1041,7 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
         // Établir la connexion WebSocket et démarrer le microphone
         await agent.connect(config);
         await agent.startMicrophone(selectedMicrophoneId || undefined, voiceIsolationEnabled);
-        
+
         // Configurer la visualisation audio
         startAudioVisualization();
       } else {
@@ -1719,21 +1721,23 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
           <div className="flex items-center gap-2">
             <Button
               variant="ghost"
-              size="icon"
+              size="sm"
               onClick={handleEditClick}
-              className="h-10 w-10 text-white hover:bg-white/20 rounded-full"
+              className="h-10 px-3 text-white hover:bg-white/20 rounded-full"
               title="Éditer"
             >
-              <Pencil className="h-5 w-5" />
+              <Pencil className="h-5 w-5 mr-1" />
+              <span className="text-sm">Éditer</span>
             </Button>
             <Button
               variant="ghost"
-              size="icon"
+              size="sm"
               onClick={handleCloseClick}
-              className="h-10 w-10 text-white hover:bg-white/20 rounded-full"
+              className="h-10 px-3 text-white hover:bg-white/20 rounded-full"
               title="Fermer"
             >
-              <X className="h-5 w-5" />
+              <X className="h-5 w-5 mr-1" />
+              <span className="text-sm">Fermer</span>
             </Button>
           </div>
         </div>
@@ -2146,6 +2150,44 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
                       />
                     </button>
                   </div>
+
+                  {/* Text-only mode toggle (dictation mode) - only show if TTS is enabled by admin */}
+                  {isSpeechmaticsAgent && !modelConfig?.disableElevenLabsTTS && (
+                    <>
+                      <div className="flex items-center justify-between pt-2 border-t border-white/10">
+                        <div className="flex items-center gap-2">
+                          <Type className="h-4 w-4 text-white/70" />
+                          <label className="text-white/70 text-xs">Réponses écrites</label>
+                        </div>
+                        <button
+                          onClick={() => {
+                            const newValue = !textOnlyMode;
+                            setTextOnlyMode(newValue);
+                            // Update the agent in real-time if connected
+                            if (agentRef.current instanceof SpeechmaticsVoiceAgent) {
+                              agentRef.current.setTextOnlyMode(newValue);
+                            }
+                          }}
+                          className={cn(
+                            "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
+                            textOnlyMode ? "bg-blue-500/50" : "bg-white/10"
+                          )}
+                        >
+                          <span
+                            className={cn(
+                              "inline-block h-4 w-4 transform rounded-full bg-white transition-transform",
+                              textOnlyMode ? "translate-x-6" : "translate-x-1"
+                            )}
+                          />
+                        </button>
+                      </div>
+                      {textOnlyMode && (
+                        <p className="text-white/50 text-xs mt-1">
+                          Mode dictée activé : vous parlez, l'agent répond en texte
+                        </p>
+                      )}
+                    </>
+                  )}
                 </div>
               </div>
             )}

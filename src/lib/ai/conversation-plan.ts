@@ -472,19 +472,6 @@ export async function completeStep(
 }
 
 /**
- * LEGACY: Update plan step (backward compatibility wrapper)
- * @deprecated Use completeStep instead
- */
-export async function updatePlanStep(
-  supabase: SupabaseClient,
-  conversationThreadId: string,
-  completedStepId: string,
-  stepSummary?: string
-): Promise<ConversationPlan | null> {
-  return completeStep(supabase, conversationThreadId, completedStepId, stepSummary);
-}
-
-/**
  * Generate an AI summary for a completed step using messages linked to that step
  */
 export async function generateStepSummary(

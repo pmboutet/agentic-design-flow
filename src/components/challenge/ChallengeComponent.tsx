@@ -417,20 +417,23 @@ function ChallengeCard({
                   <Button
                     size="sm"
                     variant="ghost"
-                    className="text-destructive"
+                    className="text-destructive gap-1"
                     onClick={() => onDeleteChallenge(challenge.id)}
                     aria-label={`Delete challenge ${challenge.name}`}
                   >
                     <Trash2 className="h-4 w-4" />
+                    Delete
                   </Button>
                 )}
                 <Button
                   size="sm"
                   variant="ghost"
+                  className="gap-1"
                   onClick={() => onStartEdit('challenge', challenge.id)}
                   aria-label={`Edit challenge ${challenge.name}`}
                 >
                   <Edit className="h-4 w-4" />
+                  Edit
                 </Button>
               </div>
             </>
@@ -606,20 +609,23 @@ function PainGainItem({
                 )}
               </div>
               <div className="flex items-center gap-1 ml-4">
-                <Button 
-                  size="sm" 
+                <Button
+                  size="sm"
                   variant="ghost"
+                  className="gap-1"
                   onClick={() => onStartEdit(type, challengeId, item.id)}
                 >
                   <Edit className="h-4 w-4" />
+                  Edit
                 </Button>
-                <Button 
-                  size="sm" 
+                <Button
+                  size="sm"
                   variant="ghost"
                   onClick={() => onDeleteItem(item.id)}
-                  className="text-destructive"
+                  className="text-destructive gap-1"
                 >
                   <Trash2 className="h-4 w-4" />
+                  Delete
                 </Button>
               </div>
             </div>
@@ -739,20 +745,23 @@ function KpiItem({
             </pre>
           </div>
           <div className="flex items-center gap-1 ml-2">
-            <Button 
-              size="sm" 
+            <Button
+              size="sm"
               variant="ghost"
+              className="gap-1"
               onClick={() => onStartEdit('kpi', challengeId, itemId, index)}
             >
               <Edit className="h-3 w-3" />
+              Edit
             </Button>
-            <Button 
-              size="sm" 
+            <Button
+              size="sm"
               variant="ghost"
               onClick={() => onDeleteKpi(challengeId, itemId, index)}
-              className="text-destructive"
+              className="text-destructive gap-1"
             >
               <Trash2 className="h-3 w-3" />
+              Delete
             </Button>
           </div>
         </div>
