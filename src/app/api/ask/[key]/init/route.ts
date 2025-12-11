@@ -8,85 +8,16 @@ import type { ApiResponse, Message } from '@/types';
 import { buildConversationAgentVariables } from '@/lib/ai/conversation-agent';
 import { generateConversationPlan, createConversationPlan, getConversationPlanWithSteps, getActiveStep } from '@/lib/ai/conversation-plan';
 import { getAdminSupabaseClient } from '@/lib/supabaseAdmin';
-
-interface AskSessionRow {
-  id: string;
-  ask_key: string;
-  question: string;
-  description?: string | null;
-  status?: string | null;
-  system_prompt?: string | null;
-  project_id?: string | null;
-  challenge_id?: string | null;
-  conversation_mode?: string | null;
-  expected_duration_minutes?: number | null;
-}
-
-interface MessageRow {
-  id: string;
-  ask_session_id: string;
-  user_id?: string | null;
-  sender_type?: string | null;
-  content: string;
-  message_type?: string | null;
-  metadata?: Record<string, unknown> | null;
-  created_at?: string | null;
-  conversation_thread_id?: string | null;
-}
-
-interface ParticipantRow {
-  id: string;
-  participant_name?: string | null;
-  participant_email?: string | null;
-  role?: string | null;
-  is_spokesperson?: boolean | null;
-  user_id?: string | null;
-  last_active?: string | null;
-}
-
-interface UserRow {
-  id: string;
-  email?: string | null;
-  full_name?: string | null;
-  first_name?: string | null;
-  last_name?: string | null;
-  description?: string | null;
-}
-
-interface ProjectRow {
-  id: string;
-  name?: string | null;
-  system_prompt?: string | null;
-}
-
-interface ChallengeRow {
-  id: string;
-  name?: string | null;
-  system_prompt?: string | null;
-}
-
-function buildParticipantDisplayName(participant: ParticipantRow, user: UserRow | null, index: number): string {
-  if (participant.participant_name) {
-    return participant.participant_name;
-  }
-
-  if (user) {
-    if (user.full_name && user.full_name.trim().length > 0) {
-      return user.full_name;
-    }
-
-    const nameParts = [user.first_name, user.last_name].filter(Boolean);
-    if (nameParts.length) {
-      return nameParts.join(' ');
-    }
-
-    if (user.email) {
-      return user.email;
-    }
-  }
-
-  return `Participant ${index + 1}`;
-}
+import {
+  buildParticipantDisplayName,
+  buildParticipantSummary,
+  type AskSessionRow,
+  type UserRow,
+  type ParticipantRow,
+  type ProjectRow,
+  type ChallengeRow,
+  type MessageRow,
+} from '@/lib/conversation-context';
 
 export async function POST(
   request: NextRequest,
@@ -256,21 +187,11 @@ export async function POST(
       }, {});
     }
 
-    const participants = (participantRows ?? []).map((row, index) => {
+    // Build participant summaries using unified function for consistent mapping
+    const participantSummaries = (participantRows ?? []).map((row, index) => {
       const user = row.user_id ? usersById[row.user_id] ?? null : null;
-      return {
-        id: row.id,
-        name: buildParticipantDisplayName(row, user, index),
-        role: row.role ?? null,
-        description: user?.description ?? null,
-      };
+      return buildParticipantSummary(row as ParticipantRow, user, index);
     });
-
-    const participantSummaries = participants.map(participant => ({
-      name: participant.name,
-      role: participant.role,
-      description: participant.description,
-    }));
 
     // Fetch related prompts context
     let projectData: ProjectRow | null = null;
@@ -313,18 +234,15 @@ export async function POST(
       if (!conversationPlan) {
         console.log('📋 POST /api/ask/[key]/init: Generating new conversation plan');
         try {
-          // Build variables for plan generation
-          const planGenerationVariables = {
-            ask_key: askRow.ask_key,
-            ask_question: askRow.question,
-            ask_description: askRow.description ?? '',
-            system_prompt_ask: askRow.system_prompt ?? '',
-            system_prompt_project: projectData?.system_prompt ?? '',
-            system_prompt_challenge: challengeData?.system_prompt ?? '',
-            participants: participantSummaries.map(p => p.name).join(', '),
-            participants_list: participantSummaries,
-            expected_duration_minutes: String(askRow.expected_duration_minutes ?? 8),
-          };
+          // Use centralized function for plan generation variables (consistent with all routes)
+          const planGenerationVariables = buildConversationAgentVariables({
+            ask: askRow,
+            project: projectData,
+            challenge: challengeData,
+            messages: [],
+            participants: participantSummaries,
+            conversationPlan: null,
+          });
 
           const planData = await generateConversationPlan(
             adminClient,

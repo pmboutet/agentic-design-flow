@@ -14,6 +14,7 @@ import {
 import { executeAgent } from "@/lib/ai/service";
 import { buildConversationAgentVariables } from "@/lib/ai/conversation-agent";
 import { normaliseMessageMetadata } from "@/lib/messages";
+import { buildMessageSenderName, buildParticipantDisplayName, type MessageRow, type UserRow, type ParticipantRow } from "@/lib/conversation-context";
 
 type AskSessionRow = {
   ask_session_id: string;
@@ -207,40 +208,14 @@ async function loadTokenDataWithAdmin(token: string): Promise<TokenDataBundle | 
         (messagesResult.data ?? []).map((row, index) => {
           const metadata = row.metadata as Record<string, unknown> | null;
           const user = row.user_id ? usersById[row.user_id] ?? null : null;
-          
-          // Calculate sender name similar to other routes
-          const senderName = (() => {
-            if (metadata && typeof metadata === 'object' && 'senderName' in metadata && typeof metadata.senderName === 'string' && metadata.senderName.trim().length > 0) {
-              return metadata.senderName;
-            }
-            
-            if (row.sender_type === 'ai') {
-              return 'Agent';
-            }
-            
-            if (user) {
-              if (user.full_name) {
-                return user.full_name;
-              }
-              const nameParts = [user.first_name, user.last_name].filter(Boolean);
-              if (nameParts.length > 0) {
-                return nameParts.join(' ');
-              }
-              if (user.email) {
-                return user.email;
-              }
-            }
-            
-            return `Participant ${index + 1}`;
-          })();
-          
+
           return {
             message_id: row.id,
             content: row.content,
             type: (row.message_type as string) || 'text',
             sender_type: row.sender_type,
             sender_id: row.user_id,
-            sender_name: senderName,
+            sender_name: buildMessageSenderName(row as MessageRow, user as UserRow | null, index),
             created_at: row.created_at,
             metadata: metadata ?? null,
           };
@@ -431,16 +406,21 @@ export async function GET(
       }
     }
 
-    const participants = (participantRows ?? []).map((row: any) => {
-      const user = usersById[row.user_id] ?? {};
-      const nameFromUser = [user.first_name, user.last_name].filter(Boolean).join(" ");
-      const displayName = row.participant_name || user.full_name || nameFromUser || row.participant_email || "Participant";
+    const participants = (participantRows ?? []).map((row: any, index: number) => {
+      const user = usersById[row.user_id] ?? null;
+
+      // Use centralized function for display name
+      const displayName = buildParticipantDisplayName(
+        row as ParticipantRow,
+        user as UserRow | null,
+        index
+      );
 
       return {
         id: String(row.user_id ?? row.participant_id),
         name: displayName,
-        email: row.participant_email || user.email || null,
-        role: user.role || row.role || null,
+        email: row.participant_email || user?.email || null,
+        role: user?.role || row.role || null,
         isSpokesperson: row.is_spokesperson === true,
         isActive: true,
       };
@@ -454,19 +434,34 @@ export async function GET(
       challenge = context.challenge_name ? { name: context.challenge_name } : null;
     }
 
-    const messages = (messageRows ?? []).map((row: any) => ({
-      id: row.message_id,
-      askKey: askRow.ask_key,
-      askSessionId: askRow.ask_session_id,
-      content: row.content,
-      type: row.type || 'text',
-      senderType: row.sender_type || 'user',
-      senderId: row.sender_id,
-      senderName: row.sender_name,
-      timestamp: row.created_at,
-      metadata: row.metadata || {},
-      clientId: row.message_id,
-    }));
+    // Transform RPC rows to use centralized sender name logic (consistent with all routes)
+    const messages = (messageRows ?? []).map((row: any, index: number) => {
+      // Transform RPC row to MessageRow format for centralized sender name function
+      const messageRow: MessageRow = {
+        id: row.message_id,
+        ask_session_id: askRow.ask_session_id,
+        content: row.content,
+        sender_type: row.sender_type,
+        user_id: row.sender_id,
+        created_at: row.created_at,
+        metadata: row.metadata,
+      };
+      const user = row.sender_id ? usersById[row.sender_id] ?? null : null;
+
+      return {
+        id: row.message_id,
+        askKey: askRow.ask_key,
+        askSessionId: askRow.ask_session_id,
+        content: row.content,
+        type: row.type || 'text',
+        senderType: row.sender_type || 'user',
+        senderId: row.sender_id,
+        senderName: buildMessageSenderName(messageRow, user as UserRow | null, index),
+        timestamp: row.created_at,
+        metadata: row.metadata || {},
+        clientId: row.message_id,
+      };
+    });
 
     // Get insight authors separately (they may have RLS, but we'll try)
     const insightIds = (insightRows ?? []).map((row: any) => row.insight_id);
@@ -525,15 +520,15 @@ export async function GET(
     if (participantInfo?.user_id) {
       const participantRow = (participantRows ?? []).find((row: any) => row.participant_id === participantInfo?.participant_id) ?? null;
       const viewerUser = usersById[participantInfo.user_id] ?? null;
-      const fallbackNameFromUser = viewerUser
-        ? [viewerUser.first_name, viewerUser.last_name].filter(Boolean).join(' ')
-        : '';
-      const resolvedName = participantRow?.participant_name
-        || viewerUser?.full_name
-        || fallbackNameFromUser
-        || participantRow?.participant_email
-        || viewerUser?.email
-        || null;
+      // Use centralized function for display name (consistent with all other routes)
+      const participantIndex = participantRow
+        ? (participantRows ?? []).findIndex((row: any) => row.participant_id === participantRow.participant_id)
+        : 0;
+      const resolvedName = buildParticipantDisplayName(
+        (participantRow ?? {}) as ParticipantRow,
+        viewerUser as UserRow | null,
+        participantIndex >= 0 ? participantIndex : 0
+      );
 
       viewer = {
         participantId: participantRow?.participant_id ?? participantInfo.participant_id ?? null,
@@ -592,17 +587,22 @@ export async function GET(
         if (!conversationPlan && messages.length === 0) {
           console.log('📋 GET /api/ask/token/[token]: No plan exists and no messages, generating new plan...');
           try {
-            // Build variables for plan generation
-            const planGenerationVariables = {
-              ask_key: askRow.ask_key,
-              ask_question: askRow.question,
-              ask_description: askRow.description ?? '',
-              system_prompt_ask: '', // Token route doesn't have access to system prompts
-              system_prompt_project: '',
-              system_prompt_challenge: '',
-              participants: participants.map(p => p.name).join(', '),
-              participants_list: participants.map(p => ({ name: p.name, role: p.role })),
-            };
+            // Use centralized function for plan generation variables
+            // Note: Token route has limited access to system prompts, but the centralized
+            // function handles null values gracefully
+            const planGenerationVariables = buildConversationAgentVariables({
+              ask: {
+                ask_key: askRow.ask_key,
+                question: askRow.question,
+                description: askRow.description,
+                system_prompt: null,
+              },
+              project: null,
+              challenge: null,
+              messages: [],
+              participants: participants.map(p => ({ name: p.name, role: p.role ?? null, description: null })),
+              conversationPlan: null,
+            });
             console.log('📊 GET /api/ask/token/[token]: Plan generation variables:', {
               ask_key: planGenerationVariables.ask_key,
               ask_question: planGenerationVariables.ask_question?.substring(0, 50),
@@ -631,18 +631,18 @@ export async function GET(
             // Generate initial message right after plan creation
             console.log('💬 GET /api/ask/token/[token]: Generating initial message...');
             try {
-              // Build variables for initial message agent
+              // Use centralized function for initial message variables
               const agentVariables = buildConversationAgentVariables({
                 ask: {
                   ask_key: askRow.ask_key,
                   question: askRow.question,
                   description: askRow.description,
-                  system_prompt: null, // Token route doesn't have access
+                  system_prompt: null,
                 },
                 project: null,
                 challenge: null,
                 messages: [],
-                participants: participants.map(p => ({ name: p.name, role: p.role })),
+                participants: participants.map(p => ({ name: p.name, role: p.role ?? null, description: null })),
                 conversationPlan,
               });
 
@@ -698,7 +698,7 @@ export async function GET(
                     type: initialMessage.type,
                     senderType: initialMessage.senderType,
                     senderId: initialMessage.senderId,
-                    senderName: initialMessage.senderName,
+                    senderName: initialMessage.senderName ?? 'Agent',
                     timestamp: initialMessage.timestamp,
                     metadata: inserted.metadata as Record<string, unknown> || {},
                     clientId: initialMessage.id,

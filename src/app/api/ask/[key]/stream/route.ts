@@ -11,6 +11,17 @@ import type { AiAgentLog, Insight } from '@/types';
 import { createServerSupabaseClient } from '@/lib/supabaseServer';
 import { buildConversationAgentVariables } from '@/lib/ai/conversation-agent';
 import { detectStepCompletion, completeStep, getConversationPlanWithSteps, getActiveStep, getCurrentStep } from '@/lib/ai/conversation-plan';
+import {
+  buildParticipantDisplayName,
+  buildDetailedMessage,
+  buildParticipantSummary,
+  type AskSessionRow,
+  type UserRow,
+  type MessageRow,
+  type ProjectRow,
+  type ChallengeRow,
+  type ParticipantRow,
+} from '@/lib/conversation-context';
 
 interface InsightDetectionResponse {
   success: boolean;
@@ -20,83 +31,12 @@ interface InsightDetectionResponse {
 
 const CHAT_AGENT_SLUG = DEFAULT_CHAT_AGENT_SLUG;
 
-interface AskSessionRow {
-  id: string;
-  ask_key: string;
-  question: string;
-  description?: string | null;
-  status?: string | null;
-  system_prompt?: string | null;
-  project_id?: string | null;
-  challenge_id?: string | null;
-  is_anonymous?: boolean | null;
-  expected_duration_minutes?: number | null;
-}
-
-interface ProjectRow {
-  id: string;
-  name?: string | null;
-  system_prompt?: string | null;
-}
-
-interface ChallengeRow {
-  id: string;
-  name?: string | null;
-  system_prompt?: string | null;
-}
-
-interface ParticipantRow {
-  id: string;
-  participant_name?: string | null;
-  participant_email?: string | null;
-  role?: string | null;
-  is_spokesperson?: boolean | null;
-  user_id?: string | null;
-  last_active?: string | null;
-}
-
-interface UserRow {
-  id: string;
-  email?: string | null;
-  full_name?: string | null;
-  first_name?: string | null;
-  last_name?: string | null;
-  description?: string | null;
-}
-
-interface MessageRow {
-  id: string;
-  ask_session_id: string;
-  user_id?: string | null;
-  sender_type?: string | null;
-  content: string;
-  message_type?: string | null;
-  metadata?: Record<string, unknown> | null;
-  created_at?: string | null;
-}
-
-function buildParticipantDisplayName(participant: ParticipantRow, user: UserRow | null, index: number): string {
-  if (participant.participant_name) {
-    return participant.participant_name;
-  }
-
-  if (user) {
-    if (user.full_name && user.full_name.trim().length > 0) {
-      return user.full_name;
-    }
-
-    const nameParts = [user.first_name, user.last_name].filter(Boolean);
-    if (nameParts.length) {
-      return nameParts.join(' ');
-    }
-
-    if (user.email) {
-      return user.email;
-    }
-  }
-
-  return `Participant ${index + 1}`;
-}
+// Types imported from @/lib/conversation-context:
+// - AskSessionRow
+// - UserRow
+// - MessageRow
+// - buildParticipantDisplayName (unified function)
+// - buildMessageSummary (unified function)
 
 function isPermissionDenied(error: unknown): boolean {
   if (!error || typeof error !== 'object') {
@@ -413,50 +353,11 @@ export async function POST(
       });
     }
 
-    const messages: any[] = (messageRows ?? []).map((row, index) => {
-      const metadata = normaliseMessageMetadata(row.metadata);
+    // Use unified buildDetailedMessage function for consistent message mapping
+    // This ensures senderName logic and planStepId are consistent across all modes
+    const messages = (messageRows ?? []).map((row, index) => {
       const user = row.user_id ? usersById[row.user_id] ?? null : null;
-
-      const senderName = (() => {
-        if (metadata && typeof metadata.senderName === 'string' && metadata.senderName.trim().length > 0) {
-          return metadata.senderName;
-        }
-
-        if (row.sender_type === 'ai') {
-          return 'Agent';
-        }
-
-        if (user) {
-          if (user.full_name) {
-            return user.full_name;
-          }
-
-          const nameParts = [user.first_name, user.last_name].filter(Boolean);
-          if (nameParts.length > 0) {
-            return nameParts.join(' ');
-          }
-
-          if (user.email) {
-            return user.email;
-          }
-        }
-
-        return `Participant ${index + 1}`;
-      })();
-
-      return {
-        id: row.id,
-        askKey: askRow.ask_key,
-        askSessionId: row.ask_session_id,
-        content: row.content,
-        type: (row.message_type as any) ?? 'text',
-        senderType: (row.sender_type as any) ?? 'user',
-        senderId: row.user_id ?? null,
-        senderName,
-        timestamp: row.created_at ?? new Date().toISOString(),
-        metadata: metadata,
-        planStepId: row.plan_step_id ?? null, // Link to conversation plan step
-      };
+      return buildDetailedMessage(row, user, index, askRow.ask_key);
     });
 
     // Fetch project and challenge data

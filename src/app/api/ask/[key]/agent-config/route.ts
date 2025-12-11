@@ -2,83 +2,19 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabaseServer';
 import { getAgentConfigForAsk, type PromptVariables } from '@/lib/ai/agent-config';
 import { isValidAskKey } from '@/lib/utils';
-import { normaliseMessageMetadata } from '@/lib/messages';
 import { buildConversationAgentVariables } from '@/lib/ai/conversation-agent';
 import { getConversationPlanWithSteps } from '@/lib/ai/conversation-plan';
-
-interface AskSessionRow {
-  id: string;
-  ask_key: string;
-  question: string;
-  description?: string | null;
-  project_id?: string | null;
-  challenge_id?: string | null;
-  system_prompt?: string | null;
-}
-
-interface ProjectRow {
-  id: string;
-  name?: string | null;
-  system_prompt?: string | null;
-}
-
-interface ChallengeRow {
-  id: string;
-  name?: string | null;
-  system_prompt?: string | null;
-}
-
-interface ParticipantRow {
-  id: string;
-  participant_name?: string | null;
-  participant_email?: string | null;
-  role?: string | null;
-  description?: string | null;
-  user_id?: string | null;
-}
-
-interface UserRow {
-  id: string;
-  email?: string | null;
-  full_name?: string | null;
-  first_name?: string | null;
-  last_name?: string | null;
-}
-
-interface MessageRow {
-  id: string;
-  ask_session_id: string;
-  user_id?: string | null;
-  sender_type?: string | null;
-  content: string;
-  message_type?: string | null;
-  metadata?: Record<string, unknown> | null;
-  created_at?: string | null;
-  plan_step_id?: string | null;
-}
-
-function buildParticipantDisplayName(participant: ParticipantRow, user: UserRow | null, index: number): string {
-  if (participant.participant_name) {
-    return participant.participant_name;
-  }
-
-  if (user) {
-    if (user.full_name && user.full_name.trim().length > 0) {
-      return user.full_name;
-    }
-
-    const nameParts = [user.first_name, user.last_name].filter(Boolean);
-    if (nameParts.length) {
-      return nameParts.join(' ');
-    }
-
-    if (user.email) {
-      return user.email;
-    }
-  }
-
-  return `Participant ${index + 1}`;
-}
+import {
+  buildParticipantDisplayName,
+  buildMessageSummary,
+  buildParticipantSummary,
+  type AskSessionRow,
+  type UserRow,
+  type ParticipantRow,
+  type ProjectRow,
+  type ChallengeRow,
+  type MessageRow,
+} from '@/lib/conversation-context';
 
 export async function GET(
   request: NextRequest,
@@ -256,7 +192,7 @@ export async function GET(
           message_type: row.type,
           metadata: row.metadata,
           created_at: row.created_at,
-          sender_name: row.sender_name, // Include sender_name from RPC
+          plan_step_id: row.plan_step_id ?? null,
         }));
       }
     } else {
@@ -287,9 +223,9 @@ export async function GET(
         .in('id', additionalUserIds);
 
       if (extraUsersError) {
-        // If token-based access, RLS might block profile access - this is OK, sender_name is already in RPC response
+        // If token-based access, RLS might block profile access - buildMessageSummary will use fallback names
         if (token) {
-          console.warn('Could not fetch additional user profiles (RLS restriction with token), using sender_name from RPC:', extraUsersError.message);
+          console.warn('Could not fetch additional user profiles (RLS restriction with token), will use fallback names:', extraUsersError.message);
         } else {
           console.error('Error fetching additional users:', extraUsersError);
         }
@@ -300,57 +236,11 @@ export async function GET(
       }
     }
 
-    // Format messages (same as stream/route.ts)
-    const messages: any[] = (messageRows ?? []).map((row, index) => {
-      const metadata = normaliseMessageMetadata(row.metadata);
+    // Format messages using unified buildMessageSummary for consistent mapping
+    // Always use centralized function - no bypass for token-based access
+    const messages = (messageRows ?? []).map((row, index) => {
       const user = row.user_id ? usersById[row.user_id] ?? null : null;
-
-      // If using token RPC, sender_name is already provided in the row
-      const senderName = (() => {
-        // For token-based access, sender_name is already computed by RPC function
-        if (token && (row as any).sender_name) {
-          return (row as any).sender_name;
-        }
-
-        if (metadata && typeof metadata.senderName === 'string' && metadata.senderName.trim().length > 0) {
-          return metadata.senderName;
-        }
-
-        if (row.sender_type === 'ai') {
-          return 'Agent';
-        }
-
-        if (user) {
-          if (user.full_name) {
-            return user.full_name;
-          }
-
-          const nameParts = [user.first_name, user.last_name].filter(Boolean);
-          if (nameParts.length > 0) {
-            return nameParts.join(' ');
-          }
-
-          if (user.email) {
-            return user.email;
-          }
-        }
-
-        return `Participant ${index + 1}`;
-      })();
-
-      return {
-        id: row.id,
-        askKey: askSession.ask_key,
-        askSessionId: row.ask_session_id,
-        content: row.content,
-        type: (row.message_type as any) ?? 'text',
-        senderType: (row.sender_type as any) ?? 'user',
-        senderId: row.user_id ?? null,
-        senderName,
-        timestamp: row.created_at ?? new Date().toISOString(),
-        metadata: metadata,
-        planStepId: row.plan_step_id ?? null,
-      };
+      return buildMessageSummary(row as MessageRow, user, index);
     });
 
     // Fetch conversation plan with steps (for step-aware prompt variables)
@@ -413,25 +303,18 @@ export async function GET(
       planStepId: message.planStepId,
     }));
 
+    // Use centralized function for ALL prompt variables - no manual overrides
     const promptVariables = buildConversationAgentVariables({
       ask: askSession,
       project: projectData,
       challenge: challengeData,
       messages: conversationMessagesPayload,
       participants: participantSummaries,
-      conversationPlan, // Include conversation plan for step-aware variables
+      conversationPlan,
     });
 
-    // Build agent variables (same as stream/route.ts)
-    const agentVariables: PromptVariables = {
-      ask_key: askSession.ask_key,
-      ask_question: promptVariables.ask_question || askSession.question,
-      ask_description: promptVariables.ask_description || askSession.description || '',
-      participants: promptVariables.participants || '',
-      messages_json: JSON.stringify(conversationMessagesPayload),
-    };
-
-    const agentConfig = await getAgentConfigForAsk(supabase, askSession.id, agentVariables, token);
+    // Pass the complete promptVariables directly - no manual subset
+    const agentConfig = await getAgentConfigForAsk(supabase, askSession.id, promptVariables, token);
 
     return NextResponse.json({
       success: true,

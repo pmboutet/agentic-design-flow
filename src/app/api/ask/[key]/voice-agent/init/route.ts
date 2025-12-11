@@ -8,76 +8,28 @@ import { getAdminSupabaseClient } from '@/lib/supabaseAdmin';
 import { parseErrorMessage } from '@/lib/utils';
 import type { ApiResponse } from '@/types';
 import { buildConversationAgentVariables } from '@/lib/ai/conversation-agent';
+import {
+  buildParticipantDisplayName,
+  buildMessageSummary,
+  buildParticipantSummary,
+  fetchUsersByIds,
+  type AskSessionRow,
+  type UserRow,
+  type ParticipantRow,
+  type ProjectRow,
+  type ChallengeRow,
+  type MessageRow,
+} from '@/lib/conversation-context';
 
 const CHAT_AGENT_SLUG = DEFAULT_CHAT_AGENT_SLUG;
 const CHAT_INTERACTION_TYPE = 'ask.chat.response.voice';
 
-interface AskSessionRow {
-  id: string;
-  ask_key: string;
-  question: string;
-  description?: string | null;
-  status?: string | null;
-  system_prompt?: string | null;
-  project_id?: string | null;
-  challenge_id?: string | null;
-  conversation_mode?: string | null;
-  expected_duration_minutes?: number | null;
-}
-
-interface ParticipantRow {
-  id: string;
-  participant_name?: string | null;
-  participant_email?: string | null;
-  role?: string | null;
-  is_spokesperson?: boolean | null;
-  user_id?: string | null;
-  last_active?: string | null;
-}
-
-interface UserRow {
-  id: string;
-  email?: string | null;
-  full_name?: string | null;
-  first_name?: string | null;
-  last_name?: string | null;
-  description?: string | null;
-}
-
-interface ProjectRow {
-  id: string;
-  name?: string | null;
-  system_prompt?: string | null;
-}
-
-interface ChallengeRow {
-  id: string;
-  name?: string | null;
-  system_prompt?: string | null;
-}
-
-function buildParticipantDisplayName(participant: ParticipantRow, user: UserRow | null, index: number): string {
-  if (participant.participant_name) {
-    return participant.participant_name;
-  }
-
-  if (user) {
-    if (user.full_name && user.full_name.trim().length > 0) {
-      return user.full_name;
-    }
-
-    const nameParts = [user.first_name, user.last_name].filter(Boolean);
-    if (nameParts.length) {
-      return nameParts.join(' ');
-    }
-
-    if (user.email) {
-      return user.email;
-    }
-  }
-
-  return `Participant ${index + 1}`;
-}
+// Types imported from @/lib/conversation-context:
+// - AskSessionRow, UserRow, ParticipantRow, ProjectRow, ChallengeRow, MessageRow
+// - buildParticipantDisplayName (unified function)
+// - buildMessageSummary (unified function)
+// - buildParticipantSummary (unified function)
+// - fetchUsersByIds (utility function)
 
 export async function POST(
   request: NextRequest,
@@ -163,13 +115,10 @@ export async function POST(
       }, {});
     }
 
+    // Build participant summaries using unified function for consistent mapping
     const participantSummaries = (participantRows ?? []).map((row, index) => {
       const user = row.user_id ? usersById[row.user_id] ?? null : null;
-      return {
-        name: buildParticipantDisplayName(row, user, index),
-        role: row.role ?? null,
-        description: user?.description ?? null,
-      };
+      return buildParticipantSummary(row as ParticipantRow, user, index);
     });
 
     // Fetch project data
@@ -208,14 +157,14 @@ export async function POST(
 
     // Check if there are any messages in the thread
     let hasMessages = false;
-    let messages: any[] = [];
+    let messageRows: MessageRow[] = [];
     if (conversationThread) {
       const { messages: threadMessages } = await getMessagesForThread(
         supabase,
         conversationThread.id
       );
-      messages = threadMessages ?? [];
-      hasMessages = messages.length > 0;
+      messageRows = (threadMessages ?? []) as MessageRow[];
+      hasMessages = messageRows.length > 0;
     } else {
       // Check for messages without thread
       const { data: messagesWithoutThread } = await supabase
@@ -227,20 +176,31 @@ export async function POST(
       hasMessages = (messagesWithoutThread ?? []).length > 0;
     }
 
+    // Fetch additional user data for message senders not already in usersById
+    const messageUserIds = messageRows
+      .map(row => row.user_id)
+      .filter((value): value is string => Boolean(value))
+      .filter(id => !usersById[id]);
+
+    if (messageUserIds.length > 0) {
+      const additionalUsers = await fetchUsersByIds(supabase, messageUserIds);
+      Object.assign(usersById, additionalUsers);
+    }
+
+    // Build message summaries using unified function for consistent mapping
+    // This ensures senderName logic and planStepId are consistent across all modes
+    const messages = messageRows.map((row, index) => {
+      const user = row.user_id ? usersById[row.user_id] ?? null : null;
+      return buildMessageSummary(row, user, index);
+    });
+
     // Build agent variables using THE SAME function as text/stream mode
     // This ensures 100% consistency between voice and text modes
     const agentVariables = buildConversationAgentVariables({
       ask: askRow,
       project: projectData,
       challenge: challengeData,
-      messages: messages.map(msg => ({
-        id: msg.id,
-        senderType: msg.sender_type ?? 'user',
-        senderName: msg.sender_name ?? (msg.sender_type === 'ai' ? 'Agent' : 'Participant'),
-        content: msg.content,
-        timestamp: msg.created_at ?? new Date().toISOString(),
-        planStepId: msg.plan_step_id ?? null,
-      })),
+      messages,
       participants: participantSummaries,
       conversationPlan,
     });

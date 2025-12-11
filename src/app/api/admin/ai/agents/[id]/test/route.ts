@@ -7,9 +7,17 @@ import { parseErrorMessage } from '@/lib/utils';
 import { buildConversationAgentVariables } from '@/lib/ai/conversation-agent';
 import { getAskSessionByKey, getOrCreateConversationThread, getMessagesForThread, getInsightsForThread } from '@/lib/asks';
 import { getConversationPlanWithSteps } from '@/lib/ai/conversation-plan';
-import { normaliseMessageMetadata } from '@/lib/messages';
 import { fetchInsightTypesForPrompt, fetchInsightsForSession } from '@/lib/insightQueries';
 import { mapInsightRowToInsight } from '@/lib/insights';
+import {
+  buildParticipantDisplayName,
+  buildMessageSummary,
+  buildParticipantSummary,
+  fetchUsersByIds,
+  type UserRow,
+  type ParticipantRow,
+  type MessageRow,
+} from '@/lib/conversation-context';
 
 interface TestRequest {
   askSessionId?: string;
@@ -92,24 +100,10 @@ export async function POST(
         }, {});
       }
 
-      const buildParticipantDisplayName = (row: any, user: any, index: number): string => {
-        if (row.participant_name) return row.participant_name;
-        if (user) {
-          if (user.full_name && user.full_name.trim().length > 0) return user.full_name;
-          const nameParts = [user.first_name, user.last_name].filter(Boolean);
-          if (nameParts.length) return nameParts.join(' ');
-          if (user.email) return user.email;
-        }
-        return `Participant ${index + 1}`;
-      };
-
+      // Use unified buildParticipantSummary function for consistent participant mapping
       const participants = (participantRows ?? []).map((row, index) => {
         const user = row.user_id ? usersById[row.user_id] ?? null : null;
-        return {
-          name: buildParticipantDisplayName(row, user, index),
-          email: row.participant_email ?? user?.email ?? null,
-          role: row.role ?? null,
-        };
+        return buildParticipantSummary(row as ParticipantRow, user, index);
       });
 
       // Get or create conversation thread
@@ -127,8 +121,8 @@ export async function POST(
         askConfig
       );
 
-      // Get REAL messages
-      let messageRows: any[] = [];
+      // Get REAL messages (IMPORTANT: include plan_step_id for step variable support)
+      let messageRows: MessageRow[] = [];
       if (conversationThread) {
         const { messages: threadMessages } = await getMessagesForThread(
           supabase,
@@ -137,13 +131,13 @@ export async function POST(
 
         const { data: messagesWithoutThread } = await supabase
           .from('messages')
-          .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at, conversation_thread_id')
+          .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at, conversation_thread_id, plan_step_id')
           .eq('ask_session_id', askRow.id)
           .is('conversation_thread_id', null)
           .order('created_at', { ascending: true });
 
-        const threadMessagesList = (threadMessages ?? []) as any[];
-        const messagesWithoutThreadList = (messagesWithoutThread ?? []) as any[];
+        const threadMessagesList = (threadMessages ?? []) as MessageRow[];
+        const messagesWithoutThreadList = (messagesWithoutThread ?? []) as MessageRow[];
         messageRows = [...threadMessagesList, ...messagesWithoutThreadList].sort((a, b) => {
           const timeA = new Date(a.created_at ?? new Date().toISOString()).getTime();
           const timeB = new Date(b.created_at ?? new Date().toISOString()).getTime();
@@ -152,10 +146,10 @@ export async function POST(
       } else {
         const { data } = await supabase
           .from('messages')
-          .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at, conversation_thread_id')
+          .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at, conversation_thread_id, plan_step_id')
           .eq('ask_session_id', askRow.id)
           .order('created_at', { ascending: true });
-        messageRows = data ?? [];
+        messageRows = (data ?? []) as MessageRow[];
       }
 
       // Get user info for message senders
@@ -176,32 +170,11 @@ export async function POST(
         });
       }
 
-      // Build REAL messages
-      const messages: any[] = (messageRows ?? []).map((row, index) => {
-        const metadata = normaliseMessageMetadata(row.metadata);
+      // Build REAL messages using unified function for consistent mapping
+      // CRITICAL: Uses buildMessageSummary to ensure planStepId is included for step variable support
+      const messages = messageRows.map((row, index) => {
         const user = row.user_id ? usersById[row.user_id] ?? null : null;
-
-        const senderName = (() => {
-          if (metadata && typeof metadata.senderName === 'string' && metadata.senderName.trim().length > 0) {
-            return metadata.senderName;
-          }
-          if (row.sender_type === 'ai') return 'Agent';
-          if (user) {
-            if (user.full_name) return user.full_name;
-            const nameParts = [user.first_name, user.last_name].filter(Boolean);
-            if (nameParts.length > 0) return nameParts.join(' ');
-            if (user.email) return user.email;
-          }
-          return `Participant ${index + 1}`;
-        })();
-
-        return {
-          id: row.id,
-          senderType: row.sender_type ?? 'user',
-          senderName,
-          content: row.content,
-          timestamp: row.created_at ?? new Date().toISOString(),
-        };
+        return buildMessageSummary(row, user, index);
       });
 
       // Fetch project data
