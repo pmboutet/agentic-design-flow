@@ -57,6 +57,7 @@ import { AiChallengeBuilderModal } from "@/components/project/AiChallengeBuilder
 import { AiChallengeBuilderContent } from "@/components/project/AiChallengeBuilderPanel";
 import { AiAskGeneratorPanel } from "@/components/project/AiAskGeneratorPanel";
 import { AddParticipantsDialog } from "@/components/project/AddParticipantsDialog";
+import { ClientEditDialog } from "@/components/project/ClientEditDialog";
 import { AskPromptTemplateSelector } from "@/components/admin/AskPromptTemplateSelector";
 import { GraphRAGPanel } from "@/components/admin/GraphRAGPanel";
 import { useAuth } from "@/components/auth/AuthProvider";
@@ -451,6 +452,8 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
   const [feedback, setFeedback] = useState<FeedbackState | null>(null);
   const [isEditingProject, setIsEditingProject] = useState(false);
   const [showAddParticipantsDialog, setShowAddParticipantsDialog] = useState(false);
+  const [showClientEditDialog, setShowClientEditDialog] = useState(false);
+  const [clientEditMode, setClientEditMode] = useState<"create" | "edit">("edit");
   const [isSavingProject, setIsSavingProject] = useState(false);
   const [isGeneratingSyntheses, setIsGeneratingSyntheses] = useState(false);
   const [synthesisRefreshKey, setSynthesisRefreshKey] = useState(0);
@@ -513,6 +516,13 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
   const [askAiErrors, setAskAiErrors] = useState<string[] | null>(null);
   const { profile } = useAuth();
   const currentProfileId = profile?.id ?? null;
+
+  // Check if user can manage clients (client_admin or higher)
+  const canManageClients = useMemo(() => {
+    const role = profile?.role?.toLowerCase() ?? "";
+    return role === "full_admin" || role === "client_admin";
+  }, [profile?.role]);
+
   const isProdEnvironment = useMemo(() => {
     const devFlag = (process.env.NEXT_PUBLIC_IS_DEV ?? "").toString().toLowerCase();
     const isDevFlag = devFlag === "true" || devFlag === "1";
@@ -3478,9 +3488,41 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
                   isHeaderCollapsed ? "text-lg" : "text-2xl"
                 )}>{boardData.projectName}</h1>
               </div>
-              {!isHeaderCollapsed && boardData.clientName ? (
-                <p className="text-sm text-slate-300">Client: {boardData.clientName}</p>
-              ) : null}
+              {!isHeaderCollapsed && (
+                <div className="flex items-center gap-2">
+                  {boardData.clientName ? (
+                    <>
+                      <p className="text-sm text-slate-300">Client: {boardData.clientName}</p>
+                      {canManageClients && boardData.clientId && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setClientEditMode("edit");
+                            setShowClientEditDialog(true);
+                          }}
+                          className="rounded px-2 py-0.5 text-xs text-indigo-300 transition hover:bg-white/10 hover:text-indigo-200"
+                          title="Edit client"
+                        >
+                          <Pencil className="h-3 w-3" />
+                        </button>
+                      )}
+                    </>
+                  ) : canManageClients ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setClientEditMode("create");
+                        setShowClientEditDialog(true);
+                      }}
+                      className="text-sm text-indigo-300 transition hover:text-indigo-200"
+                    >
+                      + Add client
+                    </button>
+                  ) : (
+                    <p className="text-sm text-slate-400">No client assigned</p>
+                  )}
+                </div>
+              )}
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -3572,6 +3614,18 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
           projectName={boardData.projectName}
           projectMembers={boardData.projectMembers}
           onMembersChange={() => loadJourneyData({ silent: true })}
+        />
+      )}
+
+      {/* Client Edit Dialog */}
+      {boardData && (
+        <ClientEditDialog
+          open={showClientEditDialog}
+          onOpenChange={setShowClientEditDialog}
+          clientId={boardData.clientId}
+          clientName={boardData.clientName}
+          mode={clientEditMode}
+          onClientChange={() => loadJourneyData({ silent: true })}
         />
       )}
 
