@@ -31,6 +31,11 @@ interface AiModelConfigRow {
   speechmatics_llm_provider?: string | null;
   speechmatics_llm_model?: string | null;
   speechmatics_api_key_env_var?: string | null;
+  // Speechmatics diarization columns
+  speechmatics_diarization?: string | null;
+  speechmatics_speaker_sensitivity?: number | null;
+  speechmatics_prefer_current_speaker?: boolean | null;
+  speechmatics_max_speakers?: number | null;
   // ElevenLabs-specific columns
   elevenlabs_voice_id?: string | null;
   elevenlabs_model_id?: string | null;
@@ -68,6 +73,11 @@ export function mapModelRow(row: AiModelConfigRow): AiModelConfig {
     speechmaticsLlmProvider: (row.speechmatics_llm_provider as "anthropic" | "openai" | undefined) ?? undefined,
     speechmaticsLlmModel: row.speechmatics_llm_model ?? undefined,
     speechmaticsApiKeyEnvVar: row.speechmatics_api_key_env_var ?? undefined,
+    // Map Speechmatics diarization columns from database
+    speechmaticsDiarization: (row.speechmatics_diarization as "none" | "speaker" | "channel" | "channel_and_speaker" | undefined) ?? undefined,
+    speechmaticsSpeakerSensitivity: row.speechmatics_speaker_sensitivity ?? undefined,
+    speechmaticsPreferCurrentSpeaker: row.speechmatics_prefer_current_speaker ?? undefined,
+    speechmaticsMaxSpeakers: row.speechmatics_max_speakers ?? undefined,
     // Map ElevenLabs columns from database
     elevenLabsVoiceId: row.elevenlabs_voice_id ?? undefined,
     elevenLabsModelId: row.elevenlabs_model_id ?? undefined,

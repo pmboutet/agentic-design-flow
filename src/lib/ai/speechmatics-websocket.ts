@@ -140,6 +140,26 @@ export class SpeechmaticsWebSocket {
             return 0.7; // Default recommended range for voice AI use cases (0.5 - 0.8s)
           })();
 
+          // Build diarization config if enabled (default: "speaker" for voice identification)
+          const diarizationMode = config.sttDiarization ?? "speaker";
+          const diarizationConfig: any = {};
+
+          if (diarizationMode !== "none") {
+            diarizationConfig.diarization = diarizationMode;
+
+            // Speaker diarization specific config
+            if (diarizationMode === "speaker" || diarizationMode === "channel_and_speaker") {
+              diarizationConfig.speaker_diarization_config = {
+                speaker_sensitivity: config.sttSpeakerSensitivity ?? 0.5,
+                prefer_current_speaker: config.sttPreferCurrentSpeaker !== false, // Default: true
+              };
+              // Only add max_speakers if explicitly set (null = unlimited)
+              if (typeof config.sttMaxSpeakers === 'number' && config.sttMaxSpeakers >= 2) {
+                diarizationConfig.speaker_diarization_config.max_speakers = config.sttMaxSpeakers;
+              }
+            }
+          }
+
           const settings: any = {
             message: "StartRecognition",
             audio_format: {
@@ -159,8 +179,8 @@ export class SpeechmaticsWebSocket {
               conversation_config: {
                 end_of_utterance_silence_trigger: endOfUtteranceSilenceTrigger,
               },
-              // NOTE: Speaker diarization is NOT available in Speechmatics streaming mode
-              // Tested Dec 2024: speaker field always returns null in real-time transcription
+              // Diarization config for speaker identification
+              ...diarizationConfig,
             },
           };
 
@@ -172,6 +192,9 @@ export class SpeechmaticsWebSocket {
             operating_point: config.sttOperatingPoint || (config.lowLatencyMode !== false ? "standard" : "enhanced"),
             lowLatencyMode: config.lowLatencyMode !== false,
             end_of_utterance_silence_trigger: endOfUtteranceSilenceTrigger,
+            diarization: diarizationMode,
+            speaker_sensitivity: diarizationMode !== "none" ? (config.sttSpeakerSensitivity ?? 0.5) : undefined,
+            max_speakers: config.sttMaxSpeakers ?? 'unlimited',
           });
 
           ws.send(JSON.stringify(settings));

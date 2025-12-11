@@ -321,7 +321,9 @@ export class SpeechmaticsVoiceAgent {
     // Handle partial transcription
     if (data.message === "AddPartialTranscript") {
       // Speechmatics API structure: transcript is in metadata.transcript (full text)
+      // Speaker info is in results array - each word has a speaker field (S1, S2, UU)
       const transcript = data.metadata?.transcript || "";
+      const speaker = this.extractDominantSpeaker(data.results);
 
       if (this.audio && transcript && transcript.trim()) {
         const trimmedTranscript = transcript.trim();
@@ -354,11 +356,11 @@ export class SpeechmaticsVoiceAgent {
           .join(' ')
           .slice(-200); // Last 200 chars of recent context
 
-        // Validate barge-in with transcript content and context
-        this.audio?.validateBargeInWithTranscript(trimmedTranscript, recentContext);
+        // Validate barge-in with transcript content, context, and speaker (for diarization-based echo detection)
+        this.audio?.validateBargeInWithTranscript(trimmedTranscript, recentContext, speaker);
 
-        // Process partial transcript normally
-        this.transcriptionManager?.handlePartialTranscript(trimmedTranscript);
+        // Process partial transcript normally (pass speaker for diarization)
+        this.transcriptionManager?.handlePartialTranscript(trimmedTranscript, speaker);
       }
       return;
     }
@@ -366,7 +368,9 @@ export class SpeechmaticsVoiceAgent {
     // Handle final transcription
     if (data.message === "AddTranscript") {
       // Speechmatics API structure: transcript is in metadata.transcript (full text)
+      // Speaker info is in results array - each word has a speaker field (S1, S2, UU)
       const transcript = data.metadata?.transcript || "";
+      const speaker = this.extractDominantSpeaker(data.results);
 
       if (transcript && transcript.trim()) {
         // Get recent conversation context for echo detection (last agent message + last user message)
@@ -376,11 +380,11 @@ export class SpeechmaticsVoiceAgent {
           .join(' ')
           .slice(-200); // Last 200 chars of recent context
 
-        // Validate barge-in with transcript content and context
-        this.audio?.validateBargeInWithTranscript(transcript.trim(), recentContext);
+        // Validate barge-in with transcript content, context, and speaker (for diarization-based echo detection)
+        this.audio?.validateBargeInWithTranscript(transcript.trim(), recentContext, speaker);
 
-        // Process final transcript normally
-        this.transcriptionManager?.handleFinalTranscript(transcript.trim());
+        // Process final transcript normally (pass speaker for diarization)
+        this.transcriptionManager?.handleFinalTranscript(transcript.trim(), speaker);
       }
       return;
     }
@@ -739,6 +743,43 @@ export class SpeechmaticsVoiceAgent {
 
   setMicrophoneMuted(muted: boolean): void {
     this.audio?.setMicrophoneMuted(muted);
+  }
+
+  /**
+   * Extract the dominant speaker from Speechmatics results array
+   * Each word in the results has a speaker field (S1, S2, S3, UU for unknown)
+   * Returns the most frequently occurring speaker in the transcript
+   */
+  private extractDominantSpeaker(results?: Array<{ speaker?: string }>): string | undefined {
+    if (!results || !Array.isArray(results) || results.length === 0) {
+      return undefined;
+    }
+
+    // Count speaker occurrences
+    const speakerCounts: Record<string, number> = {};
+    for (const result of results) {
+      const speaker = result.speaker;
+      if (speaker && speaker !== 'UU') { // Skip unknown speakers for counting
+        speakerCounts[speaker] = (speakerCounts[speaker] || 0) + 1;
+      }
+    }
+
+    // Find the most frequent speaker
+    let dominantSpeaker: string | undefined;
+    let maxCount = 0;
+    for (const [speaker, count] of Object.entries(speakerCounts)) {
+      if (count > maxCount) {
+        maxCount = count;
+        dominantSpeaker = speaker;
+      }
+    }
+
+    // If no dominant speaker found but we have results with UU, return UU
+    if (!dominantSpeaker && results.some(r => r.speaker === 'UU')) {
+      return 'UU';
+    }
+
+    return dominantSpeaker;
   }
 
   /**
