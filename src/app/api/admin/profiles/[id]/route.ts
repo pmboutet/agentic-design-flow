@@ -8,6 +8,55 @@ import { fetchProjectMemberships, fetchClientMemberships, fetchDetailedProjectMe
 
 const roleValues = ["full_admin", "client_admin", "facilitator", "manager", "participant"] as const;
 
+export async function GET(
+  _request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    await requireAdmin();
+    const supabase = await createServerSupabaseClient();
+    const resolvedParams = await params;
+    const userId = z.string().uuid().parse(resolvedParams.id);
+
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("*, clients(name)")
+      .eq("id", userId)
+      .is("deleted_at", null)
+      .single();
+
+    if (error) {
+      if (error.code === "PGRST116") {
+        return NextResponse.json<ApiResponse>({
+          success: false,
+          error: "User not found"
+        }, { status: 404 });
+      }
+      throw error;
+    }
+
+    const [membershipMap, clientMembershipMap, projectMembershipMap] = await Promise.all([
+      fetchProjectMemberships(supabase, [data.id]),
+      fetchClientMemberships(supabase, [data.id]),
+      fetchDetailedProjectMemberships(supabase, [data.id])
+    ]);
+
+    return NextResponse.json<ApiResponse<ManagedUser>>({
+      success: true,
+      data: mapManagedUser(data, membershipMap, clientMembershipMap, projectMembershipMap)
+    });
+  } catch (error) {
+    let status = 500;
+    if (error instanceof z.ZodError) status = 400;
+    else if (error instanceof Error && error.message.includes('required')) status = 403;
+
+    return NextResponse.json<ApiResponse>({
+      success: false,
+      error: error instanceof z.ZodError ? error.errors[0]?.message || "Invalid user id" : parseErrorMessage(error)
+    }, { status });
+  }
+}
+
 const updateSchema = z.object({
   email: z.string().trim().min(3).max(255).email().optional(),
   firstName: z.string().trim().max(100).optional().or(z.literal("")),
