@@ -192,7 +192,7 @@ export async function GET(
           message_type: row.type,
           metadata: row.metadata,
           created_at: row.created_at,
-          sender_name: row.sender_name, // Include sender_name from RPC
+          plan_step_id: row.plan_step_id ?? null,
         }));
       }
     } else {
