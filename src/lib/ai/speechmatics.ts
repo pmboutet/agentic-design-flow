@@ -746,6 +746,28 @@ export class SpeechmaticsVoiceAgent {
   }
 
   /**
+   * Set text-only mode (disables TTS audio responses)
+   * When enabled, the agent will only respond with text, no audio playback
+   *
+   * @param enabled - true to disable TTS (text-only mode), false to enable TTS (voice mode)
+   */
+  setTextOnlyMode(enabled: boolean): void {
+    if (this.config) {
+      this.config.disableElevenLabsTTS = enabled;
+      console.log(`[Speechmatics] 📝 Text-only mode ${enabled ? 'enabled' : 'disabled'}`);
+    }
+  }
+
+  /**
+   * Get current text-only mode state
+   *
+   * @returns true if TTS is disabled (text-only mode), false if TTS is enabled
+   */
+  getTextOnlyMode(): boolean {
+    return this.config?.disableElevenLabsTTS ?? false;
+  }
+
+  /**
    * Extract the dominant speaker from Speechmatics results array
    * Each word in the results has a speaker field (S1, S2, S3, UU for unknown)
    * Returns the most frequently occurring speaker in the transcript
