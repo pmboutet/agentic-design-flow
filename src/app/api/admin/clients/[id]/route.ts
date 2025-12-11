@@ -26,6 +26,51 @@ function mapClient(row: any): ClientRecord {
   };
 }
 
+export async function GET(
+  _request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { profile } = await requireAdmin();
+    const supabase = await createServerSupabaseClient();
+    const resolvedParams = await params;
+    const clientId = z.string().uuid().parse(resolvedParams.id);
+
+    // Check permissions: full_admin can view any client, others can only view their own
+    const normalizedRole = profile.role?.toLowerCase() ?? "";
+    if (normalizedRole !== "full_admin" && profile.client_id !== clientId) {
+      return NextResponse.json<ApiResponse>({
+        success: false,
+        error: "You can only view your own organization"
+      }, { status: 403 });
+    }
+
+    const { data, error } = await supabase
+      .from("clients")
+      .select("*")
+      .eq("id", clientId)
+      .single();
+
+    if (error) {
+      throw error;
+    }
+
+    return NextResponse.json<ApiResponse<ClientRecord>>({
+      success: true,
+      data: mapClient(data)
+    });
+  } catch (error) {
+    let status = 500;
+    if (error instanceof z.ZodError) status = 400;
+    else if (error instanceof Error && error.message.includes('required')) status = 403;
+
+    return NextResponse.json<ApiResponse>({
+      success: false,
+      error: error instanceof z.ZodError ? error.errors[0]?.message || "Invalid client id" : parseErrorMessage(error)
+    }, { status });
+  }
+}
+
 export async function DELETE(
   _request: Request,
   { params }: { params: Promise<{ id: string }> }

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getAdminSupabaseClient } from "@/lib/supabaseAdmin";
+import { requireAdmin } from "@/lib/supabaseServer";
+import { canManageClientMembers } from "@/lib/memberPermissions";
 import { sanitizeOptional } from "@/lib/sanitize";
 import { parseErrorMessage } from "@/lib/utils";
 import { type ApiResponse, type ClientMember, type ClientRole } from "@/types";
@@ -25,13 +27,53 @@ function mapClientMember(row: any): ClientMember {
   };
 }
 
+/**
+ * Check if user can view client members (less restrictive than manage)
+ * - full_admin: can view any client
+ * - client_admin/facilitator/manager: can view their own client
+ */
+function canViewClientMembers(
+  profile: { role: string | null; client_id: string | null },
+  clientId: string
+): { allowed: boolean; error?: string } {
+  const normalizedRole = profile.role?.toLowerCase() ?? "";
+
+  // full_admin can view any client
+  if (normalizedRole === "full_admin") {
+    return { allowed: true };
+  }
+
+  // Users with admin-level roles can view their own client
+  if (!profile.client_id || profile.client_id !== clientId) {
+    return {
+      allowed: false,
+      error: "You can only view members of your own organization"
+    };
+  }
+
+  return { allowed: true };
+}
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // Verify user is admin
+    const { profile } = await requireAdmin();
+
     const resolvedParams = await params;
     const clientId = z.string().uuid("Invalid client id").parse(resolvedParams.id);
+
+    // Check if user can view members of this client
+    const permission = canViewClientMembers(profile, clientId);
+    if (!permission.allowed) {
+      return NextResponse.json<ApiResponse>({
+        success: false,
+        error: permission.error || "Permission denied"
+      }, { status: 403 });
+    }
+
     const supabase = getAdminSupabaseClient();
 
     const { data, error } = await supabase
@@ -49,7 +91,12 @@ export async function GET(
       data: (data ?? []).map(mapClientMember)
     });
   } catch (error) {
-    const status = error instanceof z.ZodError ? 400 : 500;
+    let status = 500;
+    if (error instanceof z.ZodError) {
+      status = 400;
+    } else if (error instanceof Error && error.message.includes("required")) {
+      status = 403;
+    }
     return NextResponse.json<ApiResponse>({
       success: false,
       error: error instanceof z.ZodError ? error.errors[0]?.message || "Invalid parameters" : parseErrorMessage(error)
@@ -62,8 +109,21 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // Verify user is admin
+    const { profile } = await requireAdmin();
+
     const resolvedParams = await params;
     const clientId = z.string().uuid("Invalid client id").parse(resolvedParams.id);
+
+    // Check if user can manage members of this client
+    const permission = await canManageClientMembers(profile, clientId);
+    if (!permission.allowed) {
+      return NextResponse.json<ApiResponse>({
+        success: false,
+        error: permission.error || "Permission denied"
+      }, { status: 403 });
+    }
+
     const body = await request.json();
     const payload = payloadSchema.parse(body);
 
@@ -95,11 +155,15 @@ export async function POST(
       data: mapClientMember(data)
     }, { status: 201 });
   } catch (error) {
-    const status = error instanceof z.ZodError ? 400 : 500;
+    let status = 500;
+    if (error instanceof z.ZodError) {
+      status = 400;
+    } else if (error instanceof Error && error.message.includes("required")) {
+      status = 403;
+    }
     return NextResponse.json<ApiResponse>({
       success: false,
       error: error instanceof z.ZodError ? error.errors[0]?.message || "Invalid payload" : parseErrorMessage(error)
     }, { status });
   }
 }
-

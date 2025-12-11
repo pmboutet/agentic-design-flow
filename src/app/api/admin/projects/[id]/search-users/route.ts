@@ -1,22 +1,32 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getAdminSupabaseClient } from "@/lib/supabaseAdmin";
+import { requireAdmin } from "@/lib/supabaseServer";
+import { canSearchProjectUsers } from "@/lib/memberPermissions";
 import { parseErrorMessage } from "@/lib/utils";
 import { type ApiResponse, type ProjectMember } from "@/types";
 
 export const dynamic = "force-dynamic";
-
-const searchSchema = z.object({
-  query: z.string().trim().max(100).optional(),
-});
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // Verify user is admin
+    const { profile } = await requireAdmin();
+
     const resolvedParams = await params;
     const projectId = z.string().uuid("Invalid project id").parse(resolvedParams.id);
+
+    // Check if user can search users for this project
+    const permission = await canSearchProjectUsers(profile, projectId);
+    if (!permission.allowed) {
+      return NextResponse.json<ApiResponse>({
+        success: false,
+        error: permission.error || "Permission denied"
+      }, { status: 403 });
+    }
 
     const searchParams = request.nextUrl.searchParams;
     const query = searchParams.get("query")?.trim() || "";
@@ -90,7 +100,12 @@ export async function GET(
       data: availableUsers,
     });
   } catch (error) {
-    const status = error instanceof z.ZodError ? 400 : 500;
+    let status = 500;
+    if (error instanceof z.ZodError) {
+      status = 400;
+    } else if (error instanceof Error && error.message.includes("required")) {
+      status = 403;
+    }
     return NextResponse.json<ApiResponse>({
       success: false,
       error: error instanceof z.ZodError
