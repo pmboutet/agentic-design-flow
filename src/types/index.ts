@@ -5,7 +5,8 @@ export type AskDeliveryMode = "physical" | "digital";
 export type AskConversationMode =
   | "individual_parallel"  // Multiple people respond individually, no cross-visibility
   | "collaborative"        // Multi-voice conversation, everyone sees everything
-  | "group_reporter";      // Group contributes, one reporter consolidates
+  | "group_reporter"       // Group contributes, one reporter consolidates
+  | "consultant";          // AI listens and suggests questions to consultant, no TTS
 
 export interface AskParticipant {
   id: string;
@@ -356,12 +357,15 @@ export interface ChatComponentProps {
     deepgramLlmProvider?: "anthropic" | "openai";
     deepgramLlmModel?: string;
   };
-  onVoiceMessage?: (role: 'user' | 'agent', content: string, metadata?: { isInterim?: boolean; messageId?: string; timestamp?: string }) => void;
+  onVoiceMessage?: (role: 'user' | 'agent', content: string, metadata?: { isInterim?: boolean; messageId?: string; timestamp?: string; speaker?: string }) => void;
   onReplyBoxFocusChange?: (isFocused: boolean) => void;
   onVoiceModeChange?: (isActive: boolean) => void;
   onInitConversation?: () => void;
   // Message editing props
   onEditMessage?: (messageId: string, newContent: string) => Promise<void>;
+  // Consultant mode props
+  consultantMode?: boolean; // If true, AI listens but doesn't respond (no TTS)
+  onSpeakerChange?: (speaker: string) => void; // Callback when speaker changes (diarization)
 }
 
 export interface ChallengeComponentProps {
@@ -377,6 +381,19 @@ export interface InsightPanelProps {
   onInsightUpdate?: (insightId: string, newContent: string) => void;
   askKey: string;
   isDetectingInsights?: boolean;
+}
+
+// Consultant mode - suggested questions
+export interface SuggestedQuestion {
+  id: string;
+  text: string;
+  timestamp: string;
+}
+
+export interface SuggestedQuestionsPanelProps {
+  questions: SuggestedQuestion[];
+  isAnalyzing?: boolean;
+  onQuestionCopy?: (questionId: string) => void;
 }
 
 // Admin backoffice data

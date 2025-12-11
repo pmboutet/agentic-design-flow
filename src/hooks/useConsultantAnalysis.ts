@@ -1,0 +1,331 @@
+/**
+ * useConsultantAnalysis - Hook for AI-assisted consultant analysis
+ *
+ * Periodically analyzes the conversation and suggests questions to the consultant.
+ * Triggers analysis every 10 seconds OR on speaker change (whichever comes first).
+ *
+ * Features:
+ * - Automatic periodic analysis (configurable interval, default 10s)
+ * - Speaker change detection triggers immediate analysis
+ * - Debouncing to prevent excessive API calls
+ * - Error handling with retry logic
+ * - Step completion detection and callback
+ */
+
+import { useEffect, useRef, useCallback, useState } from 'react';
+import type { SuggestedQuestion } from '@/types';
+
+/**
+ * Analysis interval in milliseconds (10 seconds)
+ */
+const DEFAULT_ANALYSIS_INTERVAL = 10000;
+
+/**
+ * Minimum time between analyses (debounce)
+ */
+const MIN_ANALYSIS_GAP = 3000;
+
+/**
+ * Retry delay after error
+ */
+const ERROR_RETRY_DELAY = 5000;
+
+export interface ConsultantAnalysisConfig {
+  /**
+   * ASK key for the session
+   */
+  askKey: string;
+
+  /**
+   * Whether the session is in consultant mode
+   */
+  enabled?: boolean;
+
+  /**
+   * Analysis interval in milliseconds (default: 10000)
+   */
+  analysisInterval?: number;
+
+  /**
+   * Invite token for authenticated API calls
+   */
+  inviteToken?: string | null;
+
+  /**
+   * Callback when questions are updated
+   */
+  onQuestionsUpdate?: (questions: SuggestedQuestion[]) => void;
+
+  /**
+   * Callback when a step is automatically completed
+   */
+  onStepCompleted?: (stepId: string) => void;
+
+  /**
+   * Callback when analysis starts/ends (for loading indicators)
+   */
+  onAnalyzing?: (isAnalyzing: boolean) => void;
+}
+
+export interface ConsultantAnalysisState {
+  /**
+   * Current suggested questions
+   */
+  questions: SuggestedQuestion[];
+
+  /**
+   * Whether an analysis is currently running
+   */
+  isAnalyzing: boolean;
+
+  /**
+   * Last error message (null if no error)
+   */
+  error: string | null;
+
+  /**
+   * Notify that a speaker change occurred (triggers immediate analysis)
+   */
+  notifySpeakerChange: (speaker: string) => void;
+
+  /**
+   * Trigger an immediate analysis
+   */
+  triggerAnalysis: () => Promise<void>;
+
+  /**
+   * Pause automatic analysis
+   */
+  pause: () => void;
+
+  /**
+   * Resume automatic analysis
+   */
+  resume: () => void;
+
+  /**
+   * Whether automatic analysis is paused
+   */
+  isPaused: boolean;
+}
+
+/**
+ * Call the consultant-analyze endpoint
+ */
+async function analyzeConversation(
+  askKey: string,
+  inviteToken?: string | null
+): Promise<{ questions: SuggestedQuestion[]; stepCompleted?: string }> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (inviteToken) {
+    headers['X-Invite-Token'] = inviteToken;
+  }
+
+  const response = await fetch(`/api/ask/${askKey}/consultant-analyze`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({}),
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.error || `Analysis failed: ${response.status}`);
+  }
+
+  const result = await response.json();
+  if (!result.success) {
+    throw new Error(result.error || 'Analysis failed');
+  }
+
+  return result.data;
+}
+
+export function useConsultantAnalysis(config: ConsultantAnalysisConfig): ConsultantAnalysisState {
+  const {
+    askKey,
+    enabled = true,
+    analysisInterval = DEFAULT_ANALYSIS_INTERVAL,
+    inviteToken,
+    onQuestionsUpdate,
+    onStepCompleted,
+    onAnalyzing,
+  } = config;
+
+  // State
+  const [questions, setQuestions] = useState<SuggestedQuestion[]>([]);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [isPaused, setIsPaused] = useState(false);
+
+  // Refs for tracking
+  const lastAnalysisTimeRef = useRef<number>(0);
+  const analysisIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const pendingAnalysisRef = useRef<boolean>(false);
+  const lastSpeakerRef = useRef<string | null>(null);
+  const isAnalyzingRef = useRef(false);
+  const mountedRef = useRef(true);
+
+  /**
+   * Perform the analysis
+   */
+  const performAnalysis = useCallback(async () => {
+    // Prevent concurrent analyses
+    if (isAnalyzingRef.current) {
+      pendingAnalysisRef.current = true;
+      return;
+    }
+
+    // Check minimum gap between analyses
+    const now = Date.now();
+    const timeSinceLastAnalysis = now - lastAnalysisTimeRef.current;
+    if (timeSinceLastAnalysis < MIN_ANALYSIS_GAP) {
+      // Schedule for later
+      pendingAnalysisRef.current = true;
+      return;
+    }
+
+    isAnalyzingRef.current = true;
+    setIsAnalyzing(true);
+    onAnalyzing?.(true);
+
+    try {
+      const result = await analyzeConversation(askKey, inviteToken);
+
+      if (!mountedRef.current) return;
+
+      lastAnalysisTimeRef.current = Date.now();
+      setError(null);
+
+      // Update questions if we got new ones
+      if (result.questions && result.questions.length > 0) {
+        setQuestions(result.questions);
+        onQuestionsUpdate?.(result.questions);
+      }
+
+      // Handle step completion
+      if (result.stepCompleted) {
+        onStepCompleted?.(result.stepCompleted);
+      }
+    } catch (err) {
+      if (!mountedRef.current) return;
+
+      const errorMessage = err instanceof Error ? err.message : 'Analysis failed';
+      setError(errorMessage);
+      console.error('[useConsultantAnalysis] Error:', errorMessage);
+    } finally {
+      if (mountedRef.current) {
+        isAnalyzingRef.current = false;
+        setIsAnalyzing(false);
+        onAnalyzing?.(false);
+
+        // If there was a pending analysis request, schedule it
+        if (pendingAnalysisRef.current) {
+          pendingAnalysisRef.current = false;
+          const remainingGap = MIN_ANALYSIS_GAP - (Date.now() - lastAnalysisTimeRef.current);
+          if (remainingGap > 0) {
+            setTimeout(() => {
+              if (mountedRef.current && !isPaused) {
+                performAnalysis();
+              }
+            }, remainingGap);
+          } else {
+            performAnalysis();
+          }
+        }
+      }
+    }
+  }, [askKey, inviteToken, isPaused, onQuestionsUpdate, onStepCompleted, onAnalyzing]);
+
+  /**
+   * Notify speaker change - triggers immediate analysis
+   */
+  const notifySpeakerChange = useCallback((speaker: string) => {
+    if (!enabled || isPaused) return;
+
+    // Only trigger if speaker actually changed
+    if (speaker !== lastSpeakerRef.current) {
+      lastSpeakerRef.current = speaker;
+      performAnalysis();
+    }
+  }, [enabled, isPaused, performAnalysis]);
+
+  /**
+   * Trigger manual analysis
+   */
+  const triggerAnalysis = useCallback(async () => {
+    if (!enabled) return;
+    await performAnalysis();
+  }, [enabled, performAnalysis]);
+
+  /**
+   * Pause automatic analysis
+   */
+  const pause = useCallback(() => {
+    setIsPaused(true);
+    if (analysisIntervalRef.current) {
+      clearInterval(analysisIntervalRef.current);
+      analysisIntervalRef.current = null;
+    }
+  }, []);
+
+  /**
+   * Resume automatic analysis
+   */
+  const resume = useCallback(() => {
+    setIsPaused(false);
+  }, []);
+
+  // Set up periodic analysis
+  useEffect(() => {
+    if (!enabled || isPaused) {
+      if (analysisIntervalRef.current) {
+        clearInterval(analysisIntervalRef.current);
+        analysisIntervalRef.current = null;
+      }
+      return;
+    }
+
+    // Start periodic analysis
+    analysisIntervalRef.current = setInterval(() => {
+      if (mountedRef.current && !isPaused) {
+        performAnalysis();
+      }
+    }, analysisInterval);
+
+    // Trigger initial analysis after a short delay (let the conversation load first)
+    const initialTimeout = setTimeout(() => {
+      if (mountedRef.current && !isPaused) {
+        performAnalysis();
+      }
+    }, 2000);
+
+    return () => {
+      if (analysisIntervalRef.current) {
+        clearInterval(analysisIntervalRef.current);
+        analysisIntervalRef.current = null;
+      }
+      clearTimeout(initialTimeout);
+    };
+  }, [enabled, isPaused, analysisInterval, performAnalysis]);
+
+  // Track mount state
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  return {
+    questions,
+    isAnalyzing,
+    error,
+    notifySpeakerChange,
+    triggerAnalysis,
+    pause,
+    resume,
+    isPaused,
+  };
+}

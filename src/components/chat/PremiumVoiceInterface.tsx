@@ -85,16 +85,18 @@ interface PremiumVoiceInterfaceProps {
     metadata?: Record<string, unknown>; // Preserve metadata to access messageId
   }>;
   conversationPlan?: ConversationPlan | null;
+  consultantMode?: boolean; // If true, AI listens but doesn't respond (no TTS, diarization enabled)
 }
 
 /**
  * Type représentant un message vocal dans l'interface
- * 
+ *
  * @property role - Rôle de l'émetteur (user ou assistant)
  * @property content - Contenu textuel du message
  * @property timestamp - Horodatage ISO du message
  * @property messageId - ID unique du message (pour la déduplication et le suivi)
  * @property isInterim - Indique si le message est intermédiaire (en cours de transcription) ou final
+ * @property speaker - Identifiant du locuteur (diarisation) ex: S1, S2, UU
  */
 type VoiceMessage = {
   role: 'user' | 'assistant';
@@ -102,6 +104,7 @@ type VoiceMessage = {
   timestamp: string;
   messageId?: string;
   isInterim?: boolean;
+  speaker?: string; // Speaker identifier from diarization (consultant mode)
 };
 
 /**
@@ -127,6 +130,7 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
   onEditMessage,
   messages = [],
   conversationPlan,
+  consultantMode = false,
 }: PremiumVoiceInterfaceProps) {
   // Récupération de l'utilisateur connecté pour l'affichage du profil
   const { user } = useAuth();
@@ -134,6 +138,8 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
   // ===== ÉTATS DE CONNEXION ET MICROPHONE =====
   // État de connexion au service vocal (WebSocket établi)
   const [isConnected, setIsConnected] = useState(false);
+  // In consultant mode, track the first speaker as the consultant
+  const consultantSpeakerRef = useRef<string | null>(null);
   // État d'activation du microphone (permission accordée et stream actif)
   const [isMicrophoneActive, setIsMicrophoneActive] = useState(false);
   // État de mute du microphone (microphone désactivé mais WebSocket toujours ouvert pour recevoir les réponses)
@@ -761,8 +767,15 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
   ) => {
     const isInterim = Boolean((rawMessage as any).isInterim);
     const messageId = (rawMessage as SpeechmaticsMessageEvent).messageId;
+    const speaker = (rawMessage as SpeechmaticsMessageEvent).speaker;
     const role: 'user' | 'assistant' =
       rawMessage.role === 'agent' ? 'assistant' : (rawMessage.role as 'user' | 'assistant');
+
+    // In consultant mode, track the first speaker as the consultant
+    if (consultantMode && speaker && !consultantSpeakerRef.current && !isInterim) {
+      consultantSpeakerRef.current = speaker;
+      console.log('[PremiumVoiceInterface] 👤 Consultant speaker identified:', speaker);
+    }
 
     const baseMessage: VoiceMessage = {
       role,
@@ -770,6 +783,7 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
       timestamp: rawMessage.timestamp || new Date().toISOString(),
       messageId,
       isInterim,
+      speaker, // Include speaker for consultant mode
     };
 
     // Détecter quand l'utilisateur parle pour l'animation visuelle
@@ -983,7 +997,10 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
         // Agent Speechmatics : Speechmatics STT + LLM (Anthropic/OpenAI) + ElevenLabs TTS
         const agent = new SpeechmaticsVoiceAgent();
         agentRef.current = agent;
-        console.log('[PremiumVoiceInterface] ✅ SpeechmaticsVoiceAgent created and stored in agentRef');
+        console.log('[PremiumVoiceInterface] ✅ SpeechmaticsVoiceAgent created and stored in agentRef', {
+          consultantMode,
+          disableTTS: consultantMode || modelConfig?.disableElevenLabsTTS,
+        });
 
         // Configuration des callbacks
         agent.setCallbacks({
@@ -1012,10 +1029,13 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
           llmModel: modelConfig?.speechmaticsLlmModel,
           elevenLabsVoiceId: modelConfig?.elevenLabsVoiceId,
           elevenLabsModelId: modelConfig?.elevenLabsModelId || "eleven_turbo_v2_5",
-          disableElevenLabsTTS: textOnlyMode || modelConfig?.disableElevenLabsTTS || false,
+          // TTS disabled in consultant mode (AI listens only) or text-only mode (dictation)
+          disableElevenLabsTTS: consultantMode || textOnlyMode || modelConfig?.disableElevenLabsTTS || false,
           microphoneSensitivity, // Sensibilité du microphone (1.5 par défaut)
           microphoneDeviceId: selectedMicrophoneId || undefined,
           voiceIsolation: voiceIsolationEnabled,
+          // In consultant mode, enable diarization for speaker identification
+          sttDiarization: consultantMode ? "speaker" : undefined,
         };
 
         // Établir la connexion WebSocket et démarrer le microphone
@@ -1497,6 +1517,7 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
       timestamp: msg.timestamp || new Date().toISOString(),
       messageId: msg.messageId,
       isInterim: false,
+      speaker: (msg.metadata as { speaker?: string })?.speaker, // Speaker from diarization
     }));
 
     if (interimUser) {
@@ -1773,6 +1794,19 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
               const isEditing = editingMessageId === message.messageId;
               const canEdit = isUser && !message.isInterim && message.messageId && onEditMessage;
 
+              // Consultant mode: determine if this message is from the consultant
+              const isConsultantMessage = consultantMode && message.speaker === consultantSpeakerRef.current;
+              // Get a human-readable speaker label
+              const getSpeakerLabel = (speaker: string | undefined): string => {
+                if (!speaker) return '';
+                if (speaker === consultantSpeakerRef.current) return 'Consultant';
+                if (speaker === 'UU') return 'Inconnu';
+                // Convert S1, S2, etc. to "Participant 1", "Participant 2"
+                const match = speaker.match(/^S(\d+)$/);
+                if (match) return `Participant ${match[1]}`;
+                return speaker;
+              };
+
               return (
                 <motion.div
                   key={messageKey}
@@ -1786,10 +1820,22 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
                     layout: { duration: 0.3 }
                   }}
                   className={cn(
-                    "flex",
-                    isUser ? "justify-end" : "justify-start"
+                    "flex flex-col",
+                    // In consultant mode, consultant messages on right, others on left
+                    consultantMode
+                      ? (isConsultantMessage ? "items-end" : "items-start")
+                      : (isUser ? "items-end" : "items-start")
                   )}
                 >
+                  {/* Speaker label in consultant mode */}
+                  {consultantMode && message.speaker && !message.isInterim && (
+                    <span className={cn(
+                      "text-xs mb-1 px-2",
+                      isConsultantMessage ? "text-blue-300" : "text-white/60"
+                    )}>
+                      {getSpeakerLabel(message.speaker)}
+                    </span>
+                  )}
                   <div className="relative group max-w-[75%]">
                     {/* Edit button for user messages */}
                     {canEdit && !isEditing && (
@@ -1804,9 +1850,14 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
                     <div
                       className={cn(
                         "rounded-2xl px-4 py-3 backdrop-blur-xl shadow-lg",
-                        isUser
-                          ? "bg-white/20 text-white"
-                          : "bg-white/10 text-white/90"
+                        // In consultant mode, use blue for consultant, different color for others
+                        consultantMode
+                          ? (isConsultantMessage
+                              ? "bg-blue-500/30 text-white border border-blue-400/30"
+                              : "bg-slate-700/40 text-white/90 border border-slate-500/30")
+                          : (isUser
+                              ? "bg-white/20 text-white"
+                              : "bg-white/10 text-white/90")
                       )}
                       style={{
                         boxShadow: "0 8px 32px 0 rgba(0,0,0,0.2)",

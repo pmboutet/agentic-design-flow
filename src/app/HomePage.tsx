@@ -6,11 +6,13 @@ import { motion, AnimatePresence, useMotionValue, useTransform, PanInfo } from "
 import { AlertCircle, Clock, MessageSquare, Sparkles, ChevronDown, ChevronUp, MessageCircle, Lightbulb } from "lucide-react";
 import { ChatComponent } from "@/components/chat/ChatComponent";
 import { InsightPanel } from "@/components/insight/InsightPanel";
+import { SuggestedQuestionsPanel } from "@/components/consultant/SuggestedQuestionsPanel";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { SessionData, Ask, Message, Insight, Challenge, ApiResponse, ConversationPlan } from "@/types";
+import { SessionData, Ask, Message, Insight, Challenge, ApiResponse, ConversationPlan, SuggestedQuestion } from "@/types";
 import { ConversationProgressBar } from "@/components/conversation/ConversationProgressBar";
 import { useSessionTimer } from "@/hooks/useSessionTimer";
+import { useConsultantAnalysis } from "@/hooks/useConsultantAnalysis";
 import {
   validateAskKey,
   parseErrorMessage,
@@ -88,6 +90,12 @@ interface MobileLayoutProps {
   isSessionTimerPaused: boolean;
   /** Notify session timer of user typing */
   onUserTyping: (isTyping: boolean) => void;
+  /** Consultant mode - AI-assisted question suggestions */
+  isConsultantMode?: boolean;
+  /** Suggested questions from consultant analysis */
+  consultantQuestions?: SuggestedQuestion[];
+  /** Whether consultant is analyzing */
+  isConsultantAnalyzing?: boolean;
 }
 
 /**
@@ -121,6 +129,9 @@ function MobileLayout({
   sessionElapsedMinutes,
   isSessionTimerPaused,
   onUserTyping,
+  isConsultantMode,
+  consultantQuestions,
+  isConsultantAnalyzing,
 }: MobileLayoutProps) {
   const [panelWidth, setPanelWidth] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -338,6 +349,7 @@ function MobileLayout({
                   onInitConversation={onInitConversation}
                   onVoiceModeChange={setIsVoiceModeActive}
                   onEditMessage={onEditMessage}
+                  consultantMode={sessionData.ask?.conversationMode === 'consultant'}
                 />
               </div>
             </div>
@@ -351,7 +363,14 @@ function MobileLayout({
             }}
             transition={{ duration: 0.2 }}
           >
-            <div className="h-full p-2 md:p-4 overflow-y-auto">
+            <div className="h-full p-2 md:p-4 overflow-y-auto space-y-4">
+              {/* Suggested Questions Panel - Consultant mode only */}
+              {isConsultantMode && consultantQuestions && (
+                <SuggestedQuestionsPanel
+                  questions={consultantQuestions}
+                  isAnalyzing={isConsultantAnalyzing}
+                />
+              )}
               <InsightPanel
                 insights={sessionData.insights}
                 askKey={sessionDataAskKey}
@@ -428,6 +447,19 @@ export default function HomePage() {
     inactivityTimeout: 30000, // 30 seconds before pause
     askKey: sessionData.askKey || undefined, // Enable persistence when askKey is available
     inviteToken: sessionData.inviteToken,
+  });
+
+  // Consultant analysis for AI-assisted question suggestions
+  const isConsultantMode = sessionData.ask?.conversationMode === 'consultant';
+  const consultantAnalysis = useConsultantAnalysis({
+    askKey: sessionData.askKey || '',
+    enabled: isConsultantMode && !!sessionData.askKey,
+    inviteToken: sessionData.inviteToken,
+    onStepCompleted: (stepId) => {
+      console.log('🎯 [CONSULTANT] Step completed by AI analysis:', stepId);
+      // The step completion is handled by the API, just log for now
+      // UI will be updated on next data refresh
+    },
   });
 
   const autoCollapseTriggeredRef = useRef(false);
@@ -2271,6 +2303,9 @@ export default function HomePage() {
           sessionElapsedMinutes={sessionTimer.elapsedMinutes}
           isSessionTimerPaused={sessionTimer.isPaused}
           onUserTyping={sessionTimer.notifyUserTyping}
+          isConsultantMode={isConsultantMode}
+          consultantQuestions={consultantAnalysis.questions}
+          isConsultantAnalyzing={consultantAnalysis.isAnalyzing}
         />
       ) : (
         <main className="flex h-[calc(100dvh-88px)] overflow-hidden gap-6 p-6 min-w-0">
@@ -2313,6 +2348,7 @@ export default function HomePage() {
                   onInitConversation={handleInitConversation}
                   onVoiceModeChange={handleVoiceModeChange}
                   onEditMessage={handleEditMessage}
+                  consultantMode={sessionData.ask?.conversationMode === 'consultant'}
                 />
               </div>
             </div>
@@ -2455,6 +2491,14 @@ export default function HomePage() {
                     </AnimatePresence>
                   </div>
                 </motion.div>
+              )}
+
+              {/* Suggested Questions Panel - Consultant mode only */}
+              {isConsultantMode && (
+                <SuggestedQuestionsPanel
+                  questions={consultantAnalysis.questions}
+                  isAnalyzing={consultantAnalysis.isAnalyzing}
+                />
               )}
 
               {/* Insights Panel - with reduced height */}

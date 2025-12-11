@@ -2,12 +2,13 @@
 
 import React, { useState } from "react";
 import { motion } from "framer-motion";
-import { Pause } from "lucide-react";
+import { Pause, CheckCircle2, Loader2 } from "lucide-react";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { Button } from "@/components/ui/button";
 import { getPacingLevel } from "@/lib/pacing";
 
 export interface ConversationStep {
@@ -25,9 +26,24 @@ export interface ConversationProgressBarProps {
   elapsedMinutes?: number;
   /** Whether the timer is currently paused */
   isTimerPaused?: boolean;
+  /** Consultant mode - shows manual step validation button */
+  consultantMode?: boolean;
+  /** Callback when consultant manually validates a step */
+  onValidateStep?: (stepId: string) => Promise<void>;
+  /** Whether a step validation is in progress */
+  isValidatingStep?: boolean;
 }
 
-export function ConversationProgressBar({ steps, currentStepId, expectedDurationMinutes, elapsedMinutes = 0, isTimerPaused = false }: ConversationProgressBarProps) {
+export function ConversationProgressBar({
+  steps,
+  currentStepId,
+  expectedDurationMinutes,
+  elapsedMinutes = 0,
+  isTimerPaused = false,
+  consultantMode = false,
+  onValidateStep,
+  isValidatingStep = false,
+}: ConversationProgressBarProps) {
   const [hoveredStep, setHoveredStep] = useState<string | null>(null);
 
   if (!steps || steps.length === 0) {
@@ -173,6 +189,30 @@ export function ConversationProgressBar({ steps, currentStepId, expectedDuration
                               {step.summary}
                             </p>
                           </div>
+                        </div>
+                      )}
+                      {/* Manual step validation button for consultant mode */}
+                      {consultantMode && isActive && onValidateStep && (
+                        <div className="mt-3 pt-3 border-t border-blue-200">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => onValidateStep(step.id)}
+                            disabled={isValidatingStep}
+                            className="w-full bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100 hover:text-blue-800"
+                          >
+                            {isValidatingStep ? (
+                              <>
+                                <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                                Validation...
+                              </>
+                            ) : (
+                              <>
+                                <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />
+                                Valider cette étape
+                              </>
+                            )}
+                          </Button>
                         </div>
                       )}
                     </div>

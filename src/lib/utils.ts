@@ -323,9 +323,19 @@ export function getConversationModeDescription(conversationMode: string | undefi
       return 'Conversation collaborative';
     case 'group_reporter':
       return 'Groupe avec porte-parole';
+    case 'consultant':
+      return 'Mode consultant (écoute IA)';
     default:
       return 'Conversation collaborative';
   }
+}
+
+/**
+ * Check if conversation mode is consultant mode
+ * Used to conditionally enable consultant-specific features
+ */
+export function isConsultantMode(conversationMode: string | undefined): boolean {
+  return conversationMode === 'consultant';
 }
 
 /**
