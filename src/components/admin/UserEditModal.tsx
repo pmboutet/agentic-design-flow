@@ -496,11 +496,12 @@ function ClientMembershipCard({
           type="button"
           variant="ghost"
           size="sm"
-          className="h-8 w-8 p-0 text-red-400 hover:text-red-300 hover:bg-red-500/10"
+          className="h-8 px-2 text-red-400 hover:text-red-300 hover:bg-red-500/10"
           onClick={onRemove}
           disabled={isBusy}
         >
-          <Trash2 className="h-4 w-4" />
+          <Trash2 className="h-4 w-4 mr-1" />
+          <span className="text-xs">Retirer</span>
         </Button>
       </div>
     </div>
@@ -543,11 +544,12 @@ function ProjectMembershipCard({
         type="button"
         variant="ghost"
         size="sm"
-        className="h-8 w-8 p-0 text-red-400 hover:text-red-300 hover:bg-red-500/10"
+        className="h-8 px-2 text-red-400 hover:text-red-300 hover:bg-red-500/10"
         onClick={onRemove}
         disabled={isBusy}
       >
-        <Trash2 className="h-4 w-4" />
+        <Trash2 className="h-4 w-4 mr-1" />
+        <span className="text-xs">Retirer</span>
       </Button>
     </div>
   );
