@@ -89,7 +89,7 @@ const challengeFormSchema = z.object({
 
 const askStatuses = ["active", "inactive", "draft", "closed"] as const;
 const deliveryModes = ["physical", "digital"] as const;
-const conversationModes = ["individual_parallel", "collaborative", "group_reporter"] as const;
+const conversationModes = ["individual_parallel", "collaborative", "group_reporter", "consultant"] as const;
 
 const askFormSchema = z.object({
   askKey: z.string().trim().min(3, "Key is required").max(255).regex(/^[a-zA-Z0-9._-]+$/),

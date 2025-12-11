@@ -26,7 +26,7 @@ const requestSchema = z
   .optional();
 
 const deliveryModes = ["physical", "digital"] as const;
-const conversationModes = ["individual_parallel", "collaborative", "group_reporter"] as const;
+const conversationModes = ["individual_parallel", "collaborative", "group_reporter", "consultant"] as const;
 const urgencyLevels = ["low", "medium", "high", "critical"] as const;
 const confidenceLevels = ["low", "medium", "high"] as const;
 

@@ -15,7 +15,7 @@ import { type AskSessionRecord, type ManagedUser } from "@/types";
 
 const statusOptions = ["active", "inactive", "draft", "closed"] as const;
 const deliveryModes = ["physical", "digital"] as const;
-const conversationModes = ["individual_parallel", "collaborative", "group_reporter"] as const;
+const conversationModes = ["individual_parallel", "collaborative", "group_reporter", "consultant"] as const;
 
 const parseNumber = (value: unknown) => {
   if (value === "" || value === undefined || value === null) {

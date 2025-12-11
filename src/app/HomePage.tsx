@@ -338,6 +338,7 @@ function MobileLayout({
                   onInitConversation={onInitConversation}
                   onVoiceModeChange={setIsVoiceModeActive}
                   onEditMessage={onEditMessage}
+                  consultantMode={sessionData.ask?.conversationMode === 'consultant'}
                 />
               </div>
             </div>
@@ -2313,6 +2314,7 @@ export default function HomePage() {
                   onInitConversation={handleInitConversation}
                   onVoiceModeChange={handleVoiceModeChange}
                   onEditMessage={handleEditMessage}
+                  consultantMode={sessionData.ask?.conversationMode === 'consultant'}
                 />
               </div>
             </div>

@@ -9,7 +9,7 @@ import { buildParticipantDisplayName, type ParticipantRow, type UserRow } from "
 
 const statusValues = ["active", "inactive", "draft", "closed"] as const;
 const deliveryModes = ["physical", "digital"] as const;
-const conversationModes = ["individual_parallel", "collaborative", "group_reporter"] as const;
+const conversationModes = ["individual_parallel", "collaborative", "group_reporter", "consultant"] as const;
 const askSelect = "*, projects(name), ask_participants(id, user_id, role, participant_name, participant_email, is_spokesperson, invite_token)";
 
 const updateSchema = z.object({

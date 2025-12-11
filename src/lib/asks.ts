@@ -29,11 +29,17 @@ export interface AskSessionConfig {
  *   → Un groupe contribue avec un rapporteur
  *   → Tous les participants partagent le même thread
  *   → Un participant est désigné comme rapporteur (is_spokesperson)
+ *
+ * - consultant: Individual threads (is_shared = false)
+ *   → L'IA écoute et propose des questions au consultant
+ *   → Le consultant a son propre thread isolé
+ *   → Pas de TTS, l'IA ne parle pas
  */
 export function shouldUseSharedThread(askSession: AskSessionConfig): boolean {
-  // Only individual_parallel uses individual threads
+  // individual_parallel and consultant use individual threads
   // Default to shared thread if conversation_mode is not set
-  return askSession.conversation_mode !== 'individual_parallel';
+  const individualModes = ['individual_parallel', 'consultant'];
+  return !individualModes.includes(askSession.conversation_mode ?? '');
 }
 
 /**

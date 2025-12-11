@@ -47,6 +47,8 @@ export function ChatComponent({
   onVoiceModeChange,
   onInitConversation,
   onEditMessage,
+  consultantMode = false,
+  onSpeakerChange,
 }: ChatComponentProps) {
   // Temporarily disabled to reduce log spam
   // console.log('[ChatComponent] 🔄 Rendering', {
@@ -280,17 +282,30 @@ export function ChatComponent({
     }
   };
 
+  // Track previous speaker for consultant mode speaker change detection
+  const previousSpeakerRef = useRef<string | null>(null);
+
   // Handle voice mode messages (mémorisé pour éviter les remounts)
   const handleVoiceMessage = useCallback((message: DeepgramMessageEvent | HybridVoiceAgentMessage | SpeechmaticsMessageEvent) => {
+    const speechmaticsMessage = message as SpeechmaticsMessageEvent;
+    const speaker = speechmaticsMessage.speaker;
+
+    // Detect speaker change for consultant mode
+    if (consultantMode && speaker && speaker !== previousSpeakerRef.current && !message.isInterim) {
+      previousSpeakerRef.current = speaker;
+      onSpeakerChange?.(speaker);
+    }
+
     if (onVoiceMessage) {
       // Pass the full message object to allow parent to handle messageId and isInterim
       onVoiceMessage(message.role, message.content, {
         isInterim: message.isInterim,
-        messageId: (message as SpeechmaticsMessageEvent).messageId,
+        messageId: speechmaticsMessage.messageId,
         timestamp: message.timestamp,
+        speaker: speaker, // Include speaker for consultant mode differentiation
       });
     }
-  }, [onVoiceMessage]);
+  }, [onVoiceMessage, consultantMode, onSpeakerChange]);
 
   const handleVoiceError = useCallback((error: Error) => {
     console.error('Voice mode error:', error);
@@ -374,6 +389,7 @@ export function ChatComponent({
         onEditMessage={onEditMessage}
         messages={voiceMessages}
         conversationPlan={conversationPlan}
+        consultantMode={consultantMode}
       />
     );
   }
