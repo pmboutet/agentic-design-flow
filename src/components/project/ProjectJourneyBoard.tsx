@@ -4,6 +4,7 @@ import { type ChangeEvent, type FormEvent, useCallback, useEffect, useMemo, useR
 import Link from "next/link";
 import * as Dialog from "@radix-ui/react-dialog";
 import {
+  AlertTriangle,
   Calendar,
   Check,
   ChevronRight,
@@ -515,6 +516,10 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
   const [askAiSuggestions, setAskAiSuggestions] = useState<AiAskSuggestion[]>([]);
   const [askAiFeedback, setAskAiFeedback] = useState<FeedbackState | null>(null);
   const [askAiErrors, setAskAiErrors] = useState<string[] | null>(null);
+  const [isPurgeDialogOpen, setIsPurgeDialogOpen] = useState(false);
+  const [purgeConfirmationWord, setPurgeConfirmationWord] = useState("");
+  const [isPurging, setIsPurging] = useState(false);
+  const [purgeFeedback, setPurgeFeedback] = useState<FeedbackState | null>(null);
   const { profile } = useAuth();
   const currentProfileId = profile?.id ?? null;
 
@@ -522,6 +527,12 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
   const canManageClients = useMemo(() => {
     const role = profile?.role?.toLowerCase() ?? "";
     return role === "full_admin" || role === "client_admin";
+  }, [profile?.role]);
+
+  // Check if user is full_admin (required for dangerous operations like purge)
+  const isFullAdmin = useMemo(() => {
+    const role = profile?.role?.toLowerCase() ?? "";
+    return role === "full_admin";
   }, [profile?.role]);
 
   const isProdEnvironment = useMemo(() => {
@@ -3325,6 +3336,69 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
     }
   };
 
+  /**
+   * Handles purging all conversation data from the project.
+   * This is a dangerous, irreversible operation restricted to full_admin only.
+   */
+  const handleProjectPurge = async () => {
+    if (!isFullAdmin) {
+      setPurgeFeedback({ type: "error", message: "Cette action est réservée aux administrateurs complets." });
+      return;
+    }
+
+    try {
+      setIsPurging(true);
+      setPurgeFeedback(null);
+
+      const response = await fetch(`/api/admin/projects/${projectId}/purge`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirmationWord: purgeConfirmationWord }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || "Impossible de purger les données du projet.");
+      }
+
+      const data = result.data as {
+        deletedAskSessions: number;
+        deletedInsightSyntheses: number;
+        deletedGraphEdges: number;
+        aiBuilderResultsCleared: boolean;
+      };
+
+      setPurgeFeedback({
+        type: "success",
+        message: `Données purgées : ${data.deletedAskSessions} session(s), ${data.deletedInsightSyntheses} synthèse(s), ${data.deletedGraphEdges} lien(s) de graphe.`,
+      });
+
+      // Reset confirmation word and close dialog
+      setPurgeConfirmationWord("");
+      setIsPurgeDialogOpen(false);
+
+      // Reload project data to reflect changes
+      await loadJourneyData();
+
+      // Clear AI builder results state
+      setAiSuggestions([]);
+      setAiNewChallenges([]);
+      setAiBuilderErrors(null);
+      setAiBuilderLastRunAt(null);
+      setHasAiBuilderResults(false);
+
+    } catch (err) {
+      console.error("Failed to purge project data", err);
+      setPurgeFeedback({
+        type: "error",
+        message: err instanceof Error ? err.message : "Impossible de purger les données.",
+      });
+    } finally {
+      setIsPurging(false);
+    }
+  };
+
   const handleGenerateSyntheses = async () => {
     setIsGeneratingSyntheses(true);
     setFeedback(null);
@@ -3742,6 +3816,38 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
                 <div className="text-xs text-slate-400">
                   {'Tip: keep the system prompt concise and use placeholders such as {{project_name}} or {{client_name}} to reuse across projects.'}
                 </div>
+
+                {/* Danger Zone - Only visible to full_admin */}
+                {isFullAdmin && (
+                  <div className="mt-8 rounded-lg border border-red-500/30 bg-red-950/20 p-4">
+                    <div className="flex items-center gap-2 mb-3">
+                      <AlertTriangle className="h-5 w-5 text-red-400" />
+                      <h3 className="text-sm font-semibold text-red-300">Zone de danger</h3>
+                    </div>
+                    <p className="text-xs text-red-200/70 mb-4">
+                      Les actions ci-dessous sont irréversibles et peuvent entraîner une perte de données permanente.
+                    </p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setIsPurgeDialogOpen(true)}
+                      className="gap-2 border-red-500/40 bg-red-500/10 text-red-200 hover:bg-red-500/20 hover:text-red-100"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      Supprimer toutes les conversations
+                    </Button>
+                    {purgeFeedback && (
+                      <div className={cn(
+                        "mt-3 rounded-md px-3 py-2 text-sm",
+                        purgeFeedback.type === "success"
+                          ? "bg-emerald-500/20 text-emerald-200"
+                          : "bg-red-500/20 text-red-200"
+                      )}>
+                        {purgeFeedback.message}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -3772,6 +3878,120 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
         </Dialog.Portal>
       </Dialog.Root>
 
+      {/* Purge Confirmation Dialog */}
+      <Dialog.Root open={isPurgeDialogOpen} onOpenChange={(open) => {
+        setIsPurgeDialogOpen(open);
+        if (!open) {
+          setPurgeConfirmationWord("");
+          setPurgeFeedback(null);
+        }
+      }}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 z-[60] bg-slate-950/80 backdrop-blur-sm transition-opacity data-[state=closed]:opacity-0 data-[state=open]:opacity-100" />
+          <Dialog.Content className="fixed left-1/2 top-1/2 z-[60] flex max-h-[85vh] w-[90vw] max-w-lg -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl border border-red-500/30 bg-slate-900/95 shadow-2xl backdrop-blur-xl data-[state=closed]:opacity-0 data-[state=open]:opacity-100">
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-red-500/20 bg-red-950/30 px-6 py-4">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-red-500/20">
+                  <AlertTriangle className="h-5 w-5 text-red-400" />
+                </div>
+                <div>
+                  <Dialog.Title className="text-lg font-semibold text-red-200">Suppression des données</Dialog.Title>
+                  <Dialog.Description className="text-sm text-red-300/70">
+                    Cette action est irréversible
+                  </Dialog.Description>
+                </div>
+              </div>
+              <Dialog.Close className="rounded-full p-1.5 text-red-400 transition-colors hover:bg-red-500/20 hover:text-red-200">
+                <X className="h-5 w-5" />
+              </Dialog.Close>
+            </div>
+
+            {/* Body */}
+            <div className="flex-1 overflow-y-auto px-6 py-5">
+              <div className="space-y-4">
+                <div className="rounded-lg border border-red-500/20 bg-red-950/20 p-4">
+                  <p className="text-sm text-red-200 leading-relaxed">
+                    Vous êtes sur le point de <strong>supprimer définitivement</strong> toutes les données de conversation de ce projet :
+                  </p>
+                  <ul className="mt-3 space-y-1.5 text-sm text-red-200/80">
+                    <li className="flex items-center gap-2">
+                      <span className="h-1.5 w-1.5 rounded-full bg-red-400" />
+                      Toutes les sessions ASK et leurs participants
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <span className="h-1.5 w-1.5 rounded-full bg-red-400" />
+                      Tous les messages de conversation
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <span className="h-1.5 w-1.5 rounded-full bg-red-400" />
+                      Tous les insights collectés
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <span className="h-1.5 w-1.5 rounded-full bg-red-400" />
+                      Toutes les synthèses et données du graphe de connaissances
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <span className="h-1.5 w-1.5 rounded-full bg-red-400" />
+                      Les résultats de l&apos;AI Challenge Builder
+                    </li>
+                  </ul>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="purge-confirmation" className="text-sm text-slate-200">
+                    Pour confirmer, tapez <code className="mx-1 rounded bg-red-500/20 px-2 py-0.5 font-mono text-red-300">SUPPRIMER-TOUT</code> ci-dessous :
+                  </Label>
+                  <Input
+                    id="purge-confirmation"
+                    type="text"
+                    value={purgeConfirmationWord}
+                    onChange={(e) => setPurgeConfirmationWord(e.target.value)}
+                    placeholder="Entrez le mot de confirmation"
+                    className="border-red-500/30 bg-slate-800/80 text-white placeholder:text-slate-500 focus-visible:ring-red-400"
+                    autoComplete="off"
+                    spellCheck={false}
+                  />
+                </div>
+
+                {purgeFeedback && purgeFeedback.type === "error" && (
+                  <div className="rounded-md bg-red-500/20 px-3 py-2 text-sm text-red-200">
+                    {purgeFeedback.message}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="flex items-center justify-end gap-3 border-t border-red-500/20 bg-red-950/20 px-6 py-4">
+              <Button
+                type="button"
+                variant="glassDark"
+                onClick={() => {
+                  setIsPurgeDialogOpen(false);
+                  setPurgeConfirmationWord("");
+                  setPurgeFeedback(null);
+                }}
+                disabled={isPurging}
+                className="gap-2"
+              >
+                <X className="h-4 w-4" />
+                Annuler
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleProjectPurge}
+                disabled={isPurging || purgeConfirmationWord !== "SUPPRIMER-TOUT"}
+                className="gap-2 border-red-500/40 bg-red-500/20 text-red-200 hover:bg-red-500/30 hover:text-red-100 disabled:opacity-50"
+              >
+                {isPurging ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                Supprimer définitivement
+              </Button>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
 
       <div className="space-y-6">
         <div>
