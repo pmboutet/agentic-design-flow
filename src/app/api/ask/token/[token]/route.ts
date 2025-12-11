@@ -14,7 +14,7 @@ import {
 import { executeAgent } from "@/lib/ai/service";
 import { buildConversationAgentVariables } from "@/lib/ai/conversation-agent";
 import { normaliseMessageMetadata } from "@/lib/messages";
-import { buildMessageSenderName, type MessageRow, type UserRow } from "@/lib/conversation-context";
+import { buildMessageSenderName, buildParticipantDisplayName, type MessageRow, type UserRow, type ParticipantRow } from "@/lib/conversation-context";
 
 type AskSessionRow = {
   ask_session_id: string;
@@ -406,16 +406,21 @@ export async function GET(
       }
     }
 
-    const participants = (participantRows ?? []).map((row: any) => {
-      const user = usersById[row.user_id] ?? {};
-      const nameFromUser = [user.first_name, user.last_name].filter(Boolean).join(" ");
-      const displayName = row.participant_name || user.full_name || nameFromUser || row.participant_email || "Participant";
+    const participants = (participantRows ?? []).map((row: any, index: number) => {
+      const user = usersById[row.user_id] ?? null;
+
+      // Use centralized function for display name
+      const displayName = buildParticipantDisplayName(
+        row as ParticipantRow,
+        user as UserRow | null,
+        index
+      );
 
       return {
         id: String(row.user_id ?? row.participant_id),
         name: displayName,
-        email: row.participant_email || user.email || null,
-        role: user.role || row.role || null,
+        email: row.participant_email || user?.email || null,
+        role: user?.role || row.role || null,
         isSpokesperson: row.is_spokesperson === true,
         isActive: true,
       };

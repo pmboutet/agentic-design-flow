@@ -5,6 +5,7 @@ import { requireAdmin } from '@/lib/supabaseServer';
 import { canManageAskParticipants } from '@/lib/memberPermissions';
 import { parseErrorMessage } from '@/lib/utils';
 import { type ApiResponse } from '@/types';
+import { buildParticipantDisplayName, type ParticipantRow, type UserRow } from '@/lib/conversation-context';
 
 interface AskParticipant {
   id: string;
@@ -50,42 +51,29 @@ export async function GET(
 
     // Fetch user info for participants with user_id
     const participantsWithUserInfo: AskParticipant[] = await Promise.all(
-      (participants || []).map(async (participant) => {
+      (participants || []).map(async (participant, index) => {
+        let user: UserRow | null = null;
         if (participant.user_id) {
-          const { data: user } = await supabase
+          const { data } = await supabase
             .from('profiles')
             .select('id, email, full_name, first_name, last_name')
             .eq('id', participant.user_id)
             .maybeSingle();
-
-          if (user) {
-            // Build display name
-            let displayName = participant.participant_name;
-            if (!displayName) {
-              if (user.full_name) {
-                displayName = user.full_name;
-              } else {
-                const nameParts = [user.first_name, user.last_name].filter(Boolean);
-                displayName = nameParts.length > 0 ? nameParts.join(' ') : user.email || 'Participant';
-              }
-            }
-
-            return {
-              id: participant.id,
-              userId: participant.user_id,
-              participantName: displayName,
-              participantEmail: participant.participant_email || user.email,
-              role: participant.role,
-              isSpokesperson: participant.is_spokesperson,
-            };
-          }
+          user = data as UserRow | null;
         }
+
+        // Use centralized function for display name
+        const displayName = buildParticipantDisplayName(
+          participant as ParticipantRow,
+          user,
+          index
+        );
 
         return {
           id: participant.id,
           userId: participant.user_id,
-          participantName: participant.participant_name || 'Participant',
-          participantEmail: participant.participant_email,
+          participantName: displayName,
+          participantEmail: participant.participant_email || user?.email || null,
           role: participant.role,
           isSpokesperson: participant.is_spokesperson,
         };

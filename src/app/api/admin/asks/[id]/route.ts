@@ -5,6 +5,7 @@ import { sanitizeOptional, sanitizeText } from "@/lib/sanitize";
 import { parseErrorMessage } from "@/lib/utils";
 import { type ApiResponse, type AskSessionRecord } from "@/types";
 import { randomBytes } from "crypto";
+import { buildParticipantDisplayName, type ParticipantRow, type UserRow } from "@/lib/conversation-context";
 
 const statusValues = ["active", "inactive", "draft", "closed"] as const;
 const deliveryModes = ["physical", "digital"] as const;
@@ -78,10 +79,15 @@ async function ensureParticipantTokens(supabase: any, askId: string): Promise<vo
 }
 
 function mapAsk(row: any): AskSessionRecord {
-  const participants = (row.ask_participants ?? []).map((participant: any) => {
+  const participants = (row.ask_participants ?? []).map((participant: any, index: number) => {
     const user = participant.users ?? {};
-    const nameFromUser = [user.first_name, user.last_name].filter(Boolean).join(" ");
-    const displayName = participant.participant_name || user.full_name || nameFromUser || participant.participant_email || "Participant";
+
+    // Use centralized function for display name
+    const displayName = buildParticipantDisplayName(
+      participant as ParticipantRow,
+      user.id ? user as UserRow : null,
+      index
+    );
 
     const mapped = {
       id: String(participant.user_id ?? participant.id),

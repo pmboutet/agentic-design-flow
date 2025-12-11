@@ -4,6 +4,7 @@ import { DEFAULT_MAX_OUTPUT_TOKENS } from '@/lib/ai/constants';
 import { getAdminSupabaseClient } from '@/lib/supabaseAdmin';
 import { getAskSessionByKey } from '@/lib/asks';
 import { getAgentConfigForAsk } from '@/lib/ai/agent-config';
+import { buildConversationAgentVariables } from '@/lib/ai/conversation-agent';
 import type { AiModelConfig } from '@/types';
 
 export async function POST(
@@ -54,19 +55,25 @@ export async function POST(
       );
     }
 
-    // Récupérer la configuration de l'agent avec les variables de contexte
+    // Use centralized function for prompt variables
+    const promptVariables = buildConversationAgentVariables({
+      ask: {
+        ask_key: askRow.ask_key,
+        question: askRow.question,
+        description: askRow.description,
+        system_prompt: null,
+      },
+      project: null,
+      challenge: null,
+      messages: [],
+      participants: [],
+      conversationPlan: null,
+    });
+
     const agentConfig = await getAgentConfigForAsk(
       supabase,
       askRow.id,
-      {
-        ask_question: askRow.question,
-        ask_description: askRow.description || '',
-        participant_name: 'Participant', // TODO: Get actual participant name
-        project_name: '', // TODO: Get project name if available
-        challenge_name: '', // TODO: Get challenge name if available
-        delivery_mode: 'digital', // TODO: Get from session
-        conversation_mode: 'collaborative', // TODO: Get from session
-      }
+      promptVariables
     );
 
     const systemPrompt = agentConfig.systemPrompt;
