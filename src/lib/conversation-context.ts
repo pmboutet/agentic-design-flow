@@ -582,27 +582,3 @@ export async function fetchConversationContext(
   };
 }
 
-/**
- * Build ConversationAgentContext from fetched conversation context.
- *
- * This is a convenience function that transforms ConversationContextResult
- * into the format expected by buildConversationAgentVariables().
- */
-export function buildAgentContext(
-  contextResult: ConversationContextResult
-): ConversationAgentContext {
-  return {
-    ask: {
-      ask_key: contextResult.askSession.ask_key,
-      question: contextResult.askSession.question,
-      description: contextResult.askSession.description,
-      system_prompt: contextResult.askSession.system_prompt,
-      expected_duration_minutes: contextResult.askSession.expected_duration_minutes,
-    },
-    project: contextResult.project,
-    challenge: contextResult.challenge,
-    messages: contextResult.messages,
-    participants: contextResult.participants,
-    conversationPlan: contextResult.conversationPlan,
-  };
-}
