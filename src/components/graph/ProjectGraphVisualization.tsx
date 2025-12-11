@@ -1351,9 +1351,13 @@ export function ProjectGraphVisualization({ projectId, clientId, refreshKey }: P
   // Fullscreen mode
   if (isFullscreen) {
     return (
-      <div className="fixed inset-0 z-50 bg-slate-900" ref={containerRef}>
-        {graphContent}
-      </div>
+      <>
+        {/* Super blurred backdrop overlay */}
+        <div className="fixed inset-0 z-40 bg-slate-950/80 backdrop-blur-3xl" />
+        <div className="fixed inset-0 z-50 bg-slate-900/90" ref={containerRef}>
+          {graphContent}
+        </div>
+      </>
     );
   }
 
