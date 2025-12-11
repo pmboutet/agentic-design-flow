@@ -1,9 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { useForm } from "react-hook-form";
-import { z } from "zod";
-import { zodResolver } from "@hookform/resolvers/zod";
 import {
   Building2,
   Edit,
@@ -11,23 +8,14 @@ import {
   Plus,
   RefreshCcw,
   Trash2,
+  Users,
   X,
 } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { ClientEditDialog } from "@/components/project/ClientEditDialog";
+import { ClientContactsDialog } from "@/components/admin/ClientContactsDialog";
 import type { ClientRecord } from "@/types";
-
-const clientFormSchema = z.object({
-  name: z.string().trim().min(1, "Name is required").max(255),
-  email: z.string().trim().email("Invalid email").max(255).optional().or(z.literal("")),
-  company: z.string().trim().max(255).optional().or(z.literal("")),
-  industry: z.string().trim().max(100).optional().or(z.literal("")),
-  status: z.enum(["active", "inactive"]).default("active")
-});
-
-type ClientFormInput = z.infer<typeof clientFormSchema>;
 
 interface FeedbackState {
   type: "success" | "error";
@@ -35,14 +23,6 @@ interface FeedbackState {
 }
 
 const gradientButtonClasses = "btn-gradient";
-
-const defaultClientFormValues: ClientFormInput = {
-  name: "",
-  email: "",
-  company: "",
-  industry: "",
-  status: "active"
-};
 
 function formatDateTime(value: string | null | undefined): string {
   if (!value) return "—";
@@ -77,13 +57,17 @@ export function ClientsAdminView() {
   const [isLoading, setIsLoading] = useState(true);
   const [isBusy, setIsBusy] = useState(false);
   const [feedback, setFeedback] = useState<FeedbackState | null>(null);
-  const [showClientForm, setShowClientForm] = useState(false);
-  const [editingClientId, setEditingClientId] = useState<string | null>(null);
 
-  const clientForm = useForm<ClientFormInput>({
-    resolver: zodResolver(clientFormSchema),
-    defaultValues: defaultClientFormValues
-  });
+  // Dialog states
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [editDialogMode, setEditDialogMode] = useState<"create" | "edit">("create");
+  const [editingClientId, setEditingClientId] = useState<string | null>(null);
+  const [editingClientName, setEditingClientName] = useState<string | null>(null);
+
+  // Contacts dialog state
+  const [contactsDialogOpen, setContactsDialogOpen] = useState(false);
+  const [contactsClientId, setContactsClientId] = useState<string | null>(null);
+  const [contactsClientName, setContactsClientName] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
     setIsLoading(true);
@@ -116,60 +100,29 @@ export function ClientsAdminView() {
     }
   }, []);
 
-  const resetClientForm = useCallback(() => {
-    clientForm.reset(defaultClientFormValues);
+  const openCreateDialog = () => {
+    setEditDialogMode("create");
     setEditingClientId(null);
-  }, [clientForm]);
-
-  const cancelClientEdit = useCallback(() => {
-    resetClientForm();
-    setEditingClientId(null);
-    setShowClientForm(false);
-  }, [resetClientForm]);
-
-  const handleSubmitClient = async (values: ClientFormInput) => {
-    setIsBusy(true);
-    setFeedback(null);
-    try {
-      if (editingClientId) {
-        await request(`/api/admin/clients/${editingClientId}`, {
-          method: "PATCH",
-          body: JSON.stringify(values)
-        });
-        setFeedback({ type: "success", message: "Client updated successfully" });
-      } else {
-        await request("/api/admin/clients", {
-          method: "POST",
-          body: JSON.stringify(values)
-        });
-        setFeedback({ type: "success", message: "Client created successfully" });
-      }
-      await refreshClients();
-      resetClientForm();
-      setEditingClientId(null);
-      setShowClientForm(false);
-    } catch (error) {
-      setFeedback({
-        type: "error",
-        message: error instanceof Error ? error.message : "An error occurred"
-      });
-    } finally {
-      setIsBusy(false);
-    }
+    setEditingClientName(null);
+    setEditDialogOpen(true);
   };
 
-  const startClientEdit = (clientId: string) => {
-    const client = clients.find(item => item.id === clientId);
-    if (!client) return;
-    setShowClientForm(true);
+  const openEditDialog = (client: ClientRecord) => {
+    setEditDialogMode("edit");
     setEditingClientId(client.id);
-    clientForm.reset({
-      name: client.name,
-      email: client.email ?? "",
-      company: client.company ?? "",
-      industry: client.industry ?? "",
-      status: (client.status as "active" | "inactive") || "active"
-    });
+    setEditingClientName(client.name);
+    setEditDialogOpen(true);
+  };
+
+  const openContactsDialog = (client: ClientRecord) => {
+    setContactsClientId(client.id);
+    setContactsClientName(client.name);
+    setContactsDialogOpen(true);
+  };
+
+  const handleClientChange = () => {
+    void refreshClients();
+    setFeedback({ type: "success", message: editDialogMode === "edit" ? "Client updated successfully" : "Client created successfully" });
   };
 
   const handleDeleteClient = async (clientId: string) => {
@@ -241,116 +194,13 @@ export function ClientsAdminView() {
           <Button
             type="button"
             className={`${gradientButtonClasses} h-9 px-4 text-xs gap-2`}
-            onClick={() => {
-              if (showClientForm) {
-                cancelClientEdit();
-              } else {
-                resetClientForm();
-                setShowClientForm(true);
-              }
-            }}
+            onClick={openCreateDialog}
             disabled={isBusy}
           >
-            {showClientForm ? (
-              <>
-                <X className="h-4 w-4" />
-                Close
-              </>
-            ) : (
-              <>
-                <Plus className="h-4 w-4" />
-                Add client
-              </>
-            )}
+            <Plus className="h-4 w-4" />
+            Add client
           </Button>
         </header>
-
-        {/* Client Form */}
-        {showClientForm && (
-          <form
-            onSubmit={clientForm.handleSubmit(handleSubmitClient)}
-            className="space-y-3 rounded-2xl border border-white/10 bg-slate-900/40 p-4 mb-4"
-          >
-            <p className="text-xs font-medium text-indigo-300">
-              {editingClientId ? `Editing ${clients.find(c => c.id === editingClientId)?.name}` : "Create new client"}
-            </p>
-            <div className="grid gap-3 md:grid-cols-2">
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="client-name">Name <span className="text-rose-400">*</span></Label>
-                <Input
-                  id="client-name"
-                  placeholder="Client name"
-                  {...clientForm.register("name")}
-                  disabled={isBusy}
-                  className="border-white/20 bg-slate-800/80 text-white placeholder:text-slate-500"
-                />
-                {clientForm.formState.errors.name && (
-                  <p className="text-xs text-red-400">{clientForm.formState.errors.name.message}</p>
-                )}
-              </div>
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="client-email">Email</Label>
-                <Input
-                  id="client-email"
-                  type="email"
-                  placeholder="contact@client.com"
-                  {...clientForm.register("email")}
-                  disabled={isBusy}
-                  className="border-white/20 bg-slate-800/80 text-white placeholder:text-slate-500"
-                />
-                {clientForm.formState.errors.email && (
-                  <p className="text-xs text-red-400">{clientForm.formState.errors.email.message}</p>
-                )}
-              </div>
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="client-company">Company</Label>
-                <Input
-                  id="client-company"
-                  placeholder="Company name"
-                  {...clientForm.register("company")}
-                  disabled={isBusy}
-                  className="border-white/20 bg-slate-800/80 text-white placeholder:text-slate-500"
-                />
-              </div>
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="client-industry">Industry</Label>
-                <Input
-                  id="client-industry"
-                  placeholder="e.g. Technology, Healthcare"
-                  {...clientForm.register("industry")}
-                  disabled={isBusy}
-                  className="border-white/20 bg-slate-800/80 text-white placeholder:text-slate-500"
-                />
-              </div>
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="client-status">Status</Label>
-                <select
-                  id="client-status"
-                  className="h-10 rounded-xl border border-white/20 bg-slate-800/80 px-3 text-sm text-white"
-                  {...clientForm.register("status")}
-                  disabled={isBusy}
-                >
-                  <option value="active">Active</option>
-                  <option value="inactive">Inactive</option>
-                </select>
-              </div>
-            </div>
-            <div className="flex justify-end gap-2">
-              <Button
-                type="button"
-                variant="glassDark"
-                onClick={cancelClientEdit}
-                disabled={isBusy}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" className={`${gradientButtonClasses} px-4`} disabled={isBusy}>
-                {isBusy ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-                {editingClientId ? "Update client" : "Create client"}
-              </Button>
-            </div>
-          </form>
-        )}
 
         {/* Clients List */}
         <div className="space-y-3 max-h-[600px] overflow-y-auto pr-2">
@@ -365,11 +215,7 @@ export function ClientsAdminView() {
             clients.map(client => (
               <article
                 key={client.id}
-                className={`rounded-2xl border px-4 py-3 transition hover:border-indigo-400 ${
-                  client.id === editingClientId
-                    ? "border-indigo-400 bg-indigo-500/10"
-                    : "border-white/10 bg-slate-900/40"
-                }`}
+                className="rounded-2xl border px-4 py-3 transition hover:border-indigo-400 border-white/10 bg-slate-900/40"
               >
                 <div className="flex items-center justify-between">
                   <div className="text-left">
@@ -391,10 +237,19 @@ export function ClientsAdminView() {
                 </div>
                 <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
                   <span>Created {formatDateTime(client.createdAt)}</span>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-3">
                     <button
                       type="button"
-                      onClick={() => startClientEdit(client.id)}
+                      onClick={() => openContactsDialog(client)}
+                      className="flex items-center gap-1 text-indigo-300 hover:text-indigo-200"
+                      disabled={isBusy}
+                    >
+                      <Users className="h-3 w-3" />
+                      Contacts
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => openEditDialog(client)}
                       className="flex items-center gap-1 text-slate-200 hover:text-white"
                       disabled={isBusy}
                     >
@@ -417,6 +272,24 @@ export function ClientsAdminView() {
           )}
         </div>
       </div>
+
+      {/* Edit Client Dialog */}
+      <ClientEditDialog
+        open={editDialogOpen}
+        onOpenChange={setEditDialogOpen}
+        clientId={editingClientId}
+        clientName={editingClientName}
+        onClientChange={handleClientChange}
+        mode={editDialogMode}
+      />
+
+      {/* Contacts Dialog */}
+      <ClientContactsDialog
+        open={contactsDialogOpen}
+        onOpenChange={setContactsDialogOpen}
+        clientId={contactsClientId}
+        clientName={contactsClientName}
+      />
     </div>
   );
 }
