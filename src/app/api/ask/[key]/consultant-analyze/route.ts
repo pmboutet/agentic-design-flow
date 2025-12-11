@@ -5,7 +5,7 @@ import { isValidAskKey, parseErrorMessage } from '@/lib/utils';
 import { getAskSessionByKey, getOrCreateConversationThread, getMessagesForThread } from '@/lib/asks';
 import { normaliseMessageMetadata } from '@/lib/messages';
 import { executeAgent, fetchAgentBySlug } from '@/lib/ai';
-import { getConversationPlanWithSteps, getActiveStep, completeStep, getCurrentStep } from '@/lib/ai/conversation-plan';
+import { getConversationPlanWithSteps, getActiveStep, completeStep, getCurrentStep, detectStepCompletion } from '@/lib/ai/conversation-plan';
 import { buildConversationAgentVariables } from '@/lib/ai/conversation-agent';
 import {
   buildParticipantDisplayName,
@@ -34,10 +34,11 @@ function parseConsultantHelperResponse(content: string): ConsultantAnalyzeRespon
   const questions: SuggestedQuestion[] = [];
   let stepCompleted: string | undefined;
 
-  // Extract STEP_COMPLETE marker
-  const stepCompleteMatch = content.match(/STEP_COMPLETE[:\s]*([^\s\n]+)/i);
-  if (stepCompleteMatch) {
-    stepCompleted = stepCompleteMatch[1].trim();
+  // Extract STEP_COMPLETE marker using the shared detection function
+  // This handles all formats: STEP_COMPLETE:step_1, **STEP_COMPLETE:step_1**, STEP_COMPLETE: (returns 'CURRENT')
+  const detectedStep = detectStepCompletion(content);
+  if (detectedStep) {
+    stepCompleted = detectedStep;
   }
 
   // Extract questions with the format **Question N:** [question text]
