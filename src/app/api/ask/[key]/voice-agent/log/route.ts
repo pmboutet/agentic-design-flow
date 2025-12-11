@@ -200,6 +200,7 @@ export async function POST(
       }
     }
 
+    // Use centralized function for ALL prompt variables - no manual overrides
     const promptVariables = buildConversationAgentVariables({
       ask: askRow,
       project: projectData,
@@ -209,23 +210,8 @@ export async function POST(
       conversationPlan,
     });
 
-    // Build agent variables (same as agent-config/route.ts)
-    // IMPORTANT: Include system_prompt_* variables so getAgentConfigForAsk can use them for variable substitution
-    const agentVariables: PromptVariables = {
-      ask_key: askRow.ask_key,
-      ask_question: promptVariables.ask_question || askRow.question,
-      ask_description: promptVariables.ask_description || askRow.description || '',
-      participants: promptVariables.participants || '',
-      messages_json: JSON.stringify(conversationMessagesPayload),
-      // Include system_prompt_* for proper variable fusion
-      system_prompt_ask: promptVariables.system_prompt_ask || '',
-      system_prompt_project: promptVariables.system_prompt_project || '',
-      system_prompt_challenge: promptVariables.system_prompt_challenge || '',
-    };
-
-    // Get agent config with resolved system prompt
-    // getAgentConfigForAsk will use system_prompt_* from variables for template substitution
-    const agentConfig = await getAgentConfigForAsk(supabase, askRow.id, agentVariables);
+    // Pass the complete promptVariables directly - no manual subset
+    const agentConfig = await getAgentConfigForAsk(supabase, askRow.id, promptVariables);
 
     if (!agentConfig.modelConfig) {
       return NextResponse.json<ApiResponse>({
@@ -248,7 +234,7 @@ export async function POST(
           userPrompt: agentConfig.userPrompt,
           userMessage: content,
           role: 'user',
-          variables: agentVariables,
+          variables: promptVariables,
         },
       });
 

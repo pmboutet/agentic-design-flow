@@ -317,25 +317,18 @@ export async function GET(
       planStepId: message.planStepId,
     }));
 
+    // Use centralized function for ALL prompt variables - no manual overrides
     const promptVariables = buildConversationAgentVariables({
       ask: askSession,
       project: projectData,
       challenge: challengeData,
       messages: conversationMessagesPayload,
       participants: participantSummaries,
-      conversationPlan, // Include conversation plan for step-aware variables
+      conversationPlan,
     });
 
-    // Build agent variables (same as stream/route.ts)
-    const agentVariables: PromptVariables = {
-      ask_key: askSession.ask_key,
-      ask_question: promptVariables.ask_question || askSession.question,
-      ask_description: promptVariables.ask_description || askSession.description || '',
-      participants: promptVariables.participants || '',
-      messages_json: JSON.stringify(conversationMessagesPayload),
-    };
-
-    const agentConfig = await getAgentConfigForAsk(supabase, askSession.id, agentVariables, token);
+    // Pass the complete promptVariables directly - no manual subset
+    const agentConfig = await getAgentConfigForAsk(supabase, askSession.id, promptVariables, token);
 
     return NextResponse.json({
       success: true,

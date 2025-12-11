@@ -567,17 +567,22 @@ export async function GET(
         if (!conversationPlan && messages.length === 0) {
           console.log('📋 GET /api/ask/token/[token]: No plan exists and no messages, generating new plan...');
           try {
-            // Build variables for plan generation
-            const planGenerationVariables = {
-              ask_key: askRow.ask_key,
-              ask_question: askRow.question,
-              ask_description: askRow.description ?? '',
-              system_prompt_ask: '', // Token route doesn't have access to system prompts
-              system_prompt_project: '',
-              system_prompt_challenge: '',
-              participants: participants.map(p => p.name).join(', '),
-              participants_list: participants.map(p => ({ name: p.name, role: p.role })),
-            };
+            // Use centralized function for plan generation variables
+            // Note: Token route has limited access to system prompts, but the centralized
+            // function handles null values gracefully
+            const planGenerationVariables = buildConversationAgentVariables({
+              ask: {
+                ask_key: askRow.ask_key,
+                question: askRow.question,
+                description: askRow.description,
+                system_prompt: null,
+              },
+              project: null,
+              challenge: null,
+              messages: [],
+              participants: participants.map(p => ({ name: p.name, role: p.role ?? null, description: null })),
+              conversationPlan: null,
+            });
             console.log('📊 GET /api/ask/token/[token]: Plan generation variables:', {
               ask_key: planGenerationVariables.ask_key,
               ask_question: planGenerationVariables.ask_question?.substring(0, 50),
@@ -606,18 +611,18 @@ export async function GET(
             // Generate initial message right after plan creation
             console.log('💬 GET /api/ask/token/[token]: Generating initial message...');
             try {
-              // Build variables for initial message agent
+              // Use centralized function for initial message variables
               const agentVariables = buildConversationAgentVariables({
                 ask: {
                   ask_key: askRow.ask_key,
                   question: askRow.question,
                   description: askRow.description,
-                  system_prompt: null, // Token route doesn't have access
+                  system_prompt: null,
                 },
                 project: null,
                 challenge: null,
                 messages: [],
-                participants: participants.map(p => ({ name: p.name, role: p.role })),
+                participants: participants.map(p => ({ name: p.name, role: p.role ?? null, description: null })),
                 conversationPlan,
               });
 
