@@ -185,22 +185,40 @@ function InsightCard({
               </div>
             </div>
           ) : (
-            <>
-              {(() => {
-                const insightContent = (insight.summary || insight.content || "").trim();
-                if (!insightContent) {
-                  return null;
-                }
-                return (
+            <div className="space-y-2">
+              {/* Main content */}
+              {insight.content && insight.content.trim() && (
+                <ReactMarkdown
+                  className="space-y-2"
+                  components={insightMarkdownComponents}
+                >
+                  {insight.content.trim()}
+                </ReactMarkdown>
+              )}
+              {/* Summary - displayed as a separate section if available */}
+              {insight.summary && insight.summary.trim() && insight.summary !== insight.content && (
+                <div className="mt-2 pt-2 border-t border-slate-200">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 mb-1">
+                    Synthèse
+                  </p>
                   <ReactMarkdown
-                    className="space-y-2"
+                    className="space-y-1"
                     components={insightMarkdownComponents}
                   >
-                    {insightContent}
+                    {insight.summary.trim()}
                   </ReactMarkdown>
-                );
-              })()}
-            </>
+                </div>
+              )}
+              {/* Fallback: if only summary and no content, show summary as main content */}
+              {(!insight.content || !insight.content.trim()) && insight.summary && insight.summary.trim() && (
+                <ReactMarkdown
+                  className="space-y-2"
+                  components={insightMarkdownComponents}
+                >
+                  {insight.summary.trim()}
+                </ReactMarkdown>
+              )}
+            </div>
           )}
           {insight.kpis?.length ? (
             <div className="rounded-md bg-slate-50 px-2 py-1.5">
