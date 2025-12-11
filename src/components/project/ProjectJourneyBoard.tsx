@@ -25,7 +25,6 @@ import {
   X,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
-import type { Components } from "react-markdown";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -63,386 +62,46 @@ import { AskPromptTemplateSelector } from "@/components/admin/AskPromptTemplateS
 import { GraphRAGPanel } from "@/components/admin/GraphRAGPanel";
 import { useAuth } from "@/components/auth/AuthProvider";
 
-interface ProjectJourneyBoardProps {
-  projectId: string;
-  /** @deprecated This prop is ignored - header is always shown for consistency */
-  hideHeader?: boolean;
-  /** Optional callback when user clicks close button (only shown in embedded mode) */
-  onClose?: () => void;
-}
-
-interface ChallengeInsightRow extends ProjectParticipantInsight {
-  contributors: ProjectParticipantSummary[];
-  askId: string;
-  askTitle: string;
-}
-
-interface AskInsightRow extends ProjectParticipantInsight {
-  contributors: ProjectParticipantSummary[];
-}
-
-interface FeedbackState {
-  type: "success" | "error";
-  message: string;
-}
-
-const impactLabels: Record<ProjectChallengeNode["impact"], string> = {
-  low: "Low impact",
-  medium: "Moderate impact",
-  high: "High impact",
-  critical: "Critical impact",
-};
-
-const impactClasses: Record<ProjectChallengeNode["impact"], string> = {
-  low: "border-emerald-400/40 bg-emerald-500/10 text-emerald-200",
-  medium: "border-amber-400/40 bg-amber-500/10 text-amber-200",
-  high: "border-indigo-400/40 bg-indigo-500/10 text-indigo-200",
-  critical: "border-rose-400/40 bg-rose-500/10 text-rose-200",
-};
-
-const insightTypeClasses: Record<ProjectParticipantInsight["type"], string> = {
-  pain: "border-rose-400/40 bg-rose-500/10 text-rose-200",
-  gain: "border-emerald-400/40 bg-emerald-500/10 text-emerald-200",
-  signal: "border-sky-400/40 bg-sky-500/10 text-sky-200",
-  idea: "border-amber-400/40 bg-amber-500/10 text-amber-200",
-};
-
-type ChallengeStatus = "open" | "in_progress" | "active" | "closed" | "archived";
-
-const challengeStatusOptions: { value: ChallengeStatus; label: string }[] = [
-  { value: "open", label: "Open" },
-  { value: "in_progress", label: "In progress" },
-  { value: "active", label: "Active" },
-  { value: "closed", label: "Closed" },
-  { value: "archived", label: "Archived" },
-];
-
-const askStatusOptions = ["active", "inactive", "draft", "closed"] as const;
-const askDeliveryModes: AskDeliveryMode[] = ["physical", "digital"];
-const askConversationModes: AskConversationMode[] = ["individual_parallel", "collaborative", "group_reporter"];
-
-const USE_MOCK_JOURNEY = process.env.NEXT_PUBLIC_USE_MOCK_PROJECT_JOURNEY === "true";
-
-const challengeMarkdownComponents: Components = {
-  p: ({ children }) => (
-    <p className="text-sm text-slate-200 leading-relaxed">{children}</p>
-  ),
-  ul: ({ children }) => (
-    <ul className="list-disc space-y-1 pl-4 text-sm text-slate-200 leading-relaxed marker:text-indigo-200/80">
-      {children}
-    </ul>
-  ),
-  ol: ({ children }) => (
-    <ol className="list-decimal space-y-1 pl-4 text-sm text-slate-200 leading-relaxed marker:text-indigo-200/80">
-      {children}
-    </ol>
-  ),
-  li: ({ children }) => (
-    <li className="text-sm text-slate-200 leading-relaxed">{children}</li>
-  ),
-  strong: ({ children }) => <strong className="font-semibold text-white">{children}</strong>,
-  em: ({ children }) => <em className="italic text-slate-200">{children}</em>,
-  a: ({ children, ...props }) => (
-    <a
-      {...props}
-      className="text-sm text-indigo-200 underline decoration-indigo-200/70 underline-offset-4 hover:text-indigo-100"
-      target="_blank"
-      rel="noreferrer"
-    >
-      {children}
-    </a>
-  ),
-  blockquote: ({ children }) => (
-    <blockquote className="border-l-2 border-indigo-300/50 bg-indigo-500/10 px-3 py-2 text-sm italic text-slate-100">
-      {children}
-    </blockquote>
-  ),
-};
-
-function normalizeChallengeNodes(nodes?: ProjectChallengeNode[] | null): ProjectChallengeNode[] {
-  return Array.isArray(nodes) ? nodes : [];
-}
-
-function flattenChallenges(nodes?: ProjectChallengeNode[] | null): ProjectChallengeNode[] {
-  const source = normalizeChallengeNodes(nodes);
-  return source.flatMap(node => [node, ...(node.children ? flattenChallenges(node.children) : [])]);
-}
-
-function insertChallengeNode(
-  nodes: ProjectChallengeNode[] | null | undefined,
-  newNode: ProjectChallengeNode,
-  parentId?: string | null,
-): ProjectChallengeNode[] {
-  const source = normalizeChallengeNodes(nodes);
-  const [, updated] = insertChallengeNodeInternal(source, newNode, parentId ?? null);
-  return updated;
-}
-
-function insertChallengeNodeInternal(
-  nodes: ProjectChallengeNode[],
-  newNode: ProjectChallengeNode,
-  parentId: string | null,
-): readonly [boolean, ProjectChallengeNode[]] {
-  if (!parentId) {
-    return [true, [newNode, ...nodes]] as const;
-  }
-
-  let inserted = false;
-  const updatedNodes = nodes.map(node => {
-    if (node.id === parentId) {
-      inserted = true;
-      const children = node.children ? [newNode, ...node.children] : [newNode];
-      return { ...node, children };
-    }
-
-    if (node.children?.length) {
-      const [childInserted, childNodes] = insertChallengeNodeInternal(node.children, newNode, parentId);
-      if (childInserted) {
-        inserted = true;
-        return { ...node, children: childNodes };
-      }
-    }
-
-    return node;
-  });
-
-  if (inserted) {
-    return [true, updatedNodes] as const;
-  }
-
-  return [false, [newNode, ...updatedNodes]] as const;
-}
-
-function countSubChallenges(node: ProjectChallengeNode): number {
-  if (!node.children?.length) {
-    return 0;
-  }
-
-  return node.children.length + node.children.reduce((total, child) => total + countSubChallenges(child), 0);
-}
-
-function buildChallengeParentMap(nodes?: ProjectChallengeNode[] | null): Map<string, string | null> {
-  const map = new Map<string, string | null>();
-
-  const source = normalizeChallengeNodes(nodes);
-
-  const traverse = (items: ProjectChallengeNode[], parentId: string | null) => {
-    items.forEach(item => {
-      map.set(item.id, parentId);
-      if (item.children?.length) {
-        traverse(item.children, item.id);
-      }
-    });
-  };
-
-  traverse(source, null);
-  return map;
-}
-
-function buildChallengeDescendantsMap(nodes?: ProjectChallengeNode[] | null): Map<string, Set<string>> {
-  const map = new Map<string, Set<string>>();
-
-  const source = normalizeChallengeNodes(nodes);
-
-  const collect = (item: ProjectChallengeNode): Set<string> => {
-    const descendants = new Set<string>();
-
-    item.children?.forEach(child => {
-      descendants.add(child.id);
-      const childDescendants = collect(child);
-      childDescendants.forEach(id => descendants.add(id));
-    });
-
-    map.set(item.id, descendants);
-    return descendants;
-  };
-
-  source.forEach(node => {
-    collect(node);
-  });
-
-  return map;
-}
-
-function removeChallengeNode(
-  nodes: ProjectChallengeNode[],
-  targetId: string,
-): readonly [ProjectChallengeNode[], ProjectChallengeNode | null] {
-  let removed: ProjectChallengeNode | null = null;
-
-  const nextNodes = nodes
-    .map(node => {
-      if (node.id === targetId) {
-        removed = node;
-        return null;
-      }
-
-      if (node.children?.length) {
-        const [children, extracted] = removeChallengeNode(node.children, targetId);
-        if (extracted) {
-          removed = extracted;
-          return { ...node, children };
-        }
-      }
-
-      return node;
-    })
-    .filter((value): value is ProjectChallengeNode => value !== null);
-
-  return [nextNodes, removed] as const;
-}
-
-function mergeContributors(
-  existing: ProjectParticipantSummary[],
-  additions: ProjectParticipantSummary[],
-): ProjectParticipantSummary[] {
-  const merged = new Map<string, ProjectParticipantSummary>();
-  [...existing, ...additions].forEach(person => {
-    const key = person.id || person.name;
-    if (!merged.has(key)) {
-      merged.set(key, person);
-    }
-  });
-  return Array.from(merged.values());
-}
-
-function formatDate(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-  return new Intl.DateTimeFormat("en", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  }).format(date);
-}
-
-function formatFullDate(value?: string | null): string | null {
-  if (!value) {
-    return null;
-  }
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return null;
-  }
-  return new Intl.DateTimeFormat("en", { dateStyle: "medium" }).format(date);
-}
-
-function formatTimeframe(startDate?: string | null, endDate?: string | null): string | null {
-  if (!startDate && !endDate) {
-    return null;
-  }
-  const startLabel = formatFullDate(startDate);
-  const endLabel = formatFullDate(endDate);
-  if (startLabel && endLabel) {
-    return `${startLabel} – ${endLabel}`;
-  }
-  return startLabel ?? endLabel;
-}
-
-function toInputDate(value?: string | null): string {
-  if (!value) {
-    return "";
-  }
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return "";
-  }
-  return date.toISOString();
-}
-
-type ProjectEditState = {
-  name: string;
-  description: string;
-  status: string;
-  startDate: string;
-  endDate: string;
-  systemPrompt: string;
-};
-
-type ChallengeFormState = {
-  title: string;
-  description: string;
-  status: ChallengeStatus;
-  impact: ProjectChallengeNode["impact"];
-  ownerIds: string[];
-  parentId: string;
-};
-
-function createEmptyChallengeForm(): ChallengeFormState {
-  return {
-    title: "",
-    description: "",
-    status: "open",
-    impact: "medium",
-    ownerIds: [],
-    parentId: "",
-  };
-}
-
-// TODO: Consider refactoring to use shared AskForm component with AskCreateForm.tsx
-// Currently duplicated due to different themes (dark/light) and data structures
-type AskFormState = {
-  challengeId: string;
-  askKey: string;
-  name: string;
-  question: string;
-  description: string;
-  status: (typeof askStatusOptions)[number];
-  startDate: string;
-  endDate: string;
-  isAnonymous: boolean;
-  maxParticipants: string;
-  participantIds: string[];
-  spokespersonId: string;
-  deliveryMode: AskDeliveryMode;
-  conversationMode: AskConversationMode;
-  systemPrompt: string;
-  expectedDurationMinutes: number;
-};
-
-function generateAskKey(base: string) {
-  const slug = base
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/(^-|-$)+/g, "");
-  const randomSuffix = Math.random().toString(36).slice(2, 6);
-  return `${slug || "ask"}-${randomSuffix}`;
-}
-
-function createEmptyAskForm(challengeId?: string): AskFormState {
-  const now = new Date();
-  const defaultStart = now.toISOString();
-  const defaultEnd = new Date(now.getTime() + 60 * 60 * 1000).toISOString();
-
-  return {
-    challengeId: challengeId ?? "",
-    askKey: generateAskKey("ask"),
-    name: "",
-    question: "",
-    description: "",
-    status: "active",
-    startDate: defaultStart,
-    endDate: defaultEnd,
-    isAnonymous: false,
-    maxParticipants: "",
-    participantIds: [],
-    spokespersonId: "",
-    deliveryMode: "digital",
-    conversationMode: "collaborative",
-    systemPrompt: "",
-    expectedDurationMinutes: 8,
-  };
-}
-
-function normalizeAskStatus(value?: string | null): AskFormState["status"] {
-  if (!value) {
-    return "active";
-  }
-  const normalized = value as (typeof askStatusOptions)[number];
-  return askStatusOptions.includes(normalized) ? normalized : "active";
-}
+// Import extracted modules
+import {
+  type ProjectJourneyBoardProps,
+  type ChallengeInsightRow,
+  type AskInsightRow,
+  type FeedbackState,
+  type ProjectEditState,
+  type ChallengeFormState,
+  type AskFormState,
+  createEmptyChallengeForm,
+  createEmptyAskForm,
+  normalizeAskStatus,
+} from "./journey/types";
+import {
+  type ChallengeStatus,
+  impactLabels,
+  impactClasses,
+  insightTypeClasses,
+  challengeStatusOptions,
+  askStatusOptions,
+  askDeliveryModes,
+  askConversationModes,
+  challengeMarkdownComponents,
+  USE_MOCK_JOURNEY,
+} from "./journey/constants";
+import {
+  normalizeChallengeNodes,
+  flattenChallenges,
+  insertChallengeNode,
+  countSubChallenges,
+  buildChallengeParentMap,
+  buildChallengeDescendantsMap,
+  removeChallengeNode,
+  mergeContributors,
+  formatDate,
+  formatFullDate,
+  formatTimeframe,
+  toInputDate,
+  generateAskKey,
+} from "./journey/utils";
 
 export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardProps) {
   const [boardData, setBoardData] = useState<ProjectJourneyBoardData | null>(
