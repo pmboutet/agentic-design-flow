@@ -2,13 +2,14 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Building2, CalendarRange, Folder, Loader2, Plus, RefreshCcw } from "lucide-react";
+import { Building2, CalendarRange, Edit, Folder, Loader2, Plus, RefreshCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { type ProjectRecord } from "@/types";
 import { useClientContext } from "./ClientContext";
 import { useProjectContext } from "./ProjectContext";
 import { ProjectCreateDialog } from "./ProjectCreateDialog";
+import { ProjectEditDialog } from "./ProjectEditDialog";
 
 interface ApiResponse<T> {
   success: boolean;
@@ -43,6 +44,7 @@ export function ProjectsAdminView() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
+  const [editingProject, setEditingProject] = useState<ProjectRecord | null>(null);
 
   const loadProjects = async () => {
     setIsLoading(true);
@@ -192,7 +194,7 @@ export function ProjectsAdminView() {
               </div>
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                 {group.projects.map(project => (
-                  <ProjectCard key={project.id} project={project} showClientName={false} />
+                  <ProjectCard key={project.id} project={project} showClientName={false} onEdit={setEditingProject} />
                 ))}
               </div>
             </div>
@@ -202,7 +204,7 @@ export function ProjectsAdminView() {
         // Flat view for single client
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {filteredProjects.map(project => (
-            <ProjectCard key={project.id} project={project} showClientName={selectedClientId === "all"} />
+            <ProjectCard key={project.id} project={project} showClientName={selectedClientId === "all"} onEdit={setEditingProject} />
           ))}
         </div>
       )}
@@ -214,11 +216,29 @@ export function ProjectsAdminView() {
         defaultClientId={selectedClientId !== "all" ? selectedClientId : undefined}
         onSuccess={() => void loadProjects()}
       />
+
+      {editingProject && (
+        <ProjectEditDialog
+          open={!!editingProject}
+          onOpenChange={(open) => {
+            if (!open) setEditingProject(null);
+          }}
+          project={editingProject}
+          clients={clients}
+          onSuccess={() => void loadProjects()}
+        />
+      )}
     </div>
   );
 }
 
-function ProjectCard({ project, showClientName }: { project: ProjectRecord; showClientName: boolean }) {
+interface ProjectCardProps {
+  project: ProjectRecord;
+  showClientName: boolean;
+  onEdit: (project: ProjectRecord) => void;
+}
+
+function ProjectCard({ project, showClientName, onEdit }: ProjectCardProps) {
   return (
     <Card className="border border-white/10 bg-slate-900/70">
       <CardHeader className="flex flex-row items-start justify-between gap-3 pb-3">
@@ -226,9 +246,19 @@ function ProjectCard({ project, showClientName }: { project: ProjectRecord; show
           <Folder className="h-5 w-5 text-indigo-300" />
           <CardTitle className="text-base text-white">{project.name}</CardTitle>
         </div>
-        <span className="rounded-full border border-white/15 px-2 py-0.5 text-xs capitalize text-slate-200">
-          {project.status}
-        </span>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => onEdit(project)}
+            className="p-1 rounded hover:bg-white/10 text-slate-400 hover:text-white transition-colors"
+            title="Modifier le projet"
+          >
+            <Edit className="h-4 w-4" />
+          </button>
+          <span className="rounded-full border border-white/15 px-2 py-0.5 text-xs capitalize text-slate-200">
+            {project.status}
+          </span>
+        </div>
       </CardHeader>
       <CardContent className="space-y-3 text-sm text-slate-300">
         {showClientName && project.clientName ? (

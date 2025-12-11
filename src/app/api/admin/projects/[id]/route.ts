@@ -80,6 +80,61 @@ export async function PATCH(
     const body = await request.json();
     const payload = updateSchema.parse(body);
 
+    const role = profile.role?.toLowerCase() ?? "";
+
+    // If changing clientId, verify permissions
+    if (payload.clientId !== undefined) {
+      // First, get the current project to check if client is actually changing
+      const { data: currentProject, error: projectError } = await supabase
+        .from("projects")
+        .select("client_id")
+        .eq("id", projectId)
+        .single();
+
+      if (projectError || !currentProject) {
+        return NextResponse.json<ApiResponse>({
+          success: false,
+          error: "Project not found"
+        }, { status: 404 });
+      }
+
+      // Check if client is actually changing
+      if (payload.clientId !== currentProject.client_id) {
+        // Only full_admin can change a project to any client
+        if (role !== "full_admin") {
+          // Non full_admin users can only move projects within their own client
+          // Since they can only see their own client, they can't really change client
+          // Unless we allow moving between clients they have access to
+          if (profile.client_id !== payload.clientId) {
+            return NextResponse.json<ApiResponse>({
+              success: false,
+              error: "Vous ne pouvez transférer un projet que vers votre propre organisation"
+            }, { status: 403 });
+          }
+          // Also check they have access to the source project
+          if (profile.client_id !== currentProject.client_id) {
+            return NextResponse.json<ApiResponse>({
+              success: false,
+              error: "Vous n'avez pas accès à ce projet"
+            }, { status: 403 });
+          }
+        }
+        // Verify the target client exists
+        const { data: targetClient, error: clientError } = await supabase
+          .from("clients")
+          .select("id")
+          .eq("id", payload.clientId)
+          .single();
+
+        if (clientError || !targetClient) {
+          return NextResponse.json<ApiResponse>({
+            success: false,
+            error: "Le client cible n'existe pas"
+          }, { status: 400 });
+        }
+      }
+    }
+
     const updateData: Record<string, any> = {};
     if (payload.name !== undefined) updateData.name = sanitizeText(payload.name);
     if (payload.description !== undefined) updateData.description = sanitizeOptional(payload.description || null);
