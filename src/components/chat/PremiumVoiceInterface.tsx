@@ -1698,21 +1698,23 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
           <div className="flex items-center gap-2">
             <Button
               variant="ghost"
-              size="icon"
+              size="sm"
               onClick={handleEditClick}
-              className="h-10 w-10 text-white hover:bg-white/20 rounded-full"
+              className="h-10 px-3 text-white hover:bg-white/20 rounded-full"
               title="Éditer"
             >
-              <Pencil className="h-5 w-5" />
+              <Pencil className="h-5 w-5 mr-1" />
+              <span className="text-sm">Éditer</span>
             </Button>
             <Button
               variant="ghost"
-              size="icon"
+              size="sm"
               onClick={handleCloseClick}
-              className="h-10 w-10 text-white hover:bg-white/20 rounded-full"
+              className="h-10 px-3 text-white hover:bg-white/20 rounded-full"
               title="Fermer"
             >
-              <X className="h-5 w-5" />
+              <X className="h-5 w-5 mr-1" />
+              <span className="text-sm">Fermer</span>
             </Button>
           </div>
         </div>

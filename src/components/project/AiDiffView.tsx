@@ -205,12 +205,13 @@ export function AiDiffView({ previous, next, className, onEdit }: AiDiffViewProp
       {onEdit && (
         <Button
           variant="ghost"
-          size="icon"
+          size="sm"
           onClick={onEdit}
-          className="absolute right-2 top-2 h-6 w-6 text-slate-500 opacity-0 transition-opacity group-hover:opacity-100 hover:text-slate-200 z-10"
+          className="absolute right-2 top-2 h-6 px-2 text-slate-500 opacity-0 transition-opacity group-hover:opacity-100 hover:text-slate-200 z-10"
           title="Modifier"
         >
-          <Pencil className="h-3.5 w-3.5" />
+          <Pencil className="h-3.5 w-3.5 mr-1" />
+          <span className="text-xs">Modifier</span>
         </Button>
       )}
 
