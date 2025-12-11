@@ -375,6 +375,10 @@ type ModelDraft = AiModelConfig & {
   speechmaticsLlmProviderDraft?: "anthropic" | "openai";
   speechmaticsLlmModelDraft?: string;
   speechmaticsApiKeyEnvVarDraft?: string;
+  speechmaticsDiarizationDraft?: "none" | "speaker" | "channel" | "channel_and_speaker";
+  speechmaticsSpeakerSensitivityDraft?: number;
+  speechmaticsPreferCurrentSpeakerDraft?: boolean;
+  speechmaticsMaxSpeakersDraft?: number;
   elevenLabsVoiceIdDraft?: string;
   elevenLabsModelIdDraft?: string;
   enableThinkingDraft?: boolean;
@@ -503,6 +507,10 @@ export default function AiConfigurationPage() {
         speechmaticsLlmProviderDraft: model.speechmaticsLlmProvider,
         speechmaticsLlmModelDraft: model.speechmaticsLlmModel,
         speechmaticsApiKeyEnvVarDraft: model.speechmaticsApiKeyEnvVar,
+        speechmaticsDiarizationDraft: model.speechmaticsDiarization,
+        speechmaticsSpeakerSensitivityDraft: model.speechmaticsSpeakerSensitivity,
+        speechmaticsPreferCurrentSpeakerDraft: model.speechmaticsPreferCurrentSpeaker,
+        speechmaticsMaxSpeakersDraft: model.speechmaticsMaxSpeakers,
         elevenLabsVoiceIdDraft: model.elevenLabsVoiceId,
         elevenLabsModelIdDraft: model.elevenLabsModelId,
         enableThinkingDraft: model.enableThinking ?? false,
@@ -2241,6 +2249,117 @@ export default function AiConfigurationPage() {
                                   </Label>
                                 </div>
                               </div>
+
+                              {/* Diarization Settings */}
+                              <div className="col-span-2 pt-4 border-t border-slate-600/30">
+                                <h5 className="text-sm font-medium text-slate-200 mb-3">Identification des locuteurs (Diarization)</h5>
+                                <div className="grid gap-4 md:grid-cols-2">
+                                  <div className="space-y-2">
+                                    <Label htmlFor={`speechmatics-diarization-${model.id}`} className="text-slate-300">
+                                      Mode de diarization
+                                    </Label>
+                                    <select
+                                      id={`speechmatics-diarization-${model.id}`}
+                                      className="w-full rounded border border-slate-600/50 bg-slate-800/60 px-3 py-2 text-sm text-slate-100"
+                                      value={model.speechmaticsDiarizationDraft ?? "speaker"}
+                                      onChange={(e) => {
+                                        const value = e.target.value as "none" | "speaker" | "channel" | "channel_and_speaker";
+                                        setModels(prev => prev.map(m =>
+                                          m.id === model.id
+                                            ? { ...m, speechmaticsDiarizationDraft: value, saveSuccess: false }
+                                            : m
+                                        ));
+                                      }}
+                                    >
+                                      <option value="none">Désactivé</option>
+                                      <option value="speaker">Par voix (speaker)</option>
+                                      <option value="channel">Par canal audio</option>
+                                      <option value="channel_and_speaker">Canal + voix</option>
+                                    </select>
+                                    <p className="text-xs text-slate-400">
+                                      &quot;Par voix&quot; distingue les locuteurs par leur signature vocale
+                                    </p>
+                                  </div>
+
+                                  <div className="space-y-2">
+                                    <Label htmlFor={`speechmatics-speaker-sensitivity-${model.id}`} className="text-slate-300">
+                                      Sensibilité ({(model.speechmaticsSpeakerSensitivityDraft ?? 0.5).toFixed(1)})
+                                    </Label>
+                                    <input
+                                      type="range"
+                                      id={`speechmatics-speaker-sensitivity-${model.id}`}
+                                      min="0"
+                                      max="1"
+                                      step="0.1"
+                                      className="w-full"
+                                      value={model.speechmaticsSpeakerSensitivityDraft ?? 0.5}
+                                      onChange={(e) => {
+                                        const value = parseFloat(e.target.value);
+                                        setModels(prev => prev.map(m =>
+                                          m.id === model.id
+                                            ? { ...m, speechmaticsSpeakerSensitivityDraft: value, saveSuccess: false }
+                                            : m
+                                        ));
+                                      }}
+                                    />
+                                    <p className="text-xs text-slate-400">
+                                      Plus élevé = détecte plus de locuteurs distincts
+                                    </p>
+                                  </div>
+
+                                  <div className="space-y-2">
+                                    <Label htmlFor={`speechmatics-max-speakers-${model.id}`} className="text-slate-300">
+                                      Nombre max de locuteurs
+                                    </Label>
+                                    <Input
+                                      id={`speechmatics-max-speakers-${model.id}`}
+                                      type="number"
+                                      min="2"
+                                      placeholder="Illimité"
+                                      className="bg-slate-800/60 border-slate-600/50 text-slate-100 placeholder:text-slate-500"
+                                      value={model.speechmaticsMaxSpeakersDraft ?? ''}
+                                      onChange={(e) => {
+                                        const value = e.target.value ? parseInt(e.target.value, 10) : undefined;
+                                        setModels(prev => prev.map(m =>
+                                          m.id === model.id
+                                            ? { ...m, speechmaticsMaxSpeakersDraft: value, saveSuccess: false }
+                                            : m
+                                        ));
+                                      }}
+                                    />
+                                    <p className="text-xs text-slate-400">
+                                      Laisser vide pour illimité (min: 2)
+                                    </p>
+                                  </div>
+
+                                  <div className="space-y-2">
+                                    <Label htmlFor={`speechmatics-prefer-current-${model.id}`} className="text-slate-300">
+                                      Éviter les faux changements
+                                    </Label>
+                                    <div className="flex items-center gap-2">
+                                      <input
+                                        type="checkbox"
+                                        id={`speechmatics-prefer-current-${model.id}`}
+                                        checked={model.speechmaticsPreferCurrentSpeakerDraft !== false}
+                                        onChange={(e) => {
+                                          setModels(prev => prev.map(m =>
+                                            m.id === model.id
+                                              ? { ...m, speechmaticsPreferCurrentSpeakerDraft: e.target.checked, saveSuccess: false }
+                                              : m
+                                          ));
+                                        }}
+                                        className="rounded border-slate-600 bg-slate-700"
+                                      />
+                                      <Label htmlFor={`speechmatics-prefer-current-${model.id}`} className="cursor-pointer text-sm text-slate-300">
+                                        Préférer le locuteur actuel
+                                      </Label>
+                                    </div>
+                                    <p className="text-xs text-slate-400">
+                                      Réduit les faux changements entre voix similaires
+                                    </p>
+                                  </div>
+                                </div>
+                              </div>
                             </div>
                           )}
                         </div>
@@ -2398,6 +2517,10 @@ export default function AiConfigurationPage() {
                                 speechmaticsLlmProvider: model.speechmaticsLlmProviderDraft || null,
                                 speechmaticsLlmModel: model.speechmaticsLlmModelDraft || null,
                                 speechmaticsApiKeyEnvVar: model.speechmaticsApiKeyEnvVarDraft || null,
+                                speechmaticsDiarization: sttProvider.get(model.id) === "speechmatics" ? (model.speechmaticsDiarizationDraft || null) : null,
+                                speechmaticsSpeakerSensitivity: sttProvider.get(model.id) === "speechmatics" ? (model.speechmaticsSpeakerSensitivityDraft ?? null) : null,
+                                speechmaticsPreferCurrentSpeaker: sttProvider.get(model.id) === "speechmatics" ? (model.speechmaticsPreferCurrentSpeakerDraft ?? null) : null,
+                                speechmaticsMaxSpeakers: sttProvider.get(model.id) === "speechmatics" ? (model.speechmaticsMaxSpeakersDraft ?? null) : null,
                                 elevenLabsVoiceId: ttsProvider.get(model.id) === "elevenlabs" ? (model.elevenLabsVoiceIdDraft || null) : null,
                                 elevenLabsModelId: ttsProvider.get(model.id) === "elevenlabs" ? (model.elevenLabsModelIdDraft || null) : null,
                                 enableThinking: model.enableThinkingDraft ?? false,
@@ -2430,6 +2553,10 @@ export default function AiConfigurationPage() {
                                     speechmaticsLlmProvider: m.speechmaticsLlmProviderDraft,
                                     speechmaticsLlmModel: m.speechmaticsLlmModelDraft,
                                     speechmaticsApiKeyEnvVar: m.speechmaticsApiKeyEnvVarDraft,
+                                    speechmaticsDiarization: m.speechmaticsDiarizationDraft,
+                                    speechmaticsSpeakerSensitivity: m.speechmaticsSpeakerSensitivityDraft,
+                                    speechmaticsPreferCurrentSpeaker: m.speechmaticsPreferCurrentSpeakerDraft,
+                                    speechmaticsMaxSpeakers: m.speechmaticsMaxSpeakersDraft,
                                     elevenLabsVoiceId: m.elevenLabsVoiceIdDraft,
                                     elevenLabsModelId: m.elevenLabsModelIdDraft,
                                     enableThinking: m.enableThinkingDraft,

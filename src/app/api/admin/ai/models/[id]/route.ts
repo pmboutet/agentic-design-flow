@@ -79,6 +79,19 @@ export async function PUT(
     if (typeof body.speechmaticsApiKeyEnvVar === 'string' || body.speechmaticsApiKeyEnvVar === null) {
       payload.speechmatics_api_key_env_var = body.speechmaticsApiKeyEnvVar?.trim() || null;
     }
+    // Speechmatics diarization settings
+    if (typeof body.speechmaticsDiarization === 'string' || body.speechmaticsDiarization === null) {
+      payload.speechmatics_diarization = body.speechmaticsDiarization?.trim() || null;
+    }
+    if (typeof body.speechmaticsSpeakerSensitivity === 'number' || body.speechmaticsSpeakerSensitivity === null) {
+      payload.speechmatics_speaker_sensitivity = body.speechmaticsSpeakerSensitivity ?? null;
+    }
+    if (typeof body.speechmaticsPreferCurrentSpeaker === 'boolean' || body.speechmaticsPreferCurrentSpeaker === null) {
+      payload.speechmatics_prefer_current_speaker = body.speechmaticsPreferCurrentSpeaker ?? null;
+    }
+    if (typeof body.speechmaticsMaxSpeakers === 'number' || body.speechmaticsMaxSpeakers === null) {
+      payload.speechmatics_max_speakers = body.speechmaticsMaxSpeakers ?? null;
+    }
     // ElevenLabs-specific fields
     if (body.elevenLabsVoiceId !== undefined) {
       if (body.elevenLabsVoiceId === null) {
