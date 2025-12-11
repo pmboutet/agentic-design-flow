@@ -234,18 +234,15 @@ export async function POST(
       if (!conversationPlan) {
         console.log('📋 POST /api/ask/[key]/init: Generating new conversation plan');
         try {
-          // Build variables for plan generation
-          const planGenerationVariables = {
-            ask_key: askRow.ask_key,
-            ask_question: askRow.question,
-            ask_description: askRow.description ?? '',
-            system_prompt_ask: askRow.system_prompt ?? '',
-            system_prompt_project: projectData?.system_prompt ?? '',
-            system_prompt_challenge: challengeData?.system_prompt ?? '',
-            participants: participantSummaries.map(p => p.name).join(', '),
-            participants_list: participantSummaries,
-            expected_duration_minutes: String(askRow.expected_duration_minutes ?? 8),
-          };
+          // Use centralized function for plan generation variables (consistent with all routes)
+          const planGenerationVariables = buildConversationAgentVariables({
+            ask: askRow,
+            project: projectData,
+            challenge: challengeData,
+            messages: [],
+            participants: participantSummaries,
+            conversationPlan: null,
+          });
 
           const planData = await generateConversationPlan(
             adminClient,
