@@ -359,7 +359,8 @@ export function AgentTestMode({ agentId, agentSlug, onClose, colorScheme }: Agen
             </p>
           </div>
           <Button variant="ghost" size="sm" onClick={onClose} className="text-slate-400 hover:text-slate-200 hover:bg-slate-700/50">
-            <X className="h-4 w-4" />
+            <X className="h-4 w-4 mr-1" />
+            <span>Fermer</span>
           </Button>
         </div>
       </div>

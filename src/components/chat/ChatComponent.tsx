@@ -611,27 +611,29 @@ export function ChatComponent({
                 {/* File upload button */}
                 <Button
                   variant="ghost"
-                  size="icon"
+                  size="sm"
                   onClick={() => fileInputRef.current?.click()}
-                  className="h-9 w-9"
+                  className="h-9 px-2"
                 >
-                  <Paperclip className="h-4 w-4" />
+                  <Paperclip className="h-4 w-4 mr-1" />
+                  <span className="text-xs">Fichier</span>
                 </Button>
                 
                 {/* Voice mode toggle button */}
                 {voiceModeEnabled && voiceModeSystemPrompt && (
                   <Button
                     variant={isVoiceMode ? "default" : "ghost"}
-                    size="icon"
+                    size="sm"
                     onClick={() => {
                       const newVoiceMode = !isVoiceMode;
                       setIsVoiceMode(newVoiceMode);
                       onVoiceModeChange?.(newVoiceMode);
                     }}
-                    className={cn("h-9 w-9", isVoiceMode && "bg-primary text-primary-foreground")}
+                    className={cn("h-9 px-2", isVoiceMode && "bg-primary text-primary-foreground")}
                     title={isVoiceMode ? "Exit voice mode" : "Enter voice mode"}
                   >
-                    <Radio className="h-4 w-4" />
+                    <Radio className="h-4 w-4 mr-1" />
+                    <span className="text-xs">{isVoiceMode ? "Quitter voix" : "Mode voix"}</span>
                   </Button>
                 )}
                 
@@ -639,11 +641,12 @@ export function ChatComponent({
                 {!voiceModeEnabled && (
                   <Button
                     variant="ghost"
-                    size="icon"
+                    size="sm"
                     onClick={isRecording ? stopRecording : startRecording}
-                    className={cn("h-9 w-9", isRecording && "text-red-500")}
+                    className={cn("h-9 px-2", isRecording && "text-red-500")}
                   >
-                    <Mic className="h-4 w-4" />
+                    <Mic className="h-4 w-4 mr-1" />
+                    <span className="text-xs">{isRecording ? "Arrêter" : "Dicter"}</span>
                   </Button>
                 )}
                 
@@ -651,10 +654,11 @@ export function ChatComponent({
                 <Button
                   onClick={handleSendMessage}
                   disabled={isLoading || (!inputValue.trim() && selectedFiles.length === 0)}
-                  size="icon"
-                  className="h-9 w-9"
+                  size="sm"
+                  className="h-9 px-3"
                 >
-                  <Send className="h-4 w-4" />
+                  <Send className="h-4 w-4 mr-1" />
+                  <span className="text-xs">Envoyer</span>
                 </Button>
               </div>
             </div>
@@ -1089,6 +1093,8 @@ function FilePreview({
         size="icon"
         onClick={onRemove}
         className="h-6 w-6 absolute -top-2 -right-2 bg-background border rounded-full"
+        title="Retirer le fichier"
+        aria-label="Retirer le fichier"
       >
         <X className="h-3 w-3" />
       </Button>

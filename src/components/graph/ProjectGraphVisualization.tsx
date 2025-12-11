@@ -1258,8 +1258,9 @@ export function ProjectGraphVisualization({ projectId, clientId, refreshKey }: P
                       {connectedNodeIds.size - 1} connexion{connectedNodeIds.size - 1 !== 1 ? "s" : ""}
                     </p>
                   </div>
-                  <button onClick={() => setSelectedNode(null)} className="text-slate-400 hover:text-white">
+                  <button onClick={() => setSelectedNode(null)} className="text-slate-400 hover:text-white flex items-center gap-1 text-xs">
                     <X className="h-4 w-4" />
+                    <span>Fermer</span>
                   </button>
                 </div>
               </div>
@@ -1270,27 +1271,30 @@ export function ProjectGraphVisualization({ projectId, clientId, refreshKey }: P
               <Button
                 size="sm"
                 variant="outline"
-                className="h-8 w-8 border-slate-600/50 bg-slate-800/80 p-0 text-slate-300 hover:bg-slate-700/80"
+                className="h-8 border-slate-600/50 bg-slate-800/80 px-2 text-slate-300 hover:bg-slate-700/80"
                 onClick={zoomIn}
               >
-                <Plus className="h-4 w-4" />
+                <Plus className="h-4 w-4 mr-1" />
+                <span className="text-xs">Zoom +</span>
               </Button>
               <Button
                 size="sm"
                 variant="outline"
-                className="h-8 w-8 border-slate-600/50 bg-slate-800/80 p-0 text-slate-300 hover:bg-slate-700/80"
+                className="h-8 border-slate-600/50 bg-slate-800/80 px-2 text-slate-300 hover:bg-slate-700/80"
                 onClick={zoomOut}
               >
-                <Minus className="h-4 w-4" />
+                <Minus className="h-4 w-4 mr-1" />
+                <span className="text-xs">Zoom -</span>
               </Button>
               <Button
                 size="sm"
                 variant="outline"
-                className="h-8 w-8 border-slate-600/50 bg-slate-800/80 p-0 text-xs text-slate-300 hover:bg-slate-700/80"
+                className="h-8 border-slate-600/50 bg-slate-800/80 px-2 text-xs text-slate-300 hover:bg-slate-700/80"
                 onClick={resetZoom}
                 title="Réinitialiser le zoom"
               >
-                <ZoomOut className="h-4 w-4" />
+                <ZoomOut className="h-4 w-4 mr-1" />
+                <span className="text-xs">Reset</span>
               </Button>
               <div className="mt-1 rounded bg-slate-800/80 px-1.5 py-0.5 text-center text-[10px] text-slate-400">
                 {Math.round(zoomLevel * 100)}%
