@@ -119,6 +119,9 @@ export class SpeechmaticsVoiceAgent {
     createSemanticTurnDetector(this.semanticTurnConfig);
   // AbortController for canceling in-flight LLM requests
   private llmAbortController: AbortController | null = null;
+  // Dynamic flag to enable/disable voice responses (TTS) at runtime
+  // When false, agent responds in text only (dictation mode)
+  private voiceResponseEnabled: boolean = true;
 
   // ===== CALLBACKS =====
   // Callback appelé lorsqu'un message est reçu (user ou agent, interim ou final)
@@ -556,8 +559,9 @@ export class SpeechmaticsVoiceAgent {
         isInterim: false,
       });
 
-      // Generate TTS audio only if ElevenLabs is enabled
-      if (!this.config?.disableElevenLabsTTS && this.elevenLabsTTS && this.audio) {
+      // Generate TTS audio only if ElevenLabs is enabled AND voice response is enabled
+      // When voiceResponseEnabled is false, we're in dictation mode (text-only responses)
+      if (!this.config?.disableElevenLabsTTS && this.voiceResponseEnabled && this.elevenLabsTTS && this.audio) {
         try {
           // Set current assistant speech for echo detection
           this.audio.setCurrentAssistantSpeech(llmResponse);
@@ -656,6 +660,24 @@ export class SpeechmaticsVoiceAgent {
 
   setMicrophoneSensitivity(sensitivity: number): void {
     this.audio?.setMicrophoneSensitivity(sensitivity);
+  }
+
+  /**
+   * Enable or disable voice responses (TTS) at runtime
+   * When disabled, the agent will only respond with text (dictation mode)
+   *
+   * @param enabled - true for voice responses, false for text-only responses
+   */
+  setVoiceResponseEnabled(enabled: boolean): void {
+    this.voiceResponseEnabled = enabled;
+    console.log(`[Speechmatics] Voice response ${enabled ? 'enabled' : 'disabled'} (dictation mode: ${!enabled})`);
+  }
+
+  /**
+   * Check if voice responses are currently enabled
+   */
+  isVoiceResponseEnabled(): boolean {
+    return this.voiceResponseEnabled;
   }
 
   async stopMicrophone(): Promise<void> {

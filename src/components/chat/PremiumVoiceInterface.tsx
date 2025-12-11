@@ -170,6 +170,8 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
   const [microphoneSensitivity, setMicrophoneSensitivity] = useState<number>(1.5);
   // Activation de l'isolation vocale (filtre le bruit de fond)
   const [voiceIsolationEnabled, setVoiceIsolationEnabled] = useState<boolean>(true);
+  // Activation des réponses vocales (true = TTS activé, false = mode dictée/réponses texte uniquement)
+  const [voiceResponseEnabled, setVoiceResponseEnabled] = useState<boolean>(true);
   // Liste des microphones disponibles sur le système
   const [availableMicrophones, setAvailableMicrophones] = useState<MediaDeviceInfo[]>([]);
   // Affichage du panneau de paramètres du microphone
@@ -614,6 +616,12 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
       if (savedIsolation !== null) {
         setVoiceIsolationEnabled(savedIsolation === 'true');
       }
+
+      // Restaurer l'état des réponses vocales (mode dictée)
+      const savedVoiceResponse = localStorage.getItem('voiceAgent_voiceResponseEnabled');
+      if (savedVoiceResponse !== null) {
+        setVoiceResponseEnabled(savedVoiceResponse === 'true');
+      }
     } catch (error) {
       console.error('[PremiumVoiceInterface] Error loading microphone devices:', error);
     }
@@ -621,12 +629,13 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
 
   /**
    * Sauvegarde les préférences du microphone dans localStorage
-   * 
+   *
    * Les préférences sauvegardées sont :
    * - ID du microphone sélectionné
    * - Sensibilité du microphone (0.5 - 3.0)
    * - État de l'isolation vocale (true/false)
-   * 
+   * - État des réponses vocales (true/false) - mode dictée
+   *
    * Ces préférences sont restaurées automatiquement au chargement du composant.
    */
   const savePreferences = useCallback(() => {
@@ -635,7 +644,8 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
     }
     localStorage.setItem('voiceAgent_microphoneSensitivity', microphoneSensitivity.toString());
     localStorage.setItem('voiceAgent_voiceIsolation', voiceIsolationEnabled.toString());
-  }, [selectedMicrophoneId, microphoneSensitivity, voiceIsolationEnabled]);
+    localStorage.setItem('voiceAgent_voiceResponseEnabled', voiceResponseEnabled.toString());
+  }, [selectedMicrophoneId, microphoneSensitivity, voiceIsolationEnabled, voiceResponseEnabled]);
 
   // ===== NETTOYAGE DES RESSOURCES AUDIO =====
   /**
@@ -1018,8 +1028,12 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
 
         // Établir la connexion WebSocket et démarrer le microphone
         await agent.connect(config);
+
+        // Synchroniser l'état des réponses vocales (mode dictée)
+        agent.setVoiceResponseEnabled(voiceResponseEnabled);
+
         await agent.startMicrophone(selectedMicrophoneId || undefined, voiceIsolationEnabled);
-        
+
         // Configurer la visualisation audio
         startAudioVisualization();
       } else {
@@ -2095,6 +2109,36 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
                       />
                     </button>
                   </div>
+
+                  {/* Voice response toggle (dictation mode) */}
+                  <div className="flex items-center justify-between">
+                    <label className="text-white/70 text-xs">Réponse vocale</label>
+                    <button
+                      onClick={() => {
+                        const newValue = !voiceResponseEnabled;
+                        setVoiceResponseEnabled(newValue);
+                        savePreferences();
+                        // Update agent in real-time if connected
+                        if (isConnected && agentRef.current instanceof SpeechmaticsVoiceAgent) {
+                          agentRef.current.setVoiceResponseEnabled(newValue);
+                        }
+                      }}
+                      className={cn(
+                        "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
+                        voiceResponseEnabled ? "bg-white/30" : "bg-white/10"
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          "inline-block h-4 w-4 transform rounded-full bg-white transition-transform",
+                          voiceResponseEnabled ? "translate-x-6" : "translate-x-1"
+                        )}
+                      />
+                    </button>
+                  </div>
+                  {!voiceResponseEnabled && (
+                    <p className="text-white/50 text-xs italic">Mode dictée : réponses à l&apos;écrit uniquement</p>
+                  )}
                 </div>
               </div>
             )}
