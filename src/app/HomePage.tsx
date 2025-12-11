@@ -1454,7 +1454,7 @@ export default function HomePage() {
           }),
         });
 
-        const data: ApiResponse<{ message?: Message; insights?: Insight[] }> = await response.json();
+        const data: ApiResponse<{ message?: Message; insights?: Insight[]; conversationPlan?: ConversationPlan }> = await response.json();
 
         if (response.ok && data.success && data.data?.message) {
           // Complete log for agent response
@@ -1486,7 +1486,14 @@ export default function HomePage() {
                 : msg
             ),
             insights: data.data?.insights ?? prev.insights,
+            // Update conversation plan if a step was completed
+            conversationPlan: data.data?.conversationPlan ?? prev.conversationPlan,
           }));
+
+          // Log if conversation plan was updated (step completed)
+          if (data.data?.conversationPlan) {
+            console.log('[HomePage] 📋 Voice message triggered step completion, updated conversation plan');
+          }
           
           console.log('[HomePage] ✅ Voice agent message persisted:', {
             messageId: data.data!.message!.id,
