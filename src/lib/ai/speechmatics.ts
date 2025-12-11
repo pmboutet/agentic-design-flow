@@ -556,7 +556,7 @@ export class SpeechmaticsVoiceAgent {
         isInterim: false,
       });
 
-      // Generate TTS audio only if ElevenLabs is enabled
+      // Generate TTS audio only if ElevenLabs is enabled (not in text-only mode)
       if (!this.config?.disableElevenLabsTTS && this.elevenLabsTTS && this.audio) {
         try {
           // Set current assistant speech for echo detection
