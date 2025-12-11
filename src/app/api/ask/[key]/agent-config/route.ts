@@ -237,23 +237,9 @@ export async function GET(
     }
 
     // Format messages using unified buildMessageSummary for consistent mapping
-    // Note: For token-based access, the RPC function may provide sender_name directly
+    // Always use centralized function - no bypass for token-based access
     const messages = (messageRows ?? []).map((row, index) => {
       const user = row.user_id ? usersById[row.user_id] ?? null : null;
-
-      // For token-based access, sender_name is already computed by RPC function
-      // Otherwise, use the unified buildMessageSummary function
-      if (token && (row as any).sender_name) {
-        return {
-          id: row.id,
-          senderType: row.sender_type ?? 'user',
-          senderName: (row as any).sender_name,
-          content: row.content,
-          timestamp: row.created_at ?? new Date().toISOString(),
-          planStepId: row.plan_step_id ?? null,
-        };
-      }
-
       return buildMessageSummary(row as MessageRow, user, index);
     });
 

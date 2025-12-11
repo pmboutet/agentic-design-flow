@@ -518,17 +518,16 @@ export async function GET(
       console.log('📋 GET /api/ask/[key]: Generating conversation plan because none exists');
       try {
         const { generateConversationPlan, createConversationPlan } = await import('@/lib/ai/conversation-plan');
-        
-        const planGenerationVariables = {
-          ask_key: askRow.ask_key,
-          ask_question: askRow.question,
-          ask_description: askRow.description ?? '',
-          system_prompt_ask: askRow.system_prompt ?? '',
-          system_prompt_project: projectData?.system_prompt ?? '',
-          system_prompt_challenge: challengeData?.system_prompt ?? '',
-          participants: participantSummaries.map(p => p.name).join(', '),
-          participants_list: participantSummaries,
-        };
+
+        // Use centralized function for plan generation variables (consistent with all routes)
+        const planGenerationVariables = buildConversationAgentVariables({
+          ask: askRow,
+          project: projectData,
+          challenge: challengeData,
+          messages: [],
+          participants: participantSummaries,
+          conversationPlan: null,
+        });
 
         // Use admin client to bypass RLS for agent fetch + plan insert
         const adminForPlan = await getAdminClient();
