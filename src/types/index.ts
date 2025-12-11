@@ -15,6 +15,8 @@ export interface AskParticipant {
   isSpokesperson?: boolean;
   isActive: boolean;
   inviteToken?: string | null;
+  /** Accumulated active session time in seconds */
+  elapsedActiveSeconds?: number;
 }
 
 export interface Ask {
