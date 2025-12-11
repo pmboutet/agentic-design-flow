@@ -190,6 +190,17 @@ const NODE_LABELS: Record<GraphNodeType, string> = {
   insight_type: "Types d'insight",
 };
 
+// Edge type labels in French
+const EDGE_LABELS: Record<string, string> = {
+  SIMILAR_TO: "similaire",
+  RELATED_TO: "lié à",
+  MENTIONS: "mentionne",
+  SYNTHESIZES: "synthétise",
+  CONTAINS: "contient",
+  HAS_TYPE: "type",
+  INDIRECT: "indirect",
+};
+
 // Base node sizes by type
 const NODE_SIZES: Record<GraphNodeType | "default", number> = {
   insight: 5,
@@ -862,40 +873,35 @@ export function ProjectGraphVisualization({ projectId, clientId, refreshKey }: P
         ctx.stroke();
       }
 
-      // Label visibility based on zoom level
-      // Level 1 (zoom < 0.4): Only selected/hovered
-      // Level 2 (zoom 0.4-0.8): + hubs and challenges
-      // Level 3 (zoom 0.8-1.5): + insights and syntheses with high degree
-      // Level 4 (zoom > 1.5): All labels
-      const ZOOM_L1 = 0.4;
-      const ZOOM_L2 = 0.8;
-      const ZOOM_L3 = 1.5;
+      // Label visibility: Show labels ONLY for selected node and its direct neighbors
+      // When no node is selected, show labels based on zoom level for hubs/challenges
+      const isSelectedOrNeighbor = selectedNode && (isSelected || isConnected);
+      const isHoveredOrNeighbor = hoveredNode && !selectedNode && (isHovered || isHoverConnected);
 
       let showLabel = false;
       if (isSelected || isHovered) {
         showLabel = true;
-      } else if (selectedNode && isConnected) {
-        showLabel = globalScale > ZOOM_L1;
-      } else if (hoveredNode && !selectedNode && isHoverConnected) {
-        // Show labels for connected nodes on hover (same as selection)
-        showLabel = globalScale > ZOOM_L1;
-      } else if (globalScale >= ZOOM_L3) {
+      } else if (isSelectedOrNeighbor) {
+        // Show label for selected node's direct neighbors
         showLabel = true;
-      } else if (globalScale >= ZOOM_L2) {
-        showLabel = isHub || n.type === "challenge" || n.type === "synthesis" || (n.degree || 0) >= 3;
-      } else if (globalScale >= ZOOM_L1) {
-        showLabel = isHub || n.type === "challenge";
+      } else if (isHoveredOrNeighbor) {
+        // Show label for hovered node's direct neighbors
+        showLabel = true;
+      } else if (!selectedNode && !hoveredNode) {
+        // When nothing is selected/hovered, only show hubs and challenges at high zoom
+        const ZOOM_L2 = 0.8;
+        showLabel = globalScale >= ZOOM_L2 && (isHub || n.type === "challenge");
       }
 
       if (!showLabel || alpha < 0.3) return;
 
-      // Draw label
+      // Draw label - Larger text size for better readability
       const label = n.name;
-      const fontSize = Math.min(5, Math.max(2.5, 4 / globalScale));
-      ctx.font = `${fontSize}px Inter, system-ui, sans-serif`;
+      const fontSize = Math.min(10, Math.max(5, 8 / globalScale));
+      ctx.font = `600 ${fontSize}px Inter, system-ui, sans-serif`;
 
-      // Word wrap
-      const maxWidth = 100 / globalScale;
+      // Word wrap with wider max width
+      const maxWidth = 150 / globalScale;
       const words = label.split(" ");
       const lines: string[] = [];
       let currentLine = "";
@@ -911,11 +917,12 @@ export function ProjectGraphVisualization({ projectId, clientId, refreshKey }: P
       }
       if (currentLine) lines.push(currentLine);
 
-      // Limit lines - show full text when hovered
-      const maxLines = isHovered ? lines.length : 3;
+      // Show full text for selected/hovered node and their direct neighbors
+      const showFullText = isSelected || isHovered || isSelectedOrNeighbor || isHoveredOrNeighbor;
+      const maxLines = showFullText ? lines.length : 2;
       const displayLines = lines.slice(0, maxLines);
-      if (!isHovered && lines.length > 3) {
-        displayLines[2] = displayLines[2].slice(0, -3) + "...";
+      if (!showFullText && lines.length > 2) {
+        displayLines[1] = displayLines[1].slice(0, -3) + "...";
       }
 
       const lineHeight = fontSize * 1.3;
@@ -967,6 +974,60 @@ export function ProjectGraphVisualization({ projectId, clientId, refreshKey }: P
       }
 
       return link.color;
+    },
+    [selectedNode, connectedNodeIds, hoveredNode, hoveredConnectedNodeIds]
+  );
+
+  // Link canvas object for drawing relationship type labels
+  const linkCanvasObject = useCallback(
+    (link: any, ctx: CanvasRenderingContext2D, globalScale: number) => {
+      const sourceId = typeof link.source === "string" ? link.source : link.source.id;
+      const targetId = typeof link.target === "string" ? link.target : link.target.id;
+
+      // Only show link labels when connected to selected or hovered node
+      const isConnectedToSelected = selectedNode && (connectedNodeIds.has(sourceId) && connectedNodeIds.has(targetId));
+      const isConnectedToHovered = hoveredNode && !selectedNode && (hoveredConnectedNodeIds.has(sourceId) && hoveredConnectedNodeIds.has(targetId));
+
+      if (!isConnectedToSelected && !isConnectedToHovered) return;
+
+      // Get source and target positions
+      const source = link.source;
+      const target = link.target;
+      if (typeof source === "string" || typeof target === "string") return;
+
+      // Calculate midpoint for label
+      const midX = (source.x + target.x) / 2;
+      const midY = (source.y + target.y) / 2;
+
+      // Get the relationship type label
+      const relationshipType = link.relationshipType || "default";
+      const labelText = EDGE_LABELS[relationshipType] || relationshipType.toLowerCase().replace(/_/g, " ");
+
+      // Draw label
+      const fontSize = Math.min(8, Math.max(4, 6 / globalScale));
+      ctx.font = `500 ${fontSize}px Inter, system-ui, sans-serif`;
+
+      const padding = fontSize * 0.3;
+      const textWidth = ctx.measureText(labelText).width;
+      const boxWidth = textWidth + padding * 2;
+      const boxHeight = fontSize + padding;
+
+      // Background
+      ctx.fillStyle = "rgba(15, 23, 42, 0.85)";
+      ctx.beginPath();
+      ctx.roundRect(midX - boxWidth / 2, midY - boxHeight / 2, boxWidth, boxHeight, fontSize * 0.2);
+      ctx.fill();
+
+      // Border with link color
+      ctx.strokeStyle = link.color.replace(/[\d.]+\)$/, "0.6)");
+      ctx.lineWidth = 1 / globalScale;
+      ctx.stroke();
+
+      // Text
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillStyle = "rgba(226, 232, 240, 0.9)";
+      ctx.fillText(labelText, midX, midY);
     },
     [selectedNode, connectedNodeIds, hoveredNode, hoveredConnectedNodeIds]
   );
@@ -1323,6 +1384,8 @@ export function ProjectGraphVisualization({ projectId, clientId, refreshKey }: P
                   onZoom={handleZoom}
                   linkColor={linkColor}
                   linkWidth={(link: any) => link.width}
+                  linkCanvasObject={linkCanvasObject}
+                  linkCanvasObjectMode={() => "after"}
                   linkDirectionalParticles={selectedNode ? 0 : 1}
                   linkDirectionalParticleWidth={1.5}
                   linkDirectionalParticleSpeed={0.003}
