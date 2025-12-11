@@ -3424,6 +3424,8 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
           projectId={projectId}
           projectName={boardData.projectName}
           boardData={boardData}
+          isExternalRunning={isAiBuilderRunning}
+          onStartRun={() => setIsAiBuilderRunning(true)}
         />
       ) : null}
 

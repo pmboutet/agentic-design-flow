@@ -31,6 +31,10 @@ interface AiChallengeBuilderModalProps {
   projectId: string;
   projectName: string;
   boardData: ProjectJourneyBoardData | null;
+  /** External running state from parent (board). Used to sync with board's isAiBuilderRunning */
+  isExternalRunning?: boolean;
+  /** Callback when the modal starts a new AI run. Used to sync with board's state */
+  onStartRun?: () => void;
 }
 
 export function AiChallengeBuilderModal({
@@ -39,8 +43,12 @@ export function AiChallengeBuilderModal({
   projectId,
   projectName,
   boardData,
+  isExternalRunning = false,
+  onStartRun,
 }: AiChallengeBuilderModalProps) {
-  const [isRunning, setIsRunning] = useState(false);
+  const [isInternalRunning, setIsInternalRunning] = useState(false);
+  // Combine internal and external running states - if either is true, we're running
+  const isRunning = isInternalRunning || isExternalRunning;
   const [suggestions, setSuggestions] = useState<AiChallengeUpdateSuggestion[]>([]);
   const [newChallenges, setNewChallenges] = useState<AiNewChallengeSuggestion[]>([]);
   const [errors, setErrors] = useState<Array<{ challengeId: string | null; message: string }> | null>(null);
@@ -90,10 +98,10 @@ export function AiChallengeBuilderModal({
           // Stop polling if results are older than 30 seconds or have content
           const shouldStop = secondsSinceRun >= 30 || persisted.suggestions.length > 0 || persisted.newChallenges.length > 0 || persisted.errors;
           if (shouldStop) {
-            setIsRunning(false);
+            setIsInternalRunning(false);
           }
         } else {
-          setIsRunning(false);
+          setIsInternalRunning(false);
         }
         return true;
       }
@@ -132,7 +140,7 @@ export function AiChallengeBuilderModal({
         if (!hasResults) {
           // Check if there's a recent search by looking at the lastRunAt
           // For now, we'll assume if no results, we're not running
-          setIsRunning(false);
+          setIsInternalRunning(false);
         }
       });
     }
@@ -142,7 +150,9 @@ export function AiChallengeBuilderModal({
   const handleRunBuilder = useCallback(async () => {
     if (isRunning) return;
 
-    setIsRunning(true);
+    setIsInternalRunning(true);
+    // Notify parent (board) that we're starting a run
+    onStartRun?.();
     setErrors(null);
     setSuggestions([]);
     setNewChallenges([]);
@@ -154,12 +164,12 @@ export function AiChallengeBuilderModal({
     }).catch((error) => {
       console.error("Failed to start challenge builder:", error);
       setErrors([{ challengeId: null, message: error instanceof Error ? error.message : String(error) }]);
-      setIsRunning(false);
+      setIsInternalRunning(false);
     });
 
     // Start polling for results
     // The polling is handled by the useEffect above
-  }, [projectId, isRunning]);
+  }, [projectId, isRunning, onStartRun]);
 
   // Apply challenge update
   const handleApplyChallengeUpdate = useCallback(
