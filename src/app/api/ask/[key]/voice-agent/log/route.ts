@@ -5,71 +5,19 @@ import { getAgentConfigForAsk, type PromptVariables } from '@/lib/ai/agent-confi
 import { getAskSessionByKey, getOrCreateConversationThread } from '@/lib/asks';
 import { getConversationPlanWithSteps } from '@/lib/ai/conversation-plan';
 import { parseErrorMessage } from '@/lib/utils';
-import { normaliseMessageMetadata } from '@/lib/messages';
 import type { ApiResponse } from '@/types';
 import { buildConversationAgentVariables } from '@/lib/ai/conversation-agent';
-
-interface AskSessionRow {
-  id: string;
-  ask_key: string;
-  question: string;
-  description?: string | null;
-  project_id?: string | null;
-  challenge_id?: string | null;
-  system_prompt?: string | null;
-}
-
-interface ProjectRow {
-  id: string;
-  name?: string | null;
-  system_prompt?: string | null;
-}
-
-interface ChallengeRow {
-  id: string;
-  name?: string | null;
-  system_prompt?: string | null;
-}
-
-interface ParticipantRow {
-  id: string;
-  participant_name?: string | null;
-  participant_email?: string | null;
-  role?: string | null;
-  description?: string | null;
-  user_id?: string | null;
-}
-
-interface UserRow {
-  id: string;
-  email?: string | null;
-  full_name?: string | null;
-  first_name?: string | null;
-  last_name?: string | null;
-}
-
-function buildParticipantDisplayName(participant: ParticipantRow, user: UserRow | null, index: number): string {
-  if (participant.participant_name) {
-    return participant.participant_name;
-  }
-
-  if (user) {
-    if (user.full_name && user.full_name.trim().length > 0) {
-      return user.full_name;
-    }
-
-    const nameParts = [user.first_name, user.last_name].filter(Boolean);
-    if (nameParts.length) {
-      return nameParts.join(' ');
-    }
-
-    if (user.email) {
-      return user.email;
-    }
-  }
-
-  return `Participant ${index + 1}`;
-}
+import {
+  buildParticipantDisplayName,
+  buildDetailedMessage,
+  fetchUsersByIds,
+  type AskSessionRow,
+  type UserRow,
+  type ParticipantRow,
+  type ProjectRow,
+  type ChallengeRow,
+  type MessageRow,
+} from '@/lib/conversation-context';
 
 export async function POST(
   request: NextRequest,
@@ -156,10 +104,10 @@ export async function POST(
       };
     });
 
-    // Fetch messages
+    // Fetch messages (include plan_step_id for step variable support)
     const { data: messageRows, error: messageError } = await supabase
       .from('messages')
-      .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at')
+      .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at, plan_step_id')
       .eq('ask_session_id', askRow.id)
       .order('created_at', { ascending: true });
 
@@ -188,50 +136,10 @@ export async function POST(
       }
     }
 
-    // Format messages (same as agent-config/route.ts)
-    const messages: any[] = (messageRows ?? []).map((row, index) => {
-      const metadata = normaliseMessageMetadata(row.metadata);
+    // Format messages using unified buildDetailedMessage for consistent mapping
+    const messages = (messageRows ?? []).map((row, index) => {
       const user = row.user_id ? usersById[row.user_id] ?? null : null;
-
-      const senderName = (() => {
-        if (metadata && typeof metadata.senderName === 'string' && metadata.senderName.trim().length > 0) {
-          return metadata.senderName;
-        }
-
-        if (row.sender_type === 'ai') {
-          return 'Agent';
-        }
-
-        if (user) {
-          if (user.full_name) {
-            return user.full_name;
-          }
-
-          const nameParts = [user.first_name, user.last_name].filter(Boolean);
-          if (nameParts.length > 0) {
-            return nameParts.join(' ');
-          }
-
-          if (user.email) {
-            return user.email;
-          }
-        }
-
-        return `Participant ${index + 1}`;
-      })();
-
-      return {
-        id: row.id,
-        askKey: askRow.ask_key,
-        askSessionId: row.ask_session_id,
-        content: row.content,
-        type: (row.message_type as any) ?? 'text',
-        senderType: (row.sender_type as any) ?? 'user',
-        senderId: row.user_id ?? null,
-        senderName,
-        timestamp: row.created_at ?? new Date().toISOString(),
-        metadata: metadata,
-      };
+      return buildDetailedMessage(row as MessageRow, user, index, askRow.ask_key);
     });
 
     // Fetch project and challenge data

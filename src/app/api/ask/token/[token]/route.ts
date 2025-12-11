@@ -14,6 +14,7 @@ import {
 import { executeAgent } from "@/lib/ai/service";
 import { buildConversationAgentVariables } from "@/lib/ai/conversation-agent";
 import { normaliseMessageMetadata } from "@/lib/messages";
+import { buildMessageSenderName, type MessageRow, type UserRow } from "@/lib/conversation-context";
 
 type AskSessionRow = {
   ask_session_id: string;
@@ -207,40 +208,14 @@ async function loadTokenDataWithAdmin(token: string): Promise<TokenDataBundle | 
         (messagesResult.data ?? []).map((row, index) => {
           const metadata = row.metadata as Record<string, unknown> | null;
           const user = row.user_id ? usersById[row.user_id] ?? null : null;
-          
-          // Calculate sender name similar to other routes
-          const senderName = (() => {
-            if (metadata && typeof metadata === 'object' && 'senderName' in metadata && typeof metadata.senderName === 'string' && metadata.senderName.trim().length > 0) {
-              return metadata.senderName;
-            }
-            
-            if (row.sender_type === 'ai') {
-              return 'Agent';
-            }
-            
-            if (user) {
-              if (user.full_name) {
-                return user.full_name;
-              }
-              const nameParts = [user.first_name, user.last_name].filter(Boolean);
-              if (nameParts.length > 0) {
-                return nameParts.join(' ');
-              }
-              if (user.email) {
-                return user.email;
-              }
-            }
-            
-            return `Participant ${index + 1}`;
-          })();
-          
+
           return {
             message_id: row.id,
             content: row.content,
             type: (row.message_type as string) || 'text',
             sender_type: row.sender_type,
             sender_id: row.user_id,
-            sender_name: senderName,
+            sender_name: buildMessageSenderName(row as MessageRow, user as UserRow | null, index),
             created_at: row.created_at,
             metadata: metadata ?? null,
           };

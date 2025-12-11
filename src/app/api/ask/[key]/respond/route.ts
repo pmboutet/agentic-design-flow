@@ -11,65 +11,22 @@ import { INSIGHT_TYPES, mapInsightRowToInsight, type InsightRow } from '@/lib/in
 import { fetchInsightRowById, fetchInsightsForSession, fetchInsightTypeMap, fetchInsightTypesForPrompt } from '@/lib/insightQueries';
 import { detectStepCompletion, completeStep, getConversationPlanWithSteps, getActiveStep, getCurrentStep } from '@/lib/ai/conversation-plan';
 import { buildConversationAgentVariables } from '@/lib/ai/conversation-agent';
+import {
+  buildParticipantDisplayName,
+  buildMessageSenderName,
+  buildParticipantSummary,
+  type AskSessionRow,
+  type UserRow,
+  type ParticipantRow,
+  type ProjectRow,
+  type ChallengeRow,
+  type MessageRow,
+} from '@/lib/conversation-context';
 
 const CHAT_AGENT_SLUG = 'ask-conversation-response';
 const INSIGHT_AGENT_SLUG = 'ask-insight-detection';
 const CHAT_INTERACTION_TYPE = 'ask.chat.response';
 const INSIGHT_INTERACTION_TYPE = 'ask.insight.detection';
-
-interface AskSessionRow {
-  id: string;
-  ask_key: string;
-  question: string;
-  description?: string | null;
-  status?: string | null;
-  system_prompt?: string | null;
-  project_id?: string | null;
-  challenge_id?: string | null;
-  expected_duration_minutes?: number | null;
-}
-
-interface ProjectRow {
-  id: string;
-  name?: string | null;
-  system_prompt?: string | null;
-}
-
-interface ChallengeRow {
-  id: string;
-  name?: string | null;
-  system_prompt?: string | null;
-}
-
-interface ParticipantRow {
-  id: string;
-  participant_name?: string | null;
-  participant_email?: string | null;
-  role?: string | null;
-  is_spokesperson?: boolean | null;
-  user_id?: string | null;
-  last_active?: string | null;
-}
-
-interface UserRow {
-  id: string;
-  email?: string | null;
-  full_name?: string | null;
-  first_name?: string | null;
-  last_name?: string | null;
-  description?: string | null;
-}
-
-interface MessageRow {
-  id: string;
-  ask_session_id: string;
-  user_id?: string | null;
-  sender_type?: string | null;
-  content: string;
-  message_type?: string | null;
-  metadata?: Record<string, unknown> | null;
-  created_at?: string | null;
-}
 
 function parseAgentJsonSafely(rawText: string): unknown | null {
   const attempts: string[] = [];
@@ -300,28 +257,7 @@ type NormalisedIncomingInsight = IncomingInsight & {
   authorsProvided: boolean;
 };
 
-function buildParticipantDisplayName(participant: ParticipantRow, user: UserRow | null, index: number): string {
-  if (participant.participant_name) {
-    return participant.participant_name;
-  }
-
-  if (user) {
-    if (user.full_name && user.full_name.trim().length > 0) {
-      return user.full_name;
-    }
-
-    const nameParts = [user.first_name, user.last_name].filter(Boolean);
-    if (nameParts.length) {
-      return nameParts.join(' ');
-    }
-
-    if (user.email) {
-      return user.email;
-    }
-  }
-
-  return `Participant ${index + 1}`;
-}
+// buildParticipantDisplayName imported from @/lib/conversation-context
 
 function normaliseInsightTypeName(value: unknown): string | null {
   if (typeof value !== 'string') {
@@ -1639,33 +1575,6 @@ export async function POST(
       const metadata = normaliseMessageMetadata(row.metadata);
       const user = row.user_id ? usersById[row.user_id] ?? null : null;
 
-      const senderName = (() => {
-        if (metadata && typeof metadata.senderName === 'string' && metadata.senderName.trim().length > 0) {
-          return metadata.senderName;
-        }
-
-        if (row.sender_type === 'ai') {
-          return 'Agent';
-        }
-
-        if (user) {
-          if (user.full_name) {
-            return user.full_name;
-          }
-
-          const nameParts = [user.first_name, user.last_name].filter(Boolean);
-          if (nameParts.length > 0) {
-            return nameParts.join(' ');
-          }
-
-          if (user.email) {
-            return user.email;
-          }
-        }
-
-        return `Participant ${index + 1}`;
-      })();
-
       return {
         id: row.id,
         askKey: askRow.ask_key,
@@ -1675,7 +1584,7 @@ export async function POST(
         type: (row.message_type as Message['type']) ?? 'text',
         senderType: (row.sender_type as Message['senderType']) ?? 'user',
         senderId: row.user_id ?? null,
-        senderName,
+        senderName: buildMessageSenderName(row, user, index),
         timestamp: row.created_at ?? new Date().toISOString(),
         metadata: metadata,
       };

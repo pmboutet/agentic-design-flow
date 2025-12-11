@@ -4,12 +4,22 @@ import { ApiResponse, Ask, AskParticipant, Insight, Message } from '@/types';
 import { isValidAskKey, parseErrorMessage } from '@/lib/utils';
 import { mapInsightRowToInsight } from '@/lib/insights';
 import { fetchInsightsForSession } from '@/lib/insightQueries';
-import { normaliseMessageMetadata } from '@/lib/messages';
 import { getAskSessionByKey, getOrCreateConversationThread, getMessagesForThread, getInsightsForThread, shouldUseSharedThread } from '@/lib/asks';
 import { createServerSupabaseClient } from '@/lib/supabaseServer';
 import { executeAgent } from '@/lib/ai/service';
 import { buildConversationAgentVariables } from '@/lib/ai/conversation-agent';
 import { getConversationPlanWithSteps, getActiveStep, type ConversationPlan } from '@/lib/ai/conversation-plan';
+import {
+  buildParticipantDisplayName,
+  buildMessageSenderName,
+  buildParticipantSummary,
+  type UserRow,
+  type ParticipantRow,
+  type ProjectRow,
+  type ChallengeRow,
+  type MessageRow,
+} from '@/lib/conversation-context';
+import { normaliseMessageMetadata } from '@/lib/messages';
 
 interface AskSessionRow {
   id: string;
@@ -28,70 +38,6 @@ interface AskSessionRow {
   updated_at?: string | null;
   project_id?: string | null;
   challenge_id?: string | null;
-}
-
-interface ProjectRow {
-  id: string;
-  name?: string | null;
-  system_prompt?: string | null;
-}
-
-interface ChallengeRow {
-  id: string;
-  name?: string | null;
-  system_prompt?: string | null;
-}
-
-interface ParticipantRow {
-  id: string;
-  participant_name?: string | null;
-  participant_email?: string | null;
-  role?: string | null;
-  is_spokesperson?: boolean | null;
-  user_id?: string | null;
-  last_active?: string | null;
-}
-
-interface UserRow {
-  id: string;
-  email?: string | null;
-  full_name?: string | null;
-  first_name?: string | null;
-  last_name?: string | null;
-}
-
-interface MessageRow {
-  id: string;
-  ask_session_id: string;
-  user_id?: string | null;
-  sender_type?: string | null;
-  content: string;
-  message_type?: string | null;
-  metadata?: Record<string, unknown> | null;
-  created_at?: string | null;
-}
-
-function buildParticipantDisplayName(participant: ParticipantRow, user: UserRow | null, index: number): string {
-  if (participant.participant_name) {
-    return participant.participant_name;
-  }
-
-  if (user) {
-    if (user.full_name && user.full_name.trim().length > 0) {
-      return user.full_name;
-    }
-
-    const nameParts = [user.first_name, user.last_name].filter(Boolean);
-    if (nameParts.length) {
-      return nameParts.join(' ');
-    }
-
-    if (user.email) {
-      return user.email;
-    }
-  }
-
-  return `Participant ${index + 1}`;
 }
 
 function isPermissionDenied(error: unknown): boolean {
@@ -503,36 +449,10 @@ export async function GET(
       });
     }
 
+    // Use unified buildMessageSenderName for consistent sender name logic across all modes
     const messages: Message[] = (messageRows ?? []).map((row, index) => {
       const metadata = normaliseMessageMetadata(row.metadata);
       const user = row.user_id ? usersById[row.user_id] ?? null : null;
-
-      const senderName = (() => {
-        if (metadata && typeof metadata.senderName === 'string' && metadata.senderName.trim().length > 0) {
-          return metadata.senderName;
-        }
-
-        if (row.sender_type === 'ai') {
-          return 'Agent';
-        }
-
-        if (user) {
-          if (user.full_name) {
-            return user.full_name;
-          }
-
-          const nameParts = [user.first_name, user.last_name].filter(Boolean);
-          if (nameParts.length > 0) {
-            return nameParts.join(' ');
-          }
-
-          if (user.email) {
-            return user.email;
-          }
-        }
-
-        return `Participant ${index + 1}`;
-      })();
 
       return {
         id: row.id,
@@ -543,7 +463,7 @@ export async function GET(
         type: (row.message_type as Message['type']) ?? 'text',
         senderType: (row.sender_type as Message['senderType']) ?? 'user',
         senderId: row.user_id ?? null,
-        senderName,
+        senderName: buildMessageSenderName(row as MessageRow, user, index),
         timestamp: row.created_at ?? new Date().toISOString(),
         metadata: metadata,
       };
