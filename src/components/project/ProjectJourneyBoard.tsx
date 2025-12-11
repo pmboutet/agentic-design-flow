@@ -504,6 +504,7 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
   const [isAiBuilderRunning, setIsAiBuilderRunning] = useState(false);
   const [isAiPanelOpen, setIsAiPanelOpen] = useState(false);
   const [aiBuilderLastRunAt, setAiBuilderLastRunAt] = useState<string | null>(null);
+  const [aiBuilderStartTime, setAiBuilderStartTime] = useState<Date | null>(null);
   const [hasAiBuilderResults, setHasAiBuilderResults] = useState(false);
   const [applyingChallengeUpdateIds, setApplyingChallengeUpdateIds] = useState<Set<string>>(() => new Set());
   const [applyingSubChallengeUpdateIds, setApplyingSubChallengeUpdateIds] = useState<Set<string>>(() => new Set());
@@ -529,8 +530,16 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
     return process.env.NODE_ENV === "production" && !isDevFlag;
   }, []);
 
+  // Type for AI builder results data
+  type AiBuilderResultsData = {
+    suggestions: AiChallengeUpdateSuggestion[];
+    newChallenges: AiNewChallengeSuggestion[];
+    errors: Array<{ challengeId: string | null; message: string }> | null;
+    lastRunAt: string;
+  };
+
   // Load AI builder results from the API
-  const loadAiBuilderResults = useCallback(async () => {
+  const loadAiBuilderResults = useCallback(async (): Promise<AiBuilderResultsData | null> => {
     try {
       const response = await fetch(`/api/admin/projects/${projectId}/ai/challenge-builder/results`, {
         cache: "no-store",
@@ -539,23 +548,18 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
       const payload = await response.json();
 
       if (response.ok && payload.success && payload.data) {
-        const data = payload.data as {
-          suggestions: AiChallengeUpdateSuggestion[];
-          newChallenges: AiNewChallengeSuggestion[];
-          errors: Array<{ challengeId: string | null; message: string }> | null;
-          lastRunAt: string;
-        };
+        const data = payload.data as AiBuilderResultsData;
         setAiSuggestions(data.suggestions || []);
         setAiNewChallenges(data.newChallenges || []);
         setAiBuilderErrors(data.errors);
         setAiBuilderLastRunAt(data.lastRunAt);
         setHasAiBuilderResults(true);
-        return true;
+        return data;
       }
-      return false;
+      return null;
     } catch (error) {
       console.error("Failed to load AI builder results:", error);
-      return false;
+      return null;
     }
   }, [projectId]);
 
@@ -572,21 +576,42 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
 
   // Poll for AI results when builder is running
   useEffect(() => {
-    if (!isAiBuilderRunning) return;
+    if (!isAiBuilderRunning || !aiBuilderStartTime) return;
 
     const pollInterval = setInterval(async () => {
-      const hasResults = await loadAiBuilderResults();
-      if (hasResults && aiSuggestions.length > 0) {
-        setIsAiBuilderRunning(false);
-        setAiBuilderFeedback({
-          type: "success",
-          message: "Analyse IA terminée. Cliquez sur l'onglet AI Suggestions pour voir les résultats.",
-        });
+      const data = await loadAiBuilderResults();
+      if (data) {
+        // Check if results are from the current run (lastRunAt >= startTime)
+        const lastRunDate = new Date(data.lastRunAt);
+        if (lastRunDate >= aiBuilderStartTime) {
+          setIsAiBuilderRunning(false);
+          setAiBuilderStartTime(null);
+
+          const hasResults = data.suggestions.length > 0 || data.newChallenges.length > 0;
+          const hasErrors = data.errors && data.errors.length > 0;
+
+          if (hasResults) {
+            setAiBuilderFeedback({
+              type: "success",
+              message: "Analyse IA terminée. Cliquez sur l'onglet AI Suggestions pour voir les résultats.",
+            });
+          } else if (hasErrors) {
+            setAiBuilderFeedback({
+              type: "error",
+              message: "L'analyse IA a rencontré des erreurs. Vérifiez les détails.",
+            });
+          } else {
+            setAiBuilderFeedback({
+              type: "success",
+              message: "Analyse IA terminée. Tous les challenges sont à jour.",
+            });
+          }
+        }
       }
     }, 3000);
 
     return () => clearInterval(pollInterval);
-  }, [isAiBuilderRunning, loadAiBuilderResults, aiSuggestions.length]);
+  }, [isAiBuilderRunning, aiBuilderStartTime, loadAiBuilderResults]);
 
   const pruneAiSuggestionNodes = (suggestion: AiChallengeUpdateSuggestion): AiChallengeUpdateSuggestion | null => {
     const hasChallengeUpdates = Boolean(
@@ -959,6 +984,7 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
 
     // Start the builder in background (don't open modal)
     setIsAiBuilderRunning(true);
+    setAiBuilderStartTime(new Date());
     setAiBuilderFeedback({
       type: "success",
       message: "Génération IA lancée. Vous pouvez continuer à naviguer.",
@@ -972,6 +998,7 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
     }).catch((error) => {
       console.error("Failed to start challenge builder:", error);
       setIsAiBuilderRunning(false);
+      setAiBuilderStartTime(null);
       setAiBuilderFeedback({
         type: "error",
         message: error instanceof Error ? error.message : "Erreur inattendue lors du lancement de l'analyse IA.",
@@ -3778,7 +3805,11 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
                       disabled={isAiBuilderRunning}
                       title="Relancer l'analyse IA"
                     >
-                      <RefreshCw className="h-4 w-4" />
+                      {isAiBuilderRunning ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <RefreshCw className="h-4 w-4" />
+                      )}
                       <span className="sr-only">Refresh</span>
                     </Button>
                   </div>
