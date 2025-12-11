@@ -139,3 +139,137 @@ export async function listAgentLogs(
 
   return (data ?? []).map(mapLogRow);
 }
+
+// ============================================================================
+// Streaming Debug Logs
+// ============================================================================
+
+export interface StreamingChunk {
+  index: number;
+  content: string;
+  contentLength: number;
+  timestamp: number;
+  timeSinceStart: number;
+  timeSincePrevious: number;
+  raw?: Record<string, unknown>;
+}
+
+export interface StreamingStats {
+  totalChunks: number;
+  totalContentLength: number;
+  totalDurationMs: number;
+  averageChunkSize: number;
+  averageTimeBetweenChunks: number;
+  firstChunkLatencyMs: number;
+  maxTimeBetweenChunks: number;
+  minTimeBetweenChunks: number;
+}
+
+export interface StreamingDebugLog {
+  logId: string;
+  startTime: number;
+  chunks: StreamingChunk[];
+  stats: StreamingStats | null;
+  error?: string;
+}
+
+/**
+ * Creates a streaming debug logger to track chunk-by-chunk streaming data.
+ * Use this for debugging streaming issues.
+ */
+export function createStreamingDebugLogger(logId: string): {
+  logChunk: (content: string, raw?: Record<string, unknown>) => void;
+  logError: (error: string) => void;
+  finalize: () => StreamingDebugLog;
+  getStats: () => StreamingStats | null;
+} {
+  const startTime = Date.now();
+  const chunks: StreamingChunk[] = [];
+  let errorMessage: string | undefined;
+
+  return {
+    logChunk(content: string, raw?: Record<string, unknown>) {
+      const now = Date.now();
+      const timeSinceStart = now - startTime;
+      const timeSincePrevious = chunks.length > 0
+        ? now - chunks[chunks.length - 1].timestamp
+        : timeSinceStart;
+
+      chunks.push({
+        index: chunks.length,
+        content,
+        contentLength: content.length,
+        timestamp: now,
+        timeSinceStart,
+        timeSincePrevious,
+        raw,
+      });
+    },
+
+    logError(error: string) {
+      errorMessage = error;
+    },
+
+    getStats(): StreamingStats | null {
+      if (chunks.length === 0) return null;
+
+      const totalContentLength = chunks.reduce((sum, c) => sum + c.contentLength, 0);
+      const totalDurationMs = chunks.length > 0
+        ? chunks[chunks.length - 1].timeSinceStart
+        : 0;
+      const timeBetweenChunks = chunks.slice(1).map(c => c.timeSincePrevious);
+
+      return {
+        totalChunks: chunks.length,
+        totalContentLength,
+        totalDurationMs,
+        averageChunkSize: totalContentLength / chunks.length,
+        averageTimeBetweenChunks: timeBetweenChunks.length > 0
+          ? timeBetweenChunks.reduce((a, b) => a + b, 0) / timeBetweenChunks.length
+          : 0,
+        firstChunkLatencyMs: chunks.length > 0 ? chunks[0].timeSinceStart : 0,
+        maxTimeBetweenChunks: timeBetweenChunks.length > 0
+          ? Math.max(...timeBetweenChunks)
+          : 0,
+        minTimeBetweenChunks: timeBetweenChunks.length > 0
+          ? Math.min(...timeBetweenChunks)
+          : 0,
+      };
+    },
+
+    finalize(): StreamingDebugLog {
+      return {
+        logId,
+        startTime,
+        chunks,
+        stats: this.getStats(),
+        error: errorMessage,
+      };
+    },
+  };
+}
+
+/**
+ * Builds the response payload with streaming debug information for completeAgentLog.
+ */
+export function buildStreamingResponsePayload(
+  fullContent: string,
+  debugLog: StreamingDebugLog
+): Record<string, unknown> {
+  return {
+    content: fullContent,
+    streaming: true,
+    streamingDebug: {
+      stats: debugLog.stats,
+      chunks: debugLog.chunks.map(c => ({
+        index: c.index,
+        contentLength: c.contentLength,
+        timeSinceStart: c.timeSinceStart,
+        timeSincePrevious: c.timeSincePrevious,
+        // Include first 100 chars of content for debugging
+        contentPreview: c.content.slice(0, 100) + (c.content.length > 100 ? '...' : ''),
+      })),
+      error: debugLog.error,
+    },
+  };
+}

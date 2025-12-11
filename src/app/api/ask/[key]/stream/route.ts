@@ -4,7 +4,7 @@ import { isValidAskKey, parseErrorMessage } from '@/lib/utils';
 import { getAskSessionByKey, getOrCreateConversationThread, getMessagesForThread } from '@/lib/asks';
 import { normaliseMessageMetadata } from '@/lib/messages';
 import { callModelProviderStream } from '@/lib/ai/providers';
-import { createAgentLog, markAgentLogProcessing, completeAgentLog, failAgentLog } from '@/lib/ai/logs';
+import { createAgentLog, markAgentLogProcessing, completeAgentLog, failAgentLog, createStreamingDebugLogger, buildStreamingResponsePayload } from '@/lib/ai/logs';
 import { DEFAULT_MAX_OUTPUT_TOKENS } from '@/lib/ai/constants';
 import { getAgentConfigForAsk, DEFAULT_CHAT_AGENT_SLUG, type AgentConfigResult } from '@/lib/ai/agent-config';
 import type { AiAgentLog, Insight } from '@/types';
@@ -495,6 +495,8 @@ export async function POST(
 
     // Create streaming response
     const encoder = new TextEncoder();
+    const streamingDebugLogger = log ? createStreamingDebugLogger(log.id) : null;
+
     const stream = new ReadableStream({
       async start(controller) {
         try {
@@ -509,7 +511,7 @@ export async function POST(
               console.error('Unable to mark agent log processing:', error);
             }
           }
-          
+
           try {
             for await (const chunk of callModelProviderStream(
               agentConfig.modelConfig,
@@ -521,7 +523,12 @@ export async function POST(
             )) {
             if (chunk.content) {
               fullContent += chunk.content;
-              
+
+              // Log chunk for debugging
+              if (streamingDebugLogger) {
+                streamingDebugLogger.logChunk(chunk.content, chunk.raw);
+              }
+
               // Send chunk to client
               const data = JSON.stringify({
                 type: 'chunk',
@@ -720,11 +727,16 @@ export async function POST(
               // Send completion signal
               controller.enqueue(encoder.encode(`data: {"type": "done"}\n\n`));
               
-              // Complete the log
+              // Complete the log with streaming debug info
               if (log) {
                 try {
+                  const debugLog = streamingDebugLogger?.finalize();
+                  const responsePayload = debugLog
+                    ? buildStreamingResponsePayload(fullContent, debugLog)
+                    : { content: fullContent, streaming: true };
+
                   await completeAgentLog(dataClient, log.id, {
-                    responsePayload: { content: fullContent, streaming: true },
+                    responsePayload,
                     latencyMs: Date.now() - startTime,
                   });
                 } catch (error) {
@@ -737,7 +749,12 @@ export async function POST(
           }
           } catch (streamError) {
             console.error('Error in model provider stream:', streamError);
-            
+
+            // Log the error in debug logger
+            if (streamingDebugLogger) {
+              streamingDebugLogger.logError(parseErrorMessage(streamError));
+            }
+
             // Fail the log
             if (log) {
               try {
@@ -757,7 +774,12 @@ export async function POST(
           }
         } catch (error) {
           console.error('Streaming error:', error);
-          
+
+          // Log the error in debug logger
+          if (streamingDebugLogger) {
+            streamingDebugLogger.logError(parseErrorMessage(error));
+          }
+
           // Fail the log
           if (log) {
             try {
