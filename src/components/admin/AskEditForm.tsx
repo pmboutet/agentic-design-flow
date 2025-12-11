@@ -323,11 +323,13 @@ export function AskEditForm({ asks, availableUsers, onSubmit, isLoading }: AskEd
             <option value="individual_parallel">Réponses individuelles en parallèle</option>
             <option value="collaborative">Conversation multi-voix</option>
             <option value="group_reporter">Groupe avec rapporteur</option>
+            <option value="consultant">Consultant (écoute passive)</option>
           </select>
           <p className="text-xs text-muted-foreground">
             {selectedConversationMode === "individual_parallel" && "Chacun répond séparément, sans voir les autres"}
             {selectedConversationMode === "collaborative" && "Tout le monde voit et peut rebondir sur les messages des autres"}
             {selectedConversationMode === "group_reporter" && "Tout le monde voit tout, un rapporteur consolide"}
+            {selectedConversationMode === "consultant" && "L'IA écoute et suggère des questions au consultant, sans TTS"}
           </p>
         </div>
       </div>
