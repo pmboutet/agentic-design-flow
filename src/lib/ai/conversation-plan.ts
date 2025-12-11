@@ -553,41 +553,6 @@ export async function generateStepSummary(
 }
 
 /**
- * LEGACY: Simple message summarization by time range
- * @deprecated Use generateStepSummary instead which uses plan_step_id
- */
-export async function summarizeStepMessages(
-  supabase: SupabaseClient,
-  conversationThreadId: string,
-  stepStartTime: string,
-  stepEndTime: string
-): Promise<string> {
-  // Fetch messages in the time range
-  const { data: messages, error } = await supabase
-    .from('messages')
-    .select('id, sender_type, content, created_at')
-    .eq('conversation_thread_id', conversationThreadId)
-    .gte('created_at', stepStartTime)
-    .lte('created_at', stepEndTime)
-    .order('created_at', { ascending: true });
-
-  if (error) {
-    console.error('Failed to fetch messages for summary:', error);
-    return 'Failed to generate summary';
-  }
-
-  if (!messages || messages.length === 0) {
-    return 'No messages exchanged during this step';
-  }
-
-  // Simple summary: count messages
-  const userMessages = messages.filter((m) => m.sender_type === 'user');
-  const aiMessages = messages.filter((m) => m.sender_type === 'ai');
-
-  return `${messages.length} messages exchanged (${userMessages.length} from participants, ${aiMessages.length} from AI).`;
-}
-
-/**
  * Get the current active step from a plan (LEGACY - uses plan_data)
  * @deprecated Use getActiveStep for new code
  */
