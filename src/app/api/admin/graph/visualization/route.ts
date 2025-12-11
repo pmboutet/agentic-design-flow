@@ -151,10 +151,10 @@ export async function GET(request: NextRequest) {
   const limit = Math.min(parseInt(searchParams.get("limit") || "200", 10), 500);
 
   try {
-    // Build the base query for insights
+    // Build the base query for insights (using insight_type_id with join to insight_types)
     let insightQuery = supabase
       .from("insights")
-      .select("id, summary, content, created_at, ask_session_id, challenge_id, type")
+      .select("id, summary, content, created_at, ask_session_id, challenge_id, insight_type_id, insight_types(name)")
       .order("created_at", { ascending: false })
       .limit(limit);
 
@@ -250,8 +250,13 @@ export async function GET(request: NextRequest) {
     const hasTypeEdges: GraphEdge[] = [];
 
     for (const insight of insights ?? []) {
-      // Determine the insight type (default to 'idea' if not set)
-      const insightType = (insight.type as string)?.toLowerCase() || "idea";
+      // Determine the insight type from the joined insight_types table (default to 'idea' if not set)
+      // Supabase returns the joined data as an object for single relations (insight_type_id -> insight_types)
+      const insightTypesData = insight.insight_types as unknown as { name: string } | { name: string }[] | null;
+      const typeName = Array.isArray(insightTypesData)
+        ? insightTypesData[0]?.name
+        : insightTypesData?.name;
+      const insightType = typeName?.toLowerCase() || "idea";
       const validTypes = ["pain", "gain", "opportunity", "risk", "signal", "idea"];
       const resolvedType = validTypes.includes(insightType) ? insightType : "idea";
 
