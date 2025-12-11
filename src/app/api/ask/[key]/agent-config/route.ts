@@ -223,9 +223,9 @@ export async function GET(
         .in('id', additionalUserIds);
 
       if (extraUsersError) {
-        // If token-based access, RLS might block profile access - this is OK, sender_name is already in RPC response
+        // If token-based access, RLS might block profile access - buildMessageSummary will use fallback names
         if (token) {
-          console.warn('Could not fetch additional user profiles (RLS restriction with token), using sender_name from RPC:', extraUsersError.message);
+          console.warn('Could not fetch additional user profiles (RLS restriction with token), will use fallback names:', extraUsersError.message);
         } else {
           console.error('Error fetching additional users:', extraUsersError);
         }
