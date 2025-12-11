@@ -19,7 +19,7 @@
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, MicOff, Volume2, VolumeX, Pencil, Check, Settings } from 'lucide-react';
+import { X, MicOff, Volume2, VolumeX, Pencil, Check, Settings, Type } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { DeepgramVoiceAgent, DeepgramMessageEvent } from '@/lib/ai/deepgram';
@@ -174,6 +174,8 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
   const [availableMicrophones, setAvailableMicrophones] = useState<MediaDeviceInfo[]>([]);
   // Affichage du panneau de paramètres du microphone
   const [showMicrophoneSettings, setShowMicrophoneSettings] = useState<boolean>(false);
+  // Mode texte uniquement (désactive TTS, l'agent répond en texte seulement)
+  const [textOnlyMode, setTextOnlyMode] = useState<boolean>(false);
 
   // ===== RÉFÉRENCES POUR LA GESTION DES RESSOURCES =====
   // Référence à l'agent vocal actuel (peut être Deepgram, Hybrid ou Speechmatics)
@@ -1010,7 +1012,7 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
           llmModel: modelConfig?.speechmaticsLlmModel,
           elevenLabsVoiceId: modelConfig?.elevenLabsVoiceId,
           elevenLabsModelId: modelConfig?.elevenLabsModelId || "eleven_turbo_v2_5",
-          disableElevenLabsTTS: modelConfig?.disableElevenLabsTTS || false,
+          disableElevenLabsTTS: textOnlyMode || modelConfig?.disableElevenLabsTTS || false,
           microphoneSensitivity, // Sensibilité du microphone (1.5 par défaut)
           microphoneDeviceId: selectedMicrophoneId || undefined,
           voiceIsolation: voiceIsolationEnabled,
@@ -2095,6 +2097,40 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
                       />
                     </button>
                   </div>
+
+                  {/* Text-only mode toggle (dictation mode) */}
+                  <div className="flex items-center justify-between pt-2 border-t border-white/10">
+                    <div className="flex items-center gap-2">
+                      <Type className="h-4 w-4 text-white/70" />
+                      <label className="text-white/70 text-xs">Réponses écrites</label>
+                    </div>
+                    <button
+                      onClick={() => {
+                        const newValue = !textOnlyMode;
+                        setTextOnlyMode(newValue);
+                        // Update the agent in real-time if connected
+                        if (agentRef.current instanceof SpeechmaticsVoiceAgent) {
+                          agentRef.current.setTextOnlyMode(newValue);
+                        }
+                      }}
+                      className={cn(
+                        "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
+                        textOnlyMode ? "bg-blue-500/50" : "bg-white/10"
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          "inline-block h-4 w-4 transform rounded-full bg-white transition-transform",
+                          textOnlyMode ? "translate-x-6" : "translate-x-1"
+                        )}
+                      />
+                    </button>
+                  </div>
+                  {textOnlyMode && (
+                    <p className="text-white/50 text-xs mt-1">
+                      Mode dictée activé : vous parlez, l'agent répond en texte
+                    </p>
+                  )}
                 </div>
               </div>
             )}
