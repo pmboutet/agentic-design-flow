@@ -2110,34 +2110,38 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
                     </button>
                   </div>
 
-                  {/* Voice response toggle (dictation mode) */}
-                  <div className="flex items-center justify-between">
-                    <label className="text-white/70 text-xs">Réponse vocale</label>
-                    <button
-                      onClick={() => {
-                        const newValue = !voiceResponseEnabled;
-                        setVoiceResponseEnabled(newValue);
-                        savePreferences();
-                        // Update agent in real-time if connected
-                        if (isConnected && agentRef.current instanceof SpeechmaticsVoiceAgent) {
-                          agentRef.current.setVoiceResponseEnabled(newValue);
-                        }
-                      }}
-                      className={cn(
-                        "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
-                        voiceResponseEnabled ? "bg-white/30" : "bg-white/10"
+                  {/* Voice response toggle (dictation mode) - only show if TTS is enabled */}
+                  {isSpeechmaticsAgent && !modelConfig?.disableElevenLabsTTS && (
+                    <>
+                      <div className="flex items-center justify-between">
+                        <label className="text-white/70 text-xs">Réponse vocale</label>
+                        <button
+                          onClick={() => {
+                            const newValue = !voiceResponseEnabled;
+                            setVoiceResponseEnabled(newValue);
+                            savePreferences();
+                            // Update agent in real-time if connected
+                            if (isConnected && agentRef.current instanceof SpeechmaticsVoiceAgent) {
+                              agentRef.current.setVoiceResponseEnabled(newValue);
+                            }
+                          }}
+                          className={cn(
+                            "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
+                            voiceResponseEnabled ? "bg-white/30" : "bg-white/10"
+                          )}
+                        >
+                          <span
+                            className={cn(
+                              "inline-block h-4 w-4 transform rounded-full bg-white transition-transform",
+                              voiceResponseEnabled ? "translate-x-6" : "translate-x-1"
+                            )}
+                          />
+                        </button>
+                      </div>
+                      {!voiceResponseEnabled && (
+                        <p className="text-white/50 text-xs italic">Mode dictée : réponses à l&apos;écrit uniquement</p>
                       )}
-                    >
-                      <span
-                        className={cn(
-                          "inline-block h-4 w-4 transform rounded-full bg-white transition-transform",
-                          voiceResponseEnabled ? "translate-x-6" : "translate-x-1"
-                        )}
-                      />
-                    </button>
-                  </div>
-                  {!voiceResponseEnabled && (
-                    <p className="text-white/50 text-xs italic">Mode dictée : réponses à l&apos;écrit uniquement</p>
+                    </>
                   )}
                 </div>
               </div>
