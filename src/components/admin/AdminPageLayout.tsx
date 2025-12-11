@@ -52,6 +52,11 @@ const navigationItems: AdminNavItem[] = [
     icon: LayoutDashboard,
   },
   {
+    label: "Clients",
+    href: "/admin/clients",
+    icon: Building2,
+  },
+  {
     label: "Projects",
     href: "/admin/projects",
     icon: FolderKanban,
