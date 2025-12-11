@@ -14,6 +14,11 @@ export interface SpeechmaticsConfig {
   sttEnablePartials?: boolean; // Enable partial transcription results
   sttEndOfUtteranceSilenceTrigger?: number; // Seconds of silence (0-2) before EndOfUtterance is emitted
   lowLatencyMode?: boolean; // Enable low latency mode (default: true) - uses max_delay: 1.0 and operating_point: "standard"
+  // Speechmatics diarization config (speaker identification)
+  sttDiarization?: "none" | "speaker" | "channel" | "channel_and_speaker"; // Diarization mode (default: "speaker")
+  sttSpeakerSensitivity?: number; // 0.0-1.0, higher = more unique speakers detected (default: 0.5)
+  sttPreferCurrentSpeaker?: boolean; // Reduce false speaker switches (default: true)
+  sttMaxSpeakers?: number; // Max speakers to detect (>=2, null = unlimited)
   // Microphone sensitivity config
   microphoneSensitivity?: number; // VAD threshold multiplier (0.5 = more sensitive, 2.0 = less sensitive, default: 1.0)
   microphoneDeviceId?: string; // Device ID for specific microphone selection
@@ -41,6 +46,7 @@ export interface SpeechmaticsMessageEvent {
   timestamp: string;
   isInterim?: boolean;
   messageId?: string; // Unique ID for streaming message updates
+  speaker?: string; // Speaker identifier from diarization (e.g., "S1", "S2", "UU" for unknown)
 }
 
 export type SpeechmaticsMessageCallback = (message: SpeechmaticsMessageEvent) => void;

@@ -256,6 +256,11 @@ export interface AiModelConfig {
   speechmaticsLlmProvider?: "anthropic" | "openai"; // LLM provider for Speechmatics Agent
   speechmaticsLlmModel?: string; // LLM model name (e.g., "claude-3-5-haiku-latest", "gpt-4o")
   speechmaticsApiKeyEnvVar?: string; // Environment variable name for Speechmatics API key
+  // Speechmatics diarization configuration
+  speechmaticsDiarization?: "none" | "speaker" | "channel" | "channel_and_speaker"; // Diarization mode (default: "speaker")
+  speechmaticsSpeakerSensitivity?: number; // 0.0-1.0, higher = more speakers detected (default: 0.5)
+  speechmaticsPreferCurrentSpeaker?: boolean; // Reduce false speaker switches (default: true)
+  speechmaticsMaxSpeakers?: number; // Max speakers to detect (>=2, null = unlimited)
   // ElevenLabs-specific fields for hybrid voice agent
   elevenLabsVoiceId?: string; // ElevenLabs voice ID
   elevenLabsModelId?: string; // ElevenLabs TTS model ID (e.g., "eleven_turbo_v2_5")

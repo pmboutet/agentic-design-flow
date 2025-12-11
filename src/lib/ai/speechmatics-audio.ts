@@ -52,6 +52,10 @@ export class SpeechmaticsAudio {
   // Start-of-turn detection (AI-powered validation)
   private startOfTurnDetector: StartOfTurnDetector | null = null;
   private conversationHistory: StartOfTurnMessage[] = []; // Track conversation for context
+
+  // Speaker identification from diarization (for echo detection)
+  private primaryUserSpeaker: string | undefined = undefined; // Established user speaker ID (S1, S2, etc.)
+  private lastSeenSpeaker: string | undefined = undefined; // Most recent speaker from transcription
   
   // VAD state for continuous voice activity tracking
   private recentVoiceActivity: boolean[] = []; // Sliding window of recent VAD results
@@ -306,6 +310,10 @@ export class SpeechmaticsAudio {
       this.clearAssistantSpeechTimer = null;
     }
     this.currentAssistantSpeech = '';
+
+    // Reset speaker tracking (will be re-established on next session)
+    this.primaryUserSpeaker = undefined;
+    this.lastSeenSpeaker = undefined;
 
     console.log('[Speechmatics] ✅ Flags set: isMicrophoneActive=false, isMuted=false');
 
@@ -899,9 +907,32 @@ export class SpeechmaticsAudio {
    * Called by parent agent when partial transcript is received
    * @param transcript The partial transcript content
    * @param recentContext Recent conversation content (deprecated - using conversationHistory now)
+   * @param speaker Optional speaker identifier from diarization (S1, S2, UU)
    * @returns true if barge-in should be confirmed, false otherwise
    */
-  async validateBargeInWithTranscript(transcript: string, recentContext?: string): Promise<boolean> {
+  async validateBargeInWithTranscript(transcript: string, recentContext?: string, speaker?: string): Promise<boolean> {
+    // Track speaker for echo detection
+    if (speaker) {
+      this.lastSeenSpeaker = speaker;
+
+      // Establish primary user speaker if not set (first speaker we see when not playing audio)
+      if (!this.primaryUserSpeaker && !this.isPlayingAudio && speaker !== 'UU') {
+        this.primaryUserSpeaker = speaker;
+        const timestamp = new Date().toISOString().split('T')[1].replace('Z', '');
+        console.log(`[${timestamp}] [Speechmatics Audio] 🎯 Established primary user speaker: ${speaker}`);
+      }
+
+      // Speaker-based echo detection: If we're playing audio and see a DIFFERENT speaker,
+      // or if we see 'UU' (unknown), it's more likely to be echo
+      if (this.isPlayingAudio && this.primaryUserSpeaker) {
+        // If the speaker is different from the established user, it's suspicious
+        if (speaker !== this.primaryUserSpeaker) {
+          const timestamp = new Date().toISOString().split('T')[1].replace('Z', '');
+          console.log(`[${timestamp}] [Speechmatics Audio] ⚠️ Speaker mismatch during playback: ${speaker} (expected ${this.primaryUserSpeaker}) - suspicious of echo`);
+          // Don't immediately reject, but use this info in echo detection below
+        }
+      }
+    }
     if (!this.bargeInPendingValidation) {
       return false;
     }
@@ -924,7 +955,14 @@ export class SpeechmaticsAudio {
     // Short transcripts that match the beginning of assistant speech are almost certainly echo
     // This is a fast local check before calling the AI validation API
     if (this.currentAssistantSpeech && this.currentAssistantSpeech.trim()) {
-      const echoCheckResult = this.detectLocalEcho(cleanedTranscript, this.currentAssistantSpeech);
+      // DIARIZATION-ENHANCED ECHO DETECTION:
+      // If speaker changes during TTS playback (especially to UU or different speaker),
+      // lower the echo detection threshold since it's more likely to be echo
+      const isSpeakerMismatch = speaker && this.primaryUserSpeaker && speaker !== this.primaryUserSpeaker;
+      const isUnknownSpeaker = speaker === 'UU';
+      const suspiciousSpeaker = isSpeakerMismatch || isUnknownSpeaker;
+
+      const echoCheckResult = this.detectLocalEcho(cleanedTranscript, this.currentAssistantSpeech, suspiciousSpeaker);
       if (echoCheckResult.isEcho) {
         const timestamp = new Date().toISOString().split('T')[1].replace('Z', '');
         console.log(`[${timestamp}] [Speechmatics Audio] 🔁 Local echo detected - ignoring barge-in and discarding transcript`, {
@@ -932,6 +970,9 @@ export class SpeechmaticsAudio {
           matchType: echoCheckResult.matchType,
           transcriptPreview: cleanedTranscript.substring(0, 50),
           assistantPreview: this.currentAssistantSpeech.substring(0, 50),
+          speaker: speaker || 'unknown',
+          primaryUserSpeaker: this.primaryUserSpeaker || 'not established',
+          speakerMismatch: isSpeakerMismatch,
         });
         this.cancelBargeInValidation();
         // CRITICAL: Notify parent to discard the pending transcript (it's echo, not user speech)
@@ -1005,12 +1046,13 @@ export class SpeechmaticsAudio {
    * Uses fuzzy matching to detect partial containment
    * @param transcript The user transcript to check
    * @param assistantSpeech The assistant's current speech
+   * @param suspiciousSpeaker If true, use lower thresholds (speaker mismatch detected via diarization)
    * @returns Object with isEcho flag, similarity score, and match type
    */
-  private detectLocalEcho(transcript: string, assistantSpeech: string): {
+  private detectLocalEcho(transcript: string, assistantSpeech: string, suspiciousSpeaker: boolean = false): {
     isEcho: boolean;
     similarity: number;
-    matchType: 'contained' | 'fuzzy-words' | 'none';
+    matchType: 'contained' | 'fuzzy-words' | 'speaker-mismatch' | 'none';
   } {
     const normalizedTranscript = this.normalizeForEchoDetection(transcript);
     const normalizedAssistant = this.normalizeForEchoDetection(assistantSpeech);
@@ -1039,11 +1081,17 @@ export class SpeechmaticsAudio {
 
     const similarity = matchedWords / transcriptWords.length;
 
-    // If 40% or more of the transcript words are in the assistant speech, it's likely an echo
-    // Lowered from 60% to catch more partial echoes - the microphone often only captures
-    // fragments of what the speaker is saying due to acoustic conditions
-    if (similarity >= 0.4) {
-      return { isEcho: true, similarity, matchType: 'fuzzy-words' };
+    // DIARIZATION-ENHANCED: Lower threshold when speaker is suspicious (mismatch or unknown)
+    // If the speaker doesn't match the established user, even 25% word overlap is suspicious
+    const fuzzyThreshold = suspiciousSpeaker ? 0.25 : 0.4;
+
+    // If threshold% or more of the transcript words are in the assistant speech, it's likely an echo
+    if (similarity >= fuzzyThreshold) {
+      return {
+        isEcho: true,
+        similarity,
+        matchType: suspiciousSpeaker ? 'speaker-mismatch' : 'fuzzy-words'
+      };
     }
 
     // Check 3: Sliding window - check if any consecutive sequence of transcript words
@@ -1060,7 +1108,11 @@ export class SpeechmaticsAudio {
         if (normalizedAssistant.includes(windowPhrase)) {
           // Larger windows = higher confidence of echo
           const windowConfidence = 0.5 + (windowSize * 0.1); // 0.7 for 2 words, up to 1.2 for 7 words
-          return { isEcho: true, similarity: Math.min(1.0, windowConfidence), matchType: 'fuzzy-words' };
+          return {
+            isEcho: true,
+            similarity: Math.min(1.0, windowConfidence),
+            matchType: suspiciousSpeaker ? 'speaker-mismatch' : 'fuzzy-words'
+          };
         }
       }
     }

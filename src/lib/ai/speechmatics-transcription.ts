@@ -71,7 +71,9 @@ export class TranscriptionManager {
   private semanticHoldStartedAt: number | null = null;
   private semanticEvaluationInFlight: boolean = false;
   private pendingSemanticTrigger: SemanticTurnTrigger | null = null;
-  
+  // Speaker identification from diarization (S1, S2, S3, UU)
+  private currentSpeaker: string | undefined = undefined;
+
   // ===== CONSTANTES DE CONFIGURATION =====
   // Timeout de détection de silence (2s) - fail-safe si aucune transcription partielle n'arrive
   private readonly SILENCE_DETECTION_TIMEOUT = 2000;
@@ -334,6 +336,7 @@ export class TranscriptionManager {
         timestamp: new Date().toISOString(),
         isInterim: false,
         messageId: messageId || undefined,
+        speaker: this.currentSpeaker,
       });
 
       // Process user message and generate response
@@ -344,12 +347,19 @@ export class TranscriptionManager {
 
   /**
    * Handle partial transcript from Speechmatics
+   * @param transcript - The partial transcript text
+   * @param speaker - Optional speaker identifier from diarization (S1, S2, UU, etc.)
    */
-  handlePartialTranscript(transcript: string): void {
+  handlePartialTranscript(transcript: string, speaker?: string): void {
     if (!transcript || !transcript.trim()) return;
 
     const trimmedTranscript = transcript.trim();
     this.clearSemanticHold();
+
+    // Update current speaker if provided
+    if (speaker) {
+      this.currentSpeaker = speaker;
+    }
 
     // Detect start of a brand new user turn (previous turn was already processed)
     if (!this.pendingFinalTranscript && this.lastProcessedContent) {
@@ -466,6 +476,7 @@ export class TranscriptionManager {
       timestamp: new Date().toISOString(),
       isInterim: true,
       messageId,
+      speaker: this.currentSpeaker,
     });
   }
 
@@ -747,12 +758,19 @@ export class TranscriptionManager {
 
   /**
    * Handle final transcript from Speechmatics
+   * @param transcript - The final transcript text
+   * @param speaker - Optional speaker identifier from diarization (S1, S2, UU, etc.)
    */
-  handleFinalTranscript(transcript: string): void {
+  handleFinalTranscript(transcript: string, speaker?: string): void {
     if (!transcript || !transcript.trim()) return;
 
     const trimmedTranscript = transcript.trim();
     this.clearSemanticHold();
+
+    // Update current speaker if provided
+    if (speaker) {
+      this.currentSpeaker = speaker;
+    }
 
     // Log minimal pour debug
     console.log(`[${getTimestamp()}] [📥 FINAL]`, trimmedTranscript.slice(0, 80) + (trimmedTranscript.length > 80 ? '...' : ''));
@@ -880,10 +898,19 @@ export class TranscriptionManager {
     this.lastFinalUserContent = null;
     this.currentStreamingMessageId = null;
     this.lastPreviewContent = null;
+    // Don't reset currentSpeaker here - we want to keep speaker context for echo detection
 
     if (hadPending) {
       console.log(`[${getTimestamp()}] [Transcription] 🗑️ Discarded pending transcript (echo detected): "${pendingPreview}..."`);
     }
+  }
+
+  /**
+   * Get the current speaker identifier from diarization
+   * Used for echo detection - if speaker changes during TTS playback, it might be echo
+   */
+  getCurrentSpeaker(): string | undefined {
+    return this.currentSpeaker;
   }
 
   /**
@@ -906,6 +933,7 @@ export class TranscriptionManager {
     this.currentStreamingMessageId = null;
     this.lastPreviewContent = null;
     this.lastPartialUpdateTimestamp = 0;
+    this.currentSpeaker = undefined;
   }
 
   /**
