@@ -756,18 +756,29 @@ export function ProjectGraphVisualization({ projectId, clientId, refreshKey }: P
   useEffect(() => {
     if (fgRef.current && filteredGraphData) {
       // Configure forces for better layout
-      fgRef.current.d3Force("charge")?.strength(-400);
-      fgRef.current.d3Force("link")?.distance(80);
+      // Increased charge strength for more node separation
+      fgRef.current.d3Force("charge")?.strength(-600);
+      fgRef.current.d3Force("link")?.distance(100);
       fgRef.current.d3Force("center")?.strength(0.05);
 
       // Add collision force to prevent node/label overlap
-      // Radius = node size + space for label text
+      // Radius = node size + estimated text width (based on label length)
+      // Average character width is ~6px at typical font size, labels are centered
+      // so we need half the text width + padding
       fgRef.current.d3Force(
         "collide",
         forceCollide<ForceGraphNode>()
-          .radius((node) => node.size + 35)
-          .strength(0.8)
-          .iterations(3)
+          .radius((node) => {
+            // Estimate text width based on label length
+            // Font is ~8-10px, average char width ~6px
+            const labelLength = node.name?.length || 10;
+            // Cap at reasonable max (matches maxWidth of 150 in render)
+            const estimatedTextWidth = Math.min(labelLength * 6, 150);
+            // Collision radius = node size + half text width (centered) + padding
+            return node.size + (estimatedTextWidth / 2) + 15;
+          })
+          .strength(1.0)
+          .iterations(4)
       );
     }
   }, [filteredGraphData]);
