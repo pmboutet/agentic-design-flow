@@ -130,7 +130,7 @@ function buildChallengeTree(
 
     const node: ProjectChallengeNode & { children: ProjectChallengeNode[] } = {
       id: row.id,
-      title: row.name,
+      title: row.name || "Untitled Challenge",
       description: row.description ?? "",
       status: row.status ?? "open",
       impact: normalizeImpact(row.priority),

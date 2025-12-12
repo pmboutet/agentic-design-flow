@@ -5,7 +5,7 @@ import { isValidAskKey, parseErrorMessage } from '@/lib/utils';
 import { getAskSessionByKey, getOrCreateConversationThread, getMessagesForThread } from '@/lib/asks';
 import { normaliseMessageMetadata } from '@/lib/messages';
 import { executeAgent, fetchAgentBySlug } from '@/lib/ai';
-import { getConversationPlanWithSteps, getActiveStep, completeStep, getCurrentStep, detectStepCompletion } from '@/lib/ai/conversation-plan';
+import { getConversationPlanWithSteps, completeStep, getCurrentStep, detectStepCompletion } from '@/lib/ai/conversation-plan';
 import { buildConversationAgentVariables } from '@/lib/ai/conversation-agent';
 import {
   buildParticipantDisplayName,
@@ -16,21 +16,27 @@ import {
   type ProjectRow,
   type ChallengeRow,
 } from '@/lib/conversation-context';
-import type { ApiResponse, SuggestedQuestion } from '@/types';
+import type { ApiResponse, SuggestedQuestion, Insight } from '@/types';
 
 const CONSULTANT_HELPER_AGENT_SLUG = 'ask-consultant-helper';
 const CONSULTANT_HELPER_INTERACTION_TYPE = 'ask.consultant.helper';
 
 interface ConsultantAnalyzeResponse {
   questions: SuggestedQuestion[];
+  insights: Insight[];
   stepCompleted?: string;
   stepSummary?: string;
+}
+
+interface ConsultantHelperParseResult {
+  questions: SuggestedQuestion[];
+  stepCompleted?: string;
 }
 
 /**
  * Parse the consultant helper agent response to extract questions and step completion
  */
-function parseConsultantHelperResponse(content: string): ConsultantAnalyzeResponse {
+function parseConsultantHelperResponse(content: string): ConsultantHelperParseResult {
   const questions: SuggestedQuestion[] = [];
   let stepCompleted: string | undefined;
 
@@ -114,12 +120,17 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ key: string }> }
 ) {
+  console.log('🎯 [CONSULTANT-ANALYZE] POST request received');
+
   try {
     const { key } = await params;
     const body = await request.json().catch(() => ({}));
     const { conversationThreadId: requestedThreadId } = body as { conversationThreadId?: string };
 
+    console.log('🔑 [CONSULTANT-ANALYZE] Key:', key);
+
     if (!key || !isValidAskKey(key)) {
+      console.log('❌ [CONSULTANT-ANALYZE] Invalid key format');
       return NextResponse.json<ApiResponse>({
         success: false,
         error: 'Invalid ASK key format'
@@ -128,24 +139,90 @@ export async function POST(
 
     const supabase = getAdminSupabaseClient();
 
-    // Get current user (consultant)
+    // =====================================================================
+    // IDENTIFICATION DU CONSULTANT
+    // =====================================================================
+    // En mode consultant, chaque utilisateur a son propre thread (is_shared = false).
+    // Il est CRUCIAL d'identifier correctement l'utilisateur pour retrouver SON thread.
+    //
+    // MÉTHODES D'IDENTIFICATION (ordre de priorité):
+    // 1. Invite Token (header X-Invite-Token) → contient user_id dans ask_participants
+    //    Utilisé quand accès via ?token=xxx
+    // 2. Auth Cookie → session Supabase → profile.id
+    //    Utilisé quand accès via ?key=xxx avec user connecté
+    //
+    // IMPORTANT: Si aucune méthode ne fonctionne, currentUserId sera null et on
+    // tombera sur un thread partagé (fallback) qui sera probablement VIDE.
+    // =====================================================================
     let currentUserId: string | null = null;
-    try {
-      const serverSupabase = await createServerSupabaseClient();
-      const user = await getCurrentUser();
-      if (user) {
-        const { data: profile } = await serverSupabase
-          .from('profiles')
-          .select('id')
-          .eq('auth_id', user.id)
-          .eq('is_active', true)
-          .single();
-        if (profile) {
-          currentUserId = profile.id;
-        }
+
+    // MÉTHODE 1: Essayer d'abord via le token d'invitation (prioritaire car plus fiable)
+    // Le token est passé dans le header X-Invite-Token par le hook useConsultantAnalysis
+    const inviteToken = request.headers.get('X-Invite-Token');
+    console.log('🎫 [CONSULTANT-ANALYZE] Checking invite token:', inviteToken?.substring(0, 8) ?? 'none');
+
+    if (inviteToken) {
+      const { data: participant, error: participantError } = await supabase
+        .from('ask_participants')
+        .select('user_id')
+        .eq('invite_token', inviteToken)
+        .maybeSingle();
+
+      console.log('📊 [CONSULTANT-ANALYZE] Participant from token:', {
+        found: !!participant,
+        userId: participant?.user_id,
+        error: participantError?.message
+      });
+
+      if (!participantError && participant?.user_id) {
+        currentUserId = participant.user_id;
+        console.log('✅ [CONSULTANT-ANALYZE] Using user_id from invite token:', currentUserId);
       }
-    } catch (error) {
-      console.warn('Could not retrieve current user:', error);
+    }
+
+    // MÉTHODE 2: Si pas de token ou token sans user_id, essayer l'auth cookie
+    if (!currentUserId) {
+      console.log('🔐 [CONSULTANT-ANALYZE] No user from token, trying auth cookie...');
+      try {
+        const serverSupabase = await createServerSupabaseClient();
+        const user = await getCurrentUser();
+        console.log('👤 [CONSULTANT-ANALYZE] Auth user:', user?.id ?? 'none');
+
+        if (user) {
+          const { data: profile, error: profileError } = await serverSupabase
+            .from('profiles')
+            .select('id')
+            .eq('auth_id', user.id)
+            .eq('is_active', true)
+            .single();
+
+          console.log('📋 [CONSULTANT-ANALYZE] Profile lookup:', {
+            found: !!profile,
+            profileId: profile?.id,
+            error: profileError?.message
+          });
+
+          if (profile) {
+            currentUserId = profile.id;
+            console.log('✅ [CONSULTANT-ANALYZE] Using profile_id from auth:', currentUserId);
+          }
+        }
+      } catch (error) {
+        console.warn('⚠️ [CONSULTANT-ANALYZE] Auth cookie check failed:', error);
+      }
+    }
+
+    console.log('🆔 [CONSULTANT-ANALYZE] Final currentUserId:', currentUserId ?? 'NULL - WILL FALLBACK TO SHARED THREAD');
+
+    // AVERTISSEMENT: Si currentUserId est null en mode consultant, on va tomber sur
+    // un thread partagé (fallback) qui sera probablement vide, car les messages
+    // sont dans le thread individuel de l'utilisateur.
+    if (!currentUserId) {
+      console.warn('⚠️ [CONSULTANT-ANALYZE] No user identified! This will likely result in empty messages.');
+      console.warn('⚠️ [CONSULTANT-ANALYZE] Possible causes:');
+      console.warn('   - Accès via ?key= sans être connecté');
+      console.warn('   - Accès via ?token= mais le token n\'a pas de user_id lié');
+      console.warn('   - Cookie de session expiré');
     }
 
     // Fetch ASK session
@@ -166,8 +243,14 @@ export async function POST(
       }, { status: 404 });
     }
 
+    console.log('📋 [CONSULTANT-ANALYZE] ASK session:', {
+      id: askRow.id,
+      conversationMode: askRow.conversation_mode,
+    });
+
     // Verify this is consultant mode
     if (askRow.conversation_mode !== 'consultant') {
+      console.log('❌ [CONSULTANT-ANALYZE] Not consultant mode:', askRow.conversation_mode);
       return NextResponse.json<ApiResponse>({
         success: false,
         error: 'Cette fonctionnalité est réservée au mode consultant'
@@ -230,12 +313,25 @@ export async function POST(
       conversation_mode: askRow.conversation_mode ?? null,
     };
 
+    console.log('🧵 [CONSULTANT-ANALYZE] Getting thread for:', {
+      askSessionId: askRow.id,
+      currentUserId,
+      conversationMode: askConfig.conversation_mode,
+    });
+
     const { thread: conversationThread, error: threadError } = await getOrCreateConversationThread(
       supabase,
       askRow.id,
       currentUserId,
       askConfig
     );
+
+    console.log('🧵 [CONSULTANT-ANALYZE] Thread result:', {
+      threadId: conversationThread?.id,
+      isShared: conversationThread?.is_shared,
+      threadUserId: conversationThread?.user_id,
+      error: threadError?.message,
+    });
 
     if (threadError) {
       throw threadError;
@@ -292,11 +388,14 @@ export async function POST(
       };
     });
 
-    // If no messages yet, return empty questions
+    console.log('💬 [CONSULTANT-ANALYZE] Messages count:', messages.length);
+
+    // If no messages yet, return empty questions and insights
     if (messages.length === 0) {
+      console.log('⚠️ [CONSULTANT-ANALYZE] No messages, returning empty questions and insights');
       return NextResponse.json<ApiResponse<ConsultantAnalyzeResponse>>({
         success: true,
-        data: { questions: [] }
+        data: { questions: [], insights: [] }
       });
     }
 
@@ -331,8 +430,8 @@ export async function POST(
       conversationPlan = await getConversationPlanWithSteps(supabase, conversationThread.id);
     }
 
-    // Build variables for the agent
-    const variables = buildConversationAgentVariables({
+    // Build variables for the consultant helper agent
+    const helperVariables = buildConversationAgentVariables({
       ask: askRow,
       project: projectData,
       challenge: challengeData,
@@ -341,20 +440,61 @@ export async function POST(
       conversationPlan,
     });
 
-    // Execute the consultant helper agent
-    console.log('🎯 [CONSULTANT-ANALYZE] Executing consultant helper agent');
-    const result = await executeAgent({
-      supabase,
-      agentSlug: CONSULTANT_HELPER_AGENT_SLUG,
-      askSessionId: askRow.id,
-      interactionType: CONSULTANT_HELPER_INTERACTION_TYPE,
-      variables,
-    });
+    // Execute both agents in parallel:
+    // 1. Consultant helper agent for questions (direct call)
+    // 2. Insight detection via the existing respond endpoint (reuses all existing logic)
+    console.log('🎯 [CONSULTANT-ANALYZE] Executing consultant helper and insight detection in parallel');
 
-    console.log('📝 [CONSULTANT-ANALYZE] Agent response length:', result.content?.length ?? 0);
+    // Build the URL for the respond endpoint (internal call)
+    const respondUrl = new URL(`/api/ask/${key}/respond`, request.url);
 
-    // Parse the response
-    const response = parseConsultantHelperResponse(result.content ?? '');
+    const [helperResult, insightResponse] = await Promise.all([
+      // Consultant helper agent for questions
+      executeAgent({
+        supabase,
+        agentSlug: CONSULTANT_HELPER_AGENT_SLUG,
+        askSessionId: askRow.id,
+        interactionType: CONSULTANT_HELPER_INTERACTION_TYPE,
+        variables: helperVariables,
+      }),
+      // Insight detection via the existing respond endpoint
+      // This reuses the exact same triggerInsightDetection logic from respond/route.ts
+      fetch(respondUrl.toString(), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          // Forward cookies for authentication
+          'Cookie': request.headers.get('Cookie') ?? '',
+          // Forward invite token if present
+          ...(inviteToken ? { 'X-Invite-Token': inviteToken } : {}),
+        },
+        body: JSON.stringify({
+          detectInsights: true,
+          askSessionId: askRow.id,
+        }),
+      }).then(async (res) => {
+        if (!res.ok) {
+          console.error('⚠️ [CONSULTANT-ANALYZE] Insight detection request failed:', res.status);
+          return { insights: [] as Insight[] };
+        }
+        const data = await res.json();
+        if (data.success && data.data?.insights) {
+          return { insights: data.data.insights as Insight[] };
+        }
+        return { insights: [] as Insight[] };
+      }).catch((error) => {
+        console.error('⚠️ [CONSULTANT-ANALYZE] Insight detection failed (non-blocking):', error);
+        return { insights: [] as Insight[] };
+      }),
+    ]);
+
+    const detectedInsights = insightResponse.insights;
+
+    console.log('📝 [CONSULTANT-ANALYZE] Helper agent response length:', helperResult.content?.length ?? 0);
+    console.log('💡 [CONSULTANT-ANALYZE] Detected insights count:', detectedInsights.length);
+
+    // Parse the consultant helper response
+    const response = parseConsultantHelperResponse(helperResult.content ?? '');
 
     // Handle step completion if detected
     if (response.stepCompleted && conversationThread) {
@@ -395,7 +535,10 @@ export async function POST(
 
     return NextResponse.json<ApiResponse<ConsultantAnalyzeResponse>>({
       success: true,
-      data: response
+      data: {
+        ...response,
+        insights: detectedInsights,
+      }
     });
 
   } catch (error) {

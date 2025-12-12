@@ -16,7 +16,9 @@ const purgeSchema = z.object({
 });
 
 interface PurgeResult {
-  deletedAskSessions: number;
+  deletedMessages: number;
+  deletedInsights: number;
+  deletedConversationThreads: number;
   deletedInsightSyntheses: number;
   deletedGraphEdges: number;
   aiBuilderResultsCleared: boolean;
@@ -25,11 +27,15 @@ interface PurgeResult {
 /**
  * POST /api/admin/projects/[id]/purge
  *
- * Purges all conversation data from a project:
- * - Ask sessions (cascades to: messages, insights, participants, conversation threads)
+ * Purges conversation data from a project while preserving ASK sessions and participants:
+ * - Messages (all conversation content)
+ * - Insights (cascades to: insight_keywords, challenge_insights)
+ * - Conversation threads (will be recreated when users start new conversations)
  * - Insight syntheses
  * - Knowledge graph edges related to deleted insights
  * - AI challenge builder results stored in the project
+ *
+ * PRESERVED: ask_sessions and ask_participants remain intact.
  *
  * IMPORTANT: This action is irreversible and restricted to full_admin only.
  */
@@ -83,7 +89,9 @@ export async function POST(
     }
 
     const result: PurgeResult = {
-      deletedAskSessions: 0,
+      deletedMessages: 0,
+      deletedInsights: 0,
+      deletedConversationThreads: 0,
       deletedInsightSyntheses: 0,
       deletedGraphEdges: 0,
       aiBuilderResultsCleared: false,
@@ -97,15 +105,26 @@ export async function POST(
 
     const askSessionIds = askSessions?.map(s => s.id) ?? [];
 
-    // Step 2: Get all insight IDs from these ask sessions (for graph edge cleanup)
-    let projectInsightIds: string[] = [];
-    if (askSessionIds.length > 0) {
-      const { data: insights } = await adminSupabase
-        .from("insights")
-        .select("id")
-        .in("ask_session_id", askSessionIds);
-      projectInsightIds = insights?.map(i => i.id) ?? [];
+    if (askSessionIds.length === 0) {
+      // No sessions to purge, just clear AI builder results
+      const { error: clearError } = await adminSupabase
+        .from("projects")
+        .update({ ai_challenge_builder_results: null })
+        .eq("id", projectId);
+      result.aiBuilderResultsCleared = !clearError;
+
+      return NextResponse.json<ApiResponse<PurgeResult>>({
+        success: true,
+        data: result
+      });
     }
+
+    // Step 2: Get all insight IDs from these ask sessions (for graph edge cleanup)
+    const { data: insights } = await adminSupabase
+      .from("insights")
+      .select("id")
+      .in("ask_session_id", askSessionIds);
+    const projectInsightIds = insights?.map(i => i.id) ?? [];
 
     // Step 3: Delete knowledge_graph_edges that reference project insights
     // These don't cascade automatically since they use generic source_id/target_id
@@ -127,16 +146,30 @@ export async function POST(
       .eq("project_id", projectId);
     result.deletedInsightSyntheses = synthesesDeleted ?? 0;
 
-    // Step 5: Delete all ask_sessions for this project
-    // This cascades to: ask_participants, messages, insights, conversation_threads
-    // And insights cascade to: insight_keywords, challenge_insights
-    const { count: sessionsDeleted } = await adminSupabase
-      .from("ask_sessions")
+    // Step 5: Delete all messages for the project's ask sessions
+    const { count: messagesDeleted } = await adminSupabase
+      .from("messages")
       .delete({ count: "exact" })
-      .eq("project_id", projectId);
-    result.deletedAskSessions = sessionsDeleted ?? 0;
+      .in("ask_session_id", askSessionIds);
+    result.deletedMessages = messagesDeleted ?? 0;
 
-    // Step 6: Clear AI challenge builder results from project
+    // Step 6: Delete all insights for the project's ask sessions
+    // This cascades to: insight_keywords, challenge_insights
+    const { count: insightsDeleted } = await adminSupabase
+      .from("insights")
+      .delete({ count: "exact" })
+      .in("ask_session_id", askSessionIds);
+    result.deletedInsights = insightsDeleted ?? 0;
+
+    // Step 7: Delete all conversation_threads for the project's ask sessions
+    // These will be recreated when users start new conversations
+    const { count: threadsDeleted } = await adminSupabase
+      .from("conversation_threads")
+      .delete({ count: "exact" })
+      .in("ask_session_id", askSessionIds);
+    result.deletedConversationThreads = threadsDeleted ?? 0;
+
+    // Step 8: Clear AI challenge builder results from project
     const { error: clearError } = await adminSupabase
       .from("projects")
       .update({ ai_challenge_builder_results: null })

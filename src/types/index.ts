@@ -213,6 +213,7 @@ export interface SessionData {
   insights: Insight[];
   challenges?: Challenge[];
   conversationPlan?: ConversationPlan | null;
+  conversationThreadId?: string | null; // Thread ID for realtime subscriptions
   isLoading: boolean;
   error: string | null;
 }
@@ -360,7 +361,6 @@ export interface ChatComponentProps {
   onVoiceMessage?: (role: 'user' | 'agent', content: string, metadata?: { isInterim?: boolean; messageId?: string; timestamp?: string; speaker?: string }) => void;
   onReplyBoxFocusChange?: (isFocused: boolean) => void;
   onVoiceModeChange?: (isActive: boolean) => void;
-  onInitConversation?: () => void;
   // Message editing props
   onEditMessage?: (messageId: string, newContent: string) => Promise<void>;
   // Consultant mode props

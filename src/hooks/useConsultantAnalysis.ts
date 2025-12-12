@@ -13,7 +13,7 @@
  */
 
 import { useEffect, useRef, useCallback, useState } from 'react';
-import type { SuggestedQuestion } from '@/types';
+import type { SuggestedQuestion, Insight } from '@/types';
 
 /**
  * Analysis interval in milliseconds (10 seconds)
@@ -47,6 +47,11 @@ export interface ConsultantAnalysisConfig {
   analysisInterval?: number;
 
   /**
+   * Current message count - analysis only runs when this changes
+   */
+  messageCount?: number;
+
+  /**
    * Invite token for authenticated API calls
    */
   inviteToken?: string | null;
@@ -55,6 +60,11 @@ export interface ConsultantAnalysisConfig {
    * Callback when questions are updated
    */
   onQuestionsUpdate?: (questions: SuggestedQuestion[]) => void;
+
+  /**
+   * Callback when insights are updated
+   */
+  onInsightsUpdate?: (insights: Insight[]) => void;
 
   /**
    * Callback when a step is automatically completed
@@ -72,6 +82,11 @@ export interface ConsultantAnalysisState {
    * Current suggested questions
    */
   questions: SuggestedQuestion[];
+
+  /**
+   * Current detected insights
+   */
+  insights: Insight[];
 
   /**
    * Whether an analysis is currently running
@@ -115,7 +130,7 @@ export interface ConsultantAnalysisState {
 async function analyzeConversation(
   askKey: string,
   inviteToken?: string | null
-): Promise<{ questions: SuggestedQuestion[]; stepCompleted?: string }> {
+): Promise<{ questions: SuggestedQuestion[]; insights: Insight[]; stepCompleted?: string }> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   };
@@ -147,14 +162,17 @@ export function useConsultantAnalysis(config: ConsultantAnalysisConfig): Consult
     askKey,
     enabled = true,
     analysisInterval = DEFAULT_ANALYSIS_INTERVAL,
+    messageCount = 0,
     inviteToken,
     onQuestionsUpdate,
+    onInsightsUpdate,
     onStepCompleted,
     onAnalyzing,
   } = config;
 
   // State
   const [questions, setQuestions] = useState<SuggestedQuestion[]>([]);
+  const [insights, setInsights] = useState<Insight[]>([]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isPaused, setIsPaused] = useState(false);
@@ -166,11 +184,18 @@ export function useConsultantAnalysis(config: ConsultantAnalysisConfig): Consult
   const lastSpeakerRef = useRef<string | null>(null);
   const isAnalyzingRef = useRef(false);
   const mountedRef = useRef(true);
+  const lastAnalyzedMessageCountRef = useRef<number>(0);
+  const performAnalysisRef = useRef<() => Promise<void>>(() => Promise.resolve());
 
   /**
    * Perform the analysis
    */
   const performAnalysis = useCallback(async () => {
+    // Skip if no new messages since last analysis
+    if (messageCount <= lastAnalyzedMessageCountRef.current) {
+      return;
+    }
+
     // Prevent concurrent analyses
     if (isAnalyzingRef.current) {
       pendingAnalysisRef.current = true;
@@ -190,18 +215,30 @@ export function useConsultantAnalysis(config: ConsultantAnalysisConfig): Consult
     setIsAnalyzing(true);
     onAnalyzing?.(true);
 
+    // Track the message count we're analyzing
+    const analyzingMessageCount = messageCount;
+
     try {
+      console.log('[useConsultantAnalysis] 🔍 Analyzing conversation...');
       const result = await analyzeConversation(askKey, inviteToken);
 
       if (!mountedRef.current) return;
+      console.log('[useConsultantAnalysis] ✅ Got', result.questions?.length ?? 0, 'questions');
 
       lastAnalysisTimeRef.current = Date.now();
+      lastAnalyzedMessageCountRef.current = analyzingMessageCount;
       setError(null);
 
       // Update questions if we got new ones
       if (result.questions && result.questions.length > 0) {
         setQuestions(result.questions);
         onQuestionsUpdate?.(result.questions);
+      }
+
+      // Update insights if we got new ones
+      if (result.insights && result.insights.length > 0) {
+        setInsights(result.insights);
+        onInsightsUpdate?.(result.insights);
       }
 
       // Handle step completion
@@ -213,7 +250,7 @@ export function useConsultantAnalysis(config: ConsultantAnalysisConfig): Consult
 
       const errorMessage = err instanceof Error ? err.message : 'Analysis failed';
       setError(errorMessage);
-      console.error('[useConsultantAnalysis] Error:', errorMessage);
+      console.error('[useConsultantAnalysis] API Error:', errorMessage, err);
     } finally {
       if (mountedRef.current) {
         isAnalyzingRef.current = false;
@@ -236,7 +273,12 @@ export function useConsultantAnalysis(config: ConsultantAnalysisConfig): Consult
         }
       }
     }
-  }, [askKey, inviteToken, isPaused, onQuestionsUpdate, onStepCompleted, onAnalyzing]);
+  }, [askKey, inviteToken, isPaused, messageCount, onQuestionsUpdate, onInsightsUpdate, onStepCompleted, onAnalyzing]);
+
+  // Keep ref updated with latest performAnalysis (avoids stale closure in interval)
+  useEffect(() => {
+    performAnalysisRef.current = performAnalysis;
+  }, [performAnalysis]);
 
   /**
    * Notify speaker change - triggers immediate analysis
@@ -277,7 +319,7 @@ export function useConsultantAnalysis(config: ConsultantAnalysisConfig): Consult
     setIsPaused(false);
   }, []);
 
-  // Set up periodic analysis
+  // Set up periodic analysis (uses ref to avoid recreating interval on every messageCount change)
   useEffect(() => {
     if (!enabled || isPaused) {
       if (analysisIntervalRef.current) {
@@ -287,17 +329,20 @@ export function useConsultantAnalysis(config: ConsultantAnalysisConfig): Consult
       return;
     }
 
+    console.log('[useConsultantAnalysis] Setting up periodic analysis interval');
+
     // Start periodic analysis
     analysisIntervalRef.current = setInterval(() => {
       if (mountedRef.current && !isPaused) {
-        performAnalysis();
+        performAnalysisRef.current();
       }
     }, analysisInterval);
 
     // Trigger initial analysis after a short delay (let the conversation load first)
     const initialTimeout = setTimeout(() => {
       if (mountedRef.current && !isPaused) {
-        performAnalysis();
+        console.log('[useConsultantAnalysis] Initial timeout - triggering first analysis');
+        performAnalysisRef.current();
       }
     }, 2000);
 
@@ -308,7 +353,7 @@ export function useConsultantAnalysis(config: ConsultantAnalysisConfig): Consult
       }
       clearTimeout(initialTimeout);
     };
-  }, [enabled, isPaused, analysisInterval, performAnalysis]);
+  }, [enabled, isPaused, analysisInterval]); // Removed performAnalysis - using ref instead
 
   // Track mount state
   useEffect(() => {
@@ -320,6 +365,7 @@ export function useConsultantAnalysis(config: ConsultantAnalysisConfig): Consult
 
   return {
     questions,
+    insights,
     isAnalyzing,
     error,
     notifySpeakerChange,

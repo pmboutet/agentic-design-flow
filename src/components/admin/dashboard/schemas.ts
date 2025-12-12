@@ -12,7 +12,7 @@ export const challengeStatuses = ["open", "in_progress", "active", "closed", "ar
 export const challengePriorities = ["low", "medium", "high", "critical"] as const;
 export const askStatuses = ["active", "inactive", "draft", "closed"] as const;
 export const deliveryModes = ["physical", "digital"] as const;
-export const conversationModes = ["individual_parallel", "collaborative", "group_reporter"] as const;
+export const conversationModes = ["individual_parallel", "collaborative", "group_reporter", "consultant"] as const;
 export const userRoles = ["full_admin", "client_admin", "facilitator", "manager", "participant"] as const;
 
 // ===== Form Schemas =====

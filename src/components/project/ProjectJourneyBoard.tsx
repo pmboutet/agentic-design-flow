@@ -1715,8 +1715,7 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
                       title="Voir les insights"
                     >
                       <Lightbulb className="h-4 w-4" />
-                      <span className="text-xs">{insightCount}</span>
-                      <span className="sr-only">Voir les {insightCount} insights de {node.title}</span>
+                      <span className="text-xs">Insights ({insightCount})</span>
                     </Button>
                   ) : null}
                   {(() => {
@@ -1736,16 +1735,14 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
                         title={askCount > 0 ? "Voir les asks" : "Créer une ask"}
                       >
                         <MessageSquare className="h-4 w-4" />
-                        <span className="text-xs">{askCount}</span>
-                        <span className="sr-only">{askCount > 0 ? `Voir les ${askCount} asks de ${node.title}` : `Créer une ask pour ${node.title}`}</span>
+                        <span className="text-xs">Gérer les ASKs ({askCount})</span>
                       </Button>
                     );
                   })()}
                   <Button
                     type="button"
-                    size="icon"
                     variant="ghost"
-                    className="text-indigo-300 hover:bg-indigo-500/20 hover:text-indigo-100"
+                    className="gap-1.5 text-indigo-300 hover:bg-indigo-500/20 hover:text-indigo-100"
                     onClick={event => {
                       event.stopPropagation();
                       event.preventDefault();
@@ -1756,13 +1753,12 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
                     title="Suggestions IA pour ce challenge"
                   >
                     <Sparkles className="h-4 w-4" />
-                    <span className="sr-only">Voir les suggestions IA pour {node.title}</span>
+                    <span className="text-xs">Créer des challenges</span>
                   </Button>
                   <Button
                     type="button"
-                    size="icon"
                     variant="ghost"
-                    className="text-slate-200 hover:bg-white/10 hover:text-white"
+                    className="gap-1.5 text-slate-200 hover:bg-white/10 hover:text-white"
                     disabled={isSavingChallenge}
                     onClick={event => {
                       event.stopPropagation();
@@ -1772,7 +1768,7 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
                     title="Modifier ce challenge"
                   >
                     <Pencil className="h-4 w-4" />
-                    <span className="sr-only">Edit challenge {node.title}</span>
+                    <span className="text-xs">Modifier</span>
                   </Button>
                 </div>
               </div>
@@ -3022,7 +3018,9 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
       }
 
       const data = result.data as {
-        deletedAskSessions: number;
+        deletedMessages: number;
+        deletedInsights: number;
+        deletedConversationThreads: number;
         deletedInsightSyntheses: number;
         deletedGraphEdges: number;
         aiBuilderResultsCleared: boolean;
@@ -3030,7 +3028,7 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
 
       setPurgeFeedback({
         type: "success",
-        message: `Données purgées : ${data.deletedAskSessions} session(s), ${data.deletedInsightSyntheses} synthèse(s), ${data.deletedGraphEdges} lien(s) de graphe.`,
+        message: `Données purgées : ${data.deletedMessages} message(s), ${data.deletedInsights} insight(s), ${data.deletedInsightSyntheses} synthèse(s), ${data.deletedGraphEdges} lien(s) de graphe.`,
       });
 
       // Reset confirmation word and close dialog
@@ -3576,10 +3574,6 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
                   <ul className="mt-3 space-y-1.5 text-sm text-red-200/80">
                     <li className="flex items-center gap-2">
                       <span className="h-1.5 w-1.5 rounded-full bg-red-400" />
-                      Toutes les sessions ASK et leurs participants
-                    </li>
-                    <li className="flex items-center gap-2">
-                      <span className="h-1.5 w-1.5 rounded-full bg-red-400" />
                       Tous les messages de conversation
                     </li>
                     <li className="flex items-center gap-2">
@@ -3595,6 +3589,9 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
                       Les résultats de l&apos;AI Challenge Builder
                     </li>
                   </ul>
+                  <p className="mt-3 text-xs text-emerald-300/80">
+                    Les sessions ASK et leurs participants seront conservés.
+                  </p>
                 </div>
 
                 <div className="space-y-2">
@@ -4205,10 +4202,12 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
                                         <p className="text-sm text-slate-400">No collaborators are available for this project yet.</p>
                                       )}
 
-                                      {/* Spokesperson selector for group_reporter mode */}
-                                      {askRecord?.conversationMode === "group_reporter" && participantEdits?.participantIds?.length ? (
+                                      {/* Spokesperson selector for group_reporter and consultant modes */}
+                                      {(askRecord?.conversationMode === "group_reporter" || askRecord?.conversationMode === "consultant") && participantEdits?.participantIds?.length ? (
                                         <div className="flex flex-col gap-2">
-                                          <Label htmlFor={`spokesperson-${ask.id}`} className="text-sm text-indigo-200">Spokesperson (rapporteur)</Label>
+                                          <Label htmlFor={`spokesperson-${ask.id}`} className="text-sm text-indigo-200">
+                                            {askRecord?.conversationMode === "consultant" ? "Facilitator (voit les questions suggérées)" : "Spokesperson (rapporteur)"}
+                                          </Label>
                                           <select
                                             id={`spokesperson-${ask.id}`}
                                             value={participantEdits.spokespersonId}
@@ -5035,9 +5034,11 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
                         <p className="text-sm text-slate-400">No collaborators are available for this project yet.</p>
                       )}
 
-                      {askFormValues.participantIds?.length && askFormValues.conversationMode === "group_reporter" ? (
+                      {askFormValues.participantIds?.length && (askFormValues.conversationMode === "group_reporter" || askFormValues.conversationMode === "consultant") ? (
                         <div className="flex flex-col gap-2 mt-2">
-                          <Label htmlFor="ask-spokesperson">Spokesperson (rapporteur)</Label>
+                          <Label htmlFor="ask-spokesperson">
+                            {askFormValues.conversationMode === "consultant" ? "Facilitator (voit les questions suggérées)" : "Spokesperson (rapporteur)"}
+                          </Label>
                           <select
                             id="ask-spokesperson"
                             value={askFormValues.spokespersonId}
@@ -5045,7 +5046,9 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
                             className="h-10 rounded-md border border-white/10 bg-slate-900/70 px-3 text-sm text-white focus:border-indigo-400 focus:outline-none focus:ring focus:ring-indigo-400/20"
                             disabled={isSavingAsk || isLoadingAskDetails}
                           >
-                            <option value="">No spokesperson</option>
+                            <option value="">
+                              {askFormValues.conversationMode === "consultant" ? "No facilitator" : "No spokesperson"}
+                            </option>
                             {askFormValues.participantIds
                               .map(participantId => availableUsers.find(user => user.id === participantId))
                               .filter((user): user is NonNullable<typeof user> => Boolean(user))
@@ -5056,7 +5059,9 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
                               ))}
                           </select>
                           <p className="text-xs text-muted-foreground">
-                            Le rapporteur consolide les contributions du groupe
+                            {askFormValues.conversationMode === "consultant"
+                              ? "Le facilitator voit les questions suggérées par l'IA"
+                              : "Le rapporteur consolide les contributions du groupe"}
                           </p>
                         </div>
                       ) : null}

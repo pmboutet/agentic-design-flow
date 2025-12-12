@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { type SupabaseClient } from "@supabase/supabase-js";
 import { createServerSupabaseClient } from "@/lib/supabaseServer";
 import { getAdminSupabaseClient } from "@/lib/supabaseAdmin";
-import { type ApiResponse, type Message } from "@/types";
+import { type ApiResponse, type Message, type AskConversationMode } from "@/types";
 import { getOrCreateConversationThread } from "@/lib/asks";
 import {
   getConversationPlanWithSteps,
@@ -15,6 +15,7 @@ import { executeAgent } from "@/lib/ai/service";
 import { buildConversationAgentVariables } from "@/lib/ai/conversation-agent";
 import { normaliseMessageMetadata } from "@/lib/messages";
 import { buildMessageSenderName, buildParticipantDisplayName, type MessageRow, type UserRow, type ParticipantRow } from "@/lib/conversation-context";
+import { type AskViewer } from "@/lib/ask-session-loader";
 
 type AskSessionRow = {
   ask_session_id: string;
@@ -44,6 +45,8 @@ type TokenDataBundle = {
     participant_email: string | null;
     participant_name: string | null;
     invite_token: string | null;
+    role: string | null;
+    is_spokesperson: boolean | null;
   } | null;
   participants: Array<{
     participant_id: string;
@@ -192,6 +195,8 @@ async function loadTokenDataWithAdmin(token: string): Promise<TokenDataBundle | 
         participant_email: participantInfoRow.participant_email,
         participant_name: participantInfoRow.participant_name,
         invite_token: participantInfoRow.invite_token,
+        role: participantInfoRow.role,
+        is_spokesperson: participantInfoRow.is_spokesperson,
       },
       participants:
         (participantsResult.data ?? []).map(row => ({
@@ -273,6 +278,20 @@ export async function GET(
     const { data: askRows, error: askError } = await supabase
       .rpc('get_ask_session_by_token', { p_token: token });
 
+    // Debug: Also check messages count directly with admin
+    const adminDebug = getAdminSupabaseClient();
+    const { data: debugMessages, error: debugError } = await adminDebug
+      .from('messages')
+      .select('id, content, sender_type, user_id, conversation_thread_id, created_at')
+      .order('created_at', { ascending: true })
+      .limit(20);
+    console.log(`🔍 DEBUG: All recent messages in DB:`, debugMessages?.map(m => ({
+      id: m.id.substring(0, 8),
+      content: m.content?.substring(0, 30),
+      sender: m.sender_type,
+      thread: m.conversation_thread_id?.substring(0, 8) ?? 'NULL',
+    })));
+
     console.log(`📊 RPC result:`, {
       success: !askError && askRows && askRows.length > 0,
       error: askError,
@@ -295,6 +314,11 @@ export async function GET(
       messageRows = fallbackData.messages;
       insightRows = fallbackData.insights;
       profileClient = fallbackData.profileClient;
+      console.log(`🔍 DEBUG Admin fallback messages:`, messageRows.length, 'messages:', messageRows.map(m => ({
+        id: (m as any).message_id?.substring(0, 8),
+        content: m.content?.substring(0, 30),
+        sender: m.sender_type,
+      })));
     } else {
       askRow = askRows[0] as AskSessionRow;
 
@@ -316,7 +340,7 @@ export async function GET(
         console.error('Error getting participant by token:', participantInfoError);
       }
       participantInfo = participantInfoRows && participantInfoRows.length > 0
-        ? participantInfoRows[0] as { participant_id: string | null; user_id: string | null; participant_email: string | null; participant_name: string | null; invite_token: string | null }
+        ? participantInfoRows[0] as { participant_id: string | null; user_id: string | null; participant_email: string | null; participant_name: string | null; invite_token: string | null; role: string | null; is_spokesperson: boolean | null }
         : null;
 
       if (participantError) {
@@ -338,6 +362,11 @@ export async function GET(
         console.error('Error getting messages by token:', messageError);
       } else {
         messageRows = (messageRowsData ?? []) as TokenDataBundle["messages"];
+        console.log(`🔍 DEBUG RPC messages returned:`, messageRows.length, 'messages:', messageRows.map(m => ({
+          id: (m as any).message_id?.substring(0, 8),
+          content: m.content?.substring(0, 30),
+          sender: m.sender_type,
+        })));
       }
 
       if (insightError) {
@@ -510,16 +539,13 @@ export async function GET(
     // Get challenges if any
     const challenges: any[] = [];
 
-    let viewer: {
-      participantId: string | null;
-      profileId: string | null;
-      name: string | null;
-      email: string | null;
-    } | null = null;
+    // Build viewer from participant info (using shared type for consistency with key route)
+    let viewer: AskViewer | null = null;
 
-    if (participantInfo?.user_id) {
+    if (participantInfo) {
       const participantRow = (participantRows ?? []).find((row: any) => row.participant_id === participantInfo?.participant_id) ?? null;
-      const viewerUser = usersById[participantInfo.user_id] ?? null;
+      const viewerUser = participantInfo.user_id ? (usersById[participantInfo.user_id] ?? null) : null;
+
       // Use centralized function for display name (consistent with all other routes)
       const participantIndex = participantRow
         ? (participantRows ?? []).findIndex((row: any) => row.participant_id === participantRow.participant_id)
@@ -530,11 +556,24 @@ export async function GET(
         participantIndex >= 0 ? participantIndex : 0
       );
 
+      // Check both is_spokesperson flag AND role === "spokesperson" (both are used depending on how spokesperson was assigned)
+      const viewerRole = participantInfo.role ?? participantRow?.role ?? null;
+      const isSpokesperson = participantInfo.is_spokesperson === true || participantRow?.is_spokesperson === true || viewerRole === "spokesperson";
+
+      console.log('✅ [ask/token] Building viewer from participant info:', {
+        participantId: participantInfo.participant_id,
+        profileId: participantInfo.user_id,
+        isSpokesperson,
+        role: viewerRole,
+      });
+
       viewer = {
         participantId: participantRow?.participant_id ?? participantInfo.participant_id ?? null,
         profileId: participantInfo.user_id,
         name: resolvedName,
         email: participantRow?.participant_email ?? viewerUser?.email ?? participantInfo.participant_email ?? null,
+        role: viewerRole,
+        isSpokesperson,
       };
     }
 
@@ -553,6 +592,9 @@ export async function GET(
       participantUserId: participantInfo?.user_id,
       threadUserId,
     });
+
+    // Track thread ID for realtime subscriptions (set inside try block)
+    let conversationThreadId: string | null = null;
 
     try {
       const askConfig = {
@@ -574,6 +616,9 @@ export async function GET(
         hasThread: !!conversationThread,
         threadId: conversationThread?.id,
       });
+
+      // Store thread ID for response (used for realtime subscriptions)
+      conversationThreadId = conversationThread?.id ?? null;
 
       if (conversationThread) {
         console.log('🎯 GET /api/ask/token/[token]: Checking for existing conversation plan');
@@ -629,8 +674,12 @@ export async function GET(
             console.log('✅ GET /api/ask/token/[token]: Conversation plan created with', planData.steps.length, 'steps');
 
             // Generate initial message right after plan creation
-            console.log('💬 GET /api/ask/token/[token]: Generating initial message...');
-            try {
+            // Skip in consultant mode - AI doesn't respond automatically, only suggests questions
+            if (askRow.conversation_mode === 'consultant') {
+              console.log('⏭️ GET /api/ask/token/[token]: Skipping initial message (consultant mode - AI listens only)');
+            } else {
+              console.log('💬 GET /api/ask/token/[token]: Generating initial message...');
+              try {
               // Use centralized function for initial message variables
               const agentVariables = buildConversationAgentVariables({
                 ask: {
@@ -714,6 +763,7 @@ export async function GET(
               });
               // Continue without initial message - user can still interact
             }
+            } // end else (non-consultant mode)
           } catch (genError) {
             console.error('⚠️ GET /api/ask/token/[token]: Failed to generate conversation plan:', {
               error: genError instanceof Error ? genError.message : String(genError),
@@ -758,7 +808,7 @@ export async function GET(
           createdAt: askRow.created_at,
           updatedAt: askRow.updated_at,
           deliveryMode: askRow.delivery_mode as "physical" | "digital",
-          conversationMode: (askRow.conversation_mode as "individual_parallel" | "collaborative" | "group_reporter") ?? 'collaborative',
+          conversationMode: askRow.conversation_mode as AskConversationMode,
           participants,
           askSessionId: askRow.ask_session_id,
         },
@@ -767,6 +817,7 @@ export async function GET(
         challenges,
         viewer,
         conversationPlan,
+        conversationThreadId,
       }
     });
   } catch (error) {

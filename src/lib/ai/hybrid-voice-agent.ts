@@ -1,6 +1,21 @@
 /**
- * Hybrid Voice Agent
- * Combines Deepgram for STT, LLM for responses, and ElevenLabs for TTS
+ * ============================================================
+ * LEGACY - Hybrid Voice Agent (Deepgram-based)
+ * ============================================================
+ *
+ * ⚠️ THIS CODE IS DEPRECATED - DO NOT USE FOR NEW IMPLEMENTATIONS
+ *
+ * This agent uses Deepgram for STT, LLM for responses, and ElevenLabs for TTS.
+ * It has been superseded by SpeechmaticsVoiceAgent which provides:
+ * - Better multilingual support (French/English)
+ * - More reliable transcription with semantic turn detection
+ * - Better echo cancellation and noise handling
+ * - Improved barge-in support
+ *
+ * For new implementations, use: SpeechmaticsVoiceAgent (./speechmatics.ts)
+ *
+ * This file is kept for backward compatibility only.
+ * ============================================================
  */
 
 import { DeepgramClient, AgentLiveClient, AgentEvents } from '@deepgram/sdk';
@@ -20,6 +35,9 @@ export interface HybridVoiceAgentConfig {
   elevenLabsApiKey?: string; // Optional - will be fetched automatically if not provided
   elevenLabsVoiceId?: string;
   elevenLabsModelId?: string;
+  // Consultant mode (passive listening)
+  disableLLM?: boolean; // If true, disable LLM responses (transcription only)
+  disableElevenLabsTTS?: boolean; // If true, disable TTS
 }
 
 export interface HybridVoiceAgentMessage {
@@ -34,6 +52,10 @@ export type HybridVoiceAgentErrorCallback = (error: Error) => void;
 export type HybridVoiceAgentConnectionCallback = (connected: boolean) => void;
 export type HybridVoiceAgentAudioCallback = (audio: Uint8Array) => void;
 
+/**
+ * @deprecated Use SpeechmaticsVoiceAgent instead
+ * @see SpeechmaticsVoiceAgent
+ */
 export class HybridVoiceAgent {
   private deepgramClient: AgentLiveClient | null = null;
   private deepgramToken: string | null = null;
@@ -484,6 +506,12 @@ export class HybridVoiceAgent {
     this.isGeneratingResponse = true;
 
     try {
+      // In consultant mode (disableLLM), skip LLM response generation entirely
+      if (this.config?.disableLLM) {
+        console.log('[HybridVoiceAgent] 🎧 Consultant mode - skipping LLM response');
+        return;
+      }
+
       // Check again before calling LLM (user might have muted during the check)
       if (!this.isMicrophoneActive) {
         console.log('[HybridVoiceAgent] ⏸️ Microphone became inactive, aborting response generation');

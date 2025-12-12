@@ -56,6 +56,23 @@ npm run build
 
 Rationale: Legacy code accumulates technical debt, causes confusion, and leads to bugs when developers don't know which version to use.
 
+### DRY - Don't Repeat Yourself
+
+**ALWAYS check if similar functionality exists before implementing something new.**
+
+1. **Search first** - Before writing new code, search the codebase for similar functions, utilities, or patterns
+2. **Reuse existing code** - If something similar exists, extend or adapt it rather than creating a duplicate
+3. **Refactor to factorize** - If you find duplicated logic, refactor it into a shared utility even if it takes more time
+4. **Prefer quality over speed** - It's better to spend extra time maintaining a well-factorized codebase than to accumulate duplicated code
+
+When implementing a new feature:
+- Search for similar patterns: `grep -r "similar_keyword" src/`
+- Check utility files: `src/lib/`, `src/utils/`, `src/hooks/`
+- Look for existing components that could be extended
+- If refactoring is needed to avoid duplication, do it
+
+Rationale: Duplicated code leads to inconsistent behavior, harder maintenance, and bugs when one copy is fixed but not the others.
+
 ### Keep Code Simple and Readable
 
 1. **Short files** - break large files into smaller, focused modules

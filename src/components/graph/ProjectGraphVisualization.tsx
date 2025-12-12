@@ -756,29 +756,29 @@ export function ProjectGraphVisualization({ projectId, clientId, refreshKey }: P
   useEffect(() => {
     if (fgRef.current && filteredGraphData) {
       // Configure forces for better layout
-      // Increased charge strength for more node separation
-      fgRef.current.d3Force("charge")?.strength(-600);
-      fgRef.current.d3Force("link")?.distance(100);
-      fgRef.current.d3Force("center")?.strength(0.05);
+      // Strong charge to push nodes apart and avoid label overlap
+      fgRef.current.d3Force("charge")?.strength(-1500);
+      fgRef.current.d3Force("link")?.distance(180);
+      fgRef.current.d3Force("center")?.strength(0.03);
 
       // Add collision force to prevent node/label overlap
-      // Radius = node size + estimated text width (based on label length)
-      // Average character width is ~6px at typical font size, labels are centered
-      // so we need half the text width + padding
+      // Radius accounts for node size + label box below the node
       fgRef.current.d3Force(
         "collide",
         forceCollide<ForceGraphNode>()
           .radius((node) => {
-            // Estimate text width based on label length
-            // Font is ~8-10px, average char width ~6px
+            // Estimate label dimensions
+            // Font is ~11-18px, average char width ~10px, max 280px width
             const labelLength = node.name?.length || 10;
-            // Cap at reasonable max (matches maxWidth of 150 in render)
-            const estimatedTextWidth = Math.min(labelLength * 6, 150);
-            // Collision radius = node size + half text width (centered) + padding
-            return node.size + (estimatedTextWidth / 2) + 15;
+            const estimatedTextWidth = Math.min(labelLength * 10, 280);
+            // Estimate number of lines (280px max width, ~28 chars per line)
+            const estimatedLines = Math.ceil(labelLength / 28);
+            const estimatedLabelHeight = estimatedLines * 20; // ~20px per line
+            // Collision radius = half text width + label height + generous padding
+            return Math.max(estimatedTextWidth / 2, 60) + estimatedLabelHeight + 35;
           })
           .strength(1.0)
-          .iterations(4)
+          .iterations(6)
       );
     }
   }, [filteredGraphData]);
@@ -910,20 +910,32 @@ export function ProjectGraphVisualization({ projectId, clientId, refreshKey }: P
         // Show label for hovered node's direct neighbors
         showLabel = true;
       } else if (!selectedNode && !hoveredNode) {
-        // When nothing is selected/hovered, only show hubs and challenges at high zoom
-        const ZOOM_L2 = 0.8;
-        showLabel = globalScale >= ZOOM_L2 && (isHub || n.type === "challenge");
+        // Key nodes (hubs and challenges) are always visible
+        // Other nodes only visible at high zoom
+        const isKeyNode = isHub || n.type === "challenge";
+        if (isKeyNode) {
+          showLabel = true;
+        } else {
+          const ZOOM_THRESHOLD = 0.8;
+          showLabel = globalScale >= ZOOM_THRESHOLD;
+        }
       }
 
       if (!showLabel || alpha < 0.3) return;
 
       // Draw label - Larger text size for better readability
+      // Key nodes (hubs/challenges) get much bigger text when zoomed out
       const label = n.name;
-      const fontSize = Math.min(10, Math.max(5, 8 / globalScale));
-      ctx.font = `600 ${fontSize}px Inter, system-ui, sans-serif`;
+      const isKeyNode = isHub || n.type === "challenge";
+      const baseFontSize = isKeyNode
+        ? Math.min(44, Math.max(22, 32 / globalScale))  // Much larger for key nodes
+        : Math.min(18, Math.max(11, 15 / globalScale)); // Normal for others
+      const fontSize = baseFontSize;
+      const fontWeight = isKeyNode ? "700" : "600";
+      ctx.font = `${fontWeight} ${fontSize}px Inter, system-ui, sans-serif`;
 
-      // Word wrap with wider max width
-      const maxWidth = 150 / globalScale;
+      // Word wrap with wider max width (much wider for key nodes)
+      const maxWidth = (isKeyNode ? 500 : 280) / globalScale;
       const words = label.split(" ");
       const lines: string[] = [];
       let currentLine = "";
@@ -939,13 +951,8 @@ export function ProjectGraphVisualization({ projectId, clientId, refreshKey }: P
       }
       if (currentLine) lines.push(currentLine);
 
-      // Show full text for selected/hovered node and their direct neighbors
-      const showFullText = isSelected || isHovered || isSelectedOrNeighbor || isHoveredOrNeighbor;
-      const maxLines = showFullText ? lines.length : 2;
-      const displayLines = lines.slice(0, maxLines);
-      if (!showFullText && lines.length > 2) {
-        displayLines[1] = displayLines[1].slice(0, -3) + "...";
-      }
+      // Always show full text without truncation
+      const displayLines = lines;
 
       const lineHeight = fontSize * 1.3;
       const maxTextWidth = Math.max(...displayLines.map((l) => ctx.measureText(l).width));
@@ -1450,7 +1457,7 @@ export function ProjectGraphVisualization({ projectId, clientId, refreshKey }: P
   return (
     <div
       ref={containerRef}
-      className="h-[600px] overflow-hidden rounded-xl border border-slate-700/50 bg-slate-900/60 backdrop-blur"
+      className="h-[600px] overflow-hidden rounded-xl border border-slate-700/50 bg-slate-900"
     >
       {graphContent}
     </div>

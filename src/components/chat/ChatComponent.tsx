@@ -6,6 +6,12 @@ import { Send, Paperclip, Mic, Image, FileText, X, Radio, Pencil, Check } from "
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { ChatComponentProps, Message, FileUpload, ConversationPlan } from "@/types";
 import {
   cn,
@@ -45,7 +51,6 @@ export function ChatComponent({
   onVoiceMessage,
   onReplyBoxFocusChange,
   onVoiceModeChange,
-  onInitConversation,
   onEditMessage,
   consultantMode = false,
   onSpeakerChange,
@@ -367,13 +372,14 @@ export function ChatComponent({
 
   // Show premium voice interface when voice mode is active
   if (isVoiceMode && voiceModeEnabled && voiceModeSystemPrompt) {
-    console.log('[ChatComponent] 🎙️ Rendering PremiumVoiceInterface', {
-      isVoiceMode,
-      voiceModeEnabled,
-      hasSystemPrompt: !!voiceModeSystemPrompt,
-      askKey,
-      messagesLength: voiceMessages.length
-    });
+    // Convert AskParticipant[] to ParticipantOption[] for speaker assignment
+    const participantOptions = participants.map(p => ({
+      id: p.id,
+      userId: null, // AskParticipant doesn't expose userId directly
+      name: p.name,
+      email: p.email,
+      role: p.role,
+    }));
 
     return (
       <PremiumVoiceInterface
@@ -390,6 +396,7 @@ export function ChatComponent({
         messages={voiceMessages}
         conversationPlan={conversationPlan}
         consultantMode={consultantMode}
+        participants={consultantMode ? participantOptions : undefined}
       />
     );
   }
@@ -584,107 +591,135 @@ export function ChatComponent({
           </div>
         )}
 
-        {/* Input area */}
+        {/* Input area - uses CSS container queries for responsive button labels */}
         {!isVoiceMode && (
-          <div
-            className={cn(
-              "relative border rounded-lg p-2 sm:p-3 transition-colors min-w-0 max-w-full box-border",
-              isDragOver && "border-primary bg-primary/5"
-            )}
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
-            onDrop={handleDrop}
-          >
-            <div className="flex items-end gap-2 min-w-0 max-w-full">
-              <div className="flex-1 min-w-0">
-                <Textarea
-                  value={inputValue}
-                  onChange={(e) => handleInputChange(e.target.value)}
-                  placeholder="Type your response..."
-                  className="border-0 shadow-none resize-none min-h-[60px] focus-visible:ring-0 focus-visible:ring-offset-0 w-full max-w-full min-w-0 box-border text-sm"
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                      e.preventDefault();
-                      handleSendMessage();
-                    }
-                  }}
-                  onFocus={() => {
-                    notifyTyping(true);
-                    onReplyBoxFocusChange?.(true);
-                    // Initiate conversation if no messages exist
-                    if (messages.length === 0) {
-                      onInitConversation?.();
-                    }
-                  }}
-                  onBlur={() => {
-                    notifyTyping(false);
-                    onReplyBoxFocusChange?.(false);
-                  }}
-                />
-              </div>
-              
-              <div className="flex items-center gap-1 flex-shrink-0">
-                {/* File upload button */}
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="h-9 px-2"
-                >
-                  <Paperclip className="h-4 w-4 mr-1" />
-                  <span className="text-xs">Fichier</span>
-                </Button>
-                
-                {/* Voice mode toggle button */}
-                {voiceModeEnabled && voiceModeSystemPrompt && (
-                  <Button
-                    variant={isVoiceMode ? "default" : "ghost"}
-                    size="sm"
-                    onClick={() => {
-                      const newVoiceMode = !isVoiceMode;
-                      setIsVoiceMode(newVoiceMode);
-                      onVoiceModeChange?.(newVoiceMode);
+          <TooltipProvider delayDuration={300}>
+            <div
+              className={cn(
+                "relative border rounded-lg p-2 sm:p-3 transition-colors min-w-0 max-w-full box-border",
+                isDragOver && "border-primary bg-primary/5"
+              )}
+              style={{ containerType: 'inline-size' }}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+            >
+              {/* Responsive layout based on container width */}
+              <div className="flex flex-col @[320px]:flex-row items-stretch @[320px]:items-end gap-2 min-w-0 max-w-full">
+                <div className="flex-1 min-w-0">
+                  <Textarea
+                    value={inputValue}
+                    onChange={(e) => handleInputChange(e.target.value)}
+                    placeholder="Type your response..."
+                    className="border-0 shadow-none resize-none min-h-[60px] focus-visible:ring-0 focus-visible:ring-offset-0 w-full max-w-full min-w-0 box-border text-sm"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        handleSendMessage();
+                      }
                     }}
-                    className={cn("h-9 px-2", isVoiceMode && "bg-primary text-primary-foreground")}
-                    title={isVoiceMode ? "Exit voice mode" : "Enter voice mode"}
-                  >
-                    <Radio className="h-4 w-4 mr-1" />
-                    <span className="text-xs">{isVoiceMode ? "Quitter voix" : "Mode voix"}</span>
-                  </Button>
-                )}
-                
-                {/* Audio recording button (only show if voice mode not enabled) */}
-                {!voiceModeEnabled && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={isRecording ? stopRecording : startRecording}
-                    className={cn("h-9 px-2", isRecording && "text-red-500")}
-                  >
-                    <Mic className="h-4 w-4 mr-1" />
-                    <span className="text-xs">{isRecording ? "Arrêter" : "Dicter"}</span>
-                  </Button>
-                )}
-                
-                {/* Send button */}
-                <Button
-                  onClick={handleSendMessage}
-                  disabled={isLoading || (!inputValue.trim() && selectedFiles.length === 0)}
-                  size="sm"
-                  className="h-9 px-3"
-                >
-                  <Send className="h-4 w-4 mr-1" />
-                  <span className="text-xs">Envoyer</span>
-                </Button>
+                    onFocus={() => {
+                      notifyTyping(true);
+                      onReplyBoxFocusChange?.(true);
+                    }}
+                    onBlur={() => {
+                      notifyTyping(false);
+                      onReplyBoxFocusChange?.(false);
+                    }}
+                  />
+                </div>
+
+                {/* Buttons container - icons only when container < 450px, with labels when wider */}
+                <div className="flex items-center justify-end gap-1 flex-shrink-0 flex-wrap">
+                  {/* File upload button */}
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => fileInputRef.current?.click()}
+                        className="h-9 px-2"
+                      >
+                        <Paperclip className="h-4 w-4 @[450px]:mr-1" />
+                        <span className="text-xs hidden @[450px]:inline">Fichier</span>
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">
+                      <p>Joindre un fichier</p>
+                    </TooltipContent>
+                  </Tooltip>
+
+                  {/* Voice mode toggle button */}
+                  {voiceModeEnabled && voiceModeSystemPrompt && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant={isVoiceMode ? "default" : "ghost"}
+                          size="sm"
+                          onClick={() => {
+                            const newVoiceMode = !isVoiceMode;
+                            setIsVoiceMode(newVoiceMode);
+                            onVoiceModeChange?.(newVoiceMode);
+                          }}
+                          className={cn("h-9 px-2", isVoiceMode && "bg-primary text-primary-foreground")}
+                        >
+                          <Radio className="h-4 w-4 @[450px]:mr-1" />
+                          <span className="text-xs hidden @[450px]:inline">{isVoiceMode ? "Quitter voix" : "Mode voix"}</span>
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">
+                        <p>{isVoiceMode ? "Quitter le mode voix" : "Activer le mode voix"}</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  )}
+
+                  {/* Audio recording button (only show if voice mode not enabled) */}
+                  {!voiceModeEnabled && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={isRecording ? stopRecording : startRecording}
+                          className={cn("h-9 px-2", isRecording && "text-red-500")}
+                        >
+                          <Mic className="h-4 w-4 @[450px]:mr-1" />
+                          <span className="text-xs hidden @[450px]:inline">{isRecording ? "Arrêter" : "Dicter"}</span>
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">
+                        <p>{isRecording ? "Arrêter l'enregistrement" : "Dicter un message"}</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  )}
+
+                  {/* Send button */}
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        onClick={handleSendMessage}
+                        disabled={isLoading || (!inputValue.trim() && selectedFiles.length === 0)}
+                        size="sm"
+                        className="h-9 px-3"
+                      >
+                        <Send className="h-4 w-4 @[450px]:mr-1" />
+                        <span className="text-xs hidden @[450px]:inline">Envoyer</span>
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">
+                      <p>Envoyer le message</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </div>
               </div>
+
+              {isDragOver && (
+                <div className="absolute inset-0 flex items-center justify-center bg-primary/5 rounded-lg border-2 border-dashed border-primary">
+                  <p className="text-primary font-medium">Drop files here</p>
+                </div>
+              )}
             </div>
-            
-            {isDragOver && (
-              <div className="absolute inset-0 flex items-center justify-center bg-primary/5 rounded-lg border-2 border-dashed border-primary">
-                <p className="text-primary font-medium">Drop files here</p>
-              </div>
-            )}
-          </div>
+          </TooltipProvider>
         )}
 
         {/* Hidden file input */}

@@ -13,6 +13,7 @@ import { SessionData, Ask, Message, Insight, Challenge, ApiResponse, Conversatio
 import { ConversationProgressBar } from "@/components/conversation/ConversationProgressBar";
 import { useSessionTimer } from "@/hooks/useSessionTimer";
 import { useConsultantAnalysis } from "@/hooks/useConsultantAnalysis";
+import { useRealtimeMessages } from "@/hooks/useRealtimeMessages";
 import {
   validateAskKey,
   parseErrorMessage,
@@ -29,11 +30,14 @@ type TokenSessionPayload = {
   insights: Insight[];
   challenges?: Challenge[];
   conversationPlan?: import('@/types').ConversationPlan | null;
+  conversationThreadId?: string | null;
   viewer?: {
     participantId?: string | null;
     profileId?: string | null;
     name?: string | null;
     email?: string | null;
+    role?: string | null;
+    isSpokesperson?: boolean;
   } | null;
 };
 
@@ -71,7 +75,6 @@ interface MobileLayoutProps {
   setIsVoiceModeActive: (active: boolean) => void;
   isVoiceModeActive: boolean;
   reloadMessagesAfterVoiceMode: () => void;
-  onInitConversation: () => void;
   onEditMessage: (messageId: string, newContent: string) => Promise<void>;
   mobileActivePanel: 'chat' | 'insights';
   setMobileActivePanel: (panel: 'chat' | 'insights') => void;
@@ -92,6 +95,8 @@ interface MobileLayoutProps {
   onUserTyping: (isTyping: boolean) => void;
   /** Consultant mode - AI-assisted question suggestions */
   isConsultantMode?: boolean;
+  /** Whether current participant is the spokesperson (sees suggested questions in consultant mode) */
+  isSpokesperson?: boolean;
   /** Suggested questions from consultant analysis */
   consultantQuestions?: SuggestedQuestion[];
   /** Whether consultant is analyzing */
@@ -113,7 +118,6 @@ function MobileLayout({
   setIsVoiceModeActive,
   isVoiceModeActive,
   reloadMessagesAfterVoiceMode,
-  onInitConversation,
   onEditMessage,
   mobileActivePanel,
   setMobileActivePanel,
@@ -130,6 +134,7 @@ function MobileLayout({
   isSessionTimerPaused,
   onUserTyping,
   isConsultantMode,
+  isSpokesperson,
   consultantQuestions,
   isConsultantAnalyzing,
 }: MobileLayoutProps) {
@@ -346,7 +351,6 @@ function MobileLayout({
                   voiceModeModelConfig={voiceModeConfig?.modelConfig || undefined}
                   onVoiceMessage={onVoiceMessage}
                   onReplyBoxFocusChange={setIsReplyBoxFocused}
-                  onInitConversation={onInitConversation}
                   onVoiceModeChange={setIsVoiceModeActive}
                   onEditMessage={onEditMessage}
                   consultantMode={sessionData.ask?.conversationMode === 'consultant'}
@@ -364,8 +368,8 @@ function MobileLayout({
             transition={{ duration: 0.2 }}
           >
             <div className="h-full p-2 md:p-4 overflow-y-auto space-y-4">
-              {/* Suggested Questions Panel - Consultant mode only */}
-              {isConsultantMode && consultantQuestions && (
+              {/* Suggested Questions Panel - Consultant mode, spokesperson only */}
+              {isConsultantMode && isSpokesperson && consultantQuestions && (
                 <SuggestedQuestionsPanel
                   questions={consultantQuestions}
                   isAnalyzing={isConsultantAnalyzing}
@@ -437,6 +441,7 @@ export default function HomePage() {
   const participantFromUrl = searchParams.get('participant') || searchParams.get('participantName');
   const derivedParticipantName = participantFromUrl?.trim() ? participantFromUrl.trim() : null;
   const [currentParticipantName, setCurrentParticipantName] = useState<string | null>(derivedParticipantName);
+  const [isCurrentParticipantSpokesperson, setIsCurrentParticipantSpokesperson] = useState(false);
   const isTestMode = searchParams.get('mode') === 'test';
   const [isDetailsCollapsed, setIsDetailsCollapsed] = useState(false);
   const [isReplyBoxFocused, setIsReplyBoxFocused] = useState(false);
@@ -451,9 +456,20 @@ export default function HomePage() {
 
   // Consultant analysis for AI-assisted question suggestions
   const isConsultantMode = sessionData.ask?.conversationMode === 'consultant';
+  const isSpokesperson = isCurrentParticipantSpokesperson;
+
+  // Debug logging for consultant mode
+  console.log('🔍 [CONSULTANT DEBUG]', {
+    conversationMode: sessionData.ask?.conversationMode,
+    isConsultantMode,
+    isCurrentParticipantSpokesperson,
+    isSpokesperson,
+  });
+
   const consultantAnalysis = useConsultantAnalysis({
     askKey: sessionData.askKey || '',
     enabled: isConsultantMode && !!sessionData.askKey,
+    messageCount: sessionData.messages.length, // Only analyze when new messages arrive
     inviteToken: sessionData.inviteToken,
     onStepCompleted: (stepId) => {
       console.log('🎯 [CONSULTANT] Step completed by AI analysis:', stepId);
@@ -461,6 +477,65 @@ export default function HomePage() {
       // UI will be updated on next data refresh
     },
   });
+
+  // Real-time message subscription for shared threads
+  // Enables multi-participant chat where everyone sees messages in real-time
+  const isSharedThread = sessionData.ask?.conversationMode !== 'individual_parallel';
+  const handleRealtimeMessage = useCallback((newMessage: Message) => {
+    console.log('[HomePage] 📨 handleRealtimeMessage called:', {
+      id: newMessage.id,
+      senderType: newMessage.senderType,
+      senderName: newMessage.senderName,
+      contentPreview: newMessage.content?.substring(0, 30),
+    });
+
+    setSessionData(prev => {
+      // Check if message already exists by id OR clientId (avoid duplicates from own messages)
+      const existsById = prev.messages.some(m => m.id === newMessage.id);
+      const existsByClientId = newMessage.clientId && prev.messages.some(m => m.clientId === newMessage.clientId);
+
+      if (existsById || existsByClientId) {
+        console.log('[HomePage] ⏭️ Skipping duplicate realtime message:', {
+          id: newMessage.id,
+          existsById,
+          existsByClientId,
+          existingIds: prev.messages.map(m => m.id).slice(-5),
+        });
+        return prev;
+      }
+
+      console.log('[HomePage] ✅ Adding realtime message:', {
+        id: newMessage.id,
+        senderType: newMessage.senderType,
+        senderName: newMessage.senderName,
+        totalMessages: prev.messages.length + 1,
+      });
+
+      return {
+        ...prev,
+        messages: [...prev.messages, newMessage],
+      };
+    });
+  }, []);
+
+  const { isSubscribed, subscriptionStatus, lastError: realtimeError } = useRealtimeMessages({
+    conversationThreadId: sessionData.conversationThreadId ?? null,
+    askKey: sessionData.askKey || '',
+    enabled: isSharedThread && !!sessionData.conversationThreadId,
+    onNewMessage: handleRealtimeMessage,
+  });
+
+  // Log realtime subscription status changes
+  useEffect(() => {
+    if (isSharedThread) {
+      console.log('[HomePage] 🔴 Realtime subscription:', {
+        status: subscriptionStatus,
+        isSubscribed,
+        threadId: sessionData.conversationThreadId,
+        error: realtimeError,
+      });
+    }
+  }, [subscriptionStatus, isSubscribed, sessionData.conversationThreadId, isSharedThread, realtimeError]);
 
   const autoCollapseTriggeredRef = useRef(false);
   const previousMessageCountRef = useRef(0);
@@ -942,6 +1017,7 @@ export default function HomePage() {
           insights: data.data?.insights ?? [],
           challenges: data.data?.challenges ?? [],
           conversationPlan: data.data?.conversationPlan ?? null,
+          conversationThreadId: data.data?.conversationThreadId ?? null,
           isLoading: false,
           error: null,
         };
@@ -949,6 +1025,14 @@ export default function HomePage() {
 
       const viewerName = data.data?.viewer?.name ?? data.data?.viewer?.email ?? derivedParticipantName ?? null;
       setCurrentParticipantName(viewerName);
+
+      // Debug logging for spokesperson status
+      console.log('🔍 [VIEWER DEBUG]', {
+        viewer: data.data?.viewer,
+        isSpokesperson: data.data?.viewer?.isSpokesperson,
+      });
+
+      setIsCurrentParticipantSpokesperson(data.data?.viewer?.isSpokesperson === true);
 
     } catch (error) {
       console.error('Error loading session data by token:', error);
@@ -984,6 +1068,15 @@ export default function HomePage() {
         insights?: Insight[];
         challenges?: any[];
         conversationPlan?: ConversationPlan | null;
+        conversationThreadId?: string | null;
+        viewer?: {
+          participantId: string | null;
+          profileId: string | null;
+          isSpokesperson: boolean;
+          name: string | null;
+          email: string | null;
+          role: string | null;
+        } | null;
       }> = await response.json();
 
       if (!data.success) {
@@ -1044,12 +1137,25 @@ export default function HomePage() {
           insights: data.data?.insights ?? [],
           challenges: data.data?.challenges ?? [],
           conversationPlan: data.data?.conversationPlan ?? null,
+          conversationThreadId: data.data?.conversationThreadId ?? null,
           isLoading: false,
           error: null,
         };
       });
 
-      setCurrentParticipantName(derivedParticipantName);
+      // Set participant name from viewer info (prioritize viewer data over URL param)
+      const viewerName = data.data?.viewer?.name ?? data.data?.viewer?.email ?? derivedParticipantName ?? null;
+      setCurrentParticipantName(viewerName);
+
+      // Set spokesperson status from viewer info (for key-based access)
+      if (data.data?.viewer) {
+        console.log('[HomePage] 🔍 Viewer info from key-based access:', {
+          isSpokesperson: data.data.viewer.isSpokesperson,
+          participantId: data.data.viewer.participantId,
+          name: data.data.viewer.name,
+        });
+        setIsCurrentParticipantSpokesperson(data.data.viewer.isSpokesperson === true);
+      }
 
     } catch (error) {
       console.error('Error loading session data:', error);
@@ -1061,56 +1167,6 @@ export default function HomePage() {
     }
   };
 
-  // Handle initializing conversation when textarea gets focus and no messages exist
-  const handleInitConversation = useCallback(async () => {
-    // Only initiate if there are no messages
-    if (sessionData.messages.length > 0) {
-      return;
-    }
-
-    if (!sessionData.askKey) {
-      return;
-    }
-
-    try {
-      console.log('💬 HomePage: Initiating conversation on textarea focus');
-
-      const endpoint = `/api/ask/${sessionData.askKey}/init`;
-
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-      };
-
-      if (sessionData.inviteToken) {
-        headers['X-Invite-Token'] = sessionData.inviteToken;
-      }
-
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers,
-      });
-
-      const data: ApiResponse<{ message: Message | null }> = await response.json();
-
-      if (!data.success) {
-        console.error('Failed to initiate conversation:', data.error);
-        return;
-      }
-
-      // If a message was created, add it to the state
-      if (data.data?.message) {
-        setSessionData(prev => ({
-          ...prev,
-          messages: [...prev.messages, data.data!.message!],
-        }));
-        console.log('✅ HomePage: Initial conversation message added:', data.data.message.id);
-      }
-    } catch (error) {
-      console.error('Error initiating conversation:', error);
-    }
-  }, [sessionData.messages.length, sessionData.askKey, sessionData.inviteToken]);
-
-
   // Handle voice mode messages
   // Track current streaming message ID to update the same message
   const currentStreamingMessageIdRef = useRef<string | null>(null);
@@ -1119,13 +1175,14 @@ export default function HomePage() {
   const handleVoiceMessage = useCallback(async (
     role: 'user' | 'agent',
     content: string,
-    metadata?: { isInterim?: boolean; messageId?: string; timestamp?: string }
+    metadata?: { isInterim?: boolean; messageId?: string; timestamp?: string; speaker?: string }
   ) => {
     if (!sessionData.askKey || !content.trim()) return;
 
     const isInterim = metadata?.isInterim || false;
     const messageId = metadata?.messageId;
     const timestamp = metadata?.timestamp || new Date().toISOString();
+    const speaker = metadata?.speaker; // Speaker from diarization (S1, S2, etc.)
     const optimisticId = `temp-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
     
     if (role === 'user') {
@@ -1311,9 +1368,10 @@ export default function HomePage() {
           body: JSON.stringify({
             content,
             type: 'text',
-            metadata: { 
+            metadata: {
               voiceTranscribed: true,
               messageId, // Preserve messageId in metadata for deduplication
+              ...(speaker && { speaker }), // Include speaker from diarization
             },
             senderName,
             timestamp,
@@ -1408,9 +1466,16 @@ export default function HomePage() {
     } else {
       // Agent response - clear streaming message refs to allow new user message
       // This allows the next user message to create a new message instead of updating the previous one
+      console.log('[HomePage] 🤖 Voice AGENT response received:', {
+        contentPreview: content.substring(0, 100),
+        isInterim,
+        hasLogId: !!voiceAgentLogIdRef.current,
+        logId: voiceAgentLogIdRef.current,
+      });
+
       currentStreamingMessageIdRef.current = null;
       currentStreamingMessageClientIdRef.current = null;
-      
+
       // Create AI message from agent response
       const optimisticMessage: Message = {
         clientId: optimisticId,
@@ -1459,8 +1524,12 @@ export default function HomePage() {
         if (response.ok && data.success && data.data?.message) {
           // Complete log for agent response
           if (voiceAgentLogIdRef.current) {
+            console.log('[HomePage] 📝 Completing voice agent log:', {
+              logId: voiceAgentLogIdRef.current,
+              contentPreview: content.substring(0, 50),
+            });
             try {
-              await fetch(`/api/ask/${sessionData.askKey}/voice-agent/log`, {
+              const logCompleteResponse = await fetch(`/api/ask/${sessionData.askKey}/voice-agent/log`, {
                 method: 'POST',
                 headers: {
                   'Content-Type': 'application/json',
@@ -1472,10 +1541,17 @@ export default function HomePage() {
                   logId: voiceAgentLogIdRef.current,
                 }),
               });
+              if (logCompleteResponse.ok) {
+                console.log('[HomePage] ✅ Voice agent log completed successfully');
+              } else {
+                console.error('[HomePage] ❌ Voice agent log completion failed:', await logCompleteResponse.text());
+              }
               voiceAgentLogIdRef.current = null; // Reset after completing
             } catch (error) {
               console.error('Error completing voice agent log:', error);
             }
+          } else {
+            console.warn('[HomePage] ⚠️ No logId available to complete - agent response will not be logged');
           }
 
           setSessionData(prev => ({
@@ -1914,6 +1990,15 @@ export default function HomePage() {
         return;
       }
 
+      // In consultant mode, the AI does NOT respond automatically
+      // The spokesperson asks questions manually using the suggested questions panel
+      const currentConversationMode = sessionData.ask?.conversationMode;
+      if (currentConversationMode === 'consultant') {
+        console.log('[handleSendMessage] ⏭️ Skipping AI response (consultant mode - AI listens only)');
+        stopAwaitingAiResponse();
+        return;
+      }
+
       console.log('[handleSendMessage] 🎬 Starting streaming response...');
       startAwaitingAiResponse();
       const insightsCapturedDuringStream = await handleStreamingResponse(content);
@@ -2294,7 +2379,6 @@ export default function HomePage() {
           setIsVoiceModeActive={setIsVoiceModeActive}
           isVoiceModeActive={isVoiceModeActive}
           reloadMessagesAfterVoiceMode={reloadMessagesAfterVoiceMode}
-          onInitConversation={handleInitConversation}
           onEditMessage={handleEditMessage}
           mobileActivePanel={mobileActivePanel}
           setMobileActivePanel={setMobileActivePanel}
@@ -2311,6 +2395,7 @@ export default function HomePage() {
           isSessionTimerPaused={sessionTimer.isPaused}
           onUserTyping={sessionTimer.notifyUserTyping}
           isConsultantMode={isConsultantMode}
+          isSpokesperson={isSpokesperson}
           consultantQuestions={consultantAnalysis.questions}
           isConsultantAnalyzing={consultantAnalysis.isAnalyzing}
         />
@@ -2352,7 +2437,6 @@ export default function HomePage() {
                   voiceModeModelConfig={voiceModeConfig?.modelConfig || undefined}
                   onVoiceMessage={handleVoiceMessage}
                   onReplyBoxFocusChange={setIsReplyBoxFocused}
-                  onInitConversation={handleInitConversation}
                   onVoiceModeChange={handleVoiceModeChange}
                   onEditMessage={handleEditMessage}
                   consultantMode={sessionData.ask?.conversationMode === 'consultant'}
@@ -2500,8 +2584,8 @@ export default function HomePage() {
                 </motion.div>
               )}
 
-              {/* Suggested Questions Panel - Consultant mode only */}
-              {isConsultantMode && (
+              {/* Suggested Questions Panel - Consultant mode, spokesperson only */}
+              {isConsultantMode && isSpokesperson && (
                 <SuggestedQuestionsPanel
                   questions={consultantAnalysis.questions}
                   isAnalyzing={consultantAnalysis.isAnalyzing}

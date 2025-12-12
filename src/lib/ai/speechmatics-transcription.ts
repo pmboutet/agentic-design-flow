@@ -75,10 +75,12 @@ export class TranscriptionManager {
   private currentSpeaker: string | undefined = undefined;
 
   // ===== CONSTANTES DE CONFIGURATION =====
-  // Timeout de détection de silence (2s) - fail-safe si aucune transcription partielle n'arrive
-  private readonly SILENCE_DETECTION_TIMEOUT = 2000;
-  // Timeout plus rapide (800ms) quand les partials sont désactivés
-  private readonly SILENCE_DETECTION_TIMEOUT_NO_PARTIALS = 800;
+  // Timeout de détection de silence (10s) - wait for user to truly finish speaking
+  // 10 seconds is long enough to allow for thinking pauses without triggering premature responses
+  // No Mistral/semantic detection needed - just pure silence-based turn detection
+  private readonly SILENCE_DETECTION_TIMEOUT = 10000;
+  // Timeout plus rapide (5s) quand les partials sont désactivés
+  private readonly SILENCE_DETECTION_TIMEOUT_NO_PARTIALS = 5000;
   // Délai de finalisation de l'énoncé (800ms) - réduit grâce à la fonctionnalité abort-on-continue
   // Si l'utilisateur continue de parler après ce délai, la réponse sera annulée
   // 800ms is a good balance: fast enough for responsive feel, slow enough to avoid fragmentation
@@ -146,11 +148,10 @@ export class TranscriptionManager {
       clearTimeout(this.silenceTimeout);
       this.silenceTimeout = null;
     }
-    if (this.semanticOptions?.detector) {
-      this.triggerSemanticEvaluation('silence_timeout');
-    } else {
-      void this.processPendingTranscript(true);
-    }
+    // SIMPLIFIED: No more Mistral/semantic detection - just process after silence
+    // 10 seconds of silence is long enough to be confident user is done
+    console.log(`[${getTimestamp()}] [Transcription] ⏰ 10s silence timeout - processing message (no Mistral check)`);
+    void this.processPendingTranscript(true);
   }
 
   /**
@@ -186,13 +187,12 @@ export class TranscriptionManager {
    */
   markEndOfUtterance(): void {
     this.receivedEndOfUtterance = true;
-    if (this.semanticOptions?.detector) {
-      this.triggerSemanticEvaluation('end_of_utterance');
-      return;
-    }
-    const shouldForce = this.enablePartials;
-    // When partials are disabled we keep the normal debounce to let the final chunk arrive
-    this.scheduleUtteranceFinalization(shouldForce);
+    // SIMPLIFIED: Don't trigger Mistral check on end_of_utterance
+    // Just mark it and let the 10s silence timeout handle processing
+    // This gives user plenty of time to continue if they're just thinking
+    console.log(`[${getTimestamp()}] [Transcription] 📝 EndOfUtterance received - waiting for 10s silence timeout`);
+    // Don't schedule anything - let the silence timeout (10s) do its job
+    // The user might just be pausing to think
   }
 
   /**
@@ -354,7 +354,20 @@ export class TranscriptionManager {
     if (!transcript || !transcript.trim()) return;
 
     const trimmedTranscript = transcript.trim();
+
+    // CRITICAL: Cancel any pending utterance finalization when user continues speaking
+    // This prevents sending incomplete messages if user resumes after a brief pause
+    // (e.g., after end_of_utterance + high Mistral probability but user continues)
+    this.cancelUtteranceDebounce();
     this.clearSemanticHold();
+
+    // SPEAKER CHANGE DETECTION: If speaker changes, finalize the previous speaker's message
+    // This is critical for consultant mode where we want to track different speakers
+    if (speaker && this.currentSpeaker && speaker !== this.currentSpeaker && this.pendingFinalTranscript) {
+      console.log(`[${getTimestamp()}] [Transcription] 🔄 Speaker change detected: ${this.currentSpeaker} → ${speaker}, finalizing previous message`);
+      // Process the pending transcript from the previous speaker immediately
+      void this.processPendingTranscript(true, false);
+    }
 
     // Update current speaker if provided
     if (speaker) {
@@ -427,15 +440,39 @@ export class TranscriptionManager {
       else if (pendingTrimmed.includes(trimmedTranscript)) {
         // no-op
       }
-      // Case 4: partial overlap -> merge
+      // Case 4: Check if this is a "refinement" (Speechmatics correcting/improving the same utterance)
+      // Speechmatics often sends variations like "dans le jeu où il faut" → "dans le jeu ou le fait semblant"
+      // These share many words but aren't simple prefix/suffix - they're refinements, not continuations
       else {
-        this.pendingFinalTranscript = this.mergeTranscriptSegments(pendingTrimmed, trimmedTranscript);
+        const pendingWords = pendingTrimmed.toLowerCase().split(/\s+/);
+        const incomingWords = trimmedTranscript.toLowerCase().split(/\s+/);
+
+        // Count shared words (order doesn't matter)
+        const pendingSet = new Set(pendingWords);
+        const sharedWords = incomingWords.filter(w => pendingSet.has(w)).length;
+        const overlapRatio = sharedWords / Math.max(pendingWords.length, incomingWords.length);
+
+        // If >50% word overlap, it's likely a refinement - use the longer/newer one
+        if (overlapRatio > 0.5) {
+          // Use the longer version, or the new one if similar length
+          if (trimmedTranscript.length >= pendingTrimmed.length * 0.8) {
+            this.pendingFinalTranscript = trimmedTranscript;
+          }
+          // else keep pending (it's longer)
+        }
+        // Low overlap - check for suffix/prefix continuation
+        else {
+          this.pendingFinalTranscript = this.mergeTranscriptSegments(pendingTrimmed, trimmedTranscript);
+        }
       }
     }
     
-    // Reset timers so we only process after user truly stops talking
+    // Reset silence timeout - this is the primary mechanism for detecting end of speech
+    // We DON'T call scheduleUtteranceFinalization() here because it was causing premature
+    // semantic evaluations (every 800ms) even while user is still speaking.
+    // Instead, let the silence timeout (2s) naturally trigger processing when user truly stops.
+    // Semantic evaluation will fire on silence_timeout or end_of_utterance events only.
     this.resetSilenceTimeout();
-    this.scheduleUtteranceFinalization();
     
     const previewContent = this.cleanTranscript(this.pendingFinalTranscript || trimmedTranscript);
     if (!previewContent) {
@@ -531,6 +568,7 @@ export class TranscriptionManager {
       });
 
       if (typeof probability === 'number' && probability >= options.threshold) {
+        // HIGH PROBABILITY: Mistral says user is done speaking → process immediately
         this.emitSemanticTelemetry('dispatch', trigger, probability);
         this.clearSemanticHold();
         // DO NOT use absoluteFailsafe here - we want to check fragment endings
@@ -540,29 +578,30 @@ export class TranscriptionManager {
       }
 
       if (probability === null) {
+        // Mistral error or timeout - fall back to silence_timeout
         this.emitSemanticTelemetry('fallback', trigger, probability, 'detector-null');
         this.clearSemanticHold();
-        // DO NOT use absoluteFailsafe here - still check fragment endings
-        this.scheduleUtteranceFinalization(true, false);
+        // Let silence_timeout handle it - don't force process
+        console.log(`[${getTimestamp()}] [Transcription] ⏳ Mistral returned null, waiting for silence_timeout`);
+        this.resetSilenceTimeout();
         return;
       }
 
-      if (this.extendSemanticHold(trigger, probability)) {
-        this.emitSemanticTelemetry('hold', trigger, probability, 'probability-below-threshold');
-        return;
-      }
-
-      // maxHoldMs exceeded - use absoluteFailsafe to FORCE send the message
-      // This is the safety valve that prevents infinite waiting
-      this.emitSemanticTelemetry('fallback', trigger, probability, 'max-hold-exceeded');
+      // LOW PROBABILITY: Mistral says user is NOT done speaking
+      // Instead of re-checking every 900ms (which caused too many Mistral calls),
+      // just wait for silence_timeout (2s) to naturally trigger processing.
+      // This is more conservative but reduces API calls significantly.
+      this.emitSemanticTelemetry('hold', trigger, probability, 'probability-below-threshold-waiting-silence');
       this.clearSemanticHold();
-      this.scheduleUtteranceFinalization(true, true); // absoluteFailsafe=true
+      console.log(`[${getTimestamp()}] [Transcription] ⏳ Mistral says incomplete (${probability.toFixed(2)} < ${options.threshold}), waiting for silence_timeout`);
+      this.resetSilenceTimeout();
     } catch (error) {
       console.error('[Transcription] ❌ Semantic detector error', error);
       this.emitSemanticTelemetry('fallback', trigger, null, 'detector-error');
       this.clearSemanticHold();
-      // On error, use absoluteFailsafe to ensure message is sent
-      this.scheduleUtteranceFinalization(true, true); // absoluteFailsafe=true
+      // On error, fall back to silence_timeout instead of forcing
+      console.log(`[${getTimestamp()}] [Transcription] ⏳ Mistral error, waiting for silence_timeout`);
+      this.resetSilenceTimeout();
     } finally {
       this.semanticEvaluationInFlight = false;
       if (this.pendingSemanticTrigger) {
@@ -767,6 +806,14 @@ export class TranscriptionManager {
     const trimmedTranscript = transcript.trim();
     this.clearSemanticHold();
 
+    // SPEAKER CHANGE DETECTION: If speaker changes, finalize the previous speaker's message
+    // This is critical for consultant mode where we want to track different speakers
+    if (speaker && this.currentSpeaker && speaker !== this.currentSpeaker && this.pendingFinalTranscript) {
+      console.log(`[${getTimestamp()}] [Transcription] 🔄 Speaker change detected (final): ${this.currentSpeaker} → ${speaker}, finalizing previous message`);
+      // Process the pending transcript from the previous speaker immediately
+      void this.processPendingTranscript(true, false);
+    }
+
     // Update current speaker if provided
     if (speaker) {
       this.currentSpeaker = speaker;
@@ -851,10 +898,26 @@ export class TranscriptionManager {
         return;
       }
       
-      // Case 7: Completely different segments - append
-      // Example: pending="partie 1", new="partie 2"
-      this.pendingFinalTranscript = this.mergeTranscriptSegments(pendingTrimmed, trimmedTranscript);
-      this.lastFinalUserContent = trimmedTranscript;
+      // Case 7: Check if this is a "refinement" before appending
+      // Speechmatics sends variations like "dans le jeu où il faut" → "dans le jeu ou le fait semblant"
+      const pendingWords = pendingTrimmed.toLowerCase().split(/\s+/);
+      const incomingWords = trimmedTranscript.toLowerCase().split(/\s+/);
+      const pendingSet = new Set(pendingWords);
+      const sharedWords = incomingWords.filter(w => pendingSet.has(w)).length;
+      const overlapRatio = sharedWords / Math.max(pendingWords.length, incomingWords.length);
+
+      // If >50% word overlap, it's a refinement - use the longer/newer one
+      if (overlapRatio > 0.5) {
+        if (trimmedTranscript.length >= pendingTrimmed.length * 0.8) {
+          this.pendingFinalTranscript = trimmedTranscript;
+          this.lastFinalUserContent = trimmedTranscript;
+        }
+        // else keep pending
+      } else {
+        // Low overlap - true continuation, merge segments
+        this.pendingFinalTranscript = this.mergeTranscriptSegments(pendingTrimmed, trimmedTranscript);
+        this.lastFinalUserContent = trimmedTranscript;
+      }
       this.resetSilenceTimeout();
       this.scheduleUtteranceFinalization();
       return;
@@ -938,16 +1001,45 @@ export class TranscriptionManager {
 
   /**
    * Merge two transcript segments by detecting overlap and appending only the new portion
+   * Improved to handle word-level overlap detection for better accuracy
    */
   private mergeTranscriptSegments(existing: string, incoming: string): string {
     const existingTrimmed = existing.trim();
     const incomingTrimmed = incoming.trim();
-    
-    const overlap = this.findOverlap(existingTrimmed, incomingTrimmed);
-    if (overlap.length > 3) {
-      const newPortion = incomingTrimmed.substring(overlap.length);
+
+    // First try character-level overlap detection
+    const charOverlap = this.findOverlap(existingTrimmed, incomingTrimmed);
+    if (charOverlap.length > 3) {
+      const newPortion = incomingTrimmed.substring(charOverlap.length);
       return `${existingTrimmed}${newPortion ? ' ' + newPortion : ''}`.replace(/\s+/g, ' ').trim();
     }
+
+    // Try word-level overlap detection (more robust for speech)
+    const existingWords = existingTrimmed.split(/\s+/);
+    const incomingWords = incomingTrimmed.split(/\s+/);
+
+    // Look for word-level overlap at the end of existing / start of incoming
+    let maxOverlapWords = 0;
+    const maxCheck = Math.min(existingWords.length, incomingWords.length, 5); // Check up to 5 words
+
+    for (let i = 1; i <= maxCheck; i++) {
+      const existingEnd = existingWords.slice(-i).join(' ').toLowerCase();
+      const incomingStart = incomingWords.slice(0, i).join(' ').toLowerCase();
+      if (existingEnd === incomingStart) {
+        maxOverlapWords = i;
+      }
+    }
+
+    if (maxOverlapWords > 0) {
+      // Found word overlap - append only the non-overlapping part
+      const newWords = incomingWords.slice(maxOverlapWords);
+      if (newWords.length > 0) {
+        return `${existingTrimmed} ${newWords.join(' ')}`.replace(/\s+/g, ' ').trim();
+      }
+      return existingTrimmed; // Incoming was fully contained in overlap
+    }
+
+    // No overlap found - just append (this is a true continuation)
     return `${existingTrimmed} ${incomingTrimmed}`.replace(/\s+/g, ' ').trim();
   }
 

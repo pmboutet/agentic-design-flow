@@ -1399,6 +1399,9 @@ export async function POST(
       }, { status: 404 });
     }
 
+    // In consultant mode, AI doesn't respond automatically - only saves messages and detects insights
+    const isConsultantMode = askRow.conversation_mode === 'consultant';
+
     if (detectInsightsOnly) {
       if (typeof askSessionId !== 'string') {
         return NextResponse.json<ApiResponse>({
@@ -1770,8 +1773,17 @@ export async function POST(
           latestAiResponse = message.content;
 
           // Check for step completion markers in voice messages (same logic as text mode)
+          console.log('[respond] 🎤 Voice message STEP_COMPLETE check:', {
+            hasConversationThread: !!conversationThread,
+            threadId: conversationThread?.id,
+            contentPreview: latestAiResponse.substring(0, 200),
+            contentLength: latestAiResponse.length,
+            containsStepComplete: latestAiResponse.includes('STEP_COMPLETE'),
+          });
+
           if (conversationThread) {
             const detectedStepId = detectStepCompletion(latestAiResponse);
+            console.log('[respond] 🎤 Voice message detectStepCompletion result:', detectedStepId);
             if (detectedStepId) {
               try {
                 const plan = await getConversationPlanWithSteps(supabase, conversationThread.id);
@@ -1813,8 +1825,8 @@ export async function POST(
             }
           }
         }
-      } else {
-        // Regular text mode: call executeAgent
+      } else if (!isConsultantMode) {
+        // Regular text mode: call executeAgent (skip in consultant mode - AI doesn't respond)
         // Use buildConversationAgentVariables for the agent call to include plan
         const conversationMessages = messages.map(m => ({
           id: m.id,

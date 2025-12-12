@@ -24,19 +24,20 @@ describe('shouldUseSharedThread', () => {
       expect(shouldUseSharedThread(config)).toBe(true);
     });
 
-    it('should return false for consultant mode (individual thread like individual_parallel)', () => {
+    it('should return true for consultant mode (shared thread with multi-participant support)', () => {
       const config: AskSessionConfig = {
         conversation_mode: 'consultant',
       };
-      // Consultant mode uses individual threads (same as individual_parallel)
-      expect(shouldUseSharedThread(config)).toBe(false);
+      // Consultant mode uses shared threads for multi-participant support (text or voice)
+      // Only the facilitator sees suggested questions, AI doesn't respond automatically
+      expect(shouldUseSharedThread(config)).toBe(true);
     });
 
     it('should handle unknown conversation_mode values as shared', () => {
       const config: AskSessionConfig = {
         conversation_mode: 'some_unknown_mode',
       };
-      // Any mode other than 'individual_parallel' or 'consultant' should use shared thread
+      // Any mode other than 'individual_parallel' should use shared thread
       expect(shouldUseSharedThread(config)).toBe(true);
     });
   });

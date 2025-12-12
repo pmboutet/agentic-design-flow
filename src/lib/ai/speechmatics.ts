@@ -186,6 +186,11 @@ export class SpeechmaticsVoiceAgent {
     // Réinitialiser le flag de déconnexion
     this.isDisconnected = false;
     this.config = config;
+    console.log(`[${getTimestamp()}] [Speechmatics] 🔧 Config received:`, {
+      disableLLM: config.disableLLM,
+      disableElevenLabsTTS: config.disableElevenLabsTTS,
+      sttDiarization: config.sttDiarization,
+    });
     // Refresh semantic detector on each connection to pick up env changes
     this.semanticTurnConfig = resolveSemanticTurnDetectorConfig();
     this.semanticTurnDetector = createSemanticTurnDetector(this.semanticTurnConfig);
@@ -305,6 +310,9 @@ export class SpeechmaticsVoiceAgent {
 
     // Handle RecognitionStarted
     if (data.message === "RecognitionStarted") {
+      // Log diarization status from server confirmation
+      const diarization = data.transcription_config?.diarization || 'not confirmed';
+      console.log(`[Speechmatics] ✅ Recognition started (diarization: ${diarization})`);
       return;
     }
     
@@ -321,7 +329,7 @@ export class SpeechmaticsVoiceAgent {
     // Handle partial transcription
     if (data.message === "AddPartialTranscript") {
       // Speechmatics API structure: transcript is in metadata.transcript (full text)
-      // Speaker info is in results array - each word has a speaker field (S1, S2, UU)
+      // Speaker info is in results[].alternatives[0].speaker (S1, S2, UU)
       const transcript = data.metadata?.transcript || "";
       const speaker = this.extractDominantSpeaker(data.results);
 
@@ -368,9 +376,14 @@ export class SpeechmaticsVoiceAgent {
     // Handle final transcription
     if (data.message === "AddTranscript") {
       // Speechmatics API structure: transcript is in metadata.transcript (full text)
-      // Speaker info is in results array - each word has a speaker field (S1, S2, UU)
+      // Speaker info is in results[].alternatives[0].speaker (S1, S2, UU)
       const transcript = data.metadata?.transcript || "";
       const speaker = this.extractDominantSpeaker(data.results);
+
+      // Log speaker detection for consultant mode debugging
+      if (speaker && transcript.trim()) {
+        console.log(`[Speechmatics] 🎤 Speaker ${speaker}: "${transcript.trim().substring(0, 50)}..."`);
+      }
 
       if (transcript && transcript.trim()) {
         // Get recent conversation context for echo detection (last agent message + last user message)
@@ -482,6 +495,19 @@ export class SpeechmaticsVoiceAgent {
       this.audio.updateConversationHistory(historyForDetection);
     }
 
+    // In consultant mode (disableLLM), skip LLM response generation entirely
+    // The transcription is already captured and sent via callback, so just exit
+    if (this.config?.disableLLM) {
+      console.log(`[${getTimestamp()}] [Speechmatics] 🎧 Consultant mode - skipping LLM response`);
+      this.isGeneratingResponse = false;
+      // Process any queued messages (still in transcription-only mode)
+      if (this.userMessageQueue.length > 0) {
+        const next = this.userMessageQueue.shift()!;
+        this.processUserMessage(next.content);
+      }
+      return;
+    }
+
     // Create abort controller for this LLM request
     this.llmAbortController = new AbortController();
     const signal = this.llmAbortController.signal;
@@ -548,7 +574,20 @@ export class SpeechmaticsVoiceAgent {
         this.audio.updateConversationHistory(historyForDetection);
       }
 
-      // Notify callback
+      // Log the agent response for debugging
+      console.log('[Speechmatics] 🤖 LLM response ready:', {
+        contentPreview: llmResponse.substring(0, 100),
+        contentLength: llmResponse.length,
+        hasCallback: !!this.onMessageCallback,
+        containsStepComplete: llmResponse.includes('STEP_COMPLETE'),
+      });
+
+      // Log full response if it contains STEP_COMPLETE for debugging
+      if (llmResponse.includes('STEP_COMPLETE')) {
+        console.log('[Speechmatics] ✅ STEP_COMPLETE detected in LLM response!');
+      }
+
+      // Notify callback with FINAL agent response
       this.onMessageCallback?.({
         role: 'agent',
         content: llmResponse,
@@ -556,19 +595,24 @@ export class SpeechmaticsVoiceAgent {
         isInterim: false,
       });
 
+      console.log('[Speechmatics] 📤 Agent FINAL message sent to callback');
+
       // Generate TTS audio only if ElevenLabs is enabled (not in text-only mode)
       if (!this.config?.disableElevenLabsTTS && this.elevenLabsTTS && this.audio) {
         try {
+          console.log('[Speechmatics] 🔊 Starting TTS generation...');
           // Set current assistant speech for echo detection
           this.audio.setCurrentAssistantSpeech(llmResponse);
 
           const audioStream = await this.elevenLabsTTS.streamTextToSpeech(llmResponse);
           const audioData = await this.audio.streamToUint8Array(audioStream);
           if (audioData) {
+            console.log('[Speechmatics] 🔊 TTS audio ready, size:', audioData.length, 'bytes');
             this.onAudioCallback?.(audioData);
             await this.audio.playAudio(audioData).catch(err => {
               console.error('[Speechmatics] ❌ Error playing audio:', err);
             });
+            console.log('[Speechmatics] 🔊 TTS playback started');
           }
         } catch (error) {
           console.error('[Speechmatics] Error generating TTS audio:', error);
@@ -769,10 +813,10 @@ export class SpeechmaticsVoiceAgent {
 
   /**
    * Extract the dominant speaker from Speechmatics results array
-   * Each word in the results has a speaker field (S1, S2, S3, UU for unknown)
+   * According to Speechmatics API docs, speaker is in alternatives[0].speaker (S1, S2, S3, UU for unknown)
    * Returns the most frequently occurring speaker in the transcript
    */
-  private extractDominantSpeaker(results?: Array<{ speaker?: string }>): string | undefined {
+  private extractDominantSpeaker(results?: Array<{ alternatives?: Array<{ speaker?: string }> }>): string | undefined {
     if (!results || !Array.isArray(results) || results.length === 0) {
       return undefined;
     }
@@ -780,7 +824,8 @@ export class SpeechmaticsVoiceAgent {
     // Count speaker occurrences
     const speakerCounts: Record<string, number> = {};
     for (const result of results) {
-      const speaker = result.speaker;
+      // Speaker is in alternatives[0].speaker according to Speechmatics API docs
+      const speaker = result.alternatives?.[0]?.speaker;
       if (speaker && speaker !== 'UU') { // Skip unknown speakers for counting
         speakerCounts[speaker] = (speakerCounts[speaker] || 0) + 1;
       }
@@ -797,7 +842,7 @@ export class SpeechmaticsVoiceAgent {
     }
 
     // If no dominant speaker found but we have results with UU, return UU
-    if (!dominantSpeaker && results.some(r => r.speaker === 'UU')) {
+    if (!dominantSpeaker && results.some(r => r.alternatives?.[0]?.speaker === 'UU')) {
       return 'UU';
     }
 

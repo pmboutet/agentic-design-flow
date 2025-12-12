@@ -4,7 +4,7 @@ import { ApiResponse, Ask, AskParticipant, Insight, Message } from '@/types';
 import { isValidAskKey, parseErrorMessage } from '@/lib/utils';
 import { mapInsightRowToInsight } from '@/lib/insights';
 import { fetchInsightsForSession } from '@/lib/insightQueries';
-import { getAskSessionByKey, getOrCreateConversationThread, getMessagesForThread, getInsightsForThread, shouldUseSharedThread } from '@/lib/asks';
+import { getAskSessionByKey, getOrCreateConversationThread, getMessagesForThread, shouldUseSharedThread } from '@/lib/asks';
 import { createServerSupabaseClient } from '@/lib/supabaseServer';
 import { executeAgent } from '@/lib/ai/service';
 import { buildConversationAgentVariables } from '@/lib/ai/conversation-agent';
@@ -12,14 +12,13 @@ import { getConversationPlanWithSteps, getActiveStep, type ConversationPlan } fr
 import {
   buildParticipantDisplayName,
   buildMessageSenderName,
-  buildParticipantSummary,
   type UserRow,
-  type ParticipantRow,
   type ProjectRow,
   type ChallengeRow,
   type MessageRow,
 } from '@/lib/conversation-context';
 import { normaliseMessageMetadata } from '@/lib/messages';
+import { loadFullAuthContext, type AskViewer } from '@/lib/ask-session-loader';
 
 interface AskSessionRow {
   id: string;
@@ -75,104 +74,37 @@ export async function GET(
       }, { status: 400 });
     }
 
-    const supabase = await createServerSupabaseClient();
     const isDevBypass = process.env.IS_DEV === 'true';
 
-    let adminClient: SupabaseClient | null = null;
-    const getAdminClient = async () => {
-      if (!adminClient) {
-        const { getAdminSupabaseClient } = await import('@/lib/supabaseAdmin');
-        adminClient = getAdminSupabaseClient();
+    // Create session client for auth (even in dev mode, we need cookies for auth.getUser)
+    const { createServerClient } = await import('@supabase/ssr');
+    const { cookies } = await import('next/headers');
+    const cookieStore = await cookies();
+    const sessionClient = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        cookies: {
+          get(name: string) {
+            return cookieStore.get(name)?.value;
+          },
+          set() {},
+          remove() {},
+        },
       }
-      return adminClient;
-    };
+    ) as unknown as SupabaseClient;
 
-    let dataClient: SupabaseClient = supabase;
-    let profileId: string | null = null;
-    let participantId: string | null = null;
+    // Get admin client for data operations (bypasses RLS)
+    const { getAdminSupabaseClient } = await import('@/lib/supabaseAdmin');
+    const adminClient = getAdminSupabaseClient();
 
-    // Check for invite token in headers (allows anonymous participation)
+    // In dev mode, use admin client for data operations
+    const dataClient: SupabaseClient = isDevBypass ? adminClient : sessionClient;
+
+    // Check for invite token in headers
     const inviteToken = request.headers.get('X-Invite-Token');
 
-    if (!isDevBypass) {
-      // Try to authenticate via invite token first
-      if (inviteToken) {
-        console.log(`🔑 GET /api/ask/[key]: Attempting authentication via invite token ${inviteToken.substring(0, 8)}...`);
-
-        // Use admin client to validate token and get participant info
-        const admin = await getAdminClient();
-
-        const { data: participant, error: tokenError } = await admin
-          .from('ask_participants')
-          .select('id, user_id, ask_session_id')
-          .eq('invite_token', inviteToken)
-          .maybeSingle();
-
-        if (tokenError) {
-          console.error('❌ Error validating invite token:', tokenError);
-        } else if (participant) {
-          // STRICT REQUIREMENT: Every participant MUST have a user_id
-          if (!participant.user_id) {
-            console.error('❌ GET: Invite token is not linked to a user profile', {
-              participantId: participant.id,
-              inviteToken: inviteToken.substring(0, 8) + '...'
-            });
-            return NextResponse.json<ApiResponse>({
-              success: false,
-              error: "Ce lien d'invitation n'est pas correctement configuré. Contactez l'administrateur pour qu'il regénère votre lien d'accès."
-            }, { status: 403 });
-          }
-
-          console.log(`✅ Valid invite token for participant ${participant.id}`, {
-            hasUserId: !!participant.user_id,
-            userId: participant.user_id
-          });
-          participantId = participant.id;
-          profileId = participant.user_id; // REQUIRED - never NULL
-          dataClient = admin;
-        } else {
-          console.warn('⚠️  Invite token not found in database');
-        }
-      }
-
-      // If no valid token, try regular auth
-      if (!inviteToken || !participantId) {
-        const { data: userResult, error: userError } = await supabase.auth.getUser();
-
-        if (userError) {
-          if (isPermissionDenied(userError as unknown as PostgrestError)) {
-            return permissionDeniedResponse();
-          }
-          throw userError;
-        }
-
-        const user = userResult?.user;
-
-        if (!user) {
-          return NextResponse.json<ApiResponse>({
-            success: false,
-            error: "Authentification requise. Veuillez vous connecter ou utiliser un lien d'invitation valide."
-          }, { status: 401 });
-        }
-
-        // Get profile ID from auth_id (user.id is the auth UUID, we need the profile UUID)
-        const { data: profile, error: profileError } = await supabase
-          .from('profiles')
-          .select('id')
-          .eq('auth_id', user.id)
-          .single();
-
-        if (profileError || !profile) {
-          return NextResponse.json<ApiResponse>({
-            success: false,
-            error: "Profil utilisateur introuvable"
-          }, { status: 401 });
-        }
-
-        profileId = profile.id;
-      }
-    }
-
+    // 1. First, get the ASK session to know its ID
     const { row: askRow, error: askError } = await getAskSessionByKey<AskSessionRow>(
       dataClient,
       key,
@@ -193,63 +125,112 @@ export async function GET(
       }, { status: 404 });
     }
 
-    if (!isDevBypass && (profileId || participantId)) {
+    // 2. Load full auth context (handles token, session, and membership lookup)
+    console.log(`🔍 GET /api/ask/[key]: Calling loadFullAuthContext...`);
+    let { authContext, viewer } = await loadFullAuthContext({
+      inviteToken,
+      askSessionId: askRow.id,
+      sessionClient,
+      isDevBypass,
+    });
+    console.log(`✅ GET /api/ask/[key]: Auth context loaded:`, {
+      profileId: authContext.profileId,
+      participantId: authContext.participantId,
+      isSpokesperson: authContext.isSpokesperson,
+      authMethod: authContext.authMethod,
+      hasViewer: !!viewer,
+    });
+
+    // Dev mode fallback: if no auth, try to find a spokesperson participant for the viewer
+    // This helps with testing consultant mode without requiring login
+    if (isDevBypass && !viewer && !authContext.profileId) {
+      console.log(`🔓 GET /api/ask/[key]: Dev mode - trying to find spokesperson participant...`);
+
+      // Find participants for this ASK
+      const { data: devParticipants } = await adminClient
+        .from('ask_participants')
+        .select('id, user_id, role, is_spokesperson, participant_name, participant_email')
+        .eq('ask_session_id', askRow.id)
+        .order('is_spokesperson', { ascending: false }) // Spokespersons first
+        .limit(5);
+
+      if (devParticipants && devParticipants.length > 0) {
+        // Prefer spokesperson, otherwise first participant
+        const devParticipant = devParticipants.find(p => p.is_spokesperson || p.role === 'spokesperson')
+          || devParticipants[0];
+
+        const isSpokesperson = devParticipant.is_spokesperson === true || devParticipant.role === 'spokesperson';
+
+        console.log(`✅ GET /api/ask/[key]: Dev mode - using participant for viewer:`, {
+          participantId: devParticipant.id,
+          profileId: devParticipant.user_id,
+          isSpokesperson,
+          role: devParticipant.role,
+        });
+
+        viewer = {
+          participantId: devParticipant.id,
+          profileId: devParticipant.user_id,
+          isSpokesperson,
+          name: devParticipant.participant_name,
+          email: devParticipant.participant_email,
+          role: devParticipant.role,
+        };
+
+        // Update authContext too for consistency
+        authContext = {
+          ...authContext,
+          profileId: devParticipant.user_id,
+          participantId: devParticipant.id,
+          isSpokesperson,
+          participantName: devParticipant.participant_name,
+          participantEmail: devParticipant.participant_email,
+          participantRole: devParticipant.role,
+          authMethod: 'anonymous',
+        };
+      } else {
+        console.log(`⚠️ GET /api/ask/[key]: Dev mode - no participants found for ASK`);
+      }
+    }
+
+    // 3. Validate access permissions (only enforce in non-dev mode)
+    if (!isDevBypass) {
       const isAnonymous = askRow.is_anonymous === true;
+      const hasValidAuth = authContext.profileId !== null;
 
-      // If authenticated via invite token, verify participant belongs to this ASK
-      if (participantId) {
-        const admin = await getAdminClient();
+      // If invite token was provided but invalid, reject
+      if (inviteToken && !authContext.participantId) {
+        return NextResponse.json<ApiResponse>({
+          success: false,
+          error: "Ce lien d'invitation n'est pas valide ou n'est pas correctement configuré."
+        }, { status: 403 });
+      }
 
-        const { data: participantCheck, error: checkError } = await admin
+      // Require authentication unless session is anonymous
+      if (!hasValidAuth && !isAnonymous) {
+        return NextResponse.json<ApiResponse>({
+          success: false,
+          error: "Authentification requise. Veuillez vous connecter ou utiliser un lien d'invitation valide."
+        }, { status: 401 });
+      }
+
+      // Require participation unless session is anonymous
+      if (hasValidAuth && !authContext.participantId && !isAnonymous) {
+        return permissionDeniedResponse();
+      }
+
+      // Auto-add participant for anonymous sessions
+      if (isAnonymous && hasValidAuth && !authContext.participantId) {
+        await sessionClient
           .from('ask_participants')
-          .select('id, ask_session_id')
-          .eq('id', participantId)
-          .eq('ask_session_id', askRow.id)
-          .maybeSingle();
-
-        if (checkError || !participantCheck) {
-          console.error('❌ Participant does not belong to this ASK session');
-          return permissionDeniedResponse();
-        }
-
-        console.log(`✅ Participant ${participantId} verified for ASK ${askRow.id}`);
-      } else if (profileId) {
-        // Check if user is a participant (regular auth flow)
-        const { data: membership, error: membershipError } = await supabase
-          .from('ask_participants')
-          .select('id, user_id, role, is_spokesperson')
-          .eq('ask_session_id', askRow.id)
-          .eq('user_id', profileId)
-          .maybeSingle();
-
-        if (membershipError) {
-          if (isPermissionDenied(membershipError)) {
-            return permissionDeniedResponse();
-          }
-          throw membershipError;
-        }
-
-        // If session allows anonymous participation, allow access even if not in participants list
-        // Otherwise, require explicit participation
-        if (!membership && !isAnonymous) {
-          return permissionDeniedResponse();
-        }
-
-        // If anonymous and user is not yet a participant, create one automatically
-        if (isAnonymous && !membership) {
-          const { error: insertError } = await supabase
-            .from('ask_participants')
-            .insert({
-              ask_session_id: askRow.id,
-              user_id: profileId,
-              role: 'participant',
-            });
-
-          if (insertError && !isPermissionDenied(insertError)) {
-            // Log but don't fail - RLS policies will handle access
-            console.warn('Failed to auto-add participant to anonymous session:', insertError);
-          }
-        }
+          .insert({
+            ask_session_id: askRow.id,
+            user_id: authContext.profileId,
+            role: 'participant',
+          })
+          .then(({ error }) => {
+            if (error) console.warn('Failed to auto-add participant:', error);
+          });
       }
     }
 
@@ -317,24 +298,24 @@ export async function GET(
 
     console.log('🔍 GET /api/ask/[key]: Determining conversation thread:', {
       askSessionId,
-      profileId,
+      profileId: authContext.profileId,
       conversationMode: askConfig.conversation_mode,
       isDevBypass,
     });
-    
+
     // In dev bypass mode, use admin client to bypass RLS for thread operations
-    const threadClient = isDevBypass ? await getAdminClient() : dataClient;
-    
+    const threadClient = isDevBypass ? adminClient : dataClient;
+
     const { thread: conversationThread, error: threadError } = await getOrCreateConversationThread(
       threadClient,
       askSessionId,
-      profileId,
+      authContext.profileId,
       askConfig
     );
 
     console.log('🔍 GET /api/ask/[key]: Conversation thread determined:', {
       threadId: conversationThread?.id ?? null,
-      profileId,
+      profileId: authContext.profileId,
       isShared: conversationThread?.is_shared ?? null,
     });
 
@@ -356,9 +337,9 @@ export async function GET(
       isDevBypass;
     
     if (isIndividualModeButUsingSharedThread) {
-      // In dev mode, if we're in individual mode but using shared thread (because profileId is null),
+      // In dev mode, if we're in individual mode but using shared thread (because authContext.profileId is null),
       // fetch ALL messages from all threads to help with debugging
-      console.log('⚠️ Dev mode: Individual ASK but using shared thread (profileId is null). Fetching ALL messages from all threads for debugging.');
+      console.log('⚠️ Dev mode: Individual ASK but using shared thread (no profileId). Fetching ALL messages from all threads for debugging.');
       const { data, error: messageError } = await dataClient
         .from('messages')
         .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at, conversation_thread_id')
@@ -530,16 +511,14 @@ export async function GET(
         });
 
         // Use admin client to bypass RLS for agent fetch + plan insert
-        const adminForPlan = await getAdminClient();
-
         const planData = await generateConversationPlan(
-          adminForPlan,
+          adminClient,
           askRow.id,
           planGenerationVariables
         );
 
         conversationPlan = await createConversationPlan(
-          adminForPlan,
+          adminClient,
           conversationThread.id,
           planData
         );
@@ -716,12 +695,22 @@ export async function GET(
       }
     }
 
+    // viewer is already built by loadFullAuthContext
+    console.log('🔍 GET /api/ask/[key]: Returning viewer info:', {
+      hasViewer: !!viewer,
+      isSpokesperson: viewer?.isSpokesperson ?? false,
+      participantId: viewer?.participantId,
+      profileId: viewer?.profileId,
+    });
+
     return NextResponse.json<ApiResponse<{
       ask: Ask;
       messages: Message[];
       insights: Insight[];
       challenges: any[];
       conversationPlan?: ConversationPlan | null;
+      conversationThreadId?: string | null;
+      viewer?: AskViewer | null;
     }>>({
       success: true,
       data: {
@@ -730,6 +719,8 @@ export async function GET(
         insights,
         challenges: [],
         conversationPlan,
+        conversationThreadId: conversationThread?.id ?? null,
+        viewer,
       }
     });
   } catch (error) {

@@ -38,6 +38,8 @@ export interface SpeechmaticsConfig {
   elevenLabsVoiceId?: string;
   elevenLabsModelId?: string;
   disableElevenLabsTTS?: boolean; // If true, disable ElevenLabs TTS (only STT will work)
+  // Consultant mode (passive listening)
+  disableLLM?: boolean; // If true, disable LLM responses (transcription only, for consultant mode)
 }
 
 export interface SpeechmaticsMessageEvent {

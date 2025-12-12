@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import type { Profile, ManagedUser } from "@/types";
 import { useAuth } from "@/components/auth/AuthProvider";
@@ -159,7 +159,7 @@ export function DevUserSwitcher() {
     setDevUser(profileToUse);
     setIsOpen(false);
     setSearchQuery(""); // Clear search after selection
-    
+
     // If we're on the login page, redirect to admin after selecting user
     if (pathname?.startsWith("/auth/login")) {
       const redirectTo = new URLSearchParams(window.location.search).get("redirectTo") || "/admin";

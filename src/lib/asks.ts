@@ -30,15 +30,17 @@ export interface AskSessionConfig {
  *   → Tous les participants partagent le même thread
  *   → Un participant est désigné comme rapporteur (is_spokesperson)
  *
- * - consultant: Individual threads (is_shared = false)
- *   → L'IA écoute et propose des questions au consultant
- *   → Le consultant a son propre thread isolé
+ * - consultant: Shared thread (is_shared = true)
+ *   → L'IA écoute et propose des questions au facilitator
+ *   → Tous les participants partagent le même thread
+ *   → Multi-voix: identification par diarization (voice) ou token (text)
+ *   → Seul le facilitator voit les questions suggérées
  *   → Pas de TTS, l'IA ne parle pas
  */
 export function shouldUseSharedThread(askSession: AskSessionConfig): boolean {
-  // individual_parallel and consultant use individual threads
+  // Only individual_parallel uses individual threads
   // Default to shared thread if conversation_mode is not set
-  const individualModes = ['individual_parallel', 'consultant'];
+  const individualModes = ['individual_parallel'];
   return !individualModes.includes(askSession.conversation_mode ?? '');
 }
 
@@ -59,6 +61,11 @@ export function shouldUseSharedThread(askSession: AskSessionConfig): boolean {
  *   → Tous les participants partagent le même thread
  *   → Tout le monde voit tous les messages et insights
  *   → Un participant est désigné comme rapporteur (via is_spokesperson)
+ *
+ * - consultant: Shared thread (is_shared = true, user_id = NULL)
+ *   → Tous les participants partagent le même thread
+ *   → Seul le facilitator voit les questions suggérées
+ *   → L'IA n'envoie pas de réponses automatiques
  *
  * Important: Si userId est fourni en mode individuel, le thread sera créé/recherché pour cet utilisateur spécifique.
  * Si userId est NULL en mode individuel, on bascule vers un thread partagé (fallback).

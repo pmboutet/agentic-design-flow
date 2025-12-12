@@ -35,18 +35,19 @@ export class SpeechmaticsAudio {
   private readonly VAD_SAMPLE_STRIDE = 4;
 
   // Grace period after audio playback ends to prevent echo-triggered barge-ins
-  // The microphone may still pick up residual echo for 1-2 seconds after playback stops
+  // SIMPLIFIED: Reduced to 500ms - we rely more on echo text matching now
   private lastAudioPlaybackEndTime: number = 0;
-  private readonly AUDIO_PLAYBACK_GRACE_PERIOD_MS = 2000; // 2 seconds grace period after audio ends
+  private readonly AUDIO_PLAYBACK_GRACE_PERIOD_MS = 500; // 500ms minimal echo protection
 
   // Timer to clear currentAssistantSpeech after grace period
   // We keep the assistant speech text for echo detection even after audio stops
   private clearAssistantSpeechTimer: NodeJS.Timeout | null = null;
 
   // Semantic barge-in detection state
+  // SIMPLIFIED: Immediate barge-in, no complex validation
   private bargeInPendingValidation: boolean = false;
   private bargeInValidationTimer: NodeJS.Timeout | null = null;
-  private readonly BARGE_IN_VALIDATION_TIMEOUT_MS = 1500; // Wait up to 1.5s for AI validation
+  private readonly BARGE_IN_VALIDATION_TIMEOUT_MS = 300; // Reduced to 300ms for faster response
   private currentAssistantSpeech: string = ''; // Track what assistant is currently saying (for echo detection)
 
   // Start-of-turn detection (AI-powered validation)
@@ -216,8 +217,6 @@ export class SpeechmaticsAudio {
         // Don't process noise floor updates when muted
         if (!this.isMuted) {
           this.updateNoiseFloor(event.data.noiseFloor);
-        } else {
-          console.log(`[Speechmatics Audio #${this.instanceId}] 🔇 Skipping noise floor update (muted)`);
         }
         return;
       }
@@ -821,17 +820,8 @@ export class SpeechmaticsAudio {
     
     const newThreshold = this.getAdaptiveThreshold();
     
-    // Log threshold updates periodically (every 50 updates)
+    // Track updates silently (removed log - too noisy)
     this.adaptiveThresholdUpdateCount++;
-    if (this.adaptiveThresholdUpdateCount % 50 === 0) {
-      console.log(`[Speechmatics Audio #${this.instanceId}] 🎚️ Adaptive threshold updated:`, {
-        noiseFloor: this.noiseFloor.toFixed(4),
-        adaptiveThreshold: newThreshold.toFixed(4),
-        baseThreshold: this.vadRmsThreshold.toFixed(4),
-        sensitivityMultiplier: this.sensitivityMultiplier.toFixed(2),
-        isMuted: this.isMuted
-      });
-    }
   }
 
   private handleBargeIn(): void {
@@ -946,9 +936,10 @@ export class SpeechmaticsAudio {
     const cleanedTranscript = transcript.trim();
     const words = cleanedTranscript.split(/\s+/).filter(Boolean);
 
-    // During grace period, require slightly more words to be safe against echo
-    // REDUCED from 15/20 to 5/8 to allow legitimate interruptions
-    const requiredWords = inGracePeriod ? 8 : 5;
+    // SIMPLIFIED: Minimal word requirement for immediate barge-in
+    // Echo protection relies on text matching (checking if transcript matches TTS)
+    // 2 words is enough to distinguish real speech from noise
+    const requiredWords = inGracePeriod ? 3 : 2;
 
     // LOCAL ECHO DETECTION: Check FIRST, even for short transcripts
     // This catches cases where the TTS starts with "Très bien" and the microphone picks it up
@@ -1028,7 +1019,7 @@ export class SpeechmaticsAudio {
     }
 
     // Fallback: Simple validation if AI is disabled or failed
-    // Use same reduced word count threshold (5/8 words) as main validation
+    // SIMPLIFIED: Minimal word requirement (2-3 words) for immediate barge-in
     if (words.length < requiredWords) {
       const timestamp = new Date().toISOString().split('T')[1].replace('Z', '');
       console.log(`[${timestamp}] [Speechmatics Audio] ⏸️ Fallback mode: Need ${requiredWords}+ words (${words.length}/${requiredWords})`);

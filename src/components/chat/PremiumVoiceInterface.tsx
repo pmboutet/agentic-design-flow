@@ -19,7 +19,7 @@
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, MicOff, Volume2, VolumeX, Pencil, Check, Settings, Type } from 'lucide-react';
+import { X, MicOff, Volume2, Pencil, Check, Settings } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { DeepgramVoiceAgent, DeepgramMessageEvent } from '@/lib/ai/deepgram';
@@ -29,7 +29,8 @@ import { cn } from '@/lib/utils';
 import { useAuth } from '@/components/auth/AuthProvider';
 import type { ConversationPlan, ConversationPlanStep } from '@/types';
 import type { SemanticTurnTelemetryEvent } from '@/lib/ai/turn-detection';
-import { useInactivityMonitor, type Speaker } from '@/hooks/useInactivityMonitor';
+import { useInactivityMonitor } from '@/hooks/useInactivityMonitor';
+import { SpeakerAssignmentOverlay, type ParticipantOption, type SpeakerAssignmentDecision } from './SpeakerAssignmentOverlay';
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
@@ -49,6 +50,17 @@ import "highlight.js/styles/github-dark.css";
  * @property onEdit - Callback optionnel appelé lors du clic sur le bouton d'édition
  * @property messages - Liste des messages finaux (source de vérité depuis les props)
  */
+/**
+ * Speaker-to-participant mapping for consultant mode
+ * Tracks which speaker ID (S1, S2, etc.) is assigned to which participant
+ */
+export interface SpeakerMapping {
+  speaker: string;
+  participantId: string | null;
+  participantName: string;
+  shouldTranscribe: boolean;
+}
+
 interface PremiumVoiceInterfaceProps {
   askKey: string;
   askSessionId?: string;
@@ -75,7 +87,6 @@ interface PremiumVoiceInterfaceProps {
   onMessage: (message: DeepgramMessageEvent | HybridVoiceAgentMessage | SpeechmaticsMessageEvent) => void;
   onError: (error: Error) => void;
   onClose: () => void;
-  onEdit?: () => void;
   onEditMessage?: (messageId: string, newContent: string) => Promise<void>;
   messages?: Array<{
     role: 'user' | 'assistant';
@@ -86,6 +97,12 @@ interface PremiumVoiceInterfaceProps {
   }>;
   conversationPlan?: ConversationPlan | null;
   consultantMode?: boolean; // If true, AI listens but doesn't respond (no TTS, diarization enabled)
+  // Consultant mode: participants for speaker assignment
+  participants?: ParticipantOption[];
+  // Callback when speaker mappings are updated (for persisting to parent)
+  onSpeakerMappingChange?: (mappings: SpeakerMapping[]) => void;
+  // Invite token for API calls (used for guest participant creation)
+  inviteToken?: string | null;
 }
 
 /**
@@ -126,20 +143,32 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
   onMessage,
   onError,
   onClose,
-  onEdit,
   onEditMessage,
   messages = [],
   conversationPlan,
   consultantMode = false,
+  participants = [],
+  onSpeakerMappingChange,
+  inviteToken,
 }: PremiumVoiceInterfaceProps) {
   // Récupération de l'utilisateur connecté pour l'affichage du profil
   const { user } = useAuth();
-  
+
   // ===== ÉTATS DE CONNEXION ET MICROPHONE =====
   // État de connexion au service vocal (WebSocket établi)
   const [isConnected, setIsConnected] = useState(false);
   // In consultant mode, track the first speaker as the consultant
   const consultantSpeakerRef = useRef<string | null>(null);
+
+  // ===== SPEAKER ASSIGNMENT STATES (CONSULTANT MODE) =====
+  // Track speaker-to-participant mappings
+  const [speakerMappings, setSpeakerMappings] = useState<SpeakerMapping[]>([]);
+  // Track which speakers we've seen (to detect new ones)
+  const knownSpeakersRef = useRef<Set<string>>(new Set());
+  // Queue of pending speakers for assignment (allows stacking multiple overlays)
+  const [pendingSpeakers, setPendingSpeakers] = useState<string[]>([]);
+  // Counter for speaker detection order (1st user, 2nd user, etc.)
+  const speakerOrderRef = useRef<Map<string, number>>(new Map());
   // État d'activation du microphone (permission accordée et stream actif)
   const [isMicrophoneActive, setIsMicrophoneActive] = useState(false);
   // État de mute du microphone (microphone désactivé mais WebSocket toujours ouvert pour recevoir les réponses)
@@ -435,17 +464,6 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
     return 'there';
   };
 
-  /**
-   * Récupère le message de salutation selon l'heure de la journée
-   * 
-   * @returns "Good Morning" (< 12h), "Good Afternoon" (12h-18h), "Good Evening" (>= 18h)
-   */
-  const getGreeting = () => {
-    const hour = new Date().getHours();
-    if (hour < 12) return 'Good Morning';
-    if (hour < 18) return 'Good Afternoon';
-    return 'Good Evening';
-  };
 
   // ===== CONFIGURATION DE L'ANALYSE AUDIO =====
   /**
@@ -771,10 +789,30 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
     const role: 'user' | 'assistant' =
       rawMessage.role === 'agent' ? 'assistant' : (rawMessage.role as 'user' | 'assistant');
 
-    // In consultant mode, track the first speaker as the consultant
+    // In consultant mode, track the first speaker as the consultant (for display positioning)
     if (consultantMode && speaker && !consultantSpeakerRef.current && !isInterim) {
       consultantSpeakerRef.current = speaker;
-      console.log('[PremiumVoiceInterface] 👤 Consultant speaker identified:', speaker);
+      console.log('[PremiumVoiceInterface] 👤 First speaker (consultant) identified:', speaker);
+    }
+
+    // In consultant mode, detect new speakers and show assignment overlay
+    // This includes the first speaker (consultant) - all speakers must be assigned by user
+    if (consultantMode && speaker && !isInterim) {
+      // Check if this is a new speaker we haven't seen before
+      if (!knownSpeakersRef.current.has(speaker)) {
+        console.log('[PremiumVoiceInterface] 🆕 New speaker detected:', speaker);
+        // Assign speaker order number
+        if (!speakerOrderRef.current.has(speaker)) {
+          speakerOrderRef.current.set(speaker, speakerOrderRef.current.size + 1);
+        }
+        // Add to pending queue (allows stacking multiple speakers)
+        setPendingSpeakers(prev => {
+          if (!prev.includes(speaker)) {
+            return [...prev, speaker];
+          }
+          return prev;
+        });
+      }
     }
 
     const baseMessage: VoiceMessage = {
@@ -897,6 +935,107 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
     setSemanticTelemetry(event);
   }, []);
 
+  // ===== SPEAKER ASSIGNMENT HANDLER (CONSULTANT MODE) =====
+  /**
+   * Handle the speaker assignment decision from the overlay
+   * Creates a guest participant if needed, or assigns to an existing one
+   */
+  const handleSpeakerAssignmentConfirm = useCallback(async (decision: SpeakerAssignmentDecision) => {
+    console.log('[PremiumVoiceInterface] 📋 Speaker assignment decision:', decision);
+
+    // Add speaker to known speakers
+    knownSpeakersRef.current.add(decision.speaker);
+
+    if (!decision.shouldTranscribe) {
+      // User chose to ignore this speaker
+      setSpeakerMappings(prev => [...prev, {
+        speaker: decision.speaker,
+        participantId: null,
+        participantName: 'Ignored',
+        shouldTranscribe: false,
+      }]);
+    } else if (decision.newGuest) {
+      // Create a new guest participant
+      try {
+        const response = await fetch(`/api/ask/${askKey}/participants/guest`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(inviteToken ? { 'X-Invite-Token': inviteToken } : {}),
+          },
+          body: JSON.stringify({
+            firstName: decision.newGuest.firstName,
+            lastName: decision.newGuest.lastName,
+            speaker: decision.speaker,
+          }),
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          console.error('[PremiumVoiceInterface] ❌ Failed to create guest participant:', errorData);
+          // Still add the mapping locally even if API fails
+        }
+
+        const result = await response.json();
+        const fullName = `${decision.newGuest.firstName} ${decision.newGuest.lastName}`;
+
+        setSpeakerMappings(prev => [...prev, {
+          speaker: decision.speaker,
+          participantId: result.success ? result.data.id : null,
+          participantName: fullName,
+          shouldTranscribe: true,
+        }]);
+
+        console.log('[PremiumVoiceInterface] ✅ Guest participant created:', fullName);
+      } catch (error) {
+        console.error('[PremiumVoiceInterface] ❌ Error creating guest participant:', error);
+        // Add mapping with unknown name
+        setSpeakerMappings(prev => [...prev, {
+          speaker: decision.speaker,
+          participantId: null,
+          participantName: `${decision.newGuest!.firstName} ${decision.newGuest!.lastName}`,
+          shouldTranscribe: true,
+        }]);
+      }
+    } else if (decision.selectedParticipant) {
+      // Assign to existing participant
+      setSpeakerMappings(prev => [...prev, {
+        speaker: decision.speaker,
+        participantId: decision.selectedParticipant!.id,
+        participantName: decision.selectedParticipant!.name,
+        shouldTranscribe: true,
+      }]);
+    }
+
+    // Remove the processed speaker from the queue (not all - just this one)
+    setPendingSpeakers(prev => prev.filter(s => s !== decision.speaker));
+
+    // Notify parent of mapping change (use timeout to get updated state)
+    if (onSpeakerMappingChange) {
+      setTimeout(() => {
+        onSpeakerMappingChange(speakerMappings);
+      }, 0);
+    }
+  }, [askKey, inviteToken, onSpeakerMappingChange, speakerMappings]);
+
+  /**
+   * Handle closing the speaker assignment overlay without making a decision
+   * Processes the current (first) speaker in the queue
+   */
+  const handleSpeakerAssignmentClose = useCallback((speaker: string) => {
+    // If closed without decision, add speaker as "Unknown" but transcribe
+    knownSpeakersRef.current.add(speaker);
+    const speakerOrder = speakerOrderRef.current.get(speaker) || 1;
+    setSpeakerMappings(prev => [...prev, {
+      speaker,
+      participantId: null,
+      participantName: `User ${speakerOrder}`,
+      shouldTranscribe: true,
+    }]);
+    // Remove this speaker from the queue
+    setPendingSpeakers(prev => prev.filter(s => s !== speaker));
+  }, []);
+
   // ===== GESTION DE LA CONNEXION =====
   /**
    * Établit la connexion à l'agent vocal
@@ -984,6 +1123,9 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
           llmModel: modelConfig?.deepgramLlmModel,
           elevenLabsVoiceId: modelConfig?.elevenLabsVoiceId,
           elevenLabsModelId: modelConfig?.elevenLabsModelId || "eleven_turbo_v2_5",
+          // Disable LLM in consultant mode (transcription only)
+          disableLLM: consultantMode,
+          disableElevenLabsTTS: consultantMode,
         };
 
         // Établir la connexion WebSocket et démarrer le microphone
@@ -993,8 +1135,12 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
         // Configurer la visualisation audio après le démarrage du microphone
         // On crée un stream séparé pour la visualisation (indépendant de l'agent)
         startAudioVisualization();
-      } else if (isSpeechmaticsAgent) {
+      } else if (isSpeechmaticsAgent || consultantMode) {
         // Agent Speechmatics : Speechmatics STT + LLM (Anthropic/OpenAI) + ElevenLabs TTS
+        // NOTE: Le mode consultant nécessite Speechmatics (seul agent supportant diarization + disableLLM)
+        if (consultantMode && !isSpeechmaticsAgent) {
+          console.log('[PremiumVoiceInterface] 🎧 Mode consultant - Speechmatics requis pour la diarisation');
+        }
         const agent = new SpeechmaticsVoiceAgent();
         agentRef.current = agent;
         console.log('[PremiumVoiceInterface] ✅ SpeechmaticsVoiceAgent created and stored in agentRef', {
@@ -1031,12 +1177,22 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
           elevenLabsModelId: modelConfig?.elevenLabsModelId || "eleven_turbo_v2_5",
           // TTS disabled in consultant mode (AI listens only) or text-only mode (dictation)
           disableElevenLabsTTS: consultantMode || textOnlyMode || modelConfig?.disableElevenLabsTTS || false,
+          // LLM responses disabled in consultant mode (transcription only, AI suggests questions separately)
+          disableLLM: consultantMode,
           microphoneSensitivity, // Sensibilité du microphone (1.5 par défaut)
           microphoneDeviceId: selectedMicrophoneId || undefined,
           voiceIsolation: voiceIsolationEnabled,
           // In consultant mode, enable diarization for speaker identification
           sttDiarization: consultantMode ? "speaker" : undefined,
         };
+
+        // Log config for debugging consultant mode
+        console.log('[PremiumVoiceInterface] 🔧 Speechmatics config:', {
+          disableLLM: config.disableLLM,
+          disableElevenLabsTTS: config.disableElevenLabsTTS,
+          sttDiarization: config.sttDiarization,
+          consultantMode,
+        });
 
         // Établir la connexion WebSocket et démarrer le microphone
         await agent.connect(config);
@@ -1180,18 +1336,6 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
       isDisconnectingRef.current = false;
     }
   }, [cleanupAudioAnalysis]);
-
-  const handleEditClick = useCallback(async () => {
-    console.log('[PremiumVoiceInterface] ✏️ Edit button clicked - disconnecting everything');
-    try {
-      await disconnect();
-    } catch (error) {
-      console.warn('[PremiumVoiceInterface] ⚠️ Edit disconnect failed, continuing with close anyway:', error);
-    }
-    onEdit?.();
-    onClose();
-    reloadPage();
-  }, [disconnect, onEdit, onClose, reloadPage]);
 
   // ===== HANDLERS D'ÉDITION DE MESSAGE =====
   const handleStartEdit = useCallback((messageId: string, currentContent: string) => {
@@ -1705,45 +1849,138 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
 
       {/* Content */}
       <div className="relative z-20 h-full flex flex-col">
-        {/* Top bar with close button */}
-        <div className="flex items-center justify-between p-4 pt-12">
-          <div className="flex items-center gap-3">
+        {/* Compact top bar */}
+        <div className="flex items-center justify-between px-3 py-2 pt-3">
+          <div className="flex items-center gap-2">
             {user?.fullName && (
-              <div className="h-10 w-10 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center text-white font-semibold text-sm">
+              <div className="h-7 w-7 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center text-white font-medium text-xs">
                 {user.fullName.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
               </div>
             )}
-            <div>
-              <div className="text-white/90 text-sm font-medium">{getGreeting()},</div>
-              <div className="text-white text-lg font-semibold">{getUserName()}</div>
-            </div>
+            <span className="text-white/80 text-sm font-medium">{getUserName()}</span>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1">
+            <div className="relative microphone-settings-container">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setShowMicrophoneSettings(!showMicrophoneSettings)}
+                className="h-8 w-8 text-white/70 hover:text-white hover:bg-white/15 rounded-full"
+                title="Paramètres"
+              >
+                <Settings className="h-4 w-4" />
+              </Button>
+              {showMicrophoneSettings && (
+                <div className="absolute top-full right-0 mt-2 w-64 bg-gray-900/95 backdrop-blur-xl border border-white/20 rounded-lg shadow-2xl p-4 z-50 microphone-settings-container">
+                  <h4 className="text-white text-sm font-semibold mb-3">Paramètres audio</h4>
+
+                  {/* Microphone selection */}
+                  <div className="mb-3">
+                    <label className="text-white/70 text-xs block mb-1">Microphone</label>
+                    <select
+                      value={selectedMicrophoneId || ''}
+                      onChange={(e) => {
+                        setSelectedMicrophoneId(e.target.value || null);
+                        savePreferences();
+                      }}
+                      disabled={isConnected}
+                      className="w-full bg-white/10 text-white text-xs rounded px-2 py-1.5 border border-white/20 disabled:opacity-50"
+                    >
+                      <option value="">Par défaut</option>
+                      {availableMicrophones.map((mic) => (
+                        <option key={mic.deviceId} value={mic.deviceId}>
+                          {mic.label || `Microphone ${mic.deviceId.slice(0, 8)}`}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Sensitivity slider */}
+                  <div className="mb-3">
+                    <label className="text-white/70 text-xs block mb-1">
+                      Sensibilité: {microphoneSensitivity.toFixed(1)}x
+                    </label>
+                    <input
+                      type="range"
+                      min="0.5"
+                      max="3"
+                      step="0.1"
+                      value={microphoneSensitivity}
+                      onChange={(e) => {
+                        const value = parseFloat(e.target.value);
+                        setMicrophoneSensitivity(value);
+                        savePreferences();
+                        if (isConnected && agentRef.current instanceof SpeechmaticsVoiceAgent) {
+                          agentRef.current.setMicrophoneSensitivity?.(value);
+                        }
+                      }}
+                      className="w-full h-1 bg-white/20 rounded-lg appearance-none cursor-pointer"
+                    />
+                  </div>
+
+                  {/* Voice isolation toggle */}
+                  <div className="mb-3 flex items-center justify-between">
+                    <span className="text-white/70 text-xs">Isolation vocale</span>
+                    <button
+                      onClick={() => {
+                        setVoiceIsolationEnabled(!voiceIsolationEnabled);
+                        savePreferences();
+                      }}
+                      disabled={isConnected}
+                      className={cn(
+                        "w-10 h-5 rounded-full transition-colors",
+                        voiceIsolationEnabled ? "bg-blue-500" : "bg-white/20",
+                        isConnected && "opacity-50 cursor-not-allowed"
+                      )}
+                    >
+                      <div className={cn(
+                        "w-4 h-4 bg-white rounded-full transition-transform mx-0.5",
+                        voiceIsolationEnabled && "translate-x-5"
+                      )} />
+                    </button>
+                  </div>
+
+                  {/* Text only mode toggle */}
+                  {isSpeechmaticsAgent && !modelConfig?.disableElevenLabsTTS && (
+                    <div className="flex items-center justify-between pt-2 border-t border-white/10">
+                      <span className="text-white/70 text-xs">Réponses écrites</span>
+                      <button
+                        onClick={() => {
+                          const newValue = !textOnlyMode;
+                          setTextOnlyMode(newValue);
+                          if (agentRef.current instanceof SpeechmaticsVoiceAgent) {
+                            agentRef.current.setTextOnlyMode(newValue);
+                          }
+                        }}
+                        className={cn(
+                          "w-10 h-5 rounded-full transition-colors",
+                          textOnlyMode ? "bg-blue-500" : "bg-white/20"
+                        )}
+                      >
+                        <div className={cn(
+                          "w-4 h-4 bg-white rounded-full transition-transform mx-0.5",
+                          textOnlyMode && "translate-x-5"
+                        )} />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
             <Button
               variant="ghost"
-              size="sm"
-              onClick={handleEditClick}
-              className="h-10 px-3 text-white hover:bg-white/20 rounded-full"
-              title="Éditer"
-            >
-              <Pencil className="h-5 w-5 mr-1" />
-              <span className="text-sm">Éditer</span>
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
+              size="icon"
               onClick={handleCloseClick}
-              className="h-10 px-3 text-white hover:bg-white/20 rounded-full"
+              className="h-8 w-8 text-white/70 hover:text-white hover:bg-white/15 rounded-full"
               title="Fermer"
             >
-              <X className="h-5 w-5 mr-1" />
-              <span className="text-sm">Fermer</span>
+              <X className="h-4 w-4" />
             </Button>
           </div>
         </div>
 
         {hasConversationSteps && (
-          <div className="px-4 pb-2">
+          <div className="px-3 pb-1">
             <VoiceModeStepsBar
               steps={conversationSteps}
               currentStepId={currentConversationStepId}
@@ -1796,14 +2033,19 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
 
               // Consultant mode: determine if this message is from the consultant
               const isConsultantMessage = consultantMode && message.speaker === consultantSpeakerRef.current;
-              // Get a human-readable speaker label
+              // Get a human-readable speaker label from the mapping
               const getSpeakerLabel = (speaker: string | undefined): string => {
                 if (!speaker) return '';
-                if (speaker === consultantSpeakerRef.current) return 'Consultant';
+                // Look up the speaker in the mappings first (includes consultant)
+                const mapping = speakerMappings.find(m => m.speaker === speaker);
+                if (mapping) {
+                  if (!mapping.shouldTranscribe) return 'Ignored';
+                  return mapping.participantName;
+                }
                 if (speaker === 'UU') return 'Inconnu';
-                // Convert S1, S2, etc. to "Participant 1", "Participant 2"
+                // Fallback: Convert S1, S2, etc. to "Speaker 1", "Speaker 2" (pending assignment)
                 const match = speaker.match(/^S(\d+)$/);
-                if (match) return `Participant ${match[1]}`;
+                if (match) return `Speaker ${match[1]}`;
                 return speaker;
               };
 
@@ -2065,133 +2307,6 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
             )}
           </div>
 
-          {/* Microphone settings - compact dropdown */}
-          <div className="relative mt-4 microphone-settings-container">
-            <button
-              onClick={() => setShowMicrophoneSettings(!showMicrophoneSettings)}
-              className="p-2 rounded-full bg-white/10 backdrop-blur-sm border border-white/20 hover:bg-white/20 transition-colors"
-              aria-label="Microphone settings"
-            >
-              <Settings className="h-5 w-5 text-white/80" />
-            </button>
-
-            {/* Dropdown menu */}
-            {showMicrophoneSettings && (
-              <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 w-64 bg-gray-900/95 backdrop-blur-xl border border-white/20 rounded-lg shadow-2xl p-4 z-50 microphone-settings-container">
-                <div className="flex flex-col gap-3">
-                  {/* Microphone selector */}
-                  <div className="flex flex-col gap-1">
-                    <label className="text-white/70 text-xs">Microphone</label>
-                    <select
-                      value={selectedMicrophoneId || ''}
-                      onChange={(e) => {
-                        setSelectedMicrophoneId(e.target.value);
-                        savePreferences();
-                      }}
-                      disabled={isConnected}
-                      className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-white/30 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {availableMicrophones.map((mic) => (
-                        <option key={mic.deviceId} value={mic.deviceId} className="bg-gray-800">
-                          {mic.label || `Microphone ${mic.deviceId.substring(0, 8)}`}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  {/* Sensitivity slider */}
-                  <div className="flex flex-col gap-1">
-                    <div className="flex justify-between items-center">
-                      <label className="text-white/70 text-xs">Sensibilité</label>
-                      <span className="text-white/80 text-xs">{microphoneSensitivity.toFixed(1)}x</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="0.5"
-                      max="3.0"
-                      step="0.1"
-                      value={microphoneSensitivity}
-                      onChange={(e) => {
-                        const value = parseFloat(e.target.value);
-                        setMicrophoneSensitivity(value);
-                        savePreferences();
-                        // Update sensitivity in real-time if connected
-                        if (isConnected && agentRef.current instanceof SpeechmaticsVoiceAgent) {
-                          agentRef.current.setMicrophoneSensitivity?.(value);
-                        }
-                      }}
-                      className="w-full h-2 bg-white/10 rounded-lg appearance-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                      style={{
-                        background: `linear-gradient(to right, rgba(255,255,255,0.3) 0%, rgba(255,255,255,0.3) ${((microphoneSensitivity - 0.5) / 2.5) * 100}%, rgba(255,255,255,0.1) ${((microphoneSensitivity - 0.5) / 2.5) * 100}%, rgba(255,255,255,0.1) 100%)`
-                      }}
-                    />
-                  </div>
-
-                  {/* Voice isolation toggle */}
-                  <div className="flex items-center justify-between">
-                    <label className="text-white/70 text-xs">Isolation de voix</label>
-                    <button
-                      onClick={() => {
-                        setVoiceIsolationEnabled(!voiceIsolationEnabled);
-                        savePreferences();
-                      }}
-                      disabled={isConnected}
-                      className={cn(
-                        "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
-                        voiceIsolationEnabled ? "bg-white/30" : "bg-white/10",
-                        isConnected && "opacity-50 cursor-not-allowed"
-                      )}
-                    >
-                      <span
-                        className={cn(
-                          "inline-block h-4 w-4 transform rounded-full bg-white transition-transform",
-                          voiceIsolationEnabled ? "translate-x-6" : "translate-x-1"
-                        )}
-                      />
-                    </button>
-                  </div>
-
-                  {/* Text-only mode toggle (dictation mode) - only show if TTS is enabled by admin */}
-                  {isSpeechmaticsAgent && !modelConfig?.disableElevenLabsTTS && (
-                    <>
-                      <div className="flex items-center justify-between pt-2 border-t border-white/10">
-                        <div className="flex items-center gap-2">
-                          <Type className="h-4 w-4 text-white/70" />
-                          <label className="text-white/70 text-xs">Réponses écrites</label>
-                        </div>
-                        <button
-                          onClick={() => {
-                            const newValue = !textOnlyMode;
-                            setTextOnlyMode(newValue);
-                            // Update the agent in real-time if connected
-                            if (agentRef.current instanceof SpeechmaticsVoiceAgent) {
-                              agentRef.current.setTextOnlyMode(newValue);
-                            }
-                          }}
-                          className={cn(
-                            "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
-                            textOnlyMode ? "bg-blue-500/50" : "bg-white/10"
-                          )}
-                        >
-                          <span
-                            className={cn(
-                              "inline-block h-4 w-4 transform rounded-full bg-white transition-transform",
-                              textOnlyMode ? "translate-x-6" : "translate-x-1"
-                            )}
-                          />
-                        </button>
-                      </div>
-                      {textOnlyMode && (
-                        <p className="text-white/50 text-xs mt-1">
-                          Mode dictée activé : vous parlez, l'agent répond en texte
-                        </p>
-                      )}
-                    </>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
         </div>
       </div>
 
@@ -2245,6 +2360,24 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Speaker Assignment Overlays (Consultant Mode) - Stacked vertically */}
+      {consultantMode && pendingSpeakers.length > 0 && (
+        <div className="absolute inset-0 z-50 backdrop-blur-md bg-black/40 flex flex-col items-center justify-center gap-4 p-4 overflow-y-auto">
+          {pendingSpeakers.map((speaker) => (
+            <SpeakerAssignmentOverlay
+              key={speaker}
+              isOpen={true}
+              speaker={speaker}
+              speakerOrder={speakerOrderRef.current.get(speaker) || 1}
+              participants={participants}
+              assignedSpeakers={speakerMappings.map(m => m.speaker)}
+              onConfirm={handleSpeakerAssignmentConfirm}
+              onClose={handleSpeakerAssignmentClose}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }, (prevProps, nextProps) => {
@@ -2273,11 +2406,9 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
 
   // Messages comparison - shallow compare the array
   if (prevProps.messages?.length !== nextProps.messages?.length) {
-    console.log(`[PremiumVoiceInterface] 🔄 Messages length changed: ${prevProps.messages?.length} -> ${nextProps.messages?.length}`);
     return false;
   }
 
-  console.log('[PremiumVoiceInterface] ✅ Props are equal, skipping re-render');
   return true; // Props are equal, skip re-render
 });
 
@@ -2299,29 +2430,21 @@ function VoiceModeStepsBar({ steps, currentStepId }: VoiceModeStepsBarProps) {
 
   const getStepClasses = (step: ConversationPlanStep) => {
     return cn(
-      "flex-1 h-2 rounded-full cursor-pointer transition-all duration-300 border border-white/10 bg-white/10",
-      step.status === 'completed' && "bg-emerald-400/80 border-emerald-300/60 shadow-[0_0_18px_rgba(16,185,129,0.45)]",
-      (step.status === 'active' || step.id === currentStepId) && "bg-sky-400/90 border-sky-300/60 shadow-[0_0_18px_rgba(14,165,233,0.45)]",
+      "flex-1 h-1.5 rounded-full cursor-pointer transition-all duration-300 border border-white/10 bg-white/10",
+      step.status === 'completed' && "bg-emerald-400/80 border-emerald-300/60 shadow-[0_0_8px_rgba(16,185,129,0.4)]",
+      (step.status === 'active' || step.id === currentStepId) && "bg-sky-400/90 border-sky-300/60 shadow-[0_0_8px_rgba(14,165,233,0.4)]",
       step.status === 'skipped' && "bg-white/5 border-white/5 opacity-40",
       step.status === 'pending' && "bg-white/15 border-white/5 opacity-60"
     );
   };
 
   return (
-    <div className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 backdrop-blur-xl shadow-[0_8px_32px_rgba(0,0,0,0.35)]">
-      <div className="flex items-center justify-between text-[11px] uppercase tracking-[0.2em] text-white/60 mb-3">
-        <span>Plan d'étapes</span>
-        {activeStepIndex >= 0 ? (
-          <span className="text-white/80 tracking-normal">
-            Étape {activeStepIndex + 1}/{steps.length}
-          </span>
-        ) : (
-          <span className="text-white/50 tracking-normal">
-            {steps.length} étapes
-          </span>
-        )}
-      </div>
-      <div className="flex items-center gap-2">
+    <div className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 backdrop-blur-xl">
+      <div className="flex items-center gap-3">
+        <span className="text-[10px] text-white/50 whitespace-nowrap">
+          {activeStepIndex >= 0 ? `${activeStepIndex + 1}/${steps.length}` : `${steps.length}`}
+        </span>
+        <div className="flex-1 flex items-center gap-1.5">
         {steps.map((step, index) => {
           const isActive = step.id === currentStepId || step.status === 'active';
           const isCompleted = step.status === 'completed';
@@ -2333,9 +2456,9 @@ function VoiceModeStepsBar({ steps, currentStepId }: VoiceModeStepsBarProps) {
                 <PopoverTrigger asChild>
                   <motion.div
                     className={getStepClasses(step)}
-                    whileHover={{ height: 12, opacity: 1 }}
+                    whileHover={{ height: 8, opacity: 1 }}
                     animate={{
-                      height: hoveredStep === step.id ? 12 : 8,
+                      height: hoveredStep === step.id ? 8 : 6,
                     }}
                     onHoverStart={() => setHoveredStep(step.id)}
                     onHoverEnd={() => setHoveredStep(null)}
@@ -2411,11 +2534,12 @@ function VoiceModeStepsBar({ steps, currentStepId }: VoiceModeStepsBarProps) {
                 </PopoverContent>
               </Popover>
               {index < steps.length - 1 && (
-                <div className="w-1" />
+                <div className="w-0.5" />
               )}
             </React.Fragment>
           );
         })}
+        </div>
       </div>
     </div>
   );

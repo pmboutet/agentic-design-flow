@@ -313,6 +313,15 @@ export async function GET(
       conversationPlan,
     });
 
+    // Debug logging for STEP_COMPLETE troubleshooting
+    console.log('[agent-config] 📋 Conversation plan status:', {
+      hasConversationPlan: !!conversationPlan,
+      planId: conversationPlan?.id,
+      currentStepId: conversationPlan?.current_step_id,
+      variableCurrentStepId: promptVariables.current_step_id,
+      variableCurrentStep: promptVariables.current_step?.substring(0, 100),
+    });
+
     // Pass the complete promptVariables directly - no manual subset
     const agentConfig = await getAgentConfigForAsk(supabase, askSession.id, promptVariables, token);
 
