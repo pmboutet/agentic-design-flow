@@ -51,6 +51,8 @@ const requestSchema = z
     maxOutputTokens: z.number().int().positive().optional(),
     /** If provided, only analyze this challenge and its sub-challenges */
     scopeChallengeId: z.string().trim().min(1).optional(),
+    /** Unique identifier for this execution, used by frontend to track completion */
+    runId: z.string().trim().min(1).optional(),
   })
   .optional();
 
@@ -1321,6 +1323,7 @@ export async function POST(
           ...persistedResults,
           lastRunAt: new Date().toISOString(),
           projectId,
+          ...(options?.runId ? { runId: options.runId } : {}),
         } })
         .eq("id", projectId);
 
