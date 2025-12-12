@@ -22,6 +22,7 @@ export type AiBuilderResultsData = {
   newChallenges: AiNewChallengeSuggestion[];
   errors: Array<{ challengeId: string | null; message: string }> | null;
   lastRunAt: string;
+  runId?: string; // Unique identifier for each execution
 };
 
 export interface UseAiChallengeBuilderOptions {
@@ -166,7 +167,7 @@ export function useAiChallengeBuilder({
   const [isAiBuilderRunning, setIsAiBuilderRunning] = useState(false);
   const [isAiPanelOpen, setIsAiPanelOpen] = useState(false);
   const [aiBuilderLastRunAt, setAiBuilderLastRunAt] = useState<string | null>(null);
-  const [aiBuilderStartTime, setAiBuilderStartTime] = useState<Date | null>(null);
+  const [currentRunId, setCurrentRunId] = useState<string | null>(null);
   const [hasAiBuilderResults, setHasAiBuilderResults] = useState(false);
   const [applyingChallengeUpdateIds, setApplyingChallengeUpdateIds] = useState<Set<string>>(
     () => new Set()
@@ -213,15 +214,15 @@ export function useAiChallengeBuilder({
 
   // Poll for AI results when builder is running
   useEffect(() => {
-    if (!isAiBuilderRunning || !aiBuilderStartTime) return;
+    if (!isAiBuilderRunning || !currentRunId) return;
 
     const pollInterval = setInterval(async () => {
       const data = await loadAiBuilderResults();
       if (data) {
-        const lastRunDate = new Date(data.lastRunAt);
-        if (lastRunDate >= aiBuilderStartTime) {
+        // Use runId matching instead of date comparison to avoid clock sync issues
+        if (data.runId === currentRunId) {
           setIsAiBuilderRunning(false);
-          setAiBuilderStartTime(null);
+          setCurrentRunId(null);
 
           const hasResults = data.suggestions.length > 0 || data.newChallenges.length > 0;
           const hasErrors = data.errors && data.errors.length > 0;
@@ -247,7 +248,7 @@ export function useAiChallengeBuilder({
     }, 3000);
 
     return () => clearInterval(pollInterval);
-  }, [isAiBuilderRunning, aiBuilderStartTime, loadAiBuilderResults]);
+  }, [isAiBuilderRunning, currentRunId, loadAiBuilderResults]);
 
   // Auto-clear feedback after timeout
   useEffect(() => {
@@ -261,8 +262,11 @@ export function useAiChallengeBuilder({
     async (scopeChallengeId?: string) => {
       if (isAiBuilderRunning) return;
 
+      // Generate a unique runId for this execution
+      const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+
       setIsAiBuilderRunning(true);
-      setAiBuilderStartTime(new Date());
+      setCurrentRunId(runId);
       setAiBuilderFeedback({
         type: "success",
         message: "Génération IA lancée. Vous pouvez continuer à naviguer.",
@@ -271,11 +275,14 @@ export function useAiChallengeBuilder({
       fetch(`/api/admin/projects/${projectId}/ai/challenge-builder`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(scopeChallengeId ? { scopeChallengeId } : {}),
+        body: JSON.stringify({
+          ...(scopeChallengeId ? { scopeChallengeId } : {}),
+          runId, // Pass runId to API
+        }),
       }).catch((error) => {
         console.error("Failed to start challenge builder:", error);
         setIsAiBuilderRunning(false);
-        setAiBuilderStartTime(null);
+        setCurrentRunId(null);
         setAiBuilderFeedback({
           type: "error",
           message:

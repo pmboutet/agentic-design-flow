@@ -11,6 +11,7 @@ interface PersistedChallengeBuilderResults {
   errors: AiChallengeBuilderResponse["errors"] | null;
   lastRunAt: string; // ISO timestamp
   projectId: string;
+  runId?: string; // Unique identifier for each execution
 }
 
 /**
