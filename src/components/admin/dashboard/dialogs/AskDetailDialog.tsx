@@ -151,6 +151,7 @@ export function AskDetailDialog({ ask, projectName, challengeName, onClose }: As
                   <p className="mt-1 text-sm font-medium text-white">
                     {ask.conversationMode === "individual_parallel" ? "Individuel parallèle" :
                      ask.conversationMode === "group_reporter" ? "Groupe avec rapporteur" :
+                     ask.conversationMode === "consultant" ? "Consultant (écoute passive)" :
                      "Collaboratif"}
                   </p>
                 </div>
