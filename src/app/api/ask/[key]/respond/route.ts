@@ -1708,6 +1708,7 @@ export async function POST(
     let message: Message | undefined;
     let latestAiResponse = '';
     let detectionMessageId: string | null = null;
+    let updatedConversationPlan: typeof conversationPlan = null; // Track if plan was updated after step completion
 
     if (!insightsOnly) {
       // If this is a voice-generated message, just persist it without calling executeAgent
@@ -1767,6 +1768,50 @@ export async function POST(
           messages.push(message);
           detectionMessageId = message.id;
           latestAiResponse = message.content;
+
+          // Check for step completion markers in voice messages (same logic as text mode)
+          if (conversationThread) {
+            const detectedStepId = detectStepCompletion(latestAiResponse);
+            if (detectedStepId) {
+              try {
+                const plan = await getConversationPlanWithSteps(supabase, conversationThread.id);
+                if (plan) {
+                  const currentStep = getCurrentStep(plan);
+
+                  // Support both normalized and legacy step structures
+                  const currentStepIdentifier = currentStep && 'step_identifier' in currentStep
+                    ? currentStep.step_identifier
+                    : currentStep?.id;
+
+                  // If 'CURRENT' was returned, use the current step identifier
+                  // Otherwise validate that detected ID matches current step
+                  const stepIdToComplete = detectedStepId === 'CURRENT'
+                    ? currentStepIdentifier
+                    : detectedStepId;
+
+                  if (currentStep && (detectedStepId === 'CURRENT' || currentStepIdentifier === detectedStepId)) {
+                    // Complete the step (summary will be generated asynchronously)
+                    // Use admin client for RLS bypass
+                    const adminSupabase = getAdminSupabaseClient();
+                    await completeStep(
+                      adminSupabase,
+                      conversationThread.id,
+                      stepIdToComplete!,
+                      undefined, // No pre-generated summary - let the async agent generate it
+                      askRow.id // Pass askSessionId to trigger async summary generation
+                    );
+                    console.log('[respond] ✅ Voice message step completed:', stepIdToComplete);
+
+                    // Fetch the updated plan to return to the client
+                    updatedConversationPlan = await getConversationPlanWithSteps(adminSupabase, conversationThread.id);
+                  }
+                }
+              } catch (planError) {
+                console.error('[respond] ⚠️ Failed to update conversation plan for voice message:', planError);
+                // Don't fail the request if plan update fails
+              }
+            }
+          }
         }
       } else {
         // Regular text mode: call executeAgent
@@ -1960,9 +2005,14 @@ export async function POST(
       }
     }
 
-    return NextResponse.json<ApiResponse<{ message?: Message; insights: Insight[] }>>({
+    return NextResponse.json<ApiResponse<{ message?: Message; insights: Insight[]; conversationPlan?: typeof updatedConversationPlan }>>({
       success: true,
-      data: { message, insights: refreshedInsights },
+      data: {
+        message,
+        insights: refreshedInsights,
+        // Include updated conversation plan if a step was completed (for voice mode step completion)
+        ...(updatedConversationPlan ? { conversationPlan: updatedConversationPlan } : {}),
+      },
     });
   } catch (error) {
     console.error('Error executing AI response pipeline:', error);
