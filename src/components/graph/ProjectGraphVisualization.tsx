@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState, useRef, useMemo } from "react";
 import dynamic from "next/dynamic";
+import { forceCollide } from "d3-force";
 import {
   AlertTriangle,
   ChevronDown,
@@ -758,6 +759,16 @@ export function ProjectGraphVisualization({ projectId, clientId, refreshKey }: P
       fgRef.current.d3Force("charge")?.strength(-400);
       fgRef.current.d3Force("link")?.distance(80);
       fgRef.current.d3Force("center")?.strength(0.05);
+
+      // Add collision force to prevent node/label overlap
+      // Radius = node size + space for label text
+      fgRef.current.d3Force(
+        "collide",
+        forceCollide<ForceGraphNode>()
+          .radius((node) => node.size + 35)
+          .strength(0.8)
+          .iterations(3)
+      );
     }
   }, [filteredGraphData]);
 
