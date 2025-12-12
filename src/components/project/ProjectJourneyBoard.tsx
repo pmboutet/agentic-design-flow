@@ -4940,7 +4940,8 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
                           <option key={mode} value={mode}>
                             {mode === "individual_parallel" ? "Réponses individuelles en parallèle" :
                              mode === "collaborative" ? "Conversation multi-voix" :
-                             "Groupe avec rapporteur"}
+                             mode === "group_reporter" ? "Groupe avec rapporteur" :
+                             "Consultant (écoute passive)"}
                           </option>
                         ))}
                       </select>
@@ -4948,6 +4949,7 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
                         {askFormValues.conversationMode === "individual_parallel" && "Chacun répond séparément, sans voir les autres"}
                         {askFormValues.conversationMode === "collaborative" && "Tout le monde voit et peut rebondir sur les messages des autres"}
                         {askFormValues.conversationMode === "group_reporter" && "Tout le monde voit tout, un rapporteur consolide"}
+                        {askFormValues.conversationMode === "consultant" && "L'IA écoute et suggère des questions au consultant, sans TTS"}
                       </p>
                     </div>
                   </div>

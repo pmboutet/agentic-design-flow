@@ -27,7 +27,7 @@ export const askStatusOptions = ["active", "inactive", "draft", "closed"] as con
 export type AskStatus = (typeof askStatusOptions)[number];
 
 export const askDeliveryModes: AskDeliveryMode[] = ["physical", "digital"];
-export const askConversationModes: AskConversationMode[] = ["individual_parallel", "collaborative", "group_reporter"];
+export const askConversationModes: AskConversationMode[] = ["individual_parallel", "collaborative", "group_reporter", "consultant"];
 
 // ===== Impact Labels & Classes =====
 

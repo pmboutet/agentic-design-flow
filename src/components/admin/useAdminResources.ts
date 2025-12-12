@@ -5,8 +5,44 @@ import { type ClientFormValues } from "./ClientManager";
 import { type UserFormValues } from "./UserManager";
 import { type ProjectFormValues } from "./ProjectManager";
 import { type ChallengeFormValues } from "./ChallengeEditor";
-import { type AskCreateFormValues } from "./AskCreateForm";
-import { type AskEditFormValues } from "./AskEditForm";
+import type { AskDeliveryMode, AskConversationMode } from "@/types";
+
+// Types moved inline after removing AskCreateForm and AskEditForm
+export interface AskCreateFormValues {
+  challengeId: string;
+  askKey: string;
+  name: string;
+  question: string;
+  description?: string;
+  startDate: string;
+  endDate: string;
+  status: string;
+  isAnonymous: boolean;
+  maxParticipants?: number;
+  deliveryMode: AskDeliveryMode;
+  conversationMode: AskConversationMode;
+  expectedDurationMinutes: number;
+  participantIds: string[];
+  spokespersonId?: string;
+}
+
+export interface AskEditFormValues {
+  askId: string;
+  name: string;
+  question: string;
+  description?: string;
+  startDate: string;
+  endDate: string;
+  status: string;
+  isAnonymous: boolean;
+  maxParticipants?: number;
+  deliveryMode: AskDeliveryMode;
+  conversationMode: AskConversationMode;
+  expectedDurationMinutes: number;
+  participantIds: string[];
+  spokespersonId?: string;
+  systemPrompt?: string;
+}
 import {
   type AskSessionRecord,
   type ChallengeRecord,

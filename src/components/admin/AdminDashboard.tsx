@@ -15,7 +15,6 @@ import {
   LayoutDashboard,
   Loader2,
   Pencil,
-  MessageSquare,
   Network,
   Search,
   Settings,
@@ -23,10 +22,7 @@ import {
   Target,
   Users,
   UserPlus,
-  X,
-  Mail,
-  Copy,
-  Check
+  X
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -36,19 +32,17 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { DateTimePicker } from "@/components/ui/date-time-picker";
 import { ProjectJourneyBoard } from "@/components/project/ProjectJourneyBoard";
-import { AskRelationshipCanvas } from "./AskRelationshipCanvas";
 import { FormDateTimeField } from "./FormDateTimeField";
 import { GraphRAGPanel } from "./GraphRAGPanel";
 import { ProjectGraphVisualization } from "@/components/graph/ProjectGraphVisualization";
 import { SecurityPanel } from "./SecurityPanel";
-import { AskPromptTemplateSelector } from "./AskPromptTemplateSelector";
 import { useAdminResources } from "./useAdminResources";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { UserSearchCombobox } from "@/components/ui/user-search-combobox";
 import { useAdminSearch, type SearchResultType, type SearchResultItem } from "./AdminSearchContext";
 import { useClientContext } from "./ClientContext";
 import { useProjectContext, type ProjectSelection } from "./ProjectContext";
-import type { ApiResponse, AskSessionRecord, ChallengeRecord, ClientRecord, ManagedUser, ProjectRecord } from "@/types";
+import type { ApiResponse, ChallengeRecord, ClientRecord, ManagedUser, ProjectRecord } from "@/types";
 
 interface AdminDashboardProps {
   initialProjectId?: string | null;
@@ -87,37 +81,6 @@ const challengeFormSchema = z.object({
   dueDate: z.string().trim().optional().or(z.literal(""))
 });
 
-const askStatuses = ["active", "inactive", "draft", "closed"] as const;
-const deliveryModes = ["physical", "digital"] as const;
-const conversationModes = ["individual_parallel", "collaborative", "group_reporter", "consultant"] as const;
-
-const askFormSchema = z.object({
-  askKey: z.string().trim().min(3, "Key is required").max(255).regex(/^[a-zA-Z0-9._-]+$/),
-  name: z.string().trim().min(1, "Name is required").max(255),
-  question: z.string().trim().min(5, "Question is too short").max(2000),
-  description: z.string().trim().max(2000).optional().or(z.literal("")),
-  startDate: z.string().trim().min(1, "Start date is required"),
-  endDate: z.string().trim().min(1, "End date is required"),
-  status: z.enum(askStatuses),
-  isAnonymous: z.boolean().default(false),
-  maxParticipants: z
-    .preprocess(value => (value === "" || value === undefined || value === null ? undefined : Number(value)), z
-      .number()
-      .int()
-      .positive()
-      .max(10000)
-      .optional()
-    ),
-  deliveryMode: z.enum(deliveryModes),
-  conversationMode: z.enum(conversationModes),
-  expectedDurationMinutes: z.number().int().min(1).max(30).default(8),
-  participantIds: z.array(z.string().uuid()).default([]),
-  participantEmails: z.array(z.string().email()).default([]),
-  spokespersonId: z.string().uuid().optional().or(z.literal("")),
-  spokespersonEmail: z.string().email().optional().or(z.literal("")),
-  systemPrompt: z.string().trim().optional().or(z.literal(""))
-});
-
 const userRoles = ["full_admin", "client_admin", "facilitator", "manager", "participant"] as const;
 
 const userFormSchema = z.object({
@@ -134,7 +97,6 @@ const userFormSchema = z.object({
 type ClientFormInput = z.infer<typeof clientFormSchema>;
 type ProjectFormInput = z.infer<typeof projectFormSchema>;
 type ChallengeFormInput = z.infer<typeof challengeFormSchema>;
-type AskFormInput = z.infer<typeof askFormSchema>;
 type UserFormInput = z.infer<typeof userFormSchema>;
 
 const gradientButtonClasses = "btn-gradient";
@@ -162,26 +124,6 @@ const defaultProjectFormValues: ProjectFormInput = {
   createdBy: ""
 };
 
-const defaultAskFormValues: AskFormInput = {
-  askKey: "",
-  name: "",
-  question: "",
-  description: "",
-  startDate: "",
-  endDate: "",
-  status: "active",
-  isAnonymous: false,
-  maxParticipants: undefined,
-  deliveryMode: "digital",
-  conversationMode: "collaborative",
-  expectedDurationMinutes: 8,
-  participantIds: [],
-  participantEmails: [],
-  spokespersonId: "",
-  spokespersonEmail: "",
-  systemPrompt: ""
-};
-
 const defaultUserFormValues: UserFormInput = {
   email: "",
   fullName: "",
@@ -197,7 +139,6 @@ const navigationItems = [
   { label: "Dashboard", icon: LayoutDashboard, targetId: "section-dashboard" },
   { label: "Projects", icon: FolderKanban, targetId: "section-projects" },
   { label: "Challenges", icon: Target, targetId: "section-challenges" },
-  { label: "ASK Sessions", icon: MessageSquare, targetId: "section-asks" },
   { label: "Users", icon: Users, targetId: "section-users" },
   { label: "Insights", icon: ClipboardList, targetId: "section-insights" },
   { label: "Graph RAG", icon: Network, targetId: "section-graph-rag" },
@@ -207,11 +148,10 @@ const navigationItems = [
 type SectionId = (typeof navigationItems)[number]["targetId"];
 type SectionLabel = (typeof navigationItems)[number]["label"];
 
-const searchResultTypeConfig: Record<SearchResultType, { label: string; icon: LucideIcon }> = {
+const searchResultTypeConfig: Record<Exclude<SearchResultType, "ask">, { label: string; icon: LucideIcon }> = {
   client: { label: "Client", icon: Building2 },
   project: { label: "Project", icon: FolderKanban },
   challenge: { label: "Challenge", icon: Target },
-  ask: { label: "ASK Session", icon: MessageSquare },
   user: { label: "User", icon: Users }
 };
 
@@ -230,15 +170,6 @@ function formatDateTime(value: string | null | undefined) {
     hour: "2-digit",
     minute: "2-digit"
   }).format(date);
-}
-
-function generateAskKey(base: string) {
-  const slug = base
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/(^-|-$)+/g, "");
-  const randomSuffix = Math.random().toString(36).slice(2, 6);
-  return `${slug || "ask"}-${randomSuffix}`;
 }
 
 function toInputDate(value: string | null | undefined) {
@@ -266,11 +197,10 @@ function formatDisplayValue(value: string | number | null | undefined) {
 interface ChallengeDetailDialogProps {
   challenge: ChallengeRecord | null;
   projectName?: string | null;
-  askCount: number;
   onClose: () => void;
 }
 
-function ChallengeDetailDialog({ challenge, projectName, askCount, onClose }: ChallengeDetailDialogProps) {
+function ChallengeDetailDialog({ challenge, projectName, onClose }: ChallengeDetailDialogProps) {
   return (
     <Dialog.Root open={Boolean(challenge)} onOpenChange={open => { if (!open) onClose(); }}>
       <Dialog.Portal>
@@ -321,10 +251,6 @@ function ChallengeDetailDialog({ challenge, projectName, askCount, onClose }: Ch
                   <p className="text-xs uppercase tracking-wide text-slate-400">Échéance</p>
                   <p className="mt-1 text-sm font-medium text-white">{formatDisplayValue(formatDateTime(challenge.dueDate))}</p>
                 </div>
-                <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                  <p className="text-xs uppercase tracking-wide text-slate-400">Sessions ASK reliées</p>
-                  <p className="mt-1 text-sm font-medium text-white">{askCount}</p>
-                </div>
               </div>
 
               <div className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-300">
@@ -339,283 +265,6 @@ function ChallengeDetailDialog({ challenge, projectName, askCount, onClose }: Ch
   );
 }
 
-interface AskDetailDialogProps {
-  ask: AskSessionRecord | null;
-  projectName?: string | null;
-  challengeName?: string | null;
-  onClose: () => void;
-}
-
-function AskDetailDialog({ ask, projectName, challengeName, onClose }: AskDetailDialogProps) {
-  const [isSendingInvites, setIsSendingInvites] = useState(false);
-  const [sendInvitesResult, setSendInvitesResult] = useState<{ sent: number; failed: number } | null>(null);
-  const [copiedLinks, setCopiedLinks] = useState<Set<string>>(new Set());
-
-  // Dynamically import to avoid SSR issues
-  const generateMagicLinkUrl = (email: string, askKey: string, participantToken?: string | null): string => {
-    const baseUrl = typeof window !== "undefined" 
-      ? (process.env.NEXT_PUBLIC_APP_URL || window.location.origin)
-      : process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-    
-    // If we have a participant token, use it for a unique link per participant
-    if (participantToken) {
-      return `${baseUrl}/?token=${participantToken}`;
-    }
-    
-    // Otherwise, use the askKey (backward compatible)
-    return `${baseUrl}/?key=${askKey}`;
-  };
-
-  const handleSendInvites = async () => {
-    if (!ask) return;
-    
-    setIsSendingInvites(true);
-    setSendInvitesResult(null);
-    
-    try {
-      const response = await fetch(`/api/admin/asks/${ask.id}/send-invites`, {
-        method: "POST",
-      });
-      
-      const data = await response.json();
-      
-      if (data.success) {
-        setSendInvitesResult({
-          sent: data.data.sent,
-          failed: data.data.failed,
-        });
-      } else {
-        setSendInvitesResult({
-          sent: 0,
-          failed: ask.participants?.length || 0,
-        });
-      }
-    } catch (error) {
-      console.error("Failed to send invites:", error);
-      setSendInvitesResult({
-        sent: 0,
-        failed: ask.participants?.length || 0,
-      });
-    } finally {
-      setIsSendingInvites(false);
-    }
-  };
-
-  const copyToClipboard = async (text: string, participantId: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopiedLinks(prev => new Set([...prev, participantId]));
-      setTimeout(() => {
-        setCopiedLinks(prev => {
-          const next = new Set(prev);
-          next.delete(participantId);
-          return next;
-        });
-      }, 2000);
-    } catch (error) {
-      console.error("Failed to copy:", error);
-    }
-  };
-
-  return (
-    <Dialog.Root open={Boolean(ask)} onOpenChange={open => { if (!open) onClose(); }}>
-      <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm transition-opacity data-[state=closed]:opacity-0 data-[state=open]:opacity-100" />
-        <Dialog.Content className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto">
-          {ask && (
-            <div className="w-full max-w-2xl rounded-3xl border border-white/10 bg-slate-950/90 p-6 shadow-2xl my-4">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <Dialog.Title className="text-lg font-semibold text-white">{ask.name}</Dialog.Title>
-                  <Dialog.Description className="text-sm text-slate-300">
-                    ASK rattaché au challenge {formatDisplayValue(challengeName)} ({formatDisplayValue(projectName)})
-                  </Dialog.Description>
-                </div>
-                <Dialog.Close asChild>
-                  <button
-                    type="button"
-                    className="rounded-full border border-white/10 bg-white/10 p-1.5 text-slate-200 transition hover:bg-white/20"
-                    aria-label="Fermer"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                </Dialog.Close>
-              </div>
-
-              <div className="mt-4 space-y-4">
-                <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                  <p className="text-xs uppercase tracking-wide text-slate-400">Question</p>
-                  <p className="mt-2 text-sm font-medium text-white">{ask.question}</p>
-                </div>
-                {ask.description && (
-                  <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-200">
-                    <p className="text-xs uppercase tracking-wide text-slate-400">Description</p>
-                    <p className="mt-2 leading-relaxed text-slate-200">{ask.description}</p>
-                  </div>
-                )}
-              </div>
-
-              <div className="mt-6 grid gap-3 sm:grid-cols-2">
-                <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                  <p className="text-xs uppercase tracking-wide text-slate-400">Statut</p>
-                  <p className="mt-1 text-sm font-medium text-white">{formatDisplayValue(ask.status)}</p>
-                </div>
-                <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                  <p className="text-xs uppercase tracking-wide text-slate-400">Clé ASK</p>
-                  <p className="mt-1 text-sm font-medium text-white">{ask.askKey}</p>
-                </div>
-                <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                  <p className="text-xs uppercase tracking-wide text-slate-400">Projet</p>
-                  <p className="mt-1 text-sm font-medium text-white">{formatDisplayValue(projectName)}</p>
-                </div>
-                <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                  <p className="text-xs uppercase tracking-wide text-slate-400">Challenge</p>
-                  <p className="mt-1 text-sm font-medium text-white">{formatDisplayValue(challengeName)}</p>
-                </div>
-                <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                  <p className="text-xs uppercase tracking-wide text-slate-400">Delivery mode</p>
-                  <p className="mt-1 text-sm font-medium text-white">
-                    {ask.deliveryMode === "physical" ? "In-person" : "Digital"}
-                  </p>
-                </div>
-                <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                  <p className="text-xs uppercase tracking-wide text-slate-400">Mode de conversation</p>
-                  <p className="mt-1 text-sm font-medium text-white">
-                    {ask.conversationMode === "individual_parallel" ? "Individuel parallèle" :
-                     ask.conversationMode === "group_reporter" ? "Groupe avec rapporteur" :
-                     ask.conversationMode === "consultant" ? "Consultant (écoute passive)" :
-                     "Collaboratif"}
-                  </p>
-                </div>
-                <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                  <p className="text-xs uppercase tracking-wide text-slate-400">Début</p>
-                  <p className="mt-1 text-sm font-medium text-white">{formatDisplayValue(formatDateTime(ask.startDate))}</p>
-                </div>
-                <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                  <p className="text-xs uppercase tracking-wide text-slate-400">Fin</p>
-                  <p className="mt-1 text-sm font-medium text-white">{formatDisplayValue(formatDateTime(ask.endDate))}</p>
-                </div>
-                <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                  <p className="text-xs uppercase tracking-wide text-slate-400">Anonyme</p>
-                  <p className="mt-1 text-sm font-medium text-white">{ask.isAnonymous ? "Oui" : "Non"}</p>
-                </div>
-                <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                  <p className="text-xs uppercase tracking-wide text-slate-400">Participants max.</p>
-                  <p className="mt-1 text-sm font-medium text-white">{formatDisplayValue(ask.maxParticipants)}</p>
-                </div>
-              </div>
-
-              <div className="mt-6 grid gap-3 sm:grid-cols-2">
-                <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-300">
-                  <p className="text-xs uppercase tracking-wide text-slate-400">Créée le</p>
-                  <p className="mt-1 font-medium text-white">{formatDisplayValue(formatDateTime(ask.createdAt))}</p>
-                </div>
-                <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-300">
-                  <p className="text-xs uppercase tracking-wide text-slate-400">Mise à jour</p>
-                  <p className="mt-1 font-medium text-white">{formatDisplayValue(formatDateTime(ask.updatedAt))}</p>
-                </div>
-              </div>
-
-              <div className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-200">
-                <div className="flex items-center justify-between mb-2">
-                  <p className="text-xs uppercase tracking-wide text-slate-400">Participants</p>
-                  {ask.participants && ask.participants.length > 0 && (
-                    <Button
-                      type="button"
-                      variant="glassDark"
-                      size="sm"
-                      onClick={handleSendInvites}
-                      disabled={isSendingInvites}
-                      className="h-8 px-3 text-xs"
-                    >
-                      {isSendingInvites ? (
-                        <>
-                          <Loader2 className="h-3 w-3 mr-2 animate-spin" />
-                          Sending...
-                        </>
-                      ) : (
-                        <>
-                          <Mail className="h-3 w-3 mr-2" />
-                          Send Invites
-                        </>
-                      )}
-                    </Button>
-                  )}
-                </div>
-                {sendInvitesResult && (
-                  <div className={`mb-3 rounded-lg p-2 text-xs ${
-                    sendInvitesResult.failed === 0 
-                      ? "bg-green-500/20 text-green-200" 
-                      : "bg-amber-500/20 text-amber-200"
-                  }`}>
-                    {sendInvitesResult.sent > 0 && (
-                      <p>✓ Sent {sendInvitesResult.sent} invite{sendInvitesResult.sent !== 1 ? "s" : ""}</p>
-                    )}
-                    {sendInvitesResult.failed > 0 && (
-                      <p>⚠ Failed to send {sendInvitesResult.failed} invite{sendInvitesResult.failed !== 1 ? "s" : ""}</p>
-                    )}
-                  </div>
-                )}
-                {ask.participants && ask.participants.length > 0 ? (
-                  <div className="mt-2 space-y-3">
-                    {ask.participants.map(participant => {
-                      const participantEmail = participant.email;
-                      const magicLink = participantEmail 
-                        ? generateMagicLinkUrl(participantEmail, ask.askKey, participant.inviteToken) 
-                        : (participant.inviteToken ? generateMagicLinkUrl("", ask.askKey, participant.inviteToken) : null);
-                      const isCopied = copiedLinks.has(participant.id);
-                      
-                      return (
-                        <div key={participant.id} className="rounded-lg border border-white/10 bg-slate-900/40 p-3">
-                          <div className="flex items-center justify-between gap-3 mb-2">
-                            <div>
-                              <p className="font-medium text-white">{participant.name}</p>
-                              {participantEmail && (
-                                <p className="text-xs text-slate-400">{participantEmail}</p>
-                              )}
-                            </div>
-                            <span className="text-xs text-slate-400">
-                              {participant.isSpokesperson ? "Spokesperson" : participant.role || "Participant"}
-                            </span>
-                          </div>
-                          {magicLink && (
-                            <div className="mt-2 flex items-center gap-2">
-                              <input
-                                type="text"
-                                readOnly
-                                value={magicLink}
-                                className="flex-1 rounded-lg border border-white/10 bg-slate-900/60 px-3 py-1.5 text-xs text-slate-200 font-mono"
-                                onClick={(e) => (e.target as HTMLInputElement).select()}
-                              />
-                              <button
-                                type="button"
-                                onClick={() => copyToClipboard(magicLink, participant.id)}
-                                className="rounded-lg border border-white/10 bg-slate-900/60 p-1.5 text-slate-300 hover:bg-slate-800/60 hover:text-white transition-colors"
-                                title="Copy link"
-                              >
-                                {isCopied ? (
-                                  <Check className="h-4 w-4 text-green-400" />
-                                ) : (
-                                  <Copy className="h-4 w-4" />
-                                )}
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <p className="mt-2 text-xs text-slate-400">No participants assigned yet.</p>
-                )}
-              </div>
-            </div>
-          )}
-        </Dialog.Content>
-      </Dialog.Portal>
-    </Dialog.Root>
-  );
-}
 
 interface AddParticipantsDialogProps {
   open: boolean;
@@ -774,7 +423,6 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
     users,
     projects,
     challenges,
-    asks,
     feedback,
     setFeedback,
     isLoading,
@@ -786,18 +434,14 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
     createProject,
     updateProject,
     updateChallenge,
-    createAsk,
-    updateAsk,
     deleteUser,
     deleteClient,
     deleteProject,
     deleteChallenge,
-    deleteAsk,
     addUserToProject,
     removeUserFromProject,
     findUserByEmail,
-    createUserAndAddToProject,
-    refreshAsks
+    createUserAndAddToProject
   } = useAdminResources();
 
   // Get client selection from context (managed in sidebar)
@@ -824,9 +468,7 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
   const [selectedChallengeId, setSelectedChallengeId] = useState<string | null>(null);
 
   const [showProjectForm, setShowProjectForm] = useState(false);
-  const [showAskForm, setShowAskForm] = useState(false);
   const [showUserForm, setShowUserForm] = useState(false);
-  const [manualAskKey, setManualAskKey] = useState(false);
   const [selectedUserForProject, setSelectedUserForProject] = useState<ManagedUser | null>(null);
   const [showJourneyBoard, setShowJourneyBoard] = useState(false);
   const [showAddParticipantsDialog, setShowAddParticipantsDialog] = useState(false);
@@ -844,11 +486,8 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
 
 
   const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
-  const [editingAskId, setEditingAskId] = useState<string | null>(null);
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [challengeDetailId, setChallengeDetailId] = useState<string | null>(null);
-  const [askDetailId, setAskDetailId] = useState<string | null>(null);
-  const [isSendingInvites, setIsSendingInvites] = useState(false);
 
   const showOnlyChallengeWorkspace = mode === "project-relationships";
 
@@ -857,7 +496,6 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
   const dashboardRef = useRef<HTMLDivElement>(null);
   const projectsRef = useRef<HTMLDivElement>(null);
   const challengesRef = useRef<HTMLDivElement>(null);
-  const asksRef = useRef<HTMLDivElement>(null);
   const usersRef = useRef<HTMLDivElement>(null);
   const insightsRef = useRef<HTMLDivElement>(null);
   const mainScrollRef = useRef<HTMLElement>(null);
@@ -869,7 +507,6 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
       "section-dashboard": dashboardRef,
       "section-projects": projectsRef,
       "section-challenges": challengesRef,
-      "section-asks": asksRef,
       "section-users": usersRef,
       "section-insights": insightsRef,
       "section-graph-rag": graphRagRef,
@@ -886,31 +523,10 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
     };
   }, []);
 
-  // Reload ASK data when editing to ensure tokens are generated
-  useEffect(() => {
-    if (editingAskId && showAskForm) {
-      const reloadAsk = async () => {
-        try {
-          // First, fetch the specific ASK to trigger token generation
-          const response = await fetch(`/api/admin/asks/${editingAskId}`, {
-            credentials: "include",
-          });
-          if (response.ok) {
-            // Then refresh all asks to update the cache
-            await refreshAsks();
-          }
-        } catch (error) {
-          console.error("Error reloading ASK:", error);
-        }
-      };
-      reloadAsk();
-    }
-  }, [editingAskId, showAskForm, refreshAsks]);
-
   const navigationMenu = useMemo(() => {
     if (showOnlyChallengeWorkspace) {
       return navigationItems.filter(item =>
-        item.targetId === "section-challenges" || item.targetId === "section-asks"
+        item.targetId === "section-challenges"
       );
     }
     return navigationItems;
@@ -957,23 +573,10 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
     }
   });
 
-  const askForm = useForm<AskFormInput>({
-    resolver: zodResolver(askFormSchema),
-    defaultValues: defaultAskFormValues
-  });
-
   const userForm = useForm<UserFormInput>({
     resolver: zodResolver(userFormSchema),
     defaultValues: defaultUserFormValues
   });
-
-  const askNameValue = askForm.watch("name");
-  const selectedConversationMode = askForm.watch("conversationMode");
-  const selectedParticipants = askForm.watch("participantIds");
-  const selectedSpokesperson = askForm.watch("spokespersonId");
-  const participantEmails = askForm.watch("participantEmails") ?? [];
-  const [emailInput, setEmailInput] = useState("");
-  const [copiedLinks, setCopiedLinks] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (initialProjectId) {
@@ -1005,46 +608,6 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
     mediaQuery.addEventListener("change", updateMatch);
     return () => mediaQuery.removeEventListener("change", updateMatch);
   }, []);
-
-  useEffect(() => {
-    if (!manualAskKey && askNameValue && !askForm.getValues("askKey")) {
-      askForm.setValue("askKey", generateAskKey(askNameValue));
-    }
-  }, [askNameValue, manualAskKey, askForm]);
-
-  useEffect(() => {
-    if (selectedSpokesperson && !selectedParticipants.includes(selectedSpokesperson)) {
-      askForm.setValue("spokespersonId", "", { shouldDirty: true });
-    }
-  }, [askForm, selectedParticipants, selectedSpokesperson]);
-
-  useEffect(() => {
-    // Clear spokesperson if not in group_reporter mode
-    if (selectedConversationMode !== "group_reporter") {
-      if (askForm.getValues("spokespersonId")) {
-        askForm.setValue("spokespersonId", "", { shouldDirty: true });
-      }
-    }
-  }, [askForm, selectedConversationMode]);
-
-  // Set default ask dates from project when project is selected
-  useEffect(() => {
-    if (!selectedProjectId) return;
-
-    const project = projects.find(p => p.id === selectedProjectId);
-    if (!project) return;
-
-    // Only set dates if they are currently empty
-    const currentStartDate = askForm.getValues("startDate");
-    const currentEndDate = askForm.getValues("endDate");
-
-    if (!currentStartDate && project.startDate) {
-      askForm.setValue("startDate", project.startDate);
-    }
-    if (!currentEndDate && project.endDate) {
-      askForm.setValue("endDate", project.endDate);
-    }
-  }, [selectedProjectId, projects, askForm]);
 
   // Client initialization is now handled by ClientContext
 
@@ -1166,31 +729,6 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
       }
     });
 
-    asks.forEach(ask => {
-      if (
-        matchesText(ask.name) ||
-        matchesText(ask.question) ||
-        matchesText(ask.description) ||
-        matchesText(ask.askKey) ||
-        matchesText(ask.status)
-      ) {
-        const parentProject = projectById.get(ask.projectId);
-        const parentClient = parentProject ? clientById.get(parentProject.clientId) : undefined;
-        const parentChallenge = ask.challengeId ? challengeById.get(ask.challengeId) : undefined;
-        const subtitleParts = [parentProject?.name, parentChallenge?.name, ask.askKey].filter(Boolean);
-
-        addResult({
-          id: ask.id,
-          type: "ask",
-          title: ask.name,
-          subtitle: subtitleParts.join(" • ") || undefined,
-          clientId: parentClient?.id ?? parentProject?.clientId ?? null,
-          projectId: ask.projectId,
-          challengeId: ask.challengeId ?? null
-        });
-      }
-    });
-
     users.forEach(user => {
       const displayName = (
         user.fullName ||
@@ -1222,7 +760,6 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
     clients,
     projects,
     challenges,
-    asks,
     users,
     clientById,
     projectById,
@@ -1298,15 +835,6 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
         setSelectedChallengeId(result.id);
       }
 
-      if (result.type === "ask") {
-        setAskDetailId(result.id);
-        if (result.challengeId) {
-          setSelectedChallengeId(result.challengeId);
-        }
-      } else {
-        setAskDetailId(null);
-      }
-
       if (result.type === "challenge") {
         setChallengeDetailId(result.id);
       } else {
@@ -1314,7 +842,6 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
       }
 
       setShowProjectForm(false);
-      setShowAskForm(false);
       setShowUserForm(false);
 
       switch (result.type) {
@@ -1327,9 +854,6 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
           break;
         case "challenge":
           scrollToSection("section-challenges");
-          break;
-        case "ask":
-          scrollToSection("section-asks");
           break;
         case "user":
           scrollToSection("section-users");
@@ -1345,10 +869,8 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
       setSelectedClientId,
       setSelectedProjectId,
       setSelectedChallengeId,
-      setAskDetailId,
       setChallengeDetailId,
       setShowProjectForm,
-      setShowAskForm,
       setShowUserForm
     ]
   );
@@ -1513,11 +1035,6 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
     }
   }, [challengesForProject, selectedChallengeId]);
 
-  const asksForChallenge = useMemo(
-    () => asks.filter(ask => ask.challengeId === selectedChallengeId),
-    [asks, selectedChallengeId]
-  );
-
   const nextDueChallenge = useMemo(() => {
     let closest: (typeof challengesForProject)[number] | null = null;
     for (const challenge of challengesForProject) {
@@ -1555,96 +1072,7 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
     [challenges, selectedChallengeId]
   );
 
-  const activeAskProjectId = useMemo(() => {
-    if (editingAskId) {
-      const session = asks.find(item => item.id === editingAskId);
-      if (session?.projectId) {
-        return session.projectId;
-      }
-    }
-
-    if (selectedChallenge?.projectId) {
-      return selectedChallenge.projectId;
-    }
-
-    return selectedProjectId;
-  }, [editingAskId, asks, selectedChallenge, selectedProjectId]);
-
-  const activeAskClientId = useMemo(() => {
-    if (activeAskProjectId) {
-      const project = projects.find(item => item.id === activeAskProjectId);
-      if (project?.clientId) {
-        return project.clientId;
-      }
-    }
-
-    if (selectedClientId) {
-      return selectedClientId;
-    }
-
-    return null;
-  }, [activeAskProjectId, projects, selectedClientId]);
-
-  const eligibleAskUsers = useMemo(() => {
-    const sorted = [...users].sort((a, b) => {
-      const nameA = (a.fullName || `${a.firstName ?? ""} ${a.lastName ?? ""}` || a.email || "").trim().toLowerCase();
-      const nameB = (b.fullName || `${b.firstName ?? ""} ${b.lastName ?? ""}` || b.email || "").trim().toLowerCase();
-      return nameA.localeCompare(nameB);
-    });
-
-    return sorted.filter(user => {
-      if (!user.isActive) {
-        return false;
-      }
-
-      const normalizedRole = user.role?.toLowerCase?.() ?? "";
-      const isGlobal = normalizedRole.includes("admin") || normalizedRole.includes("owner");
-
-      if (!isGlobal) {
-        if (activeAskClientId && user.clientId !== activeAskClientId) {
-          return false;
-        }
-
-        if (activeAskProjectId) {
-          const projectIds = user.projectIds ?? [];
-          if (!projectIds.includes(activeAskProjectId)) {
-            return false;
-          }
-        }
-      }
-
-      return true;
-    });
-  }, [activeAskClientId, activeAskProjectId, users]);
-
-  const lockedParticipantIds = useMemo(() => {
-    const eligibleIds = new Set(eligibleAskUsers.map(user => user.id));
-    return selectedParticipants.filter(participantId => !eligibleIds.has(participantId));
-  }, [eligibleAskUsers, selectedParticipants]);
-
-  const participantLookup = useMemo(() => {
-    const map = new Map<string, { name: string; role?: string | null }>();
-
-    users.forEach(user => {
-      const displayName = (user.fullName || `${user.firstName ?? ""} ${user.lastName ?? ""}` || user.email || "Participant").trim();
-      map.set(user.id, { name: displayName, role: user.role });
-    });
-
-    asks.forEach(session => {
-      session.participants?.forEach(participant => {
-        if (!participant.id) {
-          return;
-        }
-
-        if (!map.has(participant.id)) {
-          map.set(participant.id, { name: participant.name, role: participant.role ?? null });
-        }
-      });
-    });
-
-    return map;
-  }, [asks, users]);
-
+  
   const challengeDetail = useMemo(
     () => challenges.find(challenge => challenge.id === challengeDetailId) ?? null,
     [challenges, challengeDetailId]
@@ -1657,32 +1085,6 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
     return projects.find(project => project.id === challengeDetail.projectId)?.name ?? null;
   }, [projects, challengeDetail]);
 
-  const challengeDetailAskCount = useMemo(() => {
-    if (!challengeDetail) {
-      return 0;
-    }
-    return asks.filter(ask => ask.challengeId === challengeDetail.id).length;
-  }, [asks, challengeDetail]);
-
-  const askDetail = useMemo(
-    () => asks.find(session => session.id === askDetailId) ?? null,
-    [asks, askDetailId]
-  );
-
-  const askDetailProjectName = useMemo(() => {
-    if (!askDetail?.projectId) {
-      return null;
-    }
-    return projects.find(project => project.id === askDetail.projectId)?.name ?? null;
-  }, [projects, askDetail]);
-
-  const askDetailChallengeName = useMemo(() => {
-    if (!askDetail?.challengeId) {
-      return null;
-    }
-    return challenges.find(challenge => challenge.id === askDetail.challengeId)?.name ?? null;
-  }, [challenges, askDetail]);
-
   const projectContextMissing = useMemo(
     () =>
       showOnlyChallengeWorkspace && Boolean(initialProjectId) && !isLoading && !selectedProject,
@@ -1690,7 +1092,6 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
   );
 
   const isEditingProject = Boolean(editingProjectId);
-  const isEditingAsk = Boolean(editingAskId);
   const isEditingUser = Boolean(editingUserId);
 
   useEffect(() => {
@@ -1733,10 +1134,9 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
     () => [
       { label: "Active clients", value: clients.length, icon: Building2 },
       { label: "Projects", value: projects.length, icon: FolderKanban },
-      { label: "Challenges", value: challenges.length, icon: Target },
-      { label: "ASK sessions", value: asks.length, icon: MessageSquare }
+      { label: "Challenges", value: challenges.length, icon: Target }
     ],
-    [clients.length, projects.length, challenges.length, asks.length]
+    [clients.length, projects.length, challenges.length]
   );
 
   const columnTemplate = useMemo(() => {
@@ -1906,114 +1306,6 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
     await updateChallenge(selectedChallenge.id, values);
   };
 
-  const resetAskForm = () => {
-    // Get project dates for reset
-    const project = selectedProjectId ? projects.find(p => p.id === selectedProjectId) : null;
-
-    askForm.reset({
-      ...defaultAskFormValues,
-      startDate: project?.startDate ?? "",
-      endDate: project?.endDate ?? ""
-    });
-    setEditingAskId(null);
-    setManualAskKey(false);
-  };
-
-  const toggleAskParticipant = (userId: string) => {
-    const current = askForm.getValues("participantIds") ?? [];
-    if (current.includes(userId)) {
-      const next = current.filter(id => id !== userId);
-      askForm.setValue("participantIds", next, { shouldDirty: true });
-      if (askForm.getValues("spokespersonId") === userId) {
-        askForm.setValue("spokespersonId", "", { shouldDirty: true });
-      }
-      return;
-    }
-
-    // For all conversation modes, allow multiple participants
-    askForm.setValue("participantIds", [...current, userId], { shouldDirty: true });
-  };
-
-  const handleSubmitAsk = async (values: AskFormInput) => {
-    const payload = {
-      askKey: values.askKey,
-      name: values.name,
-      question: values.question,
-      description: values.description ?? "",
-      startDate: values.startDate,
-      endDate: values.endDate,
-      status: values.status,
-      isAnonymous: values.isAnonymous,
-      maxParticipants: values.maxParticipants,
-      deliveryMode: values.deliveryMode,
-      conversationMode: values.conversationMode,
-      expectedDurationMinutes: values.expectedDurationMinutes,
-      participantIds: values.participantIds ?? [],
-      participantEmails: values.participantEmails ?? [],
-      spokespersonId: values.spokespersonId ?? "",
-      spokespersonEmail: values.spokespersonEmail ?? "",
-      systemPrompt: values.systemPrompt ?? ""
-    };
-
-    if (editingAskId) {
-      const { askKey: _askKey, ...updatePayload } = payload;
-      await updateAsk(editingAskId, updatePayload);
-    } else {
-      const projectId = selectedChallenge?.projectId ?? selectedProjectId;
-
-      if (!projectId) {
-        setFeedback({
-          type: "error",
-          message: "Select a project before creating an ASK."
-        });
-        return;
-      }
-
-      await createAsk({
-        ...payload,
-        projectId,
-        challengeId: selectedChallenge?.id ?? ""
-      });
-    }
-
-    resetAskForm();
-    setShowAskForm(false);
-  };
-
-  const startAskEdit = (askId: string) => {
-    const session = asks.find(item => item.id === askId);
-    if (!session) {
-      return;
-    }
-    setShowAskForm(true);
-    setEditingAskId(session.id);
-    setManualAskKey(true);
-    askForm.reset({
-      askKey: session.askKey,
-      name: session.name,
-      question: session.question,
-      description: session.description ?? "",
-      startDate: toInputDate(session.startDate),
-      endDate: toInputDate(session.endDate),
-      status: (session.status as AskFormInput["status"]) || "active",
-      isAnonymous: session.isAnonymous,
-      maxParticipants: session.maxParticipants ?? undefined,
-      deliveryMode: session.deliveryMode ?? "digital",
-      conversationMode: session.conversationMode ?? "collaborative",
-      expectedDurationMinutes: session.expectedDurationMinutes ?? 8,
-      participantIds: session.participants?.map(participant => participant.id).filter((value): value is string => Boolean(value)) ?? [],
-      participantEmails: session.participants?.filter(participant => !participant.id && participant.email).map(participant => participant.email!).filter(Boolean) ?? [],
-      spokespersonId: session.participants?.find(participant => participant.isSpokesperson && participant.id)?.id ?? "",
-      spokespersonEmail: session.participants?.find(participant => participant.isSpokesperson && participant.email && !participant.id)?.email ?? "",
-      systemPrompt: session.systemPrompt ?? ""
-    });
-  };
-
-  const cancelAskEdit = () => {
-    resetAskForm();
-    setShowAskForm(false);
-  };
-
   const handleCanvasProjectSelect = (projectId: string) => {
     const project = projects.find(item => item.id === projectId);
     if (!project) {
@@ -2033,26 +1325,8 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
       handleCanvasProjectSelect(challenge.projectId);
     }
     setSelectedChallengeId(challenge.id);
-    setAskDetailId(null);
     setChallengeDetailId(challenge.id);
     setActiveSection("Challenges");
-  };
-
-  const handleCanvasAskSelect = (askId: string) => {
-    const session = asks.find(item => item.id === askId);
-    if (!session) {
-      return;
-    }
-    if (session.projectId) {
-      handleCanvasProjectSelect(session.projectId);
-    }
-    if (session.challengeId) {
-      setSelectedChallengeId(session.challengeId);
-    }
-    startAskEdit(session.id);
-    setChallengeDetailId(null);
-    setAskDetailId(session.id);
-    setActiveSection("ASK Sessions");
   };
 
   const resetUserForm = () => {
@@ -2170,13 +1444,6 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
       setSelectedChallengeId(null);
     }
     await deleteChallenge(challengeId);
-  };
-
-  const handleDeleteAsk = async (askId: string) => {
-    if (!window.confirm("Delete this ASK session?")) {
-      return;
-    }
-    await deleteAsk(askId);
   };
 
   const handleAddUserToProject = async (userId: string) => {
@@ -2385,17 +1652,6 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
             </AlertDescription>
           </Alert>
         )}
-        <AskRelationshipCanvas
-          projects={projects}
-          challenges={challenges}
-          asks={asks}
-          focusProjectId={selectedProjectId}
-          focusChallengeId={selectedChallengeId}
-          focusAskId={editingAskId}
-          onProjectSelect={handleCanvasProjectSelect}
-          onChallengeSelect={handleCanvasChallengeSelect}
-          onAskSelect={handleCanvasAskSelect}
-        />
         {selectedProject ? (
           <div
             className={`grid gap-4 ${
@@ -2440,8 +1696,7 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                         {challenge.priority && <span className="text-red-300">{challenge.priority}</span>}
                       </div>
                     </button>
-                    <div className="mt-2 flex items-center justify-between text-xs text-slate-500">
-                      <span>{asks.filter(ask => ask.challengeId === challenge.id).length} ASK sessions</span>
+                    <div className="mt-2 flex items-center justify-end text-xs text-slate-500">
                       <button
                         type="button"
                         onClick={() => handleDeleteChallenge(challenge.id)}
@@ -2458,8 +1713,6 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
           </div>
 
           <div
-            ref={asksRef}
-            id="section-asks"
             className="space-y-4 rounded-2xl border border-white/10 bg-slate-900/40 p-4"
           >
             {selectedChallenge ? (
@@ -2568,751 +1821,6 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                     </Button>
                   </div>
                 </form>
-
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <h5 className="text-sm font-semibold text-slate-200">ASK sessions</h5>
-                    <Button
-                      type="button"
-                      className={`${gradientButtonClasses} h-9 px-3 text-xs`}
-                      onClick={() => {
-                        if (showAskForm) {
-                          cancelAskEdit();
-                        } else {
-                          resetAskForm();
-                          setShowAskForm(true);
-                        }
-                      }}
-                      disabled={isBusy}
-                    >
-                      {showAskForm ? "Close" : "Create ASK"}
-                    </Button>
-                  </div>
-
-                  {showAskForm && (
-                    <form onSubmit={askForm.handleSubmit(handleSubmitAsk)} className="space-y-3 rounded-2xl border border-white/10 bg-slate-950/40 p-4">
-                      {isEditingAsk && (
-                        <p className="text-xs font-medium text-amber-300">
-                          Editing {asks.find(ask => ask.id === editingAskId)?.name}
-                        </p>
-                      )}
-                      <div className="flex flex-col gap-2">
-                        <Label htmlFor="ask-name">Name</Label>
-                        <Input
-                          id="ask-name"
-                          placeholder="Session name"
-                          {...askForm.register("name")}
-                          disabled={isBusy}
-                        />
-                        {askForm.formState.errors.name && (
-                          <p className="text-xs text-red-400">{askForm.formState.errors.name.message}</p>
-                        )}
-                      </div>
-                      <div className="flex flex-col gap-2">
-                        <Label htmlFor="ask-key">ASK key</Label>
-                        <div className="flex gap-2">
-                          <Input
-                            id="ask-key"
-                            placeholder="Auto generated"
-                            {...askForm.register("askKey", {
-                              onChange: () => setManualAskKey(true)
-                            })}
-                            disabled={isBusy || isEditingAsk}
-                          />
-                          <Button
-                            type="button"
-                            variant="glassDark"
-                            onClick={() => {
-                              const name = askForm.getValues("name");
-                              askForm.setValue("askKey", generateAskKey(name || "ask"));
-                              setManualAskKey(false);
-                            }}
-                            disabled={isBusy || isEditingAsk}
-                          >
-                            Regenerate
-                          </Button>
-                        </div>
-                        {askForm.formState.errors.askKey && (
-                          <p className="text-xs text-red-400">{askForm.formState.errors.askKey.message}</p>
-                        )}
-                      </div>
-                      <div className="flex flex-col gap-2">
-                        <Label htmlFor="ask-question">Guiding question</Label>
-                        <Textarea
-                          id="ask-question"
-                          rows={3}
-                          placeholder="What do you want the team to explore?"
-                          {...askForm.register("question")}
-                          disabled={isBusy}
-                        />
-                      </div>
-                      <div className="flex flex-col gap-2">
-                        <Label htmlFor="ask-description">Description</Label>
-                        <Textarea
-                          id="ask-description"
-                          rows={2}
-                          placeholder="Share additional context"
-                          {...askForm.register("description")}
-                          disabled={isBusy}
-                        />
-                      </div>
-                      <div className="flex flex-col gap-2">
-                        <AskPromptTemplateSelector
-                          value={askForm.watch("systemPrompt") || ""}
-                          onChange={(value) => askForm.setValue("systemPrompt", value, { shouldDirty: true })}
-                          disabled={isBusy}
-                        />
-                        <Label htmlFor="ask-system-prompt">System prompt</Label>
-                        <Textarea
-                          id="ask-system-prompt"
-                          rows={6}
-                          placeholder="Provide the system prompt used by the AI for this ask"
-                          {...askForm.register("systemPrompt")}
-                          disabled={isBusy}
-                        />
-                      </div>
-                      <div className="grid gap-3 md:grid-cols-2">
-                        <div className="flex flex-col gap-2">
-                          <Label htmlFor="ask-start">Start</Label>
-                          <Controller
-                            control={askForm.control}
-                            name="startDate"
-                            render={({ field }) => (
-                              <DateTimePicker
-                                id="ask-start"
-                                value={field.value}
-                                onChange={field.onChange}
-                                disabled={isBusy}
-                                placeholder="Select start date"
-                              />
-                            )}
-                          />
-                          {askForm.formState.errors.startDate && (
-                            <p className="text-xs text-red-400">{askForm.formState.errors.startDate.message}</p>
-                          )}
-                        </div>
-                        <div className="flex flex-col gap-2">
-                          <Label htmlFor="ask-end">End</Label>
-                          <Controller
-                            control={askForm.control}
-                            name="endDate"
-                            render={({ field }) => (
-                              <DateTimePicker
-                                id="ask-end"
-                                value={field.value}
-                                onChange={field.onChange}
-                                disabled={isBusy}
-                                placeholder="Select end date"
-                              />
-                            )}
-                          />
-                          {askForm.formState.errors.endDate && (
-                            <p className="text-xs text-red-400">{askForm.formState.errors.endDate.message}</p>
-                          )}
-                        </div>
-                      </div>
-                      <div className="grid gap-3 md:grid-cols-2">
-                        <div className="flex flex-col gap-2">
-                          <Label htmlFor="ask-status">Status</Label>
-                          <select
-                            id="ask-status"
-                            className="h-10 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm text-white"
-                            {...askForm.register("status")}
-                            disabled={isBusy}
-                          >
-                            {askStatuses.map(status => (
-                              <option key={status} value={status}>
-                                {status}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                        <label className="flex items-center gap-2 text-sm text-slate-300">
-                          <input
-                            type="checkbox"
-                            className="h-4 w-4 rounded border-white/20 bg-slate-900"
-                            {...askForm.register("isAnonymous")}
-                            disabled={isBusy}
-                          />
-                          Allow anonymous participation
-                        </label>
-                      </div>
-                      <div className="grid gap-3 md:grid-cols-2">
-                        <div className="flex flex-col gap-2">
-                          <Label htmlFor="ask-delivery">Delivery mode</Label>
-                          <select
-                            id="ask-delivery"
-                            className="h-10 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm text-white"
-                            {...askForm.register("deliveryMode")}
-                            disabled={isBusy}
-                          >
-                            {deliveryModes.map(mode => (
-                              <option key={mode} value={mode}>
-                                {mode === "physical" ? "In-person" : "Digital"}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                        <div className="flex flex-col gap-2">
-                          <Label htmlFor="ask-conversation-mode">Conversation Mode</Label>
-                          <select
-                            id="ask-conversation-mode"
-                            className="h-10 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm text-white"
-                            {...askForm.register("conversationMode")}
-                            disabled={isBusy}
-                          >
-                            <option value="individual_parallel">Individual parallel responses</option>
-                            <option value="collaborative">Multi-voice conversation</option>
-                            <option value="group_reporter">Group with reporter</option>
-                            <option value="consultant">Consultant (passive listening)</option>
-                          </select>
-                          <p className="text-xs text-slate-400">
-                            {selectedConversationMode === "individual_parallel" && "Each person responds separately, no cross-visibility"}
-                            {selectedConversationMode === "collaborative" && "Everyone sees and can respond to each other"}
-                            {selectedConversationMode === "group_reporter" && "Everyone sees everything, one reporter consolidates"}
-                            {selectedConversationMode === "consultant" && "AI listens and suggests questions to the consultant, no TTS"}
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label>Participants</Label>
-                        <p className="text-xs text-slate-400">
-                          Toggle the contacts who can be invited to this ASK. Admin roles stay available across all projects.
-                        </p>
-
-                        {lockedParticipantIds.length > 0 && (
-                          <div className="rounded-md border border-amber-300/30 bg-amber-400/10 p-3 text-xs text-amber-100">
-                            <p className="font-semibold text-amber-200">Participants currently outside the project scope</p>
-                            <ul className="mt-2 space-y-1">
-                              {lockedParticipantIds.map(participantId => {
-                                const info = participantLookup.get(participantId);
-                                return (
-                                  <li key={participantId} className="flex items-center justify-between gap-3">
-                                    <span>{info?.name ?? participantId}</span>
-                                    {info?.role && (
-                                      <span className="text-[10px] uppercase tracking-wide text-amber-300">{info.role}</span>
-                                    )}
-                                  </li>
-                                );
-                              })}
-                            </ul>
-                          </div>
-                        )}
-
-                        <div className="max-h-48 space-y-2 overflow-y-auto rounded-xl border border-white/10 bg-slate-900/40 p-3">
-                          {eligibleAskUsers.length === 0 ? (
-                            <p className="text-sm text-slate-400">No eligible contacts for this project.</p>
-                          ) : (
-                            eligibleAskUsers.map(user => {
-                              const isChecked = selectedParticipants.includes(user.id);
-                              const displayName =
-                                user.fullName || `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim() || user.email || "Participant";
-
-                              return (
-                                <label
-                                  key={user.id}
-                                  className="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-slate-900/60 px-3 py-2 text-sm text-slate-200"
-                                >
-                                  <div>
-                                    <p className="font-medium text-white">{displayName}</p>
-                                    <p className="text-xs text-slate-400">{user.role}</p>
-                                  </div>
-                                  <input
-                                    type="checkbox"
-                                    className="h-4 w-4 rounded border-white/20 bg-slate-900"
-                                    checked={isChecked}
-                                    onChange={() => toggleAskParticipant(user.id)}
-                                    disabled={isBusy}
-                                  />
-                                </label>
-                              );
-                            })
-                          )}
-                        </div>
-
-                        <div className="space-y-2 rounded-xl border border-white/10 bg-slate-900/40 p-3">
-                          <Label className="text-sm">Add participants by email</Label>
-                          <p className="text-xs text-slate-400">
-                            Add email addresses to invite participants who don't have accounts yet. They will receive a magic link to join.
-                          </p>
-                          <div className="flex gap-2">
-                            <Input
-                              type="email"
-                              placeholder="participant@example.com"
-                              value={emailInput}
-                              onChange={(e) => setEmailInput(e.target.value)}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter" && emailInput.trim()) {
-                                  e.preventDefault();
-                                  const email = emailInput.trim().toLowerCase();
-                                  if (email && !participantEmails.includes(email)) {
-                                    const current = askForm.getValues("participantEmails") ?? [];
-                                    askForm.setValue("participantEmails", [...current, email], { shouldDirty: true });
-                                    setEmailInput("");
-                                  }
-                                }
-                              }}
-                              disabled={isBusy}
-                              className="flex-1"
-                            />
-                            <Button
-                              type="button"
-                              variant="glassDark"
-                              onClick={() => {
-                                if (emailInput.trim()) {
-                                  const email = emailInput.trim().toLowerCase();
-                                  if (email && !participantEmails.includes(email)) {
-                                    const current = askForm.getValues("participantEmails") ?? [];
-                                    askForm.setValue("participantEmails", [...current, email], { shouldDirty: true });
-                                    setEmailInput("");
-                                  }
-                                }
-                              }}
-                              disabled={isBusy || !emailInput.trim()}
-                            >
-                              Add
-                            </Button>
-                          </div>
-                          {participantEmails.length > 0 && (
-                            <div className="mt-2 flex flex-wrap gap-2">
-                              {participantEmails.map((email, index) => (
-                                <span
-                                  key={index}
-                                  className="flex items-center gap-2 rounded-full bg-indigo-500/20 px-3 py-1 text-xs text-indigo-200"
-                                >
-                                  {email}
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      const current = askForm.getValues("participantEmails") ?? [];
-                                      askForm.setValue(
-                                        "participantEmails",
-                                        current.filter((e) => e !== email),
-                                        { shouldDirty: true }
-                                      );
-                                    }}
-                                    disabled={isBusy}
-                                    className="text-indigo-300 hover:text-indigo-100"
-                                  >
-                                    <X className="h-3 w-3" />
-                                  </button>
-                                </span>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-
-                      {selectedConversationMode === "group_reporter" && (selectedParticipants.length > 0 || participantEmails.length > 0) && (
-                        <div className="flex flex-col gap-2">
-                          <Label htmlFor="ask-spokesperson">Reporter</Label>
-                          <select
-                            id="ask-spokesperson"
-                            className="h-10 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm text-white"
-                            {...askForm.register("spokespersonId")}
-                            disabled={isBusy}
-                          >
-                            <option value="">No dedicated spokesperson</option>
-                            {selectedParticipants.map(participantId => {
-                              const info = participantLookup.get(participantId);
-                              return (
-                                <option key={participantId} value={participantId}>
-                                  {info?.name ?? participantId}
-                                </option>
-                              );
-                            })}
-                          </select>
-                          {participantEmails.length > 0 && (
-                            <select
-                              id="ask-spokesperson-email"
-                              className="mt-2 h-10 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm text-white"
-                              {...askForm.register("spokespersonEmail")}
-                              disabled={isBusy}
-                            >
-                              <option value="">No email spokesperson</option>
-                              {participantEmails.map(email => (
-                                <option key={email} value={email}>
-                                  {email}
-                                </option>
-                              ))}
-                            </select>
-                          )}
-                        </div>
-                      )}
-
-                      <div className="flex flex-col gap-2">
-                        <Label htmlFor="ask-max">Max participants</Label>
-                        <Input
-                          id="ask-max"
-                          type="number"
-                          min={1}
-                          placeholder="e.g. 50"
-                          {...askForm.register("maxParticipants", { valueAsNumber: true })}
-                          disabled={isBusy}
-                        />
-                      </div>
-
-                      {/* Participant Invite Links - Only show when editing existing ASK */}
-                      {isEditingAsk && editingAskId && (
-                        <div className="space-y-3 rounded-xl border border-indigo-500/30 bg-indigo-500/10 p-4">
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <Label className="text-sm font-semibold text-indigo-200">Participant Invite Links</Label>
-                              <p className="text-xs text-slate-400 mt-1">
-                                Copy individual links or send invites via email
-                              </p>
-                            </div>
-                            <Button
-                              type="button"
-                              variant="glassDark"
-                              size="sm"
-                              onClick={async () => {
-                                if (!editingAskId) return;
-                                setIsSendingInvites(true);
-                                try {
-                                  const response = await fetch(`/api/admin/asks/${editingAskId}/send-invites`, {
-                                    method: "POST",
-                                  });
-                                  const data = await response.json();
-                                  if (data.success) {
-                                    setFeedback({
-                                      type: "success",
-                                      message: `Sent ${data.data.sent} invite${data.data.sent !== 1 ? "s" : ""}${data.data.failed > 0 ? `, ${data.data.failed} failed` : ""}`
-                                    });
-                                  } else {
-                                    setFeedback({
-                                      type: "error",
-                                      message: data.error || "Failed to send invites"
-                                    });
-                                  }
-                                } catch (error) {
-                                  setFeedback({
-                                    type: "error",
-                                    message: "Failed to send invites"
-                                  });
-                                } finally {
-                                  setIsSendingInvites(false);
-                                }
-                              }}
-                              disabled={isSendingInvites}
-                              className="h-8 px-3 text-xs bg-indigo-500/20 hover:bg-indigo-500/30 border-indigo-400/30"
-                            >
-                              <Mail className="h-3 w-3 mr-2" />
-                              Send Invites
-                            </Button>
-                          </div>
-                          
-                          {/* Participants with links */}
-                          <div className="mt-3 space-y-2 max-h-64 overflow-y-auto">
-                            {/* Use existing ASK participants with their tokens when editing */}
-                            {(() => {
-                              const currentAsk = editingAskId ? asks.find(a => a.id === editingAskId) : null;
-                              const existingParticipants = currentAsk?.participants || [];
-                              
-                              // Generate magic link URL helper
-                              const generateMagicLinkUrl = (email: string, askKey: string, participantToken?: string | null): string => {
-                                const baseUrl = typeof window !== "undefined" 
-                                  ? (process.env.NEXT_PUBLIC_APP_URL || window.location.origin)
-                                  : process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-                                
-                                // If we have a participant token, use it for a unique link per participant
-                                if (participantToken) {
-                                  return `${baseUrl}/?token=${participantToken}`;
-                                }
-                                
-                                // Otherwise, use the askKey (backward compatible)
-                                return `${baseUrl}/?key=${askKey}`;
-                              };
-                              
-                              if (existingParticipants.length > 0) {
-                                return existingParticipants.map(participant => {
-                                  const participantEmail = participant.email;
-                                  const askKey = askForm.watch("askKey");
-                                  const magicLink = participantEmail 
-                                    ? generateMagicLinkUrl(participantEmail, askKey, participant.inviteToken) 
-                                    : (participant.inviteToken ? generateMagicLinkUrl("", askKey, participant.inviteToken) : (askKey ? generateMagicLinkUrl("", askKey) : null));
-                                  const participantKey = participant.id || participant.email || `participant-${Math.random()}`;
-                                  const isCopied = copiedLinks.has(participantKey);
-                                  
-                                  return (
-                                    <div key={participantKey} className="rounded-lg border border-white/10 bg-slate-900/60 p-2">
-                                      <div className="flex items-center justify-between mb-1">
-                                        <div>
-                                          <p className="text-sm font-medium text-white">{participant.name}</p>
-                                          {participantEmail && <p className="text-xs text-slate-400">{participantEmail}</p>}
-                                          {!participantEmail && <p className="text-xs text-slate-400">No email on record</p>}
-                                        </div>
-                                      </div>
-                                      {magicLink && (
-                                        <div className="flex items-center gap-2 mt-2">
-                                          <input
-                                            type="text"
-                                            readOnly
-                                            value={magicLink}
-                                            className="flex-1 rounded-lg border border-white/10 bg-slate-900/80 px-2 py-1 text-xs text-slate-200 font-mono"
-                                            onClick={(e) => (e.target as HTMLInputElement).select()}
-                                          />
-                                          <button
-                                            type="button"
-                                            onClick={() => {
-                                              navigator.clipboard.writeText(magicLink);
-                                              setCopiedLinks(prev => new Set([...prev, participantKey]));
-                                              setTimeout(() => {
-                                                setCopiedLinks(prev => {
-                                                  const next = new Set(prev);
-                                                  next.delete(participantKey);
-                                                  return next;
-                                                });
-                                              }, 2000);
-                                            }}
-                                            className="rounded-lg border border-white/10 bg-slate-900/60 p-1.5 text-slate-300 hover:bg-slate-800/60 hover:text-white transition-colors"
-                                            title="Copy link"
-                                          >
-                                            {isCopied ? (
-                                              <Check className="h-3 w-3 text-green-400" />
-                                            ) : (
-                                              <Copy className="h-3 w-3" />
-                                            )}
-                                          </button>
-                                        </div>
-                                      )}
-                                    </div>
-                                  );
-                                });
-                              }
-                              
-                              // Fallback to form participants if no existing participants found
-                              return (
-                                <>
-                                  {/* Participants from user IDs */}
-                                  {selectedParticipants.length > 0 && selectedParticipants.map(participantId => {
-                                    const user = eligibleAskUsers.find(u => u.id === participantId);
-                                    if (!user) return null;
-                                    const email = user.email;
-                                    const askKey = askForm.watch("askKey");
-                                    // Note: For new participants being added, we don't have invite_token yet
-                                    // It will be generated when they're saved to the database
-                                    const baseUrl = typeof window !== "undefined" 
-                                      ? (process.env.NEXT_PUBLIC_APP_URL || window.location.origin)
-                                      : process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-                                    const magicLink = askKey 
-                                      ? `${baseUrl}/?key=${askKey}`
-                                      : null;
-                                    const isCopied = copiedLinks.has(participantId);
-                                    
-                                    return (
-                                      <div key={participantId} className="rounded-lg border border-white/10 bg-slate-900/60 p-2">
-                                        <div className="flex items-center justify-between mb-1">
-                                          <div>
-                                            <p className="text-sm font-medium text-white">
-                                              {user.fullName || `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim() || user.email}
-                                            </p>
-                                            {email && <p className="text-xs text-slate-400">{email}</p>}
-                                          </div>
-                                        </div>
-                                        {magicLink && (
-                                          <div className="flex items-center gap-2 mt-2">
-                                            <input
-                                              type="text"
-                                              readOnly
-                                              value={magicLink}
-                                              className="flex-1 rounded-lg border border-white/10 bg-slate-900/80 px-2 py-1 text-xs text-slate-200 font-mono"
-                                              onClick={(e) => (e.target as HTMLInputElement).select()}
-                                            />
-                                            <button
-                                              type="button"
-                                              onClick={() => {
-                                                navigator.clipboard.writeText(magicLink);
-                                                setCopiedLinks(prev => new Set([...prev, participantId]));
-                                                setTimeout(() => {
-                                                  setCopiedLinks(prev => {
-                                                    const next = new Set(prev);
-                                                    next.delete(participantId);
-                                                    return next;
-                                                  });
-                                                }, 2000);
-                                              }}
-                                              className="rounded-lg border border-white/10 bg-slate-900/60 p-1.5 text-slate-300 hover:bg-slate-800/60 hover:text-white transition-colors"
-                                              title="Copy link"
-                                            >
-                                              {isCopied ? (
-                                                <Check className="h-3 w-3 text-green-400" />
-                                              ) : (
-                                                <Copy className="h-3 w-3" />
-                                              )}
-                                            </button>
-                                          </div>
-                                        )}
-                                      </div>
-                                    );
-                                  })}
-                                  
-                                  {/* Participants from emails */}
-                                  {participantEmails.length > 0 && participantEmails.map((email, index) => {
-                                    const askKey = askForm.watch("askKey");
-                                    // Note: For new email participants being added, we don't have invite_token yet
-                                    // It will be generated when they're saved to the database
-                                    const baseUrl = typeof window !== "undefined" 
-                                      ? (process.env.NEXT_PUBLIC_APP_URL || window.location.origin)
-                                      : process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-                                    const magicLink = askKey 
-                                      ? `${baseUrl}/?key=${askKey}`
-                                      : null;
-                                    const emailKey = `email-${index}`;
-                                    const isCopied = copiedLinks.has(emailKey);
-                                    
-                                    return (
-                                      <div key={emailKey} className="rounded-lg border border-white/10 bg-slate-900/60 p-2">
-                                        <div className="flex items-center justify-between mb-1">
-                                          <div>
-                                            <p className="text-sm font-medium text-white">{email}</p>
-                                            <p className="text-xs text-slate-400">Email participant</p>
-                                          </div>
-                                        </div>
-                                        {magicLink && (
-                                          <div className="flex items-center gap-2 mt-2">
-                                            <input
-                                              type="text"
-                                              readOnly
-                                              value={magicLink}
-                                              className="flex-1 rounded-lg border border-white/10 bg-slate-900/80 px-2 py-1 text-xs text-slate-200 font-mono"
-                                              onClick={(e) => (e.target as HTMLInputElement).select()}
-                                            />
-                                            <button
-                                              type="button"
-                                              onClick={() => {
-                                                navigator.clipboard.writeText(magicLink);
-                                                setCopiedLinks(prev => new Set([...prev, emailKey]));
-                                                setTimeout(() => {
-                                                  setCopiedLinks(prev => {
-                                                    const next = new Set(prev);
-                                                    next.delete(emailKey);
-                                                    return next;
-                                                  });
-                                                }, 2000);
-                                              }}
-                                              className="rounded-lg border border-white/10 bg-slate-900/60 p-1.5 text-slate-300 hover:bg-slate-800/60 hover:text-white transition-colors"
-                                              title="Copy link"
-                                            >
-                                              {isCopied ? (
-                                                <Check className="h-3 w-3 text-green-400" />
-                                              ) : (
-                                                <Copy className="h-3 w-3" />
-                                              )}
-                                            </button>
-                                          </div>
-                                        )}
-                                      </div>
-                                    );
-                                  })}
-                                  
-                                  {selectedParticipants.length === 0 && participantEmails.length === 0 && (
-                                    <p className="text-xs text-slate-400 text-center py-2">No participants selected yet</p>
-                                  )}
-                                </>
-                              );
-                            })()}
-                          </div>
-                        </div>
-                      )}
-
-                      <div className="flex justify-end gap-2">
-                        {isEditingAsk && (
-                          <Button
-                            type="button"
-                            variant="glassDark"
-                            onClick={cancelAskEdit}
-                            disabled={isBusy}
-                          >
-                            Cancel
-                          </Button>
-                        )}
-                        <Button type="submit" className="px-4" disabled={isBusy}>
-                          {isEditingAsk ? "Update ASK" : "Launch ASK"}
-                        </Button>
-                      </div>
-                    </form>
-                  )}
-
-                  <div className="space-y-2">
-                    {asksForChallenge.length === 0 ? (
-                      <p className="text-sm text-slate-400">No ASK sessions have been created yet.</p>
-                    ) : (
-                      asksForChallenge.map(session => (
-                        <div
-                          key={session.id}
-                          className="rounded-2xl border border-white/10 bg-slate-950/40 p-4 text-sm text-slate-200"
-                        >
-                          <div className="flex items-start justify-between gap-3">
-                            <div>
-                              <p className="font-semibold text-white">{session.name}</p>
-                              <p className="text-xs text-slate-400">Key: {session.askKey}</p>
-                            </div>
-                            <span className="rounded-full bg-white/10 px-2 py-1 text-[10px] uppercase tracking-wide text-slate-200">
-                              {session.status}
-                            </span>
-                          </div>
-                          <p className="mt-2 text-xs text-slate-400">
-                            {formatDateTime(session.startDate)} → {formatDateTime(session.endDate)}
-                          </p>
-                          <div className="mt-2 flex flex-wrap gap-2 text-[10px] uppercase tracking-wide text-slate-300">
-                            <span className="rounded-full bg-white/10 px-2 py-1">
-                              {session.deliveryMode === "physical" ? "In-person" : "Digital"}
-                            </span>
-                            <span className="rounded-full bg-white/10 px-2 py-1">
-                              {session.conversationMode === "individual_parallel" ? "Individuel" :
-                               session.conversationMode === "group_reporter" ? "Groupe + rapporteur" :
-                               session.conversationMode === "consultant" ? "Consultant" :
-                               "Collaboratif"}
-                            </span>
-                          </div>
-                          <div className="mt-3 space-y-1 text-xs text-slate-300">
-                            <p className="text-slate-200">
-                              {(session.participants?.length ?? 0)} participant{session.participants && session.participants.length === 1 ? "" : "s"}
-                              {session.conversationMode === "group_reporter" && session.participants?.some(part => part.isSpokesperson)
-                                ? " • spokesperson assigned"
-                                : ""}
-                            </p>
-                            <p className="text-[11px] text-slate-400">
-                              {session.isAnonymous ? "Anonymous answers enabled" : "Identified participants"}
-                            </p>
-                            {session.participants && session.participants.length > 0 && (
-                              <p className="text-[11px] text-slate-400">
-                                {session.participants
-                                  .map(participant => `${participant.name}${participant.isSpokesperson ? " (spokesperson)" : ""}`)
-                                  .join(", ")}
-                              </p>
-                            )}
-                          </div>
-                          <div className="mt-3 flex items-center justify-between text-xs text-slate-400">
-                            <span>
-                              {session.maxParticipants ? `Max ${session.maxParticipants}` : "No participant cap"}
-                            </span>
-                            <div className="flex items-center gap-2">
-                              <button
-                                type="button"
-                                onClick={() => startAskEdit(session.id)}
-                                className="text-slate-200 hover:text-white"
-                                disabled={isBusy}
-                              >
-                                Edit
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteAsk(session.id)}
-                                className="text-red-300 hover:text-red-200"
-                                disabled={isBusy}
-                              >
-                                Delete
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
               </>
             ) : (
               <p className="text-sm text-slate-400">Select a challenge to review its details.</p>
@@ -3321,8 +1829,6 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
         </div>
       ) : (
         <div
-          ref={asksRef}
-          id="section-asks"
           className="rounded-2xl border border-dashed border-white/10 bg-slate-900/40 p-6 text-sm text-slate-400"
         >
           Pick a project to access its challenges.
@@ -3337,14 +1843,7 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
       <ChallengeDetailDialog
         challenge={challengeDetail}
         projectName={challengeDetailProjectName}
-        askCount={challengeDetailAskCount}
         onClose={() => setChallengeDetailId(null)}
-      />
-      <AskDetailDialog
-        ask={askDetail}
-        projectName={askDetailProjectName}
-        challengeName={askDetailChallengeName}
-        onClose={() => setAskDetailId(null)}
       />
       <AddParticipantsDialog
         open={showAddParticipantsDialog}
@@ -3978,7 +2477,7 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                 </Button>
               </div>
 
-              <div className="grid gap-4 md:grid-cols-3">
+              <div className="grid gap-4 md:grid-cols-2">
                 <div className="rounded-2xl border border-white/10 bg-slate-900/40 p-4">
                   <p className="text-xs uppercase tracking-wide text-slate-400">Projects for client</p>
                   <p className="mt-2 text-2xl font-semibold text-white">{projectsForClient.length}</p>
@@ -3988,11 +2487,6 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                   <p className="text-xs uppercase tracking-wide text-slate-400">Challenges in focus</p>
                   <p className="mt-2 text-2xl font-semibold text-white">{challengesForProject.length}</p>
                   <p className="mt-1 text-xs text-slate-500">Scoped to the highlighted project.</p>
-                </div>
-                <div className="rounded-2xl border border-white/10 bg-slate-900/40 p-4">
-                  <p className="text-xs uppercase tracking-wide text-slate-400">ASK sessions</p>
-                  <p className="mt-2 text-2xl font-semibold text-white">{asksForChallenge.length}</p>
-                  <p className="mt-1 text-xs text-slate-500">Connected to the active challenge.</p>
                 </div>
               </div>
 
