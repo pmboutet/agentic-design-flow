@@ -83,10 +83,7 @@ type TokenDataBundle = {
 };
 
 async function loadTokenDataWithAdmin(token: string): Promise<TokenDataBundle | null> {
-  console.log(`🔍 loadTokenDataWithAdmin: Searching for token ${token.substring(0, 8)}...`);
-
   if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
-    console.error("❌ SUPABASE_SERVICE_ROLE_KEY not configured");
     return null;
   }
 
@@ -98,18 +95,7 @@ async function loadTokenDataWithAdmin(token: string): Promise<TokenDataBundle | 
       .eq("invite_token", token)
       .maybeSingle();
 
-    console.log(`📊 Query result:`, {
-      found: !!participantInfoRow,
-      error: participantFetchError,
-      participant: participantInfoRow ? {
-        id: participantInfoRow.id,
-        user_id: participantInfoRow.user_id,
-        token: participantInfoRow.invite_token?.substring(0, 8)
-      } : null
-    });
-
     if (participantFetchError || !participantInfoRow) {
-      console.error("❌ Fallback loader: participant not found for token", participantFetchError);
       return null;
     }
 
@@ -252,10 +238,7 @@ export async function GET(
   try {
     const { token } = await params;
 
-    console.log(`🔐 GET /api/ask/token/[token]: Received request for token ${token?.substring(0, 8)}...`);
-
     if (!token || token.trim().length === 0) {
-      console.error("❌ Token invalid or empty");
       return NextResponse.json<ApiResponse>({
         success: false,
         error: 'Token invalide'
@@ -274,32 +257,10 @@ export async function GET(
     let profileClient: SupabaseClient = supabase;
 
     // Attempt to fetch via RPC (preferred). Fallback to admin client if RPC unavailable or empty.
-    console.log(`🔧 Attempting RPC get_ask_session_by_token...`);
     const { data: askRows, error: askError } = await supabase
       .rpc('get_ask_session_by_token', { p_token: token });
 
-    // Debug: Also check messages count directly with admin
-    const adminDebug = getAdminSupabaseClient();
-    const { data: debugMessages, error: debugError } = await adminDebug
-      .from('messages')
-      .select('id, content, sender_type, user_id, conversation_thread_id, created_at')
-      .order('created_at', { ascending: true })
-      .limit(20);
-    console.log(`🔍 DEBUG: All recent messages in DB:`, debugMessages?.map(m => ({
-      id: m.id.substring(0, 8),
-      content: m.content?.substring(0, 30),
-      sender: m.sender_type,
-      thread: m.conversation_thread_id?.substring(0, 8) ?? 'NULL',
-    })));
-
-    console.log(`📊 RPC result:`, {
-      success: !askError && askRows && askRows.length > 0,
-      error: askError,
-      rowCount: askRows?.length || 0
-    });
-
     if (askError || !askRows || askRows.length === 0) {
-      console.warn('⚠️  RPC get_ask_session_by_token failed, attempting fallback...', askError);
       const fallbackData = await loadTokenDataWithAdmin(token);
       if (!fallbackData) {
         return NextResponse.json<ApiResponse>({
@@ -314,11 +275,6 @@ export async function GET(
       messageRows = fallbackData.messages;
       insightRows = fallbackData.insights;
       profileClient = fallbackData.profileClient;
-      console.log(`🔍 DEBUG Admin fallback messages:`, messageRows.length, 'messages:', messageRows.map(m => ({
-        id: (m as any).message_id?.substring(0, 8),
-        content: m.content?.substring(0, 30),
-        sender: m.sender_type,
-      })));
     } else {
       askRow = askRows[0] as AskSessionRow;
 
@@ -362,11 +318,6 @@ export async function GET(
         console.error('Error getting messages by token:', messageError);
       } else {
         messageRows = (messageRowsData ?? []) as TokenDataBundle["messages"];
-        console.log(`🔍 DEBUG RPC messages returned:`, messageRows.length, 'messages:', messageRows.map(m => ({
-          id: (m as any).message_id?.substring(0, 8),
-          content: m.content?.substring(0, 30),
-          sender: m.sender_type,
-        })));
       }
 
       if (insightError) {
@@ -560,13 +511,6 @@ export async function GET(
       const viewerRole = participantInfo.role ?? participantRow?.role ?? null;
       const isSpokesperson = participantInfo.is_spokesperson === true || participantRow?.is_spokesperson === true || viewerRole === "spokesperson";
 
-      console.log('✅ [ask/token] Building viewer from participant info:', {
-        participantId: participantInfo.participant_id,
-        profileId: participantInfo.user_id,
-        isSpokesperson,
-        role: viewerRole,
-      });
-
       viewer = {
         participantId: participantRow?.participant_id ?? participantInfo.participant_id ?? null,
         profileId: participantInfo.user_id,
@@ -583,16 +527,6 @@ export async function GET(
     // Use participant's user_id for thread creation (from token), or fall back to authenticated profileId
     const threadUserId = participantInfo?.user_id ?? profileId;
 
-    console.log('🔄 GET /api/ask/token/[token]: Starting conversation plan logic...');
-    console.log('📊 GET /api/ask/token/[token]: Current state:', {
-      messagesCount: messages.length,
-      hasAskRow: !!askRow,
-      askSessionId: askRow?.ask_session_id,
-      profileId,
-      participantUserId: participantInfo?.user_id,
-      threadUserId,
-    });
-
     // Track thread ID for realtime subscriptions (set inside try block)
     let conversationThreadId: string | null = null;
 
@@ -601,36 +535,22 @@ export async function GET(
         conversation_mode: askRow.conversation_mode,
       };
 
-      console.log('🔧 GET /api/ask/token/[token]: Getting admin client...');
       const adminClient = getAdminSupabaseClient();
-      console.log('✅ GET /api/ask/token/[token]: Admin client obtained');
-
-      console.log('🔧 GET /api/ask/token/[token]: Getting or creating conversation thread...');
-      const { thread: conversationThread } = await getOrCreateConversationThread(
+      const { thread: conversationThread, error: threadError } = await getOrCreateConversationThread(
         adminClient,
         askRow.ask_session_id,
         threadUserId,
         askConfig
       );
-      console.log('📊 GET /api/ask/token/[token]: Thread result:', {
-        hasThread: !!conversationThread,
-        threadId: conversationThread?.id,
-      });
 
       // Store thread ID for response (used for realtime subscriptions)
       conversationThreadId = conversationThread?.id ?? null;
 
       if (conversationThread) {
-        console.log('🎯 GET /api/ask/token/[token]: Checking for existing conversation plan');
         conversationPlan = await getConversationPlanWithSteps(adminClient, conversationThread.id);
-        console.log('📊 GET /api/ask/token/[token]: Existing plan check:', {
-          hasPlan: !!conversationPlan,
-          planId: conversationPlan?.id,
-        });
 
         // Generate plan if it doesn't exist and conversation is empty
         if (!conversationPlan && messages.length === 0) {
-          console.log('📋 GET /api/ask/token/[token]: No plan exists and no messages, generating new plan...');
           try {
             // Use centralized function for plan generation variables
             // Note: Token route has limited access to system prompts, but the centralized
@@ -648,37 +568,22 @@ export async function GET(
               participants: participants.map(p => ({ name: p.name, role: p.role ?? null, description: null })),
               conversationPlan: null,
             });
-            console.log('📊 GET /api/ask/token/[token]: Plan generation variables:', {
-              ask_key: planGenerationVariables.ask_key,
-              ask_question: planGenerationVariables.ask_question?.substring(0, 50),
-              participantsCount: participants.length,
-            });
 
-            console.log('🚀 GET /api/ask/token/[token]: Calling generateConversationPlan...');
             const planData = await generateConversationPlan(
               adminClient,
               askRow.ask_session_id,
               planGenerationVariables
             );
-            console.log('✅ GET /api/ask/token/[token]: generateConversationPlan returned:', {
-              stepsCount: planData?.steps?.length,
-            });
 
-            console.log('💾 GET /api/ask/token/[token]: Calling createConversationPlan...');
             conversationPlan = await createConversationPlan(
               adminClient,
               conversationThread.id,
               planData
             );
 
-            console.log('✅ GET /api/ask/token/[token]: Conversation plan created with', planData.steps.length, 'steps');
-
             // Generate initial message right after plan creation
             // Skip in consultant mode - AI doesn't respond automatically, only suggests questions
-            if (askRow.conversation_mode === 'consultant') {
-              console.log('⏭️ GET /api/ask/token/[token]: Skipping initial message (consultant mode - AI listens only)');
-            } else {
-              console.log('💬 GET /api/ask/token/[token]: Generating initial message...');
+            if (askRow.conversation_mode !== 'consultant') {
               try {
               // Use centralized function for initial message variables
               const agentVariables = buildConversationAgentVariables({
@@ -695,7 +600,6 @@ export async function GET(
                 conversationPlan,
               });
 
-              console.log('🔧 GET /api/ask/token/[token]: Calling executeAgent for initial message');
               const agentResult = await executeAgent({
                 supabase: adminClient,
                 agentSlug: 'ask-conversation-response',
@@ -721,9 +625,7 @@ export async function GET(
                   .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at, conversation_thread_id')
                   .limit(1);
 
-                if (insertError || !insertedRows || insertedRows.length === 0) {
-                  console.error('⚠️ GET /api/ask/token/[token]: Failed to insert initial message:', insertError);
-                } else {
+                if (!insertError && insertedRows && insertedRows.length > 0) {
                   const inserted = insertedRows[0];
                   const initialMessage: Message = {
                     id: inserted.id,
@@ -752,45 +654,20 @@ export async function GET(
                     metadata: inserted.metadata as Record<string, unknown> || {},
                     clientId: initialMessage.id,
                   });
-                  console.log('✅ GET /api/ask/token/[token]: Initial message created:', initialMessage.id);
                 }
-              } else {
-                console.error('⚠️ GET /api/ask/token/[token]: Agent did not return valid content for initial message');
               }
-            } catch (initMsgError) {
-              console.error('⚠️ GET /api/ask/token/[token]: Failed to generate initial message:', {
-                error: initMsgError instanceof Error ? initMsgError.message : String(initMsgError),
-              });
+            } catch {
               // Continue without initial message - user can still interact
             }
-            } // end else (non-consultant mode)
-          } catch (genError) {
-            console.error('⚠️ GET /api/ask/token/[token]: Failed to generate conversation plan:', {
-              error: genError instanceof Error ? genError.message : String(genError),
-              stack: genError instanceof Error ? genError.stack : undefined,
-            });
+            } // end non-consultant mode
+          } catch {
             // Continue without the plan - it's an enhancement, not a requirement
           }
-        } else if (conversationPlan && conversationPlan.plan_data) {
-          console.log('📋 GET /api/ask/token/[token]: Loaded existing conversation plan with', conversationPlan.plan_data.steps.length, 'steps');
-        } else {
-          console.log('⚠️ GET /api/ask/token/[token]: No plan generated because:', {
-            hasPlan: !!conversationPlan,
-            messagesCount: messages.length,
-            reason: conversationPlan ? 'Plan already exists' : 'Messages exist',
-          });
         }
-      } else {
-        console.log('⚠️ GET /api/ask/token/[token]: No conversation thread available');
       }
-    } catch (planError) {
-      console.error('⚠️ GET /api/ask/token/[token]: Failed to load conversation plan:', {
-        error: planError instanceof Error ? planError.message : String(planError),
-        stack: planError instanceof Error ? planError.stack : undefined,
-      });
+    } catch {
       // Continue without the plan - it's an enhancement, not a requirement
     }
-    console.log('🏁 GET /api/ask/token/[token]: Plan and initial message logic completed, returning response...');
 
     return NextResponse.json<ApiResponse>({
       success: true,

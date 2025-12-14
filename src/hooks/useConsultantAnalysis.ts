@@ -191,6 +191,11 @@ export function useConsultantAnalysis(config: ConsultantAnalysisConfig): Consult
    * Perform the analysis
    */
   const performAnalysis = useCallback(async () => {
+    // Skip if askKey is not set (can happen during initial load)
+    if (!askKey) {
+      return;
+    }
+
     // Skip if no new messages since last analysis
     if (messageCount <= lastAnalyzedMessageCountRef.current) {
       return;
@@ -219,11 +224,9 @@ export function useConsultantAnalysis(config: ConsultantAnalysisConfig): Consult
     const analyzingMessageCount = messageCount;
 
     try {
-      console.log('[useConsultantAnalysis] 🔍 Analyzing conversation...');
       const result = await analyzeConversation(askKey, inviteToken);
 
       if (!mountedRef.current) return;
-      console.log('[useConsultantAnalysis] ✅ Got', result.questions?.length ?? 0, 'questions');
 
       lastAnalysisTimeRef.current = Date.now();
       lastAnalyzedMessageCountRef.current = analyzingMessageCount;
@@ -329,8 +332,6 @@ export function useConsultantAnalysis(config: ConsultantAnalysisConfig): Consult
       return;
     }
 
-    console.log('[useConsultantAnalysis] Setting up periodic analysis interval');
-
     // Start periodic analysis
     analysisIntervalRef.current = setInterval(() => {
       if (mountedRef.current && !isPaused) {
@@ -341,7 +342,6 @@ export function useConsultantAnalysis(config: ConsultantAnalysisConfig): Consult
     // Trigger initial analysis after a short delay (let the conversation load first)
     const initialTimeout = setTimeout(() => {
       if (mountedRef.current && !isPaused) {
-        console.log('[useConsultantAnalysis] Initial timeout - triggering first analysis');
         performAnalysisRef.current();
       }
     }, 2000);

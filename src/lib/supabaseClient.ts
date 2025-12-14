@@ -39,13 +39,11 @@ export function createClient() {
           }
         });
 
-        console.log(`[SupabaseClient] getAll returning ${cookies.length} cookies`);
         return cookies;
       },
       setAll(cookiesToSet) {
         if (typeof document === 'undefined') return;
 
-        console.log(`[SupabaseClient] setAll called with ${cookiesToSet.length} cookies`);
         cookiesToSet.forEach(({ name, value, options }) => {
           let cookieString = `${name}=${value}`;
 

@@ -79,7 +79,17 @@ export async function getOrCreateConversationThread(
   const useShared = shouldUseSharedThread(askConfig);
   const threadUserId = useShared ? null : userId;
 
+  console.log('[getOrCreateConversationThread] Starting...', {
+    askSessionId,
+    userId,
+    conversationMode: askConfig.conversation_mode,
+    useShared,
+    threadUserId,
+  });
+
   // Try to find existing thread
+  // NOTE: For shared threads (user_id = NULL), PostgreSQL unique indexes don't prevent duplicates
+  // because NULL values are considered distinct. We use .limit(1) to handle potential duplicates.
   let query = supabase
     .from('conversation_threads')
     .select('id, ask_session_id, user_id, is_shared, created_at')
@@ -92,17 +102,18 @@ export async function getOrCreateConversationThread(
     if (!threadUserId) {
       console.warn('Individual thread mode requires userId, but none provided. Falling back to shared thread behavior.');
       // Try to get or create shared thread as fallback
-      const sharedQuery = supabase
+      // Use .limit(1) to handle potential duplicates due to NULL uniqueness
+      const { data: sharedThreads, error: sharedError } = await supabase
         .from('conversation_threads')
         .select('id, ask_session_id, user_id, is_shared, created_at')
         .eq('ask_session_id', askSessionId)
         .is('user_id', null)
         .eq('is_shared', true)
-        .maybeSingle<ConversationThread>();
+        .order('created_at', { ascending: true })
+        .limit(1);
 
-      const { data: sharedThread, error: sharedError } = await sharedQuery;
-      if (!sharedError && sharedThread) {
-        return { thread: sharedThread, error: null };
+      if (!sharedError && sharedThreads && sharedThreads.length > 0) {
+        return { thread: sharedThreads[0] as ConversationThread, error: null };
       }
 
       // If no shared thread exists, CREATE one as fallback
@@ -128,17 +139,39 @@ export async function getOrCreateConversationThread(
     query = query.eq('user_id', threadUserId).eq('is_shared', false);
   }
 
-  const { data: existingThread, error: findError } = await query.maybeSingle<ConversationThread>();
+  // Use order + limit(1) instead of maybeSingle to handle potential duplicates
+  const { data: existingThreads, error: findError } = await query
+    .order('created_at', { ascending: true })
+    .limit(1);
 
-  if (findError && findError.code !== 'PGRST116') {
+  const existingThread = existingThreads?.[0] as ConversationThread | undefined;
+
+  console.log('[getOrCreateConversationThread] Find existing thread result:', {
+    found: !!existingThread,
+    threadId: existingThread?.id,
+    isShared: existingThread?.is_shared,
+    resultCount: existingThreads?.length,
+    errorCode: findError?.code,
+    errorMessage: findError?.message,
+  });
+
+  if (findError) {
+    console.error('[getOrCreateConversationThread] Find error:', findError);
     return { thread: null, error: findError };
   }
 
   if (existingThread) {
+    console.log('[getOrCreateConversationThread] Returning existing thread:', existingThread.id);
     return { thread: existingThread, error: null };
   }
 
   // Create new thread
+  console.log('[getOrCreateConversationThread] Creating new thread...', {
+    askSessionId,
+    userId: threadUserId,
+    isShared: useShared,
+  });
+
   const { data: newThread, error: createError } = await supabase
     .from('conversation_threads')
     .insert({
@@ -150,9 +183,16 @@ export async function getOrCreateConversationThread(
     .single<ConversationThread>();
 
   if (createError) {
+    console.error('[getOrCreateConversationThread] Create error:', {
+      code: createError.code,
+      message: createError.message,
+      details: createError.details,
+      hint: createError.hint,
+    });
     return { thread: null, error: createError };
   }
 
+  console.log('[getOrCreateConversationThread] Created new thread:', newThread?.id);
   return { thread: newThread, error: null };
 }
 
@@ -204,21 +244,90 @@ export async function getAskSessionByKey<Row>(
 ): Promise<{ row: Row | null; error: PostgrestError | null }> {
   const key = rawKey.trim();
 
+  console.log('[getAskSessionByKey] Looking up ASK session:', {
+    rawKey,
+    trimmedKey: key,
+    columns: columns.substring(0, 50) + '...',
+  });
+
   if (!key) {
+    console.warn('[getAskSessionByKey] Empty key provided');
     return { row: null, error: null };
   }
 
-  const { data, error } = await supabase
-    .from('ask_sessions')
-    .select(columns)
-    .eq('ask_key', key)
-    .maybeSingle<Row>();
+  // Use RPC function to bypass RLS
+  const { data: rpcData, error: rpcError } = await supabase
+    .rpc('get_ask_session_by_key', { p_key: key })
+    .maybeSingle<{
+      ask_session_id: string;
+      ask_key: string;
+      question: string;
+      description: string | null;
+      status: string;
+      project_id: string | null;
+      challenge_id: string | null;
+      conversation_mode: string | null;
+      expected_duration_minutes: number | null;
+      system_prompt: string | null;
+      is_anonymous: boolean | null;
+      name: string | null;
+      delivery_mode: string | null;
+      start_date: string | null;
+      end_date: string | null;
+      created_at: string | null;
+      updated_at: string | null;
+    }>();
 
-  if (error) {
-    return { row: null, error };
+  console.log('[getAskSessionByKey] RPC result:', {
+    found: !!rpcData,
+    error: rpcError?.message,
+    errorCode: rpcError?.code,
+  });
+
+  if (rpcError) {
+    // If RPC fails (function doesn't exist), fall back to direct query
+    if (rpcError.code === 'PGRST202') {
+      console.log('[getAskSessionByKey] RPC not found, falling back to direct query');
+      const { data, error } = await supabase
+        .from('ask_sessions')
+        .select(columns)
+        .eq('ask_key', key)
+        .maybeSingle<Row>();
+
+      if (error) {
+        return { row: null, error };
+      }
+      return { row: data ?? null, error: null };
+    }
+    return { row: null, error: rpcError };
   }
 
-  return { row: data ?? null, error: null };
+  if (!rpcData) {
+    return { row: null, error: null };
+  }
+
+  // Map RPC result to expected format
+  const mappedData = {
+    id: rpcData.ask_session_id,
+    ask_key: rpcData.ask_key,
+    question: rpcData.question,
+    description: rpcData.description,
+    status: rpcData.status,
+    project_id: rpcData.project_id,
+    challenge_id: rpcData.challenge_id,
+    conversation_mode: rpcData.conversation_mode,
+    expected_duration_minutes: rpcData.expected_duration_minutes,
+    system_prompt: rpcData.system_prompt,
+    is_anonymous: rpcData.is_anonymous,
+    name: rpcData.name,
+    delivery_mode: rpcData.delivery_mode,
+    start_date: rpcData.start_date,
+    end_date: rpcData.end_date,
+    created_at: rpcData.created_at,
+    updated_at: rpcData.updated_at,
+  } as unknown as Row;
+
+  return { row: mappedData, error: null };
 }
 
 /**

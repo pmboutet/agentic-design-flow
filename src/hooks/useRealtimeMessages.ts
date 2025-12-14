@@ -4,6 +4,8 @@
  * Subscribes to Supabase Realtime for message INSERT events on a specific conversation thread.
  * Used in shared thread modes (collaborative, group_reporter, consultant) so all participants
  * see messages from others in real-time.
+ *
+ * Includes polling fallback for dev mode where Realtime doesn't work without auth.
  */
 
 import { useEffect, useRef, useCallback, useState } from 'react';
@@ -12,6 +14,9 @@ import type { Message } from '@/types';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 
 type SubscriptionStatus = 'idle' | 'subscribing' | 'subscribed' | 'error';
+
+// Polling interval in ms (3 seconds for responsive updates)
+const POLLING_INTERVAL_MS = 3000;
 
 export interface UseRealtimeMessagesConfig {
   /**
@@ -38,6 +43,16 @@ export interface UseRealtimeMessagesConfig {
    * Current user's participant ID to avoid duplicating own messages
    */
   currentParticipantId?: string | null;
+
+  /**
+   * Invite token for polling endpoint (used in dev mode)
+   */
+  inviteToken?: string | null;
+
+  /**
+   * Enable polling fallback (auto-enabled in dev mode)
+   */
+  enablePolling?: boolean;
 }
 
 interface DatabaseMessageRow {
@@ -82,11 +97,21 @@ export function useRealtimeMessages({
   enabled = true,
   onNewMessage,
   currentParticipantId,
+  inviteToken,
+  enablePolling,
 }: UseRealtimeMessagesConfig) {
   const channelRef = useRef<RealtimeChannel | null>(null);
   const processedIdsRef = useRef<Set<string>>(new Set());
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const lastPollTimestampRef = useRef<string | null>(null);
   const [subscriptionStatus, setSubscriptionStatus] = useState<SubscriptionStatus>('idle');
   const [lastError, setLastError] = useState<string | null>(null);
+  const [isPolling, setIsPolling] = useState(false);
+
+  // Auto-enable polling in dev mode
+  const isDevMode = typeof window !== 'undefined' &&
+    (process.env.NEXT_PUBLIC_IS_DEV === 'true' || localStorage.getItem('dev_mode_override') === 'true');
+  const shouldPoll = enablePolling ?? isDevMode;
 
   // Stable callback ref to avoid recreating subscription
   const onNewMessageRef = useRef(onNewMessage);
@@ -95,17 +120,8 @@ export function useRealtimeMessages({
   const handleNewMessage = useCallback((payload: { new: DatabaseMessageRow }) => {
     const row = payload.new;
 
-    console.log('[useRealtimeMessages] 📨 Realtime event received:', {
-      id: row.id,
-      senderType: row.sender_type,
-      userId: row.user_id,
-      threadId: row.conversation_thread_id,
-      contentPreview: row.content?.substring(0, 30),
-    });
-
     // Skip if we've already processed this message (dedup)
     if (processedIdsRef.current.has(row.id)) {
-      console.log('[useRealtimeMessages] ⏭️ Skipping duplicate message:', row.id);
       return;
     }
 
@@ -118,12 +134,6 @@ export function useRealtimeMessages({
       processedIdsRef.current = new Set(arr.slice(-500));
     }
 
-    console.log('[useRealtimeMessages] ✅ Processing new message:', {
-      id: row.id,
-      senderType: row.sender_type,
-      contentPreview: row.content?.substring(0, 50),
-    });
-
     const message = formatDatabaseMessage(row, askKey);
     onNewMessageRef.current(message);
   }, [askKey]);
@@ -131,59 +141,73 @@ export function useRealtimeMessages({
   useEffect(() => {
     // Don't subscribe if disabled or no thread ID
     if (!enabled || !conversationThreadId || !supabase) {
-      console.log('[useRealtimeMessages] Not subscribing:', {
-        enabled,
-        hasThreadId: !!conversationThreadId,
-        hasSupabase: !!supabase,
-      });
       setSubscriptionStatus('idle');
       return;
     }
 
-    console.log('[useRealtimeMessages] 🔴 Setting up subscription for thread:', {
-      threadId: conversationThreadId,
-      channelName: `messages:thread:${conversationThreadId}`,
-      filter: `conversation_thread_id=eq.${conversationThreadId}`,
-    });
+    let retryCount = 0;
+    const maxRetries = 3;
+    let retryTimeout: NodeJS.Timeout | null = null;
 
-    setSubscriptionStatus('subscribing');
-    setLastError(null);
+    const subscribe = async () => {
+      setSubscriptionStatus('subscribing');
+      setLastError(null);
 
-    // Create channel for this conversation thread
-    const channelName = `messages:thread:${conversationThreadId}`;
-    const channel = supabase
-      .channel(channelName)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'messages',
-          filter: `conversation_thread_id=eq.${conversationThreadId}`,
-        },
-        handleNewMessage
-      )
-      .subscribe((status, err) => {
-        console.log('[useRealtimeMessages] Subscription status:', status, err ? `Error: ${err.message}` : '');
+      // Create channel for this conversation thread
+      const channelName = `messages:thread:${conversationThreadId}`;
+      const channel = supabase
+        .channel(channelName)
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'messages',
+            filter: `conversation_thread_id=eq.${conversationThreadId}`,
+          },
+          handleNewMessage
+        )
+        .subscribe((status, err) => {
+          if (status === 'SUBSCRIBED') {
+            setSubscriptionStatus('subscribed');
+            retryCount = 0;
+          } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+            const errorMessage = err?.message || `Subscription ${status}`;
 
-        if (status === 'SUBSCRIBED') {
-          setSubscriptionStatus('subscribed');
-          console.log('[useRealtimeMessages] ✅ Successfully subscribed to realtime messages');
-        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-          setSubscriptionStatus('error');
-          const errorMessage = err?.message || `Subscription ${status}`;
-          setLastError(errorMessage);
-          console.error('[useRealtimeMessages] ❌ Subscription error:', errorMessage);
-        } else if (status === 'CLOSED') {
-          setSubscriptionStatus('idle');
-        }
-      });
+            // Retry logic with exponential backoff
+            if (retryCount < maxRetries) {
+              retryCount++;
+              const delay = Math.min(1000 * Math.pow(2, retryCount), 10000);
 
-    channelRef.current = channel;
+              // Clean up current channel before retry
+              if (channelRef.current) {
+                supabase.removeChannel(channelRef.current);
+                channelRef.current = null;
+              }
+
+              retryTimeout = setTimeout(() => {
+                subscribe();
+              }, delay);
+            } else {
+              setSubscriptionStatus('error');
+              setLastError(errorMessage);
+              console.error('[Realtime] Subscription failed:', errorMessage);
+            }
+          } else if (status === 'CLOSED') {
+            setSubscriptionStatus('idle');
+          }
+        });
+
+      channelRef.current = channel;
+    };
+
+    subscribe();
 
     // Cleanup on unmount or when dependencies change
     return () => {
-      console.log('[useRealtimeMessages] Cleaning up subscription for thread:', conversationThreadId);
+      if (retryTimeout) {
+        clearTimeout(retryTimeout);
+      }
       if (channelRef.current) {
         supabase.removeChannel(channelRef.current);
         channelRef.current = null;
@@ -195,11 +219,103 @@ export function useRealtimeMessages({
   // Clear processed IDs when thread changes
   useEffect(() => {
     processedIdsRef.current.clear();
+    lastPollTimestampRef.current = null;
   }, [conversationThreadId]);
+
+  // Polling fallback for dev mode (where Realtime doesn't work without auth)
+  useEffect(() => {
+    if (!shouldPoll || !enabled || !conversationThreadId || !askKey) {
+      return;
+    }
+
+    // Only start polling if Realtime isn't working
+    // Wait a bit for Realtime to connect first
+    const startPollingTimeout = setTimeout(() => {
+      if (subscriptionStatus !== 'subscribed') {
+        setIsPolling(true);
+      }
+    }, 2000);
+
+    return () => {
+      clearTimeout(startPollingTimeout);
+    };
+  }, [shouldPoll, enabled, conversationThreadId, askKey, subscriptionStatus]);
+
+  // Polling logic
+  useEffect(() => {
+    if (!isPolling || !conversationThreadId || !askKey) {
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+      }
+      return;
+    }
+
+    const pollForMessages = async () => {
+      try {
+        // Build the endpoint URL
+        const endpoint = inviteToken
+          ? `/api/ask/${askKey}/messages?token=${inviteToken}&threadId=${conversationThreadId}`
+          : `/api/ask/${askKey}/messages?threadId=${conversationThreadId}`;
+
+        // Add since parameter if we have a last timestamp
+        const url = lastPollTimestampRef.current
+          ? `${endpoint}&since=${encodeURIComponent(lastPollTimestampRef.current)}`
+          : endpoint;
+
+        const response = await fetch(url);
+        if (!response.ok) {
+          return;
+        }
+
+        const data = await response.json();
+        if (!data.success || !data.data?.messages) {
+          return;
+        }
+
+        const messages: Message[] = data.data.messages;
+
+        // Process new messages
+        for (const message of messages) {
+          if (!processedIdsRef.current.has(message.id)) {
+            processedIdsRef.current.add(message.id);
+            onNewMessageRef.current(message);
+
+            // Update last poll timestamp
+            if (message.timestamp && (!lastPollTimestampRef.current || message.timestamp > lastPollTimestampRef.current)) {
+              lastPollTimestampRef.current = message.timestamp;
+            }
+          }
+        }
+
+        // Limit processed IDs set size
+        if (processedIdsRef.current.size > 1000) {
+          const arr = Array.from(processedIdsRef.current);
+          processedIdsRef.current = new Set(arr.slice(-500));
+        }
+      } catch (error) {
+        // Silent fail - polling will retry
+      }
+    };
+
+    // Initial poll
+    pollForMessages();
+
+    // Set up interval
+    pollingIntervalRef.current = setInterval(pollForMessages, POLLING_INTERVAL_MS);
+
+    return () => {
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+      }
+    };
+  }, [isPolling, conversationThreadId, askKey, inviteToken]);
 
   return {
     isSubscribed: subscriptionStatus === 'subscribed',
     subscriptionStatus,
     lastError,
+    isPolling,
   };
 }

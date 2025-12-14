@@ -109,3 +109,170 @@ The ASK system supports three conversation modes defined by `conversation_mode`:
 - Always pass `conversation_mode` to `askConfig` when calling `getOrCreateConversationThread()`
 - The `shouldUseSharedThread()` function in `src/lib/asks.ts` determines thread behavior
 - Tests for this logic are in `src/lib/__tests__/asks.test.ts`
+
+## Supabase Testing & Debugging
+
+### Environment Setup
+
+Les variables d'environnement sont dans `.env.local`. Pour les charger dans le shell:
+
+```bash
+source /Users/pmboutet/Documents/GitHub/agentic-design-flow/.env.local
+```
+
+### Requêtes SQL directes sur la base de données
+
+Utiliser `psql` avec `DATABASE_URL` et `PGGSSENCMODE=disable` (nécessaire sur macOS pour éviter les erreurs GSSAPI):
+
+```bash
+# Charger l'env et exécuter une requête
+source .env.local && PGGSSENCMODE=disable psql "$DATABASE_URL" -c "SELECT * FROM table_name LIMIT 5;"
+
+# Requête multi-lignes
+source .env.local && PGGSSENCMODE=disable psql "$DATABASE_URL" -c "
+SELECT id, ask_key, status
+FROM ask_sessions
+WHERE status = 'active'
+LIMIT 10;
+"
+```
+
+**Exemples utiles:**
+
+```bash
+# Vérifier les participants d'une ASK session
+source .env.local && PGGSSENCMODE=disable psql "$DATABASE_URL" -c "
+SELECT id, user_id, participant_name, role, LEFT(invite_token, 16) as token_prefix
+FROM ask_participants
+WHERE ask_session_id = (SELECT id FROM ask_sessions WHERE ask_key = 'ma-ask-key');
+"
+
+# Vérifier les politiques RLS sur une table
+source .env.local && PGGSSENCMODE=disable psql "$DATABASE_URL" -c "
+SELECT policyname, permissive, roles, cmd
+FROM pg_policies
+WHERE tablename = 'ask_participants';
+"
+
+# Vérifier si RLS est activé sur une table
+source .env.local && PGGSSENCMODE=disable psql "$DATABASE_URL" -c "
+SELECT relname, relrowsecurity
+FROM pg_class
+WHERE relname = 'profiles';
+"
+
+# Vérifier les profils actifs
+source .env.local && PGGSSENCMODE=disable psql "$DATABASE_URL" -c "
+SELECT id, email, role, is_active
+FROM profiles
+WHERE is_active = true
+LIMIT 5;
+"
+```
+
+### Tester les API endpoints avec curl
+
+```bash
+# GET request simple
+curl -s 'http://localhost:3000/api/ask/ma-ask-key' | jq
+
+# POST avec JSON body
+curl -s -X POST 'http://localhost:3000/api/ask/ma-ask-key' \
+  -H 'Content-Type: application/json' \
+  -d '{"content":"Test message"}'
+
+# Avec invite token (authentification participant)
+curl -s -X POST 'http://localhost:3000/api/ask/ma-ask-key' \
+  -H 'Content-Type: application/json' \
+  -H 'X-Invite-Token: mon-invite-token-32-chars' \
+  -d '{"content":"Test message"}'
+
+# Vérifier seulement le status code
+curl -s -o /dev/null -w "%{http_code}" 'http://localhost:3000/api/endpoint'
+```
+
+### Gestion du serveur de développement
+
+```bash
+# Trouver les processus sur le port 3000
+lsof -ti:3000
+
+# Tuer les processus sur le port 3000
+lsof -ti:3000 | xargs kill -9
+
+# Redémarrer le serveur de dev
+lsof -ti:3000 | xargs kill -9 2>/dev/null; npm run dev
+```
+
+### Migrations SQL
+
+Les migrations sont dans le dossier `migrations/`. Pour appliquer:
+
+```bash
+npm run db:migrate:up
+```
+
+**Structure d'une migration:**
+- Nommer: `XXX_description.sql` (XXX = numéro séquentiel)
+- Inclure `NOTIFY pgrst, 'reload schema';` après création de fonctions RPC pour forcer le rechargement du cache PostgREST
+
+**Exemple de fonction RPC avec SECURITY DEFINER (bypass RLS):**
+
+```sql
+CREATE OR REPLACE FUNCTION public.get_ask_session_by_key(p_key text)
+RETURNS TABLE (
+  ask_session_id uuid,
+  ask_key text,
+  question text
+  -- ... autres colonnes
+)
+LANGUAGE plpgsql
+SECURITY DEFINER  -- Permet de bypasser RLS
+SET search_path = public
+AS $$
+BEGIN
+  RETURN QUERY
+  SELECT a.id, a.ask_key, a.question
+  FROM ask_sessions a
+  WHERE a.ask_key = p_key;
+END;
+$$;
+
+-- Forcer le rechargement du cache PostgREST
+NOTIFY pgrst, 'reload schema';
+```
+
+### Debugging RLS (Row Level Security)
+
+Si une requête échoue silencieusement (retourne NULL ou tableau vide):
+
+1. **Vérifier si RLS est activé:**
+   ```bash
+   source .env.local && PGGSSENCMODE=disable psql "$DATABASE_URL" -c "
+   SELECT relrowsecurity FROM pg_class WHERE relname = 'ma_table';
+   "
+   ```
+
+2. **Lister les policies:**
+   ```bash
+   source .env.local && PGGSSENCMODE=disable psql "$DATABASE_URL" -c "
+   SELECT policyname, roles, cmd, qual FROM pg_policies WHERE tablename = 'ma_table';
+   "
+   ```
+
+3. **Solutions:**
+   - Ajouter une policy pour `service_role`: `CREATE POLICY "Service role full access" ON table FOR ALL TO service_role USING (true);`
+   - Désactiver RLS temporairement: `ALTER TABLE ma_table DISABLE ROW LEVEL SECURITY;`
+   - Utiliser une fonction RPC avec `SECURITY DEFINER`
+
+### Vérification de l'admin client Supabase
+
+Le client admin utilise `SUPABASE_SERVICE_ROLE_KEY` (voir `src/lib/supabaseAdmin.ts`). Pour vérifier qu'il est configuré:
+
+```bash
+source .env.local && if [ -n "$SUPABASE_SERVICE_ROLE_KEY" ]; then
+  echo "✅ SUPABASE_SERVICE_ROLE_KEY is set (length: ${#SUPABASE_SERVICE_ROLE_KEY})"
+else
+  echo "❌ SUPABASE_SERVICE_ROLE_KEY is NOT set"
+fi
+```

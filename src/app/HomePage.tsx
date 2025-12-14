@@ -101,6 +101,8 @@ interface MobileLayoutProps {
   consultantQuestions?: SuggestedQuestion[];
   /** Whether consultant is analyzing */
   isConsultantAnalyzing?: boolean;
+  /** Current user's profile ID for message alignment */
+  currentUserId?: string | null;
 }
 
 /**
@@ -137,6 +139,7 @@ function MobileLayout({
   isSpokesperson,
   consultantQuestions,
   isConsultantAnalyzing,
+  currentUserId,
 }: MobileLayoutProps) {
   const [panelWidth, setPanelWidth] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -342,6 +345,7 @@ function MobileLayout({
                   isLoading={sessionData.isLoading}
                   onHumanTyping={onUserTyping}
                   currentParticipantName={currentParticipantName}
+                  currentUserId={currentUserId}
                   isMultiUser={Boolean(sessionData.ask && sessionData.ask.participants.length > 1)}
                   showAgentTyping={awaitingAiResponse && !isDetectingInsights}
                   voiceModeEnabled={!!voiceModeConfig?.systemPrompt}
@@ -441,6 +445,7 @@ export default function HomePage() {
   const participantFromUrl = searchParams.get('participant') || searchParams.get('participantName');
   const derivedParticipantName = participantFromUrl?.trim() ? participantFromUrl.trim() : null;
   const [currentParticipantName, setCurrentParticipantName] = useState<string | null>(derivedParticipantName);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [isCurrentParticipantSpokesperson, setIsCurrentParticipantSpokesperson] = useState(false);
   const isTestMode = searchParams.get('mode') === 'test';
   const [isDetailsCollapsed, setIsDetailsCollapsed] = useState(false);
@@ -458,22 +463,13 @@ export default function HomePage() {
   const isConsultantMode = sessionData.ask?.conversationMode === 'consultant';
   const isSpokesperson = isCurrentParticipantSpokesperson;
 
-  // Debug logging for consultant mode
-  console.log('🔍 [CONSULTANT DEBUG]', {
-    conversationMode: sessionData.ask?.conversationMode,
-    isConsultantMode,
-    isCurrentParticipantSpokesperson,
-    isSpokesperson,
-  });
-
   const consultantAnalysis = useConsultantAnalysis({
     askKey: sessionData.askKey || '',
     enabled: isConsultantMode && !!sessionData.askKey,
     messageCount: sessionData.messages.length, // Only analyze when new messages arrive
     inviteToken: sessionData.inviteToken,
-    onStepCompleted: (stepId) => {
-      console.log('🎯 [CONSULTANT] Step completed by AI analysis:', stepId);
-      // The step completion is handled by the API, just log for now
+    onStepCompleted: () => {
+      // The step completion is handled by the API
       // UI will be updated on next data refresh
     },
   });
@@ -482,34 +478,14 @@ export default function HomePage() {
   // Enables multi-participant chat where everyone sees messages in real-time
   const isSharedThread = sessionData.ask?.conversationMode !== 'individual_parallel';
   const handleRealtimeMessage = useCallback((newMessage: Message) => {
-    console.log('[HomePage] 📨 handleRealtimeMessage called:', {
-      id: newMessage.id,
-      senderType: newMessage.senderType,
-      senderName: newMessage.senderName,
-      contentPreview: newMessage.content?.substring(0, 30),
-    });
-
     setSessionData(prev => {
       // Check if message already exists by id OR clientId (avoid duplicates from own messages)
       const existsById = prev.messages.some(m => m.id === newMessage.id);
       const existsByClientId = newMessage.clientId && prev.messages.some(m => m.clientId === newMessage.clientId);
 
       if (existsById || existsByClientId) {
-        console.log('[HomePage] ⏭️ Skipping duplicate realtime message:', {
-          id: newMessage.id,
-          existsById,
-          existsByClientId,
-          existingIds: prev.messages.map(m => m.id).slice(-5),
-        });
         return prev;
       }
-
-      console.log('[HomePage] ✅ Adding realtime message:', {
-        id: newMessage.id,
-        senderType: newMessage.senderType,
-        senderName: newMessage.senderName,
-        totalMessages: prev.messages.length + 1,
-      });
 
       return {
         ...prev,
@@ -518,24 +494,13 @@ export default function HomePage() {
     });
   }, []);
 
-  const { isSubscribed, subscriptionStatus, lastError: realtimeError } = useRealtimeMessages({
+  const { isSubscribed, subscriptionStatus, lastError: realtimeError, isPolling } = useRealtimeMessages({
     conversationThreadId: sessionData.conversationThreadId ?? null,
     askKey: sessionData.askKey || '',
     enabled: isSharedThread && !!sessionData.conversationThreadId,
     onNewMessage: handleRealtimeMessage,
+    inviteToken: sessionData.inviteToken ?? null,
   });
-
-  // Log realtime subscription status changes
-  useEffect(() => {
-    if (isSharedThread) {
-      console.log('[HomePage] 🔴 Realtime subscription:', {
-        status: subscriptionStatus,
-        isSubscribed,
-        threadId: sessionData.conversationThreadId,
-        error: realtimeError,
-      });
-    }
-  }, [subscriptionStatus, isSubscribed, sessionData.conversationThreadId, isSharedThread, realtimeError]);
 
   const autoCollapseTriggeredRef = useRef(false);
   const previousMessageCountRef = useRef(0);
@@ -888,14 +853,7 @@ export default function HomePage() {
     
     const key = keyFromSearchParams || keyFromURL;
     const token = tokenFromSearchParams || tokenFromURL;
-    
-    console.log('🔍 Debug - Key from searchParams:', keyFromSearchParams);
-    console.log('🔍 Debug - Token from searchParams:', tokenFromSearchParams);
-    console.log('🔍 Debug - Final key:', key);
-    console.log('🔍 Debug - Final token:', token);
-    console.log('🔍 Debug - All search params:', Object.fromEntries(searchParams.entries()));
-    console.log('🔍 Debug - Window location:', typeof window !== 'undefined' ? window.location.href : 'undefined');
-    
+
     // If we have a token, use it; otherwise use key
     if (token) {
       // Token-based link (unique per participant)
@@ -977,6 +935,25 @@ export default function HomePage() {
         error: null,
       }));
 
+      // Create a Supabase auth session for Realtime to work
+      try {
+        const authResponse = await fetch(`/api/ask/token/${encodeURIComponent(token)}/auth`, {
+          method: 'POST',
+        });
+
+        if (authResponse.ok) {
+          const authData = await authResponse.json();
+          if (authData.success && authData.data && supabase) {
+            const { access_token, refresh_token } = authData.data;
+            await supabase.auth.setSession({ access_token, refresh_token });
+            // Set the Realtime auth token explicitly for WebSocket connection
+            await supabase.realtime.setAuth(access_token).catch(() => {});
+          }
+        }
+      } catch {
+        // Non-blocking - polling fallback will still work
+      }
+
       const response = await fetch(`/api/ask/token/${encodeURIComponent(token)}`);
       const data: ApiResponse<TokenSessionPayload> = await response.json();
 
@@ -1025,13 +1002,7 @@ export default function HomePage() {
 
       const viewerName = data.data?.viewer?.name ?? data.data?.viewer?.email ?? derivedParticipantName ?? null;
       setCurrentParticipantName(viewerName);
-
-      // Debug logging for spokesperson status
-      console.log('🔍 [VIEWER DEBUG]', {
-        viewer: data.data?.viewer,
-        isSpokesperson: data.data?.viewer?.isSpokesperson,
-      });
-
+      setCurrentUserId(data.data?.viewer?.profileId ?? null);
       setIsCurrentParticipantSpokesperson(data.data?.viewer?.isSpokesperson === true);
 
     } catch (error) {
@@ -1046,17 +1017,12 @@ export default function HomePage() {
 
   const loadSessionData = async (key: string) => {
     try {
-      console.log('🔍 Debug - loadSessionData called with key:', key);
-      console.log('🔍 Debug - isTestMode:', isTestMode);
-      
       // Use test endpoint if in test mode, otherwise use real API
       const endpoint = isTestMode ? `/api/test/${key}` : `/api/ask/${key}`;
-      console.log('🔍 Debug - endpoint:', endpoint);
-      
+
       const headers: Record<string, string> = {};
       if (inviteTokenRef.current) {
         headers['X-Invite-Token'] = inviteTokenRef.current;
-        console.log('[HomePage] 🔐 Including invite token header for loadSessionData');
       }
       
       const response = await fetch(endpoint, {
@@ -1086,29 +1052,6 @@ export default function HomePage() {
       const hasPersistedMessages = (data.data?.messages ?? []).length > 0;
       hasPostedMessageSinceRefreshRef.current = hasPersistedMessages;
 
-      console.log('[HomePage] 📥 Loaded messages from API:', {
-        messageCount: (data.data?.messages ?? []).length,
-        voiceMessages: (data.data?.messages ?? []).filter(m => 
-          m.metadata?.voiceTranscribed || m.metadata?.voiceGenerated
-        ).length,
-        allMessages: (data.data?.messages ?? []).map(m => ({
-          id: m.id,
-          content: m.content.substring(0, 50),
-          senderType: m.senderType,
-          hasVoiceMetadata: !!(m.metadata?.voiceTranscribed || m.metadata?.voiceGenerated)
-        }))
-      });
-
-      console.log('[HomePage] 💡 Loaded insights from API:', {
-        insightCount: (data.data?.insights ?? []).length,
-        insights: (data.data?.insights ?? []).map(i => ({
-          id: i.id,
-          type: i.type,
-          contentPreview: i.content?.substring(0, 100),
-          summary: i.summary
-        }))
-      });
-
       setSessionData(prev => {
         const messagesWithClientIds = (data.data?.messages ?? []).map(message => {
           const existing = prev.messages.find(prevMessage => prevMessage.id === message.id);
@@ -1116,18 +1059,6 @@ export default function HomePage() {
             ...message,
             clientId: existing?.clientId ?? message.clientId ?? message.id,
           };
-        });
-
-        console.log('[HomePage] 📝 Setting session data with messages:', {
-          previousCount: prev.messages.length,
-          newCount: messagesWithClientIds.length,
-          newMessages: messagesWithClientIds.filter(m => 
-            !prev.messages.find(pm => pm.id === m.id)
-          ).map(m => ({
-            id: m.id,
-            content: m.content.substring(0, 50),
-            senderType: m.senderType
-          }))
         });
 
         return {
@@ -1146,14 +1077,10 @@ export default function HomePage() {
       // Set participant name from viewer info (prioritize viewer data over URL param)
       const viewerName = data.data?.viewer?.name ?? data.data?.viewer?.email ?? derivedParticipantName ?? null;
       setCurrentParticipantName(viewerName);
+      setCurrentUserId(data.data?.viewer?.profileId ?? null);
 
       // Set spokesperson status from viewer info (for key-based access)
       if (data.data?.viewer) {
-        console.log('[HomePage] 🔍 Viewer info from key-based access:', {
-          isSpokesperson: data.data.viewer.isSpokesperson,
-          participantId: data.data.viewer.participantId,
-          name: data.data.viewer.name,
-        });
         setIsCurrentParticipantSpokesperson(data.data.viewer.isSpokesperson === true);
       }
 
@@ -1350,18 +1277,9 @@ export default function HomePage() {
         const inviteToken = inviteTokenRef.current || sessionData.inviteToken || null;
         if (inviteToken) {
           headers['X-Invite-Token'] = inviteToken;
-          console.log('[HomePage] 🔑 Using invite token for voice user message:', inviteToken.substring(0, 8) + '...');
-        } else {
         }
 
         const endpoint = isTestMode ? `/api/test/${sessionData.askKey}` : `/api/ask/${sessionData.askKey}`;
-        console.log('[HomePage] 📤 Persisting voice user message:', {
-          endpoint,
-          hasInviteToken: !!inviteTokenRef.current,
-          contentPreview: content.substring(0, 50) + (content.length > 50 ? '...' : ''),
-          contentLength: content.length,
-        });
-        
         const response = await fetch(endpoint, {
           method: 'POST',
           headers,
@@ -1377,32 +1295,17 @@ export default function HomePage() {
             timestamp,
           }),
         });
-        
-        console.log('[HomePage] 📥 Voice user message response:', {
-          status: response.status,
-          statusText: response.statusText,
-          ok: response.ok
-        });
 
         let data: ApiResponse<{ message: Message }>;
         try {
           data = await response.json();
-        } catch (jsonError) {
-          console.error('[HomePage] ❌ Failed to parse response JSON:', jsonError);
-          const text = await response.text();
-          console.error('[HomePage] ❌ Response text:', text);
+        } catch {
           throw new Error(`Erreur ${response.status}: ${response.statusText}`);
         }
 
         if (!response.ok) {
           const errorMessage = data.error || `Erreur ${response.status}: ${response.statusText}`;
-          console.error('[HomePage] ❌ Voice user message persistence failed:', {
-            status: response.status,
-            statusText: response.statusText,
-            error: errorMessage,
-            data: data
-          });
-          
+
           // Show user-friendly error message
           setSessionData(prev => ({
             ...prev,
@@ -1448,30 +1351,12 @@ export default function HomePage() {
                 : msg
             ),
           }));
-          
-          console.log('[HomePage] ✅ Voice user message persisted:', {
-            messageId: persistedMessage.id,
-            content: persistedMessage.content.substring(0, 50)
-          });
-        } else {
-          console.warn('[HomePage] ⚠️ Voice user message persistence failed:', {
-            responseOk: response.ok,
-            dataSuccess: data.success,
-            hasMessage: !!data.data?.message
-          });
         }
-      } catch (error) {
-        console.error('Error persisting voice user message:', error);
+      } catch {
+        // Voice message persistence error - silent fail
       }
     } else {
       // Agent response - clear streaming message refs to allow new user message
-      // This allows the next user message to create a new message instead of updating the previous one
-      console.log('[HomePage] 🤖 Voice AGENT response received:', {
-        contentPreview: content.substring(0, 100),
-        isInterim,
-        hasLogId: !!voiceAgentLogIdRef.current,
-        logId: voiceAgentLogIdRef.current,
-      });
 
       currentStreamingMessageIdRef.current = null;
       currentStreamingMessageClientIdRef.current = null;
@@ -1524,10 +1409,6 @@ export default function HomePage() {
         if (response.ok && data.success && data.data?.message) {
           // Complete log for agent response
           if (voiceAgentLogIdRef.current) {
-            console.log('[HomePage] 📝 Completing voice agent log:', {
-              logId: voiceAgentLogIdRef.current,
-              contentPreview: content.substring(0, 50),
-            });
             try {
               const logCompleteResponse = await fetch(`/api/ask/${sessionData.askKey}/voice-agent/log`, {
                 method: 'POST',
@@ -1541,17 +1422,10 @@ export default function HomePage() {
                   logId: voiceAgentLogIdRef.current,
                 }),
               });
-              if (logCompleteResponse.ok) {
-                console.log('[HomePage] ✅ Voice agent log completed successfully');
-              } else {
-                console.error('[HomePage] ❌ Voice agent log completion failed:', await logCompleteResponse.text());
-              }
               voiceAgentLogIdRef.current = null; // Reset after completing
-            } catch (error) {
-              console.error('Error completing voice agent log:', error);
+            } catch {
+              // Voice agent log completion error - silent fail
             }
-          } else {
-            console.warn('[HomePage] ⚠️ No logId available to complete - agent response will not be logged');
           }
 
           setSessionData(prev => ({
@@ -1565,25 +1439,9 @@ export default function HomePage() {
             // Update conversation plan if a step was completed
             conversationPlan: data.data?.conversationPlan ?? prev.conversationPlan,
           }));
-
-          // Log if conversation plan was updated (step completed)
-          if (data.data?.conversationPlan) {
-            console.log('[HomePage] 📋 Voice message triggered step completion, updated conversation plan');
-          }
-          
-          console.log('[HomePage] ✅ Voice agent message persisted:', {
-            messageId: data.data!.message!.id,
-            content: data.data!.message!.content.substring(0, 50)
-          });
-        } else {
-          console.warn('[HomePage] ⚠️ Voice agent message persistence failed:', {
-            responseOk: response.ok,
-            dataSuccess: data.success,
-            hasMessage: !!data.data?.message
-          });
         }
-      } catch (error) {
-        console.error('Error persisting voice message:', error);
+      } catch {
+        // Voice message persistence error - silent fail
       }
     }
   }, [sessionData.askKey, sessionData.ask?.askSessionId, sessionData.inviteToken, markMessagePosted, currentParticipantName, isTestMode]);
@@ -1591,13 +1449,7 @@ export default function HomePage() {
 
   // Load voice mode configuration
   const loadVoiceModeConfig = useCallback(async () => {
-    console.log('[HomePage] 🎤 loadVoiceModeConfig called', {
-      askSessionId: sessionData.ask?.askSessionId,
-      askKey: sessionData.askKey,
-    });
-    
     if (!sessionData.ask?.askSessionId) {
-      console.log('[HomePage] ⚠️ loadVoiceModeConfig: No askSessionId, skipping');
       return;
     }
 
@@ -1608,41 +1460,15 @@ export default function HomePage() {
         apiUrl.searchParams.set('token', sessionData.inviteToken);
       }
 
-      console.log('[HomePage] 🎤 Fetching voice config from:', apiUrl.toString());
-
       const response = await fetch(apiUrl.toString());
-      console.log('[HomePage] 🎤 Voice config response:', {
-        status: response.status,
-        ok: response.ok,
-      });
-      
+
       if (response.ok) {
         const data = await response.json();
-        console.log('[HomePage] 🎤 Voice config data received:', {
-          success: data.success,
-          hasSystemPrompt: !!data.data?.systemPrompt,
-          hasUserPrompt: !!data.data?.userPrompt,
-          hasModelConfig: !!data.data?.modelConfig,
-          systemPromptLength: data.data?.systemPrompt?.length || 0,
-          modelConfigProvider: data.data?.modelConfig?.provider,
-        });
-        
-        if (data.success && data.data) {
-          console.log('[HomePage] 🎤 Setting voice mode prompts...', {
-            systemPrompt: data.data.systemPrompt ? `${data.data.systemPrompt.substring(0, 100)}...` : null,
-            userPrompt: data.data.userPrompt ? `${data.data.userPrompt.substring(0, 100)}...` : null,
-          });
 
+        if (data.success && data.data) {
           // CRITICAL: Set all voice config in ONE setState to avoid multiple re-renders
           const modelConfig = data.data.modelConfig;
           if (modelConfig) {
-            console.log('[HomePage] 🎤 Loading voice mode config:', {
-              provider: modelConfig.provider,
-              voiceAgentProvider: modelConfig.voiceAgentProvider,
-              speechmaticsLlmModel: modelConfig.speechmaticsLlmModel,
-              speechmaticsLlmProvider: modelConfig.speechmaticsLlmProvider,
-            });
-
             setVoiceModeConfig({
               systemPrompt: data.data.systemPrompt || null,
               userPrompt: data.data.userPrompt || null,
@@ -1666,10 +1492,7 @@ export default function HomePage() {
                 promptVariables: data.data.promptVariables || undefined,
               } as any,
             });
-
-            console.log('[HomePage] ✅ Voice mode configuration loaded successfully!');
           } else {
-            console.log('[HomePage] ⚠️ No model config in response, using defaults');
             // Use default config when no model config is available
             setVoiceModeConfig({
               systemPrompt: data.data.systemPrompt || null,
@@ -1683,16 +1506,10 @@ export default function HomePage() {
               },
             });
           }
-        } else {
-          console.log('[HomePage] ⚠️ Voice config response not successful or missing data');
         }
-      } else {
-        console.error('[HomePage] ❌ Voice config request failed:', response.status, response.statusText);
-        const errorText = await response.text();
-        console.error('[HomePage] ❌ Error response:', errorText);
       }
-    } catch (error) {
-      console.error('[HomePage] ❌ Error loading voice mode config:', error);
+    } catch {
+      // Voice config loading error - silent fail, will use defaults
     }
   }, [sessionData.askKey, sessionData.ask?.askSessionId]);
 
@@ -1709,7 +1526,6 @@ export default function HomePage() {
 
     // Annuler la détection d'insights pendant le streaming
     cancelInsightDetectionTimer();
-    console.log('Starting streaming response for askKey:', sessionData.askKey);
 
     try {
       const currentAskKey = sessionData.askKey;
@@ -1748,8 +1564,6 @@ export default function HomePage() {
           model: 'anthropic', // Par défaut Anthropic, peut être changé
         }),
       });
-
-      console.log('Streaming response status:', response.status);
 
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
@@ -1834,14 +1648,12 @@ export default function HomePage() {
                 } else if (parsed.type === 'step_completed') {
                   // Update conversation plan when a step is completed
                   if (parsed.conversationPlan) {
-                    console.log('[handleStreamingResponse] 📋 Step completed, updating conversation plan');
                     setSessionData(prev => ({
                       ...prev,
                       conversationPlan: parsed.conversationPlan,
                     }));
                   }
                 } else if (parsed.type === 'done') {
-                  console.log('[handleStreamingResponse] ✅ Stream done, updating awaitingAiResponse state');
                   stopAwaitingAiResponse();
                   // Recharger les messages pour afficher le message persisté
                   if (sessionData.inviteToken) {
@@ -1855,12 +1667,11 @@ export default function HomePage() {
                   }
                   return insightsUpdatedDuringStream;
                 } else if (parsed.type === 'error') {
-                  console.error('Streaming error:', parsed.error);
                   stopAwaitingAiResponse();
                   return false;
                 }
-              } catch (error) {
-                console.error('Error parsing streaming data:', error);
+              } catch {
+                // Ignore parsing errors for incomplete chunks
               }
             }
           }
@@ -1868,8 +1679,7 @@ export default function HomePage() {
       }
 
       return insightsUpdatedDuringStream;
-    } catch (error) {
-      console.error('Streaming error:', error);
+    } catch {
       stopAwaitingAiResponse();
       return false;
     }
@@ -1890,19 +1700,7 @@ export default function HomePage() {
     type: Message['type'] = 'text',
     metadata?: Message['metadata']
   ) => {
-    console.log('[handleSendMessage] 🚀 Attempting to send message:', {
-      hasAskKey: !!sessionData.askKey,
-      awaitingAiResponse,
-      isDetectingInsights,
-      isLoading: sessionData.isLoading
-    });
-
-    if (!sessionData.askKey) {
-      console.log('[handleSendMessage] ❌ No askKey, aborting');
-      return;
-    }
-    if (sessionData.isLoading) {
-      console.log('[handleSendMessage] ⏸️ Already loading, aborting');
+    if (!sessionData.askKey || sessionData.isLoading) {
       return;
     }
 
@@ -1994,15 +1792,12 @@ export default function HomePage() {
       // The spokesperson asks questions manually using the suggested questions panel
       const currentConversationMode = sessionData.ask?.conversationMode;
       if (currentConversationMode === 'consultant') {
-        console.log('[handleSendMessage] ⏭️ Skipping AI response (consultant mode - AI listens only)');
         stopAwaitingAiResponse();
         return;
       }
 
-      console.log('[handleSendMessage] 🎬 Starting streaming response...');
       startAwaitingAiResponse();
       const insightsCapturedDuringStream = await handleStreamingResponse(content);
-      console.log('[handleSendMessage] ✅ Streaming complete, insights captured:', insightsCapturedDuringStream);
 
       // Programmer la détection d'insights seulement si aucune donnée n'a été envoyée pendant le streaming
       if (!insightsCapturedDuringStream) {
@@ -2010,7 +1805,6 @@ export default function HomePage() {
       }
 
     } catch (error) {
-      console.error('Error sending message:', error);
       stopAwaitingAiResponse();
       setSessionData(prev => ({
         ...prev,
@@ -2038,15 +1832,8 @@ export default function HomePage() {
   // Handle editing a message (for correcting transcription errors)
   const handleEditMessage = useCallback(async (messageId: string, newContent: string) => {
     if (!sessionData.askKey) {
-      console.error('[handleEditMessage] ❌ No askKey, aborting');
       throw new Error('No ask key available');
     }
-
-    console.log('[handleEditMessage] 📝 Editing message:', {
-      messageId,
-      newContentPreview: newContent.slice(0, 50) + '...',
-      askKey: sessionData.askKey,
-    });
 
     // Build the endpoint
     const endpoint = `/api/ask/${sessionData.askKey}/message/${messageId}`;
@@ -2076,16 +1863,10 @@ export default function HomePage() {
         throw new Error(data.error || 'Failed to edit message');
       }
 
-      console.log('[handleEditMessage] ✅ Message edited successfully:', {
-        messageId: data.data?.message?.id,
-        deletedCount: data.data?.deletedCount,
-      });
-
       // Update local state: update the edited message and remove subsequent messages
       setSessionData(prev => {
         const messageIndex = prev.messages.findIndex(m => m.id === messageId);
         if (messageIndex === -1) {
-          console.warn('[handleEditMessage] Message not found in local state');
           return prev;
         }
 
@@ -2110,22 +1891,16 @@ export default function HomePage() {
       // Trigger AI response for the edited message - but NOT in voice mode
       // In voice mode, the voice agent should handle the response naturally
       if (!isVoiceModeActive) {
-        console.log('[handleEditMessage] 🤖 Triggering AI response for edited message (text mode)...');
-
         // Schedule streaming response just like handleSendMessage does
         setTimeout(async () => {
           try {
             await handleStreamingResponse(newContent);
-          } catch (streamError) {
-            console.error('[handleEditMessage] ❌ Error during streaming response:', streamError);
+          } catch {
+            // Streaming error handled silently
           }
         }, 100);
-      } else {
-        console.log('[handleEditMessage] 🎤 Voice mode active - skipping text streaming, voice agent will respond');
       }
-
     } catch (error) {
-      console.error('[handleEditMessage] ❌ Error editing message:', error);
       throw error;
     }
   }, [sessionData.askKey, sessionData.inviteToken, handleStreamingResponse, isVoiceModeActive]);
@@ -2143,24 +1918,10 @@ export default function HomePage() {
   const reloadMessagesAfterVoiceMode = useCallback(async () => {
     // Use a function that reads current state
     setSessionData(prev => {
-      console.log('[HomePage] Reloading messages after voice mode close...', {
-        hasInviteToken: !!prev.inviteToken,
-        hasAskKey: !!prev.askKey,
-        currentMessageCount: prev.messages.length
-      });
-      
       if (prev.inviteToken) {
-        loadSessionDataByToken(prev.inviteToken).then(() => {
-          console.log('[HomePage] ✅ Messages reloaded via token');
-        }).catch(err => {
-          console.error('[HomePage] ❌ Error reloading messages via token:', err);
-        });
+        loadSessionDataByToken(prev.inviteToken).catch(() => {});
       } else if (prev.askKey) {
-        loadSessionData(prev.askKey).then(() => {
-          console.log('[HomePage] ✅ Messages reloaded via askKey');
-        }).catch(err => {
-          console.error('[HomePage] ❌ Error reloading messages via askKey:', err);
-        });
+        loadSessionData(prev.askKey).catch(() => {});
       }
       return prev; // Don't modify state, just trigger reload
     });
@@ -2172,14 +1933,11 @@ export default function HomePage() {
     setIsVoiceModeActive(active);
     // Reload messages when voice mode is closed to ensure voice messages appear in text mode
     if (wasActive && !active) {
-      console.log('[HomePage] 🎤 Voice mode closed, will reload messages in 1 second...', {
-        currentMessageCount: sessionData.messages.length
-      });
       setTimeout(() => {
         reloadMessagesAfterVoiceMode();
       }, 1000);
     }
-  }, [isVoiceModeActive, sessionData.messages.length, reloadMessagesAfterVoiceMode]);
+  }, [isVoiceModeActive, reloadMessagesAfterVoiceMode]);
 
   // Handle insight content update
   const handleInsightUpdate = useCallback((insightId: string, newContent: string) => {
@@ -2398,6 +2156,7 @@ export default function HomePage() {
           isSpokesperson={isSpokesperson}
           consultantQuestions={consultantAnalysis.questions}
           isConsultantAnalyzing={consultantAnalysis.isAnalyzing}
+          currentUserId={currentUserId}
         />
       ) : (
         <main className="flex h-[calc(100dvh-88px)] overflow-hidden gap-6 p-6 min-w-0">
@@ -2428,6 +2187,7 @@ export default function HomePage() {
                   isLoading={sessionData.isLoading}
                   onHumanTyping={sessionTimer.notifyUserTyping}
                   currentParticipantName={currentParticipantName}
+                  currentUserId={currentUserId}
                   isMultiUser={Boolean(sessionData.ask && sessionData.ask.participants.length > 1)}
                   showAgentTyping={awaitingAiResponse && !isDetectingInsights}
                   voiceModeEnabled={!!voiceModeConfig?.systemPrompt}

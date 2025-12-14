@@ -2,6 +2,13 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 let cachedClient: SupabaseClient | null = null;
 
+/**
+ * Clear the cached admin client (useful for debugging or after config changes)
+ */
+export function clearAdminClientCache(): void {
+  cachedClient = null;
+}
+
 export function getAdminSupabaseClient(): SupabaseClient {
   if (cachedClient) {
     return cachedClient;

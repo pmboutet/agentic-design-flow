@@ -811,11 +811,33 @@ export async function POST(
       // Use admin client to validate token and get participant info
       const admin = await getAdminClient();
 
-      const { data: participant, error: tokenError } = await admin
-        .from('ask_participants')
-        .select('id, user_id, ask_session_id')
-        .eq('invite_token', inviteToken)
-        .maybeSingle();
+      // Use RPC function to bypass RLS (direct query fails even with service_role)
+      console.log('🔍 POST: Querying participant via RPC with token:', inviteToken.substring(0, 16) + '...');
+      const { data: rpcResult, error: tokenError } = await admin
+        .rpc('get_participant_by_token', { p_token: inviteToken })
+        .maybeSingle<{
+          participant_id: string;
+          user_id: string | null;
+          participant_email: string | null;
+          participant_name: string | null;
+          invite_token: string;
+          role: string | null;
+          is_spokesperson: boolean;
+        }>();
+
+      // Map RPC result to expected format
+      const participant = rpcResult ? {
+        id: rpcResult.participant_id,
+        user_id: rpcResult.user_id,
+        ask_session_id: null as string | null, // Not returned by RPC, will verify later
+      } : null;
+
+      console.log('🔍 POST: Token query result (RPC):', {
+        hasParticipant: !!participant,
+        participantId: participant?.id ?? null,
+        userId: participant?.user_id ?? null,
+        tokenError: tokenError ? tokenError.message : null
+      });
 
       if (tokenError) {
         console.error('❌ Error validating invite token:', tokenError);
@@ -951,26 +973,40 @@ export async function POST(
     if (isDevBypass && !finalProfileId) {
       // En mode dev, chercher un profil admin par défaut
       const admin = await getAdminClient();
-      const { data: devProfile } = await admin
+      console.log('🔍 POST: Looking for admin profile (role=full_admin, is_active=true)...');
+      const { data: devProfile, error: devProfileError } = await admin
         .from('profiles')
         .select('id')
         .eq('role', 'full_admin')
         .eq('is_active', true)
         .limit(1)
         .maybeSingle();
-      
+
+      console.log('🔍 POST: Admin profile query result:', {
+        hasProfile: !!devProfile,
+        profileId: devProfile?.id ?? null,
+        error: devProfileError ? devProfileError.message : null
+      });
+
       if (devProfile) {
         finalProfileId = devProfile.id;
         console.log('✅ POST /api/ask/[key]: Using default admin profile in dev mode:', finalProfileId);
       } else {
         // If no admin profile found, try to get any active profile
-        const { data: anyProfile } = await admin
+        console.log('🔍 POST: No admin profile, looking for any active profile...');
+        const { data: anyProfile, error: anyProfileError } = await admin
           .from('profiles')
           .select('id')
           .eq('is_active', true)
           .limit(1)
           .maybeSingle();
-        
+
+        console.log('🔍 POST: Any active profile query result:', {
+          hasProfile: !!anyProfile,
+          profileId: anyProfile?.id ?? null,
+          error: anyProfileError ? anyProfileError.message : null
+        });
+
         if (anyProfile) {
           finalProfileId = anyProfile.id;
           console.log('✅ POST /api/ask/[key]: Using first active profile in dev mode:', finalProfileId);

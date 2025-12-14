@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAdminSupabaseClient } from '@/lib/supabaseAdmin';
 import { createServerSupabaseClient, getCurrentUser } from '@/lib/supabaseServer';
 import { isValidAskKey, parseErrorMessage } from '@/lib/utils';
-import { getAskSessionByKey, getOrCreateConversationThread, getMessagesForThread } from '@/lib/asks';
+import { getAskSessionByKey, shouldUseSharedThread } from '@/lib/asks';
 import { normaliseMessageMetadata } from '@/lib/messages';
 import { executeAgent, fetchAgentBySlug } from '@/lib/ai';
 import { getConversationPlanWithSteps, completeStep, getCurrentStep, detectStepCompletion } from '@/lib/ai/conversation-plan';
@@ -161,16 +161,20 @@ export async function POST(
     const inviteToken = request.headers.get('X-Invite-Token');
     console.log('🎫 [CONSULTANT-ANALYZE] Checking invite token:', inviteToken?.substring(0, 8) ?? 'none');
 
-    if (inviteToken) {
-      const { data: participant, error: participantError } = await supabase
-        .from('ask_participants')
-        .select('user_id')
-        .eq('invite_token', inviteToken)
-        .maybeSingle();
+    // Create server client once for RPC calls (bypasses RLS securely)
+    const serverSupabase = await createServerSupabaseClient();
 
-      console.log('📊 [CONSULTANT-ANALYZE] Participant from token:', {
+    if (inviteToken) {
+      // Use RPC function to bypass RLS (same pattern as token route)
+      const { data: participantRows, error: participantError } = await serverSupabase
+        .rpc('get_participant_by_token', { p_token: inviteToken });
+
+      const participant = participantRows?.[0] ?? null;
+
+      console.log('📊 [CONSULTANT-ANALYZE] Participant from token (RPC):', {
         found: !!participant,
         userId: participant?.user_id,
+        participantId: participant?.participant_id,
         error: participantError?.message
       });
 
@@ -184,7 +188,6 @@ export async function POST(
     if (!currentUserId) {
       console.log('🔐 [CONSULTANT-ANALYZE] No user from token, trying auth cookie...');
       try {
-        const serverSupabase = await createServerSupabaseClient();
         const user = await getCurrentUser();
         console.log('👤 [CONSULTANT-ANALYZE] Auth user:', user?.id ?? 'none');
 
@@ -226,17 +229,79 @@ export async function POST(
     }
 
     // Fetch ASK session
-    const { row: askRow, error: askError } = await getAskSessionByKey<AskSessionRow & { conversation_mode?: string | null }>(
-      supabase,
+    // Use token-based RPC if inviteToken is available (bypasses RLS securely)
+    // Otherwise fallback to admin client lookup by key
+    console.log('🔍 [CONSULTANT-ANALYZE] Looking up ASK session:', {
       key,
-      'id, ask_key, question, description, status, system_prompt, project_id, challenge_id, conversation_mode, expected_duration_minutes'
-    );
+      hasInviteToken: !!inviteToken,
+      method: inviteToken ? 'RPC (token-based)' : 'Admin client (by key)',
+    });
+
+    let askRow: (AskSessionRow & { conversation_mode?: string | null }) | null = null;
+    let askError: Error | null = null;
+
+    if (inviteToken) {
+      // Use RPC function that bypasses RLS securely (same as agent-config route)
+      const { data: rpcData, error: rpcError } = await serverSupabase
+        .rpc('get_ask_session_by_token', { p_token: inviteToken })
+        .maybeSingle<{
+          ask_session_id: string;
+          ask_key: string;
+          question: string;
+          description: string | null;
+          status: string;
+          project_id: string | null;
+          challenge_id: string | null;
+          conversation_mode: string | null;
+        }>();
+
+      if (rpcError) {
+        console.error('❌ [CONSULTANT-ANALYZE] RPC error:', rpcError);
+        askError = new Error(rpcError.message);
+      } else if (rpcData) {
+        // Map RPC result to AskSessionRow format
+        askRow = {
+          id: rpcData.ask_session_id,
+          ask_key: rpcData.ask_key,
+          question: rpcData.question,
+          description: rpcData.description,
+          status: rpcData.status,
+          system_prompt: null, // Not returned by RPC, but not needed for consultant-analyze
+          project_id: rpcData.project_id,
+          challenge_id: rpcData.challenge_id,
+          conversation_mode: rpcData.conversation_mode,
+        };
+        console.log('✅ [CONSULTANT-ANALYZE] Found ASK via RPC:', {
+          askId: askRow.id,
+          askKey: askRow.ask_key,
+          conversationMode: askRow.conversation_mode,
+        });
+      }
+    } else {
+      // Fallback to admin client lookup by key
+      const result = await getAskSessionByKey<AskSessionRow & { conversation_mode?: string | null }>(
+        supabase,
+        key,
+        'id, ask_key, question, description, status, system_prompt, project_id, challenge_id, conversation_mode, expected_duration_minutes'
+      );
+      askRow = result.row;
+      askError = result.error ? new Error(result.error.message) : null;
+    }
+
+    console.log('📊 [CONSULTANT-ANALYZE] ASK lookup result:', {
+      found: !!askRow,
+      askId: askRow?.id,
+      askKey: askRow?.ask_key,
+      error: askError?.message,
+    });
 
     if (askError) {
+      console.error('❌ [CONSULTANT-ANALYZE] ASK lookup error:', askError);
       throw askError;
     }
 
     if (!askRow) {
+      console.error('❌ [CONSULTANT-ANALYZE] ASK not found for key:', key);
       return NextResponse.json<ApiResponse>({
         success: false,
         error: 'ASK introuvable pour la clé fournie'
@@ -308,48 +373,67 @@ export async function POST(
       };
     });
 
-    // Get or create conversation thread
-    const askConfig = {
-      conversation_mode: askRow.conversation_mode ?? null,
-    };
+    // Get or create conversation thread using RPC (bypasses RLS)
+    const useSharedThread = shouldUseSharedThread({ conversation_mode: askRow.conversation_mode ?? null });
 
     console.log('🧵 [CONSULTANT-ANALYZE] Getting thread for:', {
       askSessionId: askRow.id,
       currentUserId,
-      conversationMode: askConfig.conversation_mode,
+      conversationMode: askRow.conversation_mode,
+      useSharedThread,
     });
 
-    const { thread: conversationThread, error: threadError } = await getOrCreateConversationThread(
-      supabase,
-      askRow.id,
-      currentUserId,
-      askConfig
-    );
+    const { data: threadRows, error: threadRpcError } = await serverSupabase
+      .rpc('get_or_create_conversation_thread', {
+        p_ask_session_id: askRow.id,
+        p_user_id: currentUserId,
+        p_use_shared: useSharedThread,
+      });
+
+    const threadRow = threadRows?.[0] ?? null;
+    const conversationThread = threadRow ? {
+      id: threadRow.thread_id,
+      ask_session_id: threadRow.ask_session_id,
+      user_id: threadRow.user_id,
+      is_shared: threadRow.is_shared,
+      created_at: threadRow.created_at,
+    } : null;
 
     console.log('🧵 [CONSULTANT-ANALYZE] Thread result:', {
       threadId: conversationThread?.id,
       isShared: conversationThread?.is_shared,
       threadUserId: conversationThread?.user_id,
-      error: threadError?.message,
+      wasCreated: threadRow?.was_created,
+      error: threadRpcError?.message,
     });
 
-    if (threadError) {
-      throw threadError;
+    if (threadRpcError) {
+      throw threadRpcError;
     }
 
-    // Get messages for the thread
+    // Get messages for the thread using RPC (bypasses RLS)
     let messageRows: MessageRow[] = [];
     if (conversationThread) {
-      const { messages: threadMessages, error: threadMessagesError } = await getMessagesForThread(
-        supabase,
-        conversationThread.id
-      );
+      const { data: messageRpcRows, error: messagesRpcError } = await serverSupabase
+        .rpc('get_messages_for_thread', { p_thread_id: conversationThread.id });
 
-      if (threadMessagesError) {
-        throw threadMessagesError;
+      if (messagesRpcError) {
+        throw messagesRpcError;
       }
 
-      messageRows = threadMessages as MessageRow[];
+      // Map RPC result to MessageRow format
+      messageRows = (messageRpcRows ?? []).map((row: any) => ({
+        id: row.message_id,
+        ask_session_id: row.ask_session_id,
+        user_id: row.user_id,
+        sender_type: row.sender_type,
+        content: row.content,
+        message_type: row.message_type,
+        metadata: row.metadata,
+        created_at: row.created_at,
+        conversation_thread_id: row.conversation_thread_id,
+        plan_step_id: row.plan_step_id,
+      }));
     }
 
     // Add users from messages

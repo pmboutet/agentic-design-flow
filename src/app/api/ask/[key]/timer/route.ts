@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import type { PostgrestError, SupabaseClient } from '@supabase/supabase-js';
 import { ApiResponse } from '@/types';
 import { isValidAskKey, parseErrorMessage } from '@/lib/utils';
-import { getAskSessionByKey } from '@/lib/asks';
 import { createServerSupabaseClient } from '@/lib/supabaseServer';
 
 interface AskSessionRow {
@@ -76,28 +75,24 @@ export async function GET(
     const inviteToken = request.headers.get('X-Invite-Token');
 
     if (inviteToken) {
-      const admin = await getAdminClient();
-      const { data: participant, error: tokenError } = await admin
-        .from('ask_participants')
-        .select('id, user_id, ask_session_id, elapsed_active_seconds')
-        .eq('invite_token', inviteToken)
-        .maybeSingle();
+      // Use RPC functions to bypass RLS securely
+      const [participantResult, askResult] = await Promise.all([
+        supabase.rpc('get_participant_by_token', { p_token: inviteToken }),
+        supabase.rpc('get_ask_session_by_token', { p_token: inviteToken })
+          .maybeSingle<{ ask_session_id: string; ask_key: string }>(),
+      ]);
 
-      if (!tokenError && participant?.user_id) {
-        profileId = participant.user_id;
-        dataClient = admin;
+      const participant = participantResult.data?.[0] ?? null;
+      const askData = askResult.data;
 
-        // Verify this token is for the right ASK
-        const { row: askRow } = await getAskSessionByKey<AskSessionRow>(dataClient, key, 'id');
-        if (askRow && participant.ask_session_id === askRow.id) {
-          return NextResponse.json<ApiResponse<TimerResponse>>({
-            success: true,
-            data: {
-              elapsedActiveSeconds: participant.elapsed_active_seconds ?? 0,
-              participantId: participant.id,
-            }
-          });
-        }
+      if (!participantResult.error && participant && !askResult.error && askData && askData.ask_key === key) {
+        return NextResponse.json<ApiResponse<TimerResponse>>({
+          success: true,
+          data: {
+            elapsedActiveSeconds: participant.elapsed_active_seconds ?? 0,
+            participantId: participant.participant_id,
+          }
+        });
       }
     }
 
@@ -129,17 +124,26 @@ export async function GET(
       dataClient = await getAdminClient();
     }
 
-    // Get the ASK session
-    const { row: askRow, error: askError } = await getAskSessionByKey<AskSessionRow>(dataClient, key, 'id');
-    if (askError || !askRow) {
-      if (isPermissionDenied(askError)) {
+    // Get the ASK session using RPC (bypasses RLS)
+    const { data: askRpcData, error: askRpcError } = await supabase
+      .rpc('get_ask_session_by_key', { p_key: key })
+      .maybeSingle<{ ask_session_id: string }>();
+
+    if (askRpcError) {
+      if (isPermissionDenied(askRpcError)) {
         return permissionDeniedResponse();
       }
+      throw askRpcError;
+    }
+
+    if (!askRpcData) {
       return NextResponse.json<ApiResponse>({
         success: false,
         error: 'ASK introuvable'
       }, { status: 404 });
     }
+
+    const askRow = { id: askRpcData.ask_session_id };
 
     // Get participant's elapsed time
     let participantQuery = dataClient
@@ -233,17 +237,20 @@ export async function PATCH(
     const inviteToken = request.headers.get('X-Invite-Token');
 
     if (inviteToken) {
-      const admin = await getAdminClient();
-      const { data: participant, error: tokenError } = await admin
-        .from('ask_participants')
-        .select('id, user_id, ask_session_id')
-        .eq('invite_token', inviteToken)
-        .maybeSingle();
+      // Use RPC functions to bypass RLS securely
+      const [participantResult, askResult] = await Promise.all([
+        supabase.rpc('get_participant_by_token', { p_token: inviteToken }),
+        supabase.rpc('get_ask_session_by_token', { p_token: inviteToken })
+          .maybeSingle<{ ask_session_id: string; ask_key: string }>(),
+      ]);
 
-      if (!tokenError && participant?.user_id) {
+      const participant = participantResult.data?.[0] ?? null;
+      const askData = askResult.data;
+
+      if (!participantResult.error && participant && !askResult.error && askData && askData.ask_key === key) {
         profileId = participant.user_id;
-        participantId = participant.id;
-        dataClient = admin;
+        participantId = participant.participant_id;
+        dataClient = await getAdminClient(); // Use admin for the update
       }
     }
 
@@ -275,17 +282,26 @@ export async function PATCH(
       dataClient = await getAdminClient();
     }
 
-    // Get the ASK session
-    const { row: askRow, error: askError } = await getAskSessionByKey<AskSessionRow>(dataClient, key, 'id');
-    if (askError || !askRow) {
-      if (isPermissionDenied(askError)) {
+    // Get the ASK session using RPC (bypasses RLS)
+    const { data: askRpcData, error: askRpcError } = await supabase
+      .rpc('get_ask_session_by_key', { p_key: key })
+      .maybeSingle<{ ask_session_id: string }>();
+
+    if (askRpcError) {
+      if (isPermissionDenied(askRpcError)) {
         return permissionDeniedResponse();
       }
+      throw askRpcError;
+    }
+
+    if (!askRpcData) {
       return NextResponse.json<ApiResponse>({
         success: false,
         error: 'ASK introuvable'
       }, { status: 404 });
     }
+
+    const askRow = { id: askRpcData.ask_session_id };
 
     // Get participant if not already retrieved from invite token
     if (!participantId && profileId) {

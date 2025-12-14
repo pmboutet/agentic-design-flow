@@ -41,6 +41,7 @@ export function ChatComponent({
   isLoading,
   onHumanTyping,
   currentParticipantName,
+  currentUserId,
   isMultiUser,
   showAgentTyping,
   voiceModeEnabled = false,
@@ -446,6 +447,7 @@ export function ChatComponent({
                   showSender={showSenderName}
                   senderLabel={effectiveSenderName}
                   conversationPlan={conversationPlan}
+                  currentUserId={currentUserId}
                   isEditing={editingMessageId === message.id}
                   editContent={editingMessageId === message.id ? editContent : ""}
                   onStartEdit={onEditMessage ? handleStartEdit : undefined}
@@ -748,6 +750,7 @@ function MessageBubble({
   showSender,
   senderLabel,
   conversationPlan,
+  currentUserId,
   isEditing = false,
   editContent = "",
   onStartEdit,
@@ -760,6 +763,7 @@ function MessageBubble({
   showSender: boolean;
   senderLabel?: string | null;
   conversationPlan?: ConversationPlan | null;
+  currentUserId?: string | null;
   isEditing?: boolean;
   editContent?: string;
   onStartEdit?: (messageId: string, currentContent: string) => void;
@@ -771,6 +775,17 @@ function MessageBubble({
   const isUser = message.senderType === 'user';
   const isSystem = message.senderType === 'system';
   const isAgent = message.senderType === 'ai';
+
+  // Determine if this is the current user's own message
+  // A message is "mine" if: it's from a user AND (senderId matches currentUserId OR senderId is null/undefined when currentUserId exists)
+  const isOwnMessage = isUser && (
+    (currentUserId && message.senderId === currentUserId) ||
+    (!message.senderId && !currentUserId) // Fallback for legacy messages without senderId
+  );
+
+  // Messages align right only if they're from the current user
+  const alignRight = isOwnMessage;
+
   const bubbleClass = isSystem
     ? 'bg-muted text-muted-foreground'
     : isUser
@@ -819,13 +834,13 @@ function MessageBubble({
       layout={false} // Disable layout animations to prevent disappearing messages
       className={cn(
         'flex',
-        isSystem ? 'justify-center' : isUser ? 'justify-end' : 'justify-start'
+        isSystem ? 'justify-center' : alignRight ? 'justify-end' : 'justify-start'
       )}
     >
       <div
         className={cn(
           'max-w-[80%] flex flex-col gap-1 min-w-0',
-          isSystem ? 'items-center text-center' : isUser ? 'items-end' : 'items-start'
+          isSystem ? 'items-center text-center' : alignRight ? 'items-end' : 'items-start'
         )}
       >
         {showSender && senderLabel && (
