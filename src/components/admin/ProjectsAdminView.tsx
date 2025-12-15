@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Building2, CalendarRange, Edit, Folder, Loader2, Plus, RefreshCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -38,6 +39,7 @@ interface ProjectGroup {
 }
 
 export function ProjectsAdminView() {
+  const router = useRouter();
   const { selectedClientId, selectedClient, clients } = useClientContext();
   const { selectedProjectId: globalProjectId, selectedProject: globalSelectedProject } = useProjectContext();
   const [projects, setProjects] = useState<ProjectRecord[]>([]);
@@ -45,6 +47,23 @@ export function ProjectsAdminView() {
   const [error, setError] = useState<string | null>(null);
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [editingProject, setEditingProject] = useState<ProjectRecord | null>(null);
+
+  // Redirect directly to journey board when a specific project is selected
+  useEffect(() => {
+    if (globalProjectId !== "all") {
+      router.replace(`/admin/projects/${globalProjectId}`);
+    }
+  }, [globalProjectId, router]);
+
+  // Show loading state while redirecting to avoid content flash
+  if (globalProjectId !== "all") {
+    return (
+      <div className="flex items-center gap-2 text-slate-300">
+        <Loader2 className="h-5 w-5 animate-spin" />
+        Chargement du journey board…
+      </div>
+    );
+  }
 
   const loadProjects = async () => {
     setIsLoading(true);
