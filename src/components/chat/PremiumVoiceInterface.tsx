@@ -19,7 +19,7 @@
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, MicOff, Volume2, Pencil, Check, Settings } from 'lucide-react';
+import { X, MicOff, Volume2, Pencil, Check, Settings, ChevronDown, UserX } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { DeepgramVoiceAgent, DeepgramMessageEvent } from '@/lib/ai/deepgram';
@@ -30,7 +30,7 @@ import { useAuth } from '@/components/auth/AuthProvider';
 import type { ConversationPlan, ConversationPlanStep } from '@/types';
 import type { SemanticTurnTelemetryEvent } from '@/lib/ai/turn-detection';
 import { useInactivityMonitor } from '@/hooks/useInactivityMonitor';
-import { SpeakerAssignmentOverlay, type ParticipantOption, type SpeakerAssignmentDecision } from './SpeakerAssignmentOverlay';
+import { SpeakerAssignmentOverlay, type ParticipantOption, type SpeakerAssignmentDecision, type SpeakerMessage } from './SpeakerAssignmentOverlay';
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
@@ -103,6 +103,8 @@ interface PremiumVoiceInterfaceProps {
   onSpeakerMappingChange?: (mappings: SpeakerMapping[]) => void;
   // Invite token for API calls (used for guest participant creation)
   inviteToken?: string | null;
+  // Current user ID for message alignment (messages from this user align right)
+  currentUserId?: string | null;
 }
 
 /**
@@ -150,6 +152,7 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
   participants = [],
   onSpeakerMappingChange,
   inviteToken,
+  currentUserId,
 }: PremiumVoiceInterfaceProps) {
   // Récupération de l'utilisateur connecté pour l'affichage du profil
   const { user } = useAuth();
@@ -193,6 +196,9 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
   const [isSubmittingEdit, setIsSubmittingEdit] = useState(false);
   // Track if mic was muted before editing (to restore state after)
   const wasMutedBeforeEditRef = useRef(false);
+
+  // ===== ÉTATS D'ÉDITION DE SPEAKER (CONSULTANT MODE) =====
+  const [editingSpeaker, setEditingSpeaker] = useState<string | null>(null);
 
   const conversationSteps = conversationPlan?.plan_data.steps ?? [];
   const currentConversationStepId = conversationPlan?.current_step_id;
@@ -1036,6 +1042,40 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
     setPendingSpeakers(prev => prev.filter(s => s !== speaker));
   }, []);
 
+  /**
+   * Handle speaker reassignment from the inline edit dropdown
+   * Updates the mapping for the specified speaker to a new participant
+   * If no mapping exists for this speaker, creates a new one
+   */
+  const handleSpeakerReassign = useCallback((
+    speaker: string,
+    newAssignment: { participantId: string | null; participantName: string; shouldTranscribe: boolean }
+  ) => {
+    setSpeakerMappings(prev => {
+      const existingIndex = prev.findIndex(m => m.speaker === speaker);
+      if (existingIndex >= 0) {
+        // Update existing mapping
+        const updated = [...prev];
+        updated[existingIndex] = { ...updated[existingIndex], ...newAssignment };
+        return updated;
+      } else {
+        // Create new mapping
+        return [...prev, { speaker, ...newAssignment }];
+      }
+    });
+    setEditingSpeaker(null);
+
+    // Notify parent of mapping change
+    if (onSpeakerMappingChange) {
+      setTimeout(() => {
+        setSpeakerMappings(current => {
+          onSpeakerMappingChange(current);
+          return current;
+        });
+      }, 0);
+    }
+  }, [onSpeakerMappingChange]);
+
   // ===== GESTION DE LA CONNEXION =====
   /**
    * Établit la connexion à l'agent vocal
@@ -1655,31 +1695,54 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
    * - Tous les messages sont triés par timestamp pour garantir l'ordre chronologique
    */
   const displayMessages: VoiceMessage[] = useMemo(() => {
-    const base: VoiceMessage[] = (messages || []).map(msg => ({
-      role: msg.role,
-      content: msg.content,
-      timestamp: msg.timestamp || new Date().toISOString(),
-      messageId: msg.messageId,
-      isInterim: false,
-      speaker: (msg.metadata as { speaker?: string })?.speaker, // Speaker from diarization
-    }));
+    // Deduplicate base messages by messageId (race condition between optimistic updates and realtime)
+    const seenIds = new Set<string>();
+    const base: VoiceMessage[] = [];
 
-    if (interimUser) {
+    for (const msg of messages || []) {
+      const messageId = msg.messageId;
+      // Skip duplicates - keep the first occurrence
+      if (messageId && seenIds.has(messageId)) {
+        continue;
+      }
+      if (messageId) {
+        seenIds.add(messageId);
+      }
+
       base.push({
-        ...interimUser,
-        timestamp: interimUser.timestamp || new Date().toISOString(),
-        messageId: interimUser.messageId || `interim-user-${Date.now()}`,
-        isInterim: true,
+        role: msg.role,
+        content: msg.content,
+        timestamp: msg.timestamp || new Date().toISOString(),
+        messageId,
+        isInterim: false,
+        speaker: (msg.metadata as { speaker?: string })?.speaker, // Speaker from diarization
       });
     }
 
+    if (interimUser) {
+      const interimUserId = interimUser.messageId || `interim-user-${Date.now()}`;
+      // Only add if not already finalized in base messages
+      if (!seenIds.has(interimUserId)) {
+        base.push({
+          ...interimUser,
+          timestamp: interimUser.timestamp || new Date().toISOString(),
+          messageId: interimUserId,
+          isInterim: true,
+        });
+      }
+    }
+
     if (interimAssistant) {
-      base.push({
-        ...interimAssistant,
-        timestamp: interimAssistant.timestamp || new Date().toISOString(),
-        messageId: interimAssistant.messageId || `interim-assistant-${Date.now()}`,
-        isInterim: true,
-      });
+      const interimAssistantId = interimAssistant.messageId || `interim-assistant-${Date.now()}`;
+      // Only add if not already finalized in base messages
+      if (!seenIds.has(interimAssistantId)) {
+        base.push({
+          ...interimAssistant,
+          timestamp: interimAssistant.timestamp || new Date().toISOString(),
+          messageId: interimAssistantId,
+          isInterim: true,
+        });
+      }
     }
 
     // Tri par timestamp pour garantir l'ordre chronologique
@@ -2029,10 +2092,19 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
               const isStreamingAssistant = message.isInterim && message.role === "assistant";
               const isUser = message.role === "user";
               const isEditing = editingMessageId === message.messageId;
-              const canEdit = isUser && !message.isInterim && message.messageId && onEditMessage;
+              // Only allow editing if message has a real database ID (not a temp-xxx ID that hasn't been persisted yet)
+              const hasRealId = message.messageId && !message.messageId.startsWith('temp-');
+              const canEdit = isUser && !message.isInterim && hasRealId && onEditMessage;
 
-              // Consultant mode: determine if this message is from the consultant
-              const isConsultantMessage = consultantMode && message.speaker === consultantSpeakerRef.current;
+              // Consultant mode: determine if this message is from the current user (for alignment)
+              // Check if the speaker is mapped to a participant whose userId matches currentUserId
+              const isCurrentUserMessage = (() => {
+                if (!consultantMode || !message.speaker || !currentUserId) return false;
+                const mapping = speakerMappings.find(m => m.speaker === message.speaker);
+                if (!mapping || !mapping.participantId) return false;
+                const participant = participants.find(p => p.id === mapping.participantId);
+                return participant?.userId === currentUserId;
+              })();
               // Get a human-readable speaker label from the mapping
               const getSpeakerLabel = (speaker: string | undefined): string => {
                 if (!speaker) return '';
@@ -2063,20 +2135,83 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
                   }}
                   className={cn(
                     "flex flex-col",
-                    // In consultant mode, consultant messages on right, others on left
+                    // In consultant mode, current user's messages on right, others on left
                     consultantMode
-                      ? (isConsultantMessage ? "items-end" : "items-start")
+                      ? (isCurrentUserMessage ? "items-end" : "items-start")
                       : (isUser ? "items-end" : "items-start")
                   )}
                 >
-                  {/* Speaker label in consultant mode */}
+                  {/* Speaker label in consultant mode with edit capability */}
                   {consultantMode && message.speaker && !message.isInterim && (
-                    <span className={cn(
-                      "text-xs mb-1 px-2",
-                      isConsultantMessage ? "text-blue-300" : "text-white/60"
+                    <div className={cn(
+                      "text-xs mb-1 px-2 flex items-center gap-1 group/speaker",
+                      isCurrentUserMessage ? "justify-end" : "justify-start"
                     )}>
-                      {getSpeakerLabel(message.speaker)}
-                    </span>
+                      {editingSpeaker === message.speaker ? (
+                        // Dropdown for reassigning speaker
+                        <div className="relative">
+                          <div className="flex flex-col gap-1 bg-slate-800/95 backdrop-blur-xl rounded-lg border border-white/20 shadow-xl p-1 min-w-[160px]">
+                            {/* Existing participants */}
+                            {participants?.filter(p => {
+                              // Filter out participants already assigned to other speakers
+                              const assignedToOther = speakerMappings.some(
+                                m => m.participantId === p.id && m.speaker !== message.speaker
+                              );
+                              return !assignedToOther;
+                            }).map(p => (
+                              <button
+                                key={p.id}
+                                onClick={() => handleSpeakerReassign(message.speaker!, {
+                                  participantId: p.id,
+                                  participantName: p.name,
+                                  shouldTranscribe: true,
+                                })}
+                                className="flex items-center gap-2 px-2 py-1.5 text-left text-white/90 hover:bg-white/10 rounded transition-colors text-xs"
+                              >
+                                <span className="truncate">{p.name}</span>
+                              </button>
+                            ))}
+                            {/* Separator */}
+                            {participants && participants.length > 0 && (
+                              <div className="border-t border-white/10 my-1" />
+                            )}
+                            {/* Ignore option */}
+                            <button
+                              onClick={() => handleSpeakerReassign(message.speaker!, {
+                                participantId: null,
+                                participantName: 'Ignored',
+                                shouldTranscribe: false,
+                              })}
+                              className="flex items-center gap-2 px-2 py-1.5 text-left text-red-400 hover:bg-red-500/10 rounded transition-colors text-xs"
+                            >
+                              <UserX className="h-3 w-3" />
+                              <span>Ignorer ce speaker</span>
+                            </button>
+                            {/* Cancel */}
+                            <button
+                              onClick={() => setEditingSpeaker(null)}
+                              className="flex items-center gap-2 px-2 py-1.5 text-left text-white/60 hover:bg-white/10 rounded transition-colors text-xs"
+                            >
+                              <X className="h-3 w-3" />
+                              <span>Annuler</span>
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        // Speaker label with edit button - entire area clickable
+                        <button
+                          onClick={() => setEditingSpeaker(message.speaker!)}
+                          className={cn(
+                            "flex items-center gap-1 px-1.5 py-0.5 -mx-1.5 rounded hover:bg-white/10 transition-colors cursor-pointer",
+                            isCurrentUserMessage ? "text-blue-300" : "text-white/60"
+                          )}
+                          title="Changer l'utilisateur"
+                        >
+                          <span>{getSpeakerLabel(message.speaker)}</span>
+                          <ChevronDown className="h-3 w-3 opacity-0 group-hover/speaker:opacity-100 transition-opacity" />
+                        </button>
+                      )}
+                    </div>
                   )}
                   <div className="relative group max-w-[75%]">
                     {/* Edit button for user messages */}
@@ -2094,7 +2229,7 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
                         "rounded-2xl px-4 py-3 backdrop-blur-xl shadow-lg",
                         // In consultant mode, use blue for consultant, different color for others
                         consultantMode
-                          ? (isConsultantMessage
+                          ? (isCurrentUserMessage
                               ? "bg-blue-500/30 text-white border border-blue-400/30"
                               : "bg-slate-700/40 text-white/90 border border-slate-500/30")
                           : (isUser
@@ -2364,18 +2499,30 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
       {/* Speaker Assignment Overlays (Consultant Mode) - Stacked vertically */}
       {consultantMode && pendingSpeakers.length > 0 && (
         <div className="absolute inset-0 z-50 backdrop-blur-md bg-black/40 flex flex-col items-center justify-center gap-4 p-4 overflow-y-auto">
-          {pendingSpeakers.map((speaker) => (
-            <SpeakerAssignmentOverlay
-              key={speaker}
-              isOpen={true}
-              speaker={speaker}
-              speakerOrder={speakerOrderRef.current.get(speaker) || 1}
-              participants={participants}
-              assignedSpeakers={speakerMappings.map(m => m.speaker)}
-              onConfirm={handleSpeakerAssignmentConfirm}
-              onClose={handleSpeakerAssignmentClose}
-            />
-          ))}
+          {pendingSpeakers.map((speaker) => {
+            // Get last 5 messages from this speaker to help identify who is speaking
+            const recentMessages: SpeakerMessage[] = messages
+              .filter(msg => (msg.metadata as { speaker?: string })?.speaker === speaker)
+              .slice(-5)
+              .map(msg => ({
+                content: msg.content,
+                timestamp: msg.timestamp || '',
+              }));
+
+            return (
+              <SpeakerAssignmentOverlay
+                key={speaker}
+                isOpen={true}
+                speaker={speaker}
+                speakerOrder={speakerOrderRef.current.get(speaker) || 1}
+                participants={participants}
+                assignedSpeakers={speakerMappings.map(m => m.speaker)}
+                recentMessages={recentMessages}
+                onConfirm={handleSpeakerAssignmentConfirm}
+                onClose={handleSpeakerAssignmentClose}
+              />
+            );
+          })}
         </div>
       )}
     </div>

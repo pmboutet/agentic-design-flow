@@ -22,6 +22,7 @@ interface PurgeResult {
   deletedInsightSyntheses: number;
   deletedGraphEdges: number;
   aiBuilderResultsCleared: boolean;
+  timersReset: number;
 }
 
 /**
@@ -95,6 +96,7 @@ export async function POST(
       deletedInsightSyntheses: 0,
       deletedGraphEdges: 0,
       aiBuilderResultsCleared: false,
+      timersReset: 0,
     };
 
     // Step 1: Get all ask_session IDs for this project
@@ -169,7 +171,15 @@ export async function POST(
       .in("ask_session_id", askSessionIds);
     result.deletedConversationThreads = threadsDeleted ?? 0;
 
-    // Step 8: Clear AI challenge builder results from project
+    // Step 8: Reset session timers for all participants
+    const { count: timersReset } = await adminSupabase
+      .from("ask_participants")
+      .update({ elapsed_active_seconds: 0 }, { count: "exact" })
+      .in("ask_session_id", askSessionIds)
+      .gt("elapsed_active_seconds", 0);
+    result.timersReset = timersReset ?? 0;
+
+    // Step 9: Clear AI challenge builder results from project
     const { error: clearError } = await adminSupabase
       .from("projects")
       .update({ ai_challenge_builder_results: null })

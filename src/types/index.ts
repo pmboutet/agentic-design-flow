@@ -464,8 +464,8 @@ export interface Profile {
   lastName?: string | null;
   fullName?: string | null;
   role: string;
-  clientId?: string | null;
-  clientName?: string | null;
+  // Client associations are managed via client_members table
+  // Use clientMemberships in ManagedUser for client relationships
   avatarUrl?: string | null;
   isActive: boolean;
   lastLogin?: string | null;

@@ -129,9 +129,8 @@ export async function PATCH(
       updateData.role = payload.role;
     }
 
-    if (payload.clientId !== undefined) {
-      updateData.client_id = payload.clientId && payload.clientId !== "" ? payload.clientId : null;
-    }
+    // Note: clientId is now managed via client_members table, not profiles
+    // Use /api/admin/clients/[id]/members routes to manage client associations
 
     if (payload.isActive !== undefined) {
       updateData.is_active = payload.isActive;

@@ -347,9 +347,14 @@ function AddParticipantsDialog({
                   disabled={isBusy}
                 />
               </div>
-              {availableUsersForSearch.length === 0 && (
+              {availableUsersForSearch.length === 0 && project?.clientId && (
                 <p className="text-xs text-slate-400">
-                  Aucun utilisateur disponible. Vous devez avoir accès à un client pour voir ses utilisateurs.
+                  Tous les utilisateurs de ce client sont déjà dans le projet. Vous pouvez créer un nouvel utilisateur ci-dessus.
+                </p>
+              )}
+              {availableUsersForSearch.length === 0 && !project?.clientId && (
+                <p className="text-xs text-slate-400">
+                  Sélectionnez un client pour voir ses utilisateurs.
                 </p>
               )}
             </div>
@@ -741,15 +746,15 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
         matchesText(nameValue) ||
         matchesText(user.email) ||
         matchesText(user.role) ||
-        matchesText(user.clientName)
+        matchesText(user.clientMemberships?.[0]?.clientName)
       ) {
-        const clientName = user.clientName || (user.clientId ? clientById.get(user.clientId)?.name : undefined);
+        const clientName = user.clientMemberships?.[0]?.clientName || (user.clientMemberships?.[0]?.clientId ? clientById.get(user.clientMemberships[0].clientId)?.name : undefined);
         addResult({
           id: user.id,
           type: "user",
           title: nameValue || user.email,
           subtitle: [user.role, clientName].filter(Boolean).join(" • ") || undefined,
-          clientId: user.clientId ?? null
+          clientId: user.clientMemberships?.[0]?.clientId ?? null
         });
       }
     });
@@ -1373,7 +1378,7 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
       firstName: user.firstName ?? "",
       lastName: user.lastName ?? "",
       role: (user.role as UserFormInput["role"]) || "participant",
-      clientId: user.clientId ?? "",
+      clientId: user.clientMemberships?.[0]?.clientId ?? "",
       isActive: user.isActive,
       jobTitle: user.jobTitle ?? ""
     });
@@ -1483,7 +1488,7 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
       const isGlobal = normalizedRole.includes("admin") || normalizedRole.includes("owner");
       const userProjectIds = user.projectIds ?? [];
 
-      if (targetClientId && user.clientId === targetClientId) {
+      if (targetClientId && user.clientMemberships?.[0]?.clientId === targetClientId) {
         return true;
       }
 
@@ -1508,8 +1513,8 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
         return aMemberPriority - bMemberPriority;
       }
 
-      const aClientPriority = targetClientId ? (a.clientId === targetClientId ? 0 : 1) : 0;
-      const bClientPriority = targetClientId ? (b.clientId === targetClientId ? 0 : 1) : 0;
+      const aClientPriority = targetClientId ? (a.clientMemberships?.[0]?.clientId === targetClientId ? 0 : 1) : 0;
+      const bClientPriority = targetClientId ? (b.clientMemberships?.[0]?.clientId === targetClientId ? 0 : 1) : 0;
       if (aClientPriority !== bClientPriority) {
         return aClientPriority - bClientPriority;
       }
@@ -1543,12 +1548,24 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
   // Filter users based on role for search
   // Use profile.id and profile.role instead of profile object to avoid unnecessary recalculations
   const profileRoleLower = normalizedRole; // Use normalizedRole which is already lowercase
-  const profileClientId = profile?.clientId ?? user?.profile?.clientId ?? null;
-  
+
+  // Find current user in ManagedUser list to get their client memberships
+  const currentUserId = profile?.id ?? user?.profile?.id;
+  const currentManagedUser = useMemo(() => {
+    return currentUserId ? users.find(u => u.id === currentUserId) : null;
+  }, [currentUserId, users]);
+  const profileClientId = currentManagedUser?.clientMemberships?.[0]?.clientId ?? null;
+
   const availableUsersForSearch = useMemo(() => {
     if (!profile && !user?.profile) {
       return [];
     }
+
+    // Helper to check if user belongs to a client (via client_members)
+    const userBelongsToClient = (u: ManagedUser, clientId: string) => {
+      const hasClientMembership = u.clientMemberships?.some(cm => cm.clientId === clientId);
+      return hasClientMembership;
+    };
 
     // Determine client filter based on selected client in UI
     const uiClientFilter = selectedClientId === "all" ? null : selectedClientId;
@@ -1556,7 +1573,7 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
     // Full admins see users filtered by selected client (or all if "all" selected)
     if (profileRoleLower === "full_admin") {
       if (uiClientFilter) {
-        return users.filter(u => u.clientId === uiClientFilter);
+        return users.filter(u => userBelongsToClient(u, uiClientFilter));
       }
       return users;
     }
@@ -1569,7 +1586,7 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
       const effectiveClientId = uiClientFilter && uiClientFilter === profileClientId
         ? uiClientFilter
         : profileClientId;
-      return users.filter(u => u.clientId === effectiveClientId);
+      return users.filter(u => userBelongsToClient(u, effectiveClientId));
     }
 
     return [];
@@ -2338,9 +2355,14 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                               disabled={isBusy}
                             />
                           </div>
-                          {availableUsersForSearch.length === 0 && (
+                          {availableUsersForSearch.length === 0 && viewingClientId && (
                             <p className="text-xs text-slate-400">
-                              Aucun utilisateur disponible. Vous devez avoir accès à un client pour voir ses utilisateurs.
+                              Tous les utilisateurs de ce client sont déjà dans le projet. Vous pouvez créer un nouvel utilisateur ci-dessus.
+                            </p>
+                          )}
+                          {availableUsersForSearch.length === 0 && !viewingClientId && (
+                            <p className="text-xs text-slate-400">
+                              Sélectionnez un client pour voir ses utilisateurs.
                             </p>
                           )}
                         </div>
@@ -2365,7 +2387,7 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                         const projectIds = user.projectIds ?? [];
                         const isMemberOfSelectedProject = selectedProjectId ? projectIds.includes(selectedProjectId) : false;
                         const canManageMembership = Boolean(
-                          selectedProjectId && selectedProject && viewingClientId && user.clientId === viewingClientId
+                          selectedProjectId && selectedProject && viewingClientId && user.clientMemberships?.[0]?.clientId === viewingClientId
                         );
 
                         return (
@@ -2385,8 +2407,8 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                                   <p className="text-xs text-slate-500 italic">{user.jobTitle}</p>
                                 )}
                                 <p className="text-[11px] text-slate-500">
-                                  {user.clientName || "No client assigned"}
-                                  {viewingClientId && user.clientId && user.clientId !== viewingClientId
+                                  {user.clientMemberships?.[0]?.clientName || "No client assigned"}
+                                  {viewingClientId && user.clientMemberships?.[0]?.clientId && user.clientMemberships[0].clientId !== viewingClientId
                                     ? " • other client"
                                     : ""}
                                 </p>

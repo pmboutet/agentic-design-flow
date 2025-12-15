@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { motion, AnimatePresence, useMotionValue, useTransform, PanInfo } from "framer-motion";
-import { AlertCircle, Clock, MessageSquare, Sparkles, ChevronDown, ChevronUp, MessageCircle, Lightbulb } from "lucide-react";
+import { AlertCircle, Clock, MessageSquare, Sparkles, ChevronDown, ChevronUp, MessageCircle, Lightbulb, RefreshCw } from "lucide-react";
 import { ChatComponent } from "@/components/chat/ChatComponent";
 import { InsightPanel } from "@/components/insight/InsightPanel";
 import { SuggestedQuestionsPanel } from "@/components/consultant/SuggestedQuestionsPanel";
@@ -483,7 +483,14 @@ export default function HomePage() {
       const existsById = prev.messages.some(m => m.id === newMessage.id);
       const existsByClientId = newMessage.clientId && prev.messages.some(m => m.clientId === newMessage.clientId);
 
-      if (existsById || existsByClientId) {
+      // Also check by metadata.messageId for voice messages (race condition between optimistic update and realtime)
+      // Voice messages store their messageId in metadata for deduplication
+      const newMetadataMessageId = (newMessage.metadata as { messageId?: string })?.messageId;
+      const existsByMetadataMessageId = newMetadataMessageId && prev.messages.some(
+        m => (m.metadata as { messageId?: string })?.messageId === newMetadataMessageId
+      );
+
+      if (existsById || existsByClientId || existsByMetadataMessageId) {
         return prev;
       }
 
@@ -494,13 +501,20 @@ export default function HomePage() {
     });
   }, []);
 
-  const { isSubscribed, subscriptionStatus, lastError: realtimeError, isPolling } = useRealtimeMessages({
+  const { isSubscribed, subscriptionStatus, lastError: realtimeError, isPolling, isTokenExpired } = useRealtimeMessages({
     conversationThreadId: sessionData.conversationThreadId ?? null,
     askKey: sessionData.askKey || '',
     enabled: isSharedThread && !!sessionData.conversationThreadId,
     onNewMessage: handleRealtimeMessage,
     inviteToken: sessionData.inviteToken ?? null,
   });
+
+  // Pause timer when token expires to prevent accumulating time while user is away
+  useEffect(() => {
+    if (isTokenExpired) {
+      sessionTimer.pause();
+    }
+  }, [isTokenExpired, sessionTimer]);
 
   const autoCollapseTriggeredRef = useRef(false);
   const previousMessageCountRef = useRef(0);
@@ -554,15 +568,19 @@ export default function HomePage() {
     setAwaitingAiResponse(activeAiResponsesRef.current > 0);
   }, [setAwaitingAiResponse]);
 
+  // Extract stable functions from sessionTimer to avoid re-running effects on every tick
+  // (sessionTimer is a new object every second due to elapsedSeconds changing)
+  const { notifyAiStreaming, notifyVoiceActive } = sessionTimer;
+
   // Connect AI streaming state to session timer
   useEffect(() => {
-    sessionTimer.notifyAiStreaming(awaitingAiResponse);
-  }, [awaitingAiResponse, sessionTimer]);
+    notifyAiStreaming(awaitingAiResponse);
+  }, [awaitingAiResponse, notifyAiStreaming]);
 
   // Connect voice mode state to session timer
   useEffect(() => {
-    sessionTimer.notifyVoiceActive(isVoiceModeActive);
-  }, [isVoiceModeActive, sessionTimer]);
+    notifyVoiceActive(isVoiceModeActive);
+  }, [isVoiceModeActive, notifyVoiceActive]);
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
@@ -1835,6 +1853,11 @@ export default function HomePage() {
       throw new Error('No ask key available');
     }
 
+    // Validate that the message has been persisted to the database (not a temp ID)
+    if (messageId.startsWith('temp-')) {
+      throw new Error('Message is still being saved. Please wait a moment and try again.');
+    }
+
     // Build the endpoint
     const endpoint = `/api/ask/${sessionData.askKey}/message/${messageId}`;
 
@@ -2080,6 +2103,64 @@ export default function HomePage() {
 
   return (
     <div className="conversation-layout min-h-[100dvh] bg-gradient-to-br from-indigo-100 via-white to-indigo-200 overflow-x-hidden w-full max-w-full">
+      {/* Session Expired Overlay */}
+      <AnimatePresence>
+        {isTokenExpired && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm"
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              transition={{ type: "spring", duration: 0.5 }}
+              className="mx-4 max-w-md w-full"
+            >
+              <Card className="overflow-hidden shadow-2xl border-0">
+                <div className="h-2 bg-gradient-to-r from-amber-400 via-orange-500 to-red-500" />
+                <CardHeader className="text-center pb-2">
+                  <motion.div
+                    initial={{ scale: 0 }}
+                    animate={{ scale: 1 }}
+                    transition={{ delay: 0.2, type: "spring" }}
+                    className="mx-auto w-16 h-16 bg-gradient-to-br from-amber-100 to-orange-100 rounded-full flex items-center justify-center mb-4 shadow-inner"
+                  >
+                    <Clock className="h-8 w-8 text-amber-600" />
+                  </motion.div>
+                  <CardTitle className="text-xl font-bold text-gray-800">
+                    Session expirée
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="text-center space-y-4 pb-6">
+                  <p className="text-gray-600">
+                    Votre session a expiré après une longue période d&apos;inactivité.
+                    Actualisez la page pour continuer.
+                  </p>
+                  <motion.div
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                  >
+                    <Button
+                      onClick={() => window.location.reload()}
+                      className="w-full bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white font-medium py-3 rounded-xl shadow-lg hover:shadow-xl transition-all duration-200"
+                    >
+                      <RefreshCw className="h-4 w-4 mr-2" />
+                      Actualiser la page
+                    </Button>
+                  </motion.div>
+                  <p className="text-xs text-gray-400">
+                    Vos messages précédents seront conservés
+                  </p>
+                </CardContent>
+              </Card>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Beautiful Header - Compact on mobile */}
       <motion.header
         initial={{ opacity: 0, y: -20 }}

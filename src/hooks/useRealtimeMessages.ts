@@ -15,6 +15,17 @@ import type { RealtimeChannel } from '@supabase/supabase-js';
 
 type SubscriptionStatus = 'idle' | 'subscribing' | 'subscribed' | 'error';
 
+/**
+ * Check if an error message indicates a JWT token expiration
+ */
+function isTokenExpiredError(errorMessage: string): boolean {
+  const lowerError = errorMessage.toLowerCase();
+  return lowerError.includes('invalidjwttoken') ||
+         lowerError.includes('token has expired') ||
+         lowerError.includes('jwt expired') ||
+         lowerError.includes('token expired');
+}
+
 // Polling interval in ms (3 seconds for responsive updates)
 const POLLING_INTERVAL_MS = 3000;
 
@@ -107,6 +118,7 @@ export function useRealtimeMessages({
   const [subscriptionStatus, setSubscriptionStatus] = useState<SubscriptionStatus>('idle');
   const [lastError, setLastError] = useState<string | null>(null);
   const [isPolling, setIsPolling] = useState(false);
+  const [isTokenExpired, setIsTokenExpired] = useState(false);
 
   // Auto-enable polling in dev mode
   const isDevMode = typeof window !== 'undefined' &&
@@ -191,7 +203,14 @@ export function useRealtimeMessages({
             } else {
               setSubscriptionStatus('error');
               setLastError(errorMessage);
-              console.error('[Realtime] Subscription failed:', errorMessage);
+
+              // Check if this is a token expiration error
+              if (isTokenExpiredError(errorMessage)) {
+                setIsTokenExpired(true);
+                console.warn('[Realtime] JWT token expired - user needs to refresh session');
+              } else {
+                console.error('[Realtime] Subscription failed:', errorMessage);
+              }
             }
           } else if (status === 'CLOSED') {
             setSubscriptionStatus('idle');
@@ -317,5 +336,6 @@ export function useRealtimeMessages({
     subscriptionStatus,
     lastError,
     isPolling,
+    isTokenExpired,
   };
 }

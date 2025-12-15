@@ -27,6 +27,11 @@ class SpeechmaticsAudioProcessor extends AudioWorkletProcessor {
     this.noiseFloor = 0.01; // Estimated noise floor (initial guess)
     this.rmsHistory = []; // History of RMS values for noise floor estimation
     this.rmsHistorySize = 50;
+
+    // Noise floor calibration timing
+    this.chunkCount = 0; // Count of chunks processed since start
+    this.WARMUP_CHUNKS = 15; // Skip noise floor updates for first ~15 seconds
+    this.NOISE_FLOOR_UPDATE_INTERVAL = 30; // Send noise floor updates every ~30 seconds (was 10)
     
     // Écouter les messages du thread principal
     this.port.onmessage = (event) => {
@@ -35,10 +40,8 @@ class SpeechmaticsAudioProcessor extends AudioWorkletProcessor {
         // CRITICAL: Clear the buffer immediately instead of flushing it
         // We don't want to send any more audio data when muted
         this.bufferAccumulator = new Float32Array(0);
-        console.log('[SpeechmaticsAudioWorklet] Stopped and cleared buffer');
       } else if (event.data.type === 'start') {
         this.isActive = true;
-        console.log('[SpeechmaticsAudioWorklet] Started');
       } else if (event.data.type === 'config') {
         // Update AGC configuration
         if (event.data.enableAGC !== undefined) {
@@ -95,20 +98,29 @@ class SpeechmaticsAudioProcessor extends AudioWorkletProcessor {
   
   // Update noise floor estimation
   updateNoiseFloor(rms) {
+    this.chunkCount++;
+
     this.rmsHistory.push(rms);
     if (this.rmsHistory.length > this.rmsHistorySize) {
       this.rmsHistory.shift();
     }
-    
+
+    // Skip noise floor calibration during warm-up period (~15 seconds)
+    // This prevents adapting to ambient noise before the user starts speaking
+    if (this.chunkCount <= this.WARMUP_CHUNKS) {
+      return;
+    }
+
     // Noise floor is the minimum RMS over recent history (when not speaking)
     // Use percentile approach: take 10th percentile as noise floor
     if (this.rmsHistory.length >= 10) {
       const sorted = [...this.rmsHistory].sort((a, b) => a - b);
       const percentile10 = sorted[Math.floor(sorted.length * 0.1)];
       this.noiseFloor = Math.max(0.001, percentile10);
-      
+
       // Send noise floor update to main thread periodically (only when active)
-      if (this.isActive && this.rmsHistory.length % 10 === 0) {
+      // Update every ~30 seconds instead of 10 for more stability
+      if (this.isActive && this.chunkCount % this.NOISE_FLOOR_UPDATE_INTERVAL === 0) {
         this.port.postMessage({
           type: 'noiseFloor',
           noiseFloor: this.noiseFloor,

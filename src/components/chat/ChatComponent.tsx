@@ -398,6 +398,7 @@ export function ChatComponent({
         conversationPlan={conversationPlan}
         consultantMode={consultantMode}
         participants={consultantMode ? participantOptions : undefined}
+        currentUserId={currentUserId}
       />
     );
   }

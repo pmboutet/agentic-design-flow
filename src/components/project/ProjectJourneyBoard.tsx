@@ -3024,11 +3024,12 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
         deletedInsightSyntheses: number;
         deletedGraphEdges: number;
         aiBuilderResultsCleared: boolean;
+        timersReset: number;
       };
 
       setPurgeFeedback({
         type: "success",
-        message: `Données purgées : ${data.deletedMessages} message(s), ${data.deletedInsights} insight(s), ${data.deletedInsightSyntheses} synthèse(s), ${data.deletedGraphEdges} lien(s) de graphe.`,
+        message: `Données purgées : ${data.deletedMessages} message(s), ${data.deletedInsights} insight(s), ${data.deletedInsightSyntheses} synthèse(s), ${data.deletedGraphEdges} lien(s) de graphe, ${data.timersReset} timer(s) remis à zéro.`,
       });
 
       // Reset confirmation word and close dialog

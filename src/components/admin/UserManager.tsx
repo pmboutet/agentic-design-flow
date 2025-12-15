@@ -157,7 +157,7 @@ export function UserManager({ clients, users, onCreate, isLoading }: UserManager
                   </span>
                 </div>
                 <div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
-                  <span>{user.clientName || "No client"}</span>
+                  <span>{user.clientMemberships?.[0]?.clientName || "No client"}</span>
                   <span>{user.isActive ? "Active" : "Inactive"}</span>
                 </div>
               </div>

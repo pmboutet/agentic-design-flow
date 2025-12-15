@@ -258,7 +258,7 @@ export function DevUserSwitcher() {
                                 </div>
                                 <div className="text-xs text-gray-500">
                                   {userOption.email} • {userOption.role}
-                                  {userOption.clientName && ` • ${userOption.clientName}`}
+                                  {("clientMemberships" in userOption && userOption.clientMemberships?.[0]?.clientName) && ` • ${userOption.clientMemberships[0].clientName}`}
                                 </div>
                               </div>
                               {selectedUserId === userOption.id && (

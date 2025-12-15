@@ -222,8 +222,6 @@ export function mapManagedUser(
     lastName: row.last_name,
     fullName: row.full_name,
     role: row.role,
-    clientId: row.client_id,
-    clientName: row.clients?.name ?? null,
     avatarUrl: row.avatar_url,
     projectIds,
     clientMemberships: clientMembershipMap?.get(row.id) ?? [],

@@ -216,6 +216,48 @@ describe('useSessionTimer', () => {
       expect(result.current.isPaused).toBe(false);
       expect(result.current.timerState).toBe('running');
     });
+
+    it('should preserve elapsed seconds across pause/resume cycles', () => {
+      const { result } = renderHook(() =>
+        useSessionTimer({ inactivityTimeout: 5000 })
+      );
+
+      // Run for 3 seconds
+      act(() => {
+        jest.advanceTimersByTime(3000);
+      });
+      expect(result.current.elapsedSeconds).toBe(3);
+
+      // Let it pause (2 more seconds to reach 5s timeout)
+      act(() => {
+        jest.advanceTimersByTime(2000);
+      });
+      expect(result.current.isPaused).toBe(true);
+      const secondsAtPause = result.current.elapsedSeconds;
+      expect(secondsAtPause).toBe(5); // 3 + 2 = 5 seconds before pause
+
+      // Wait 10 seconds while paused - elapsed should NOT change
+      act(() => {
+        jest.advanceTimersByTime(10000);
+      });
+      expect(result.current.elapsedSeconds).toBe(secondsAtPause);
+      expect(result.current.isPaused).toBe(true);
+
+      // Resume by typing
+      act(() => {
+        result.current.notifyUserTyping(true);
+      });
+      expect(result.current.isPaused).toBe(false);
+      // Should still have the same elapsed seconds immediately after resume
+      expect(result.current.elapsedSeconds).toBe(secondsAtPause);
+
+      // Run for 2 more seconds
+      act(() => {
+        jest.advanceTimersByTime(2000);
+      });
+      // Should be 5 (from before pause) + 2 (after resume) = 7
+      expect(result.current.elapsedSeconds).toBe(7);
+    });
   });
 
   describe('voice activity', () => {
@@ -423,6 +465,60 @@ describe('useSessionTimer', () => {
 
       expect(result.current.elapsedSeconds).toBe(0);
       expect(localStorage.getItem('session_timer_test-reset')).toBe('0');
+    });
+
+    it('should start paused if user was away for longer than inactivity timeout', () => {
+      // Set last activity to 2 minutes ago (longer than 30s inactivity timeout)
+      const twoMinutesAgo = Date.now() - 120000;
+      localStorage.setItem('session_timer_test-long-absence_last_activity', String(twoMinutesAgo));
+      localStorage.setItem('session_timer_test-long-absence', '300'); // 5 minutes elapsed
+
+      const { result } = renderHook(() =>
+        useSessionTimer({
+          askKey: 'test-long-absence',
+          inactivityTimeout: 30000,
+        })
+      );
+
+      // Should start in paused state because user was away for > 30s
+      expect(result.current.isPaused).toBe(true);
+      expect(result.current.timerState).toBe('paused');
+      expect(result.current.elapsedSeconds).toBe(300); // Preserved elapsed time
+    });
+
+    it('should start running if user was away for less than inactivity timeout', () => {
+      // Set last activity to 10 seconds ago (less than 30s inactivity timeout)
+      const tenSecondsAgo = Date.now() - 10000;
+      localStorage.setItem('session_timer_test-short-absence_last_activity', String(tenSecondsAgo));
+      localStorage.setItem('session_timer_test-short-absence', '60');
+
+      const { result } = renderHook(() =>
+        useSessionTimer({
+          askKey: 'test-short-absence',
+          inactivityTimeout: 30000,
+        })
+      );
+
+      // Should start in running state because user was away for < 30s
+      expect(result.current.isPaused).toBe(false);
+      expect(result.current.timerState).toBe('running');
+    });
+
+    it('should save last activity timestamp on activity', () => {
+      const { result } = renderHook(() =>
+        useSessionTimer({ askKey: 'test-activity-save' })
+      );
+
+      // Trigger activity
+      act(() => {
+        result.current.notifyUserTyping(true);
+      });
+
+      // Check that last activity timestamp was saved
+      const stored = localStorage.getItem('session_timer_test-activity-save_last_activity');
+      expect(stored).not.toBeNull();
+      const timestamp = parseInt(stored!, 10);
+      expect(timestamp).toBeGreaterThan(Date.now() - 5000); // Within last 5 seconds
     });
   });
 

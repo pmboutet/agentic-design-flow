@@ -150,7 +150,6 @@ export class TranscriptionManager {
     }
     // SIMPLIFIED: No more Mistral/semantic detection - just process after silence
     // 10 seconds of silence is long enough to be confident user is done
-    console.log(`[${getTimestamp()}] [Transcription] ⏰ 10s silence timeout - processing message (no Mistral check)`);
     void this.processPendingTranscript(true);
   }
 
@@ -175,7 +174,6 @@ export class TranscriptionManager {
       // Always set timeout - even if EndOfUtterance was received
       // This ensures we respect the full silence period before responding
       this.silenceTimeout = setTimeout(() => {
-        console.log(`[${getTimestamp()}] [Transcription] ⏰ Silence timeout - processing message`);
         this.handleSilenceTimeout();
       }, timeoutDuration);
     }
@@ -190,9 +188,7 @@ export class TranscriptionManager {
     // SIMPLIFIED: Don't trigger Mistral check on end_of_utterance
     // Just mark it and let the 10s silence timeout handle processing
     // This gives user plenty of time to continue if they're just thinking
-    console.log(`[${getTimestamp()}] [Transcription] 📝 EndOfUtterance received - waiting for 10s silence timeout`);
     // Don't schedule anything - let the silence timeout (10s) do its job
-    // The user might just be pausing to think
   }
 
   /**
@@ -261,16 +257,13 @@ export class TranscriptionManager {
           // It would create an infinite loop where utteranceDebounceTimeout
           // keeps cancelling silenceTimeout before it can trigger.
           // Just recreate the silence timeout and let IT handle finalization.
-          console.log('[Transcription] ⏳ Waiting for complete utterance, resetting silence timeout');
           this.resetSilenceTimeout();
           return;
         } else if (absoluteFailsafe) {
           // Absolute failsafe mode (maxHoldMs timeout) - send anyway
-          console.warn('[Transcription] ⚠️ ABSOLUTE FAILSAFE (maxHoldMs): Forcing incomplete utterance send:', finalMessage);
         } else {
           // Force mode but not absolute - continue waiting if ends with fragment
           // This happens when semantic model says "end of turn" but message ends with fragment
-          console.log('[Transcription] ⏳ Semantic detected EOT but message ends with fragment, waiting...');
           this.resetSilenceTimeout();
           return;
         }
@@ -295,16 +288,14 @@ export class TranscriptionManager {
       // Skip orphan chunks that are just a single word already present in the previous message
       // This prevents duplicate words from appearing as separate messages
       if (this.lastProcessedContent && this.isOrphanWordRepeat(finalMessage, this.lastProcessedContent)) {
-        console.log('[Transcription] ⏸️ Skipping orphan chunk (repeated word from previous message):', finalMessage);
         this.pendingFinalTranscript = null;
         this.lastPartialUserContent = null;
         this.currentStreamingMessageId = null;
         return;
       }
-      
+
       // Skip fuzzy duplicates at the end of previous message
       if (this.lastProcessedContent && this.isFuzzyEndDuplicate(finalMessage, this.lastProcessedContent)) {
-        console.log('[Transcription] ⏸️ Skipping fuzzy duplicate at end:', finalMessage);
         this.pendingFinalTranscript = null;
         this.lastPartialUserContent = null;
         this.currentStreamingMessageId = null;
@@ -322,9 +313,6 @@ export class TranscriptionManager {
       this.lastProcessedContent = finalMessage;
       this.currentStreamingMessageId = null;
       this.lastPreviewContent = null;
-      
-      console.log(`[${getTimestamp()}] [Transcription] ✅ FINAL:`, fullContent);
-      console.log(`[${getTimestamp()}] [📤 SEND FINAL]`, fullContent.slice(0, 80) + (fullContent.length > 80 ? '...' : ''));
 
       // Add to conversation history
       this.conversationHistory.push({ role: 'user', content: fullContent });
@@ -364,7 +352,6 @@ export class TranscriptionManager {
     // SPEAKER CHANGE DETECTION: If speaker changes, finalize the previous speaker's message
     // This is critical for consultant mode where we want to track different speakers
     if (speaker && this.currentSpeaker && speaker !== this.currentSpeaker && this.pendingFinalTranscript) {
-      console.log(`[${getTimestamp()}] [Transcription] 🔄 Speaker change detected: ${this.currentSpeaker} → ${speaker}, finalizing previous message`);
       // Process the pending transcript from the previous speaker immediately
       void this.processPendingTranscript(true, false);
     }
@@ -559,13 +546,6 @@ export class TranscriptionManager {
       }
 
       const probability = await options.detector.getSemanticEotProb(messages);
-      console.log(`[${getTimestamp()}] [Transcription] 🎯 Semantic evaluation result`, {
-        trigger,
-        probability,
-        threshold: options.threshold,
-        graceMs: options.gracePeriodMs,
-        maxHoldMs: options.maxHoldMs,
-      });
 
       if (typeof probability === 'number' && probability >= options.threshold) {
         // HIGH PROBABILITY: Mistral says user is done speaking → process immediately
@@ -581,8 +561,6 @@ export class TranscriptionManager {
         // Mistral error or timeout - fall back to silence_timeout
         this.emitSemanticTelemetry('fallback', trigger, probability, 'detector-null');
         this.clearSemanticHold();
-        // Let silence_timeout handle it - don't force process
-        console.log(`[${getTimestamp()}] [Transcription] ⏳ Mistral returned null, waiting for silence_timeout`);
         this.resetSilenceTimeout();
         return;
       }
@@ -590,17 +568,13 @@ export class TranscriptionManager {
       // LOW PROBABILITY: Mistral says user is NOT done speaking
       // Instead of re-checking every 900ms (which caused too many Mistral calls),
       // just wait for silence_timeout (2s) to naturally trigger processing.
-      // This is more conservative but reduces API calls significantly.
       this.emitSemanticTelemetry('hold', trigger, probability, 'probability-below-threshold-waiting-silence');
       this.clearSemanticHold();
-      console.log(`[${getTimestamp()}] [Transcription] ⏳ Mistral says incomplete (${probability.toFixed(2)} < ${options.threshold}), waiting for silence_timeout`);
       this.resetSilenceTimeout();
     } catch (error) {
-      console.error('[Transcription] ❌ Semantic detector error', error);
+      console.error('[Transcription] Semantic detector error', error);
       this.emitSemanticTelemetry('fallback', trigger, null, 'detector-error');
       this.clearSemanticHold();
-      // On error, fall back to silence_timeout instead of forcing
-      console.log(`[${getTimestamp()}] [Transcription] ⏳ Mistral error, waiting for silence_timeout`);
       this.resetSilenceTimeout();
     } finally {
       this.semanticEvaluationInFlight = false;
@@ -637,13 +611,6 @@ export class TranscriptionManager {
       this.semanticHoldTimeout = null;
       this.triggerSemanticEvaluation('semantic_grace');
     }, options.gracePeriodMs);
-
-    console.log(`[${getTimestamp()}] [Transcription] ⏳ Semantic hold active`, {
-      trigger,
-      probability,
-      threshold: options.threshold,
-      holdMs: elapsed,
-    });
 
     return true;
   }
@@ -809,7 +776,6 @@ export class TranscriptionManager {
     // SPEAKER CHANGE DETECTION: If speaker changes, finalize the previous speaker's message
     // This is critical for consultant mode where we want to track different speakers
     if (speaker && this.currentSpeaker && speaker !== this.currentSpeaker && this.pendingFinalTranscript) {
-      console.log(`[${getTimestamp()}] [Transcription] 🔄 Speaker change detected (final): ${this.currentSpeaker} → ${speaker}, finalizing previous message`);
       // Process the pending transcript from the previous speaker immediately
       void this.processPendingTranscript(true, false);
     }
@@ -819,9 +785,6 @@ export class TranscriptionManager {
       this.currentSpeaker = speaker;
     }
 
-    // Log minimal pour debug
-    console.log(`[${getTimestamp()}] [📥 FINAL]`, trimmedTranscript.slice(0, 80) + (trimmedTranscript.length > 80 ? '...' : ''));
-    
     // Seed pending transcript with the latest partial (usually the full text) if missing
     if (!this.pendingFinalTranscript) {
       this.pendingFinalTranscript = this.lastPartialUserContent || trimmedTranscript;
@@ -963,9 +926,6 @@ export class TranscriptionManager {
     this.lastPreviewContent = null;
     // Don't reset currentSpeaker here - we want to keep speaker context for echo detection
 
-    if (hadPending) {
-      console.log(`[${getTimestamp()}] [Transcription] 🗑️ Discarded pending transcript (echo detected): "${pendingPreview}..."`);
-    }
   }
 
   /**
@@ -1171,10 +1131,6 @@ export class TranscriptionManager {
       if (prevSlice && prevSlice.length > 0 && prevSlice === newSlice) {
         const trimmed = newWords.slice(size).join(' ').trim();
         if (trimmed.length > 0) {
-          console.log('[Transcription] ✂️ Trimmed overlap with previous message', {
-            overlapWords: size,
-            overlap: newWords.slice(0, size).join(' '),
-          });
           return trimmed;
         }
       }
@@ -1211,7 +1167,6 @@ export class TranscriptionManager {
     // but the user is continuing with a connector word.
     // Only absoluteFailsafe (maxHoldMs timeout) can bypass this.
     if (this.FRAGMENT_ENDINGS.has(lastWord)) {
-      console.log('[Transcription] ⏸️ Utterance incomplete - ends with fragment word:', lastWord);
       return false;
     }
 

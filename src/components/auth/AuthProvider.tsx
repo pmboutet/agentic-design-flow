@@ -32,13 +32,29 @@ type AuthContextValue = {
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
+const DEV_BYPASS_PROFILE: Profile = {
+  id: "dev-bypass-profile",
+  authId: "dev-bypass-user",
+  email: "dev@example.com",
+  firstName: "Dev",
+  lastName: "User",
+  fullName: "Dev User",
+  role: "full_admin",
+  avatarUrl: null,
+  isActive: true,
+  lastLogin: null,
+  jobTitle: null,
+  createdAt: new Date().toISOString(),
+  updatedAt: new Date().toISOString(),
+};
+
 const DEV_BYPASS_USER: AuthUser = {
   id: "dev-bypass-user",
   email: "dev@example.com",
   fullName: "Dev User",
   role: "full_admin",
   avatarUrl: null,
-  profile: null,
+  profile: DEV_BYPASS_PROFILE,
 };
 
 /**
@@ -56,7 +72,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = useState<AuthStatus>(isDevBypass ? "signed-in" : "loading");
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<AuthUser | null>(isDevBypass ? DEV_BYPASS_USER : null);
-  const [profile, setProfile] = useState<Profile | null>(null);
+  const [profile, setProfile] = useState<Profile | null>(isDevBypass ? DEV_BYPASS_PROFILE : null);
   const [isProcessing, setIsProcessing] = useState(false);
 
   // Refs to prevent duplicate processing
@@ -163,17 +179,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return null;
       }
 
-      // Fetch client name if needed
-      let clientName: string | null = null;
-      if (data.client_id) {
-        const clientResult = await supabase
-          .from("clients")
-          .select("name")
-          .eq("id", data.client_id)
-          .single();
-        clientName = clientResult.data?.name ?? null;
-      }
-
       const profileData: Profile = {
         id: data.id,
         authId: data.auth_id,
@@ -182,8 +187,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         lastName: data.last_name,
         fullName: data.full_name,
         role: data.role,
-        clientId: data.client_id,
-        clientName: clientName,
         avatarUrl: data.avatar_url,
         isActive: data.is_active,
         lastLogin: data.last_login,
@@ -210,7 +213,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     if (isDevBypass) {
       setUser(DEV_BYPASS_USER);
-      setProfile(null);
+      setProfile(DEV_BYPASS_PROFILE);
       setStatus("signed-in");
       return;
     }

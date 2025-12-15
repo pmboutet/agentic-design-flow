@@ -180,7 +180,7 @@ export function UsersAdminView() {
     if (selectedClientId) {
       // Filter by client but keep admins visible
       result = users.filter(u =>
-        u.clientId === selectedClientId ||
+        u.clientMemberships?.[0]?.clientId === selectedClientId ||
         u.role === "full_admin" ||
         u.role === "client_admin"
       );
@@ -197,9 +197,11 @@ export function UsersAdminView() {
   const availableUsersForSearch = useMemo(() => {
     if (!selectedProjectId) return [];
     // Users from the same client who are not yet in the project
+    // Check client_members relationship
     const viewingClientId = selectedProject?.clientId ?? selectedClientId;
     return users.filter(u => {
-      const isSameClient = u.clientId === viewingClientId;
+      const hasClientMembership = u.clientMemberships?.some(cm => cm.clientId === viewingClientId);
+      const isSameClient = hasClientMembership;
       const notInProject = !u.projectIds?.includes(selectedProjectId);
       return isSameClient && notInProject;
     });
@@ -263,7 +265,7 @@ export function UsersAdminView() {
       firstName: user.firstName ?? "",
       lastName: user.lastName ?? "",
       role: (user.role as UserFormInput["role"]) || "participant",
-      clientId: user.clientId ?? "",
+      clientId: user.clientMemberships?.[0]?.clientId ?? "",
       isActive: user.isActive,
       jobTitle: user.jobTitle ?? ""
     });
@@ -774,9 +776,14 @@ export function UsersAdminView() {
                     disabled={isBusy}
                   />
                 </div>
-                {availableUsersForSearch.length === 0 && (
+                {availableUsersForSearch.length === 0 && viewingClientId && (
                   <p className="text-xs text-slate-400">
-                    No available users. You need access to a client to see its users.
+                    All users from this client are already in the project. You can create a new user above.
+                  </p>
+                )}
+                {availableUsersForSearch.length === 0 && !viewingClientId && (
+                  <p className="text-xs text-slate-400">
+                    No available users. Select a client to see its users.
                   </p>
                 )}
               </div>
@@ -911,7 +918,7 @@ export function UsersAdminView() {
                       <p className="text-[11px] text-slate-500">
                         {user.clientMemberships && user.clientMemberships.length > 0
                           ? `${user.clientMemberships.length} client${user.clientMemberships.length > 1 ? 's' : ''}`
-                          : user.clientName || "No client assigned"}
+                          : user.clientMemberships?.[0]?.clientName || "No client assigned"}
                         {user.projectMemberships && user.projectMemberships.length > 0 && (
                           <span className="ml-1.5">
                             • {user.projectMemberships.length} project{user.projectMemberships.length > 1 ? 's' : ''}

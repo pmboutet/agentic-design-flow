@@ -36,17 +36,13 @@ export async function GET(request: NextRequest) {
     if (email) {
       // Email lookup endpoint
       const sanitizedEmail = sanitizeText(email.toLowerCase());
-      let query = supabase
+      const query = supabase
         .from("profiles")
-        .select("*, clients(name)")
+        .select("*")
         .eq("email", sanitizedEmail)
         .is("deleted_at", null);
 
-      // Non full_admin users can only look up users from their own client
-      if (!isFullAdmin && adminProfile.client_id) {
-        query = query.eq("client_id", adminProfile.client_id);
-      }
-
+      // Note: Client-based filtering removed - use clientMemberships for access control
       const { data, error } = await query.maybeSingle();
 
       if (error) {
@@ -73,16 +69,12 @@ export async function GET(request: NextRequest) {
     }
 
     // Regular GET all profiles (exclude deleted users)
-    let query = supabase
+    const query = supabase
       .from("profiles")
-      .select("*, clients(name)")
+      .select("*")
       .is("deleted_at", null);
 
-    // Non full_admin users can only see users from their own client
-    if (!isFullAdmin && adminProfile.client_id) {
-      query = query.eq("client_id", adminProfile.client_id);
-    }
-
+    // Note: Client-based filtering removed - use clientMemberships for access control
     const { data, error } = await query.order("created_at", { ascending: false });
 
     if (error) {
@@ -192,17 +184,16 @@ export async function POST(request: NextRequest) {
       last_name: lastName,
       full_name: fullName,
       role: payload.role,
-      client_id: payload.clientId && payload.clientId !== "" ? payload.clientId : null,
       is_active: payload.isActive,
       job_title: jobTitle
     };
-    
+
     console.log("[POST /api/admin/profiles] Inserting profile:", insertData);
-    
+
     const { data, error } = await supabase
       .from("profiles")
       .insert(insertData)
-      .select("*, clients(name)")
+      .select("*")
       .single();
 
     if (error) {
@@ -215,6 +206,21 @@ export async function POST(request: NextRequest) {
     }
 
     console.log("[POST /api/admin/profiles] Profile created successfully:", data.id);
+
+    // Add client membership if clientId provided
+    if (payload.clientId && payload.clientId !== "") {
+      const { error: memberError } = await adminSupabase
+        .from("client_members")
+        .insert({
+          user_id: data.id,
+          client_id: payload.clientId,
+          role: payload.role === "client_admin" ? "admin" : "member",
+        });
+
+      if (memberError) {
+        console.warn("[POST /api/admin/profiles] Failed to add client membership:", memberError);
+      }
+    }
 
     const [membershipMap, clientMembershipMap, projectMembershipMap] = await Promise.all([
       fetchProjectMemberships(supabase, [data.id]),

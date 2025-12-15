@@ -186,11 +186,6 @@ export class SpeechmaticsVoiceAgent {
     // Réinitialiser le flag de déconnexion
     this.isDisconnected = false;
     this.config = config;
-    console.log(`[${getTimestamp()}] [Speechmatics] 🔧 Config received:`, {
-      disableLLM: config.disableLLM,
-      disableElevenLabsTTS: config.disableElevenLabsTTS,
-      sttDiarization: config.sttDiarization,
-    });
     // Refresh semantic detector on each connection to pick up env changes
     this.semanticTurnConfig = resolveSemanticTurnDetectorConfig();
     this.semanticTurnDetector = createSemanticTurnDetector(this.semanticTurnConfig);
@@ -310,9 +305,6 @@ export class SpeechmaticsVoiceAgent {
 
     // Handle RecognitionStarted
     if (data.message === "RecognitionStarted") {
-      // Log diarization status from server confirmation
-      const diarization = data.transcription_config?.diarization || 'not confirmed';
-      console.log(`[Speechmatics] ✅ Recognition started (diarization: ${diarization})`);
       return;
     }
     
@@ -379,11 +371,6 @@ export class SpeechmaticsVoiceAgent {
       // Speaker info is in results[].alternatives[0].speaker (S1, S2, UU)
       const transcript = data.metadata?.transcript || "";
       const speaker = this.extractDominantSpeaker(data.results);
-
-      // Log speaker detection for consultant mode debugging
-      if (speaker && transcript.trim()) {
-        console.log(`[Speechmatics] 🎤 Speaker ${speaker}: "${transcript.trim().substring(0, 50)}..."`);
-      }
 
       if (transcript && transcript.trim()) {
         // Get recent conversation context for echo detection (last agent message + last user message)
@@ -498,7 +485,6 @@ export class SpeechmaticsVoiceAgent {
     // In consultant mode (disableLLM), skip LLM response generation entirely
     // The transcription is already captured and sent via callback, so just exit
     if (this.config?.disableLLM) {
-      console.log(`[${getTimestamp()}] [Speechmatics] 🎧 Consultant mode - skipping LLM response`);
       this.isGeneratingResponse = false;
       // Process any queued messages (still in transcription-only mode)
       if (this.userMessageQueue.length > 0) {
@@ -574,19 +560,6 @@ export class SpeechmaticsVoiceAgent {
         this.audio.updateConversationHistory(historyForDetection);
       }
 
-      // Log the agent response for debugging
-      console.log('[Speechmatics] 🤖 LLM response ready:', {
-        contentPreview: llmResponse.substring(0, 100),
-        contentLength: llmResponse.length,
-        hasCallback: !!this.onMessageCallback,
-        containsStepComplete: llmResponse.includes('STEP_COMPLETE'),
-      });
-
-      // Log full response if it contains STEP_COMPLETE for debugging
-      if (llmResponse.includes('STEP_COMPLETE')) {
-        console.log('[Speechmatics] ✅ STEP_COMPLETE detected in LLM response!');
-      }
-
       // Notify callback with FINAL agent response
       this.onMessageCallback?.({
         role: 'agent',
@@ -595,24 +568,19 @@ export class SpeechmaticsVoiceAgent {
         isInterim: false,
       });
 
-      console.log('[Speechmatics] 📤 Agent FINAL message sent to callback');
-
       // Generate TTS audio only if ElevenLabs is enabled (not in text-only mode)
       if (!this.config?.disableElevenLabsTTS && this.elevenLabsTTS && this.audio) {
         try {
-          console.log('[Speechmatics] 🔊 Starting TTS generation...');
           // Set current assistant speech for echo detection
           this.audio.setCurrentAssistantSpeech(llmResponse);
 
           const audioStream = await this.elevenLabsTTS.streamTextToSpeech(llmResponse);
           const audioData = await this.audio.streamToUint8Array(audioStream);
           if (audioData) {
-            console.log('[Speechmatics] 🔊 TTS audio ready, size:', audioData.length, 'bytes');
             this.onAudioCallback?.(audioData);
             await this.audio.playAudio(audioData).catch(err => {
-              console.error('[Speechmatics] ❌ Error playing audio:', err);
+              console.error('[Speechmatics] Error playing audio:', err);
             });
-            console.log('[Speechmatics] 🔊 TTS playback started');
           }
         } catch (error) {
           console.error('[Speechmatics] Error generating TTS audio:', error);
@@ -798,7 +766,6 @@ export class SpeechmaticsVoiceAgent {
   setTextOnlyMode(enabled: boolean): void {
     if (this.config) {
       this.config.disableElevenLabsTTS = enabled;
-      console.log(`[Speechmatics] 📝 Text-only mode ${enabled ? 'enabled' : 'disabled'}`);
     }
   }
 
@@ -948,7 +915,6 @@ export class SpeechmaticsVoiceAgent {
     promptVariables?: Record<string, string | null | undefined>;
   }): void {
     if (!this.config) {
-      console.warn('[Speechmatics] Cannot update prompts: no config available (not connected)');
       return;
     }
 

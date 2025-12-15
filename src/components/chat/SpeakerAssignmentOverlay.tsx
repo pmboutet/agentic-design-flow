@@ -2,9 +2,17 @@
 
 import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Check, X, User, ChevronDown } from 'lucide-react';
+import { Check, X, User, ChevronDown, MessageSquare } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+
+/**
+ * Recent message from the speaker
+ */
+export interface SpeakerMessage {
+  content: string;
+  timestamp: string;
+}
 
 /**
  * Participant option for the dropdown
@@ -31,6 +39,8 @@ export interface SpeakerAssignmentOverlayProps {
   participants: ParticipantOption[];
   /** List of speaker IDs that are already assigned to a participant */
   assignedSpeakers: string[];
+  /** Recent messages from this speaker (last 5) to help identify who is speaking */
+  recentMessages?: SpeakerMessage[];
   /** Callback when the user confirms assignment */
   onConfirm: (decision: SpeakerAssignmentDecision) => void;
   /** Callback when the user closes/cancels the overlay (receives the speaker being closed) */
@@ -69,6 +79,7 @@ export function SpeakerAssignmentOverlay({
   speakerOrder,
   participants,
   assignedSpeakers,
+  recentMessages = [],
   onConfirm,
   onClose,
 }: SpeakerAssignmentOverlayProps) {
@@ -156,7 +167,7 @@ export function SpeakerAssignmentOverlay({
             </div>
 
             {/* Speaker info */}
-            <div className="flex items-center gap-3 mb-6 p-3 rounded-xl bg-white/5 border border-white/10">
+            <div className="flex items-center gap-3 mb-4 p-3 rounded-xl bg-white/5 border border-white/10">
               <div className="w-10 h-10 rounded-full bg-blue-500/30 flex items-center justify-center">
                 <User className="h-5 w-5 text-blue-300" />
               </div>
@@ -165,6 +176,23 @@ export function SpeakerAssignmentOverlay({
                 <p className="text-white/60 text-sm">Detected by voice recognition</p>
               </div>
             </div>
+
+            {/* Recent messages from this speaker */}
+            {recentMessages.length > 0 && (
+              <div className="mb-6">
+                <div className="flex items-center gap-2 mb-2">
+                  <MessageSquare className="h-4 w-4 text-white/50" />
+                  <span className="text-white/70 text-sm">Recent messages</span>
+                </div>
+                <div className="space-y-2 max-h-32 overflow-y-auto rounded-xl bg-white/5 border border-white/10 p-3">
+                  {recentMessages.map((msg, index) => (
+                    <div key={index} className="text-sm">
+                      <p className="text-white/90 leading-relaxed">&quot;{msg.content}&quot;</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Transcribe/Ignore Toggle */}
             <div className="mb-6">

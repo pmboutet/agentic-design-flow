@@ -181,7 +181,7 @@ export function useAdminSearchData() {
     // Search users
     for (const user of data.users) {
       const nameValue = user.fullName || [user.firstName, user.lastName].filter(Boolean).join(" ");
-      const client = user.clientId ? clientById.get(user.clientId) : null;
+      const client = user.clientMemberships?.[0]?.clientId ? clientById.get(user.clientMemberships[0].clientId) : null;
       if (
         matchesText(nameValue) ||
         matchesText(user.email) ||
@@ -193,7 +193,7 @@ export function useAdminSearchData() {
           type: "user",
           title: nameValue || user.email,
           subtitle: [user.role, client?.name].filter(Boolean).join(" • ") || undefined,
-          clientId: user.clientId ?? null
+          clientId: user.clientMemberships?.[0]?.clientId ?? null
         });
       }
     }

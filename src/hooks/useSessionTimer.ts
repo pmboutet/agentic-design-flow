@@ -138,6 +138,44 @@ function getStorageKey(askKey: string): string {
 }
 
 /**
+ * Get the last activity timestamp key for localStorage
+ */
+function getLastActivityKey(askKey: string): string {
+  return `${STORAGE_KEY_PREFIX}${askKey}_last_activity`;
+}
+
+/**
+ * Save last activity timestamp to localStorage
+ */
+function saveLastActivity(askKey: string): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(getLastActivityKey(askKey), String(Date.now()));
+  } catch (error) {
+    // Silent fail
+  }
+}
+
+/**
+ * Load last activity timestamp from localStorage
+ */
+function loadLastActivity(askKey: string): number | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const stored = localStorage.getItem(getLastActivityKey(askKey));
+    if (stored) {
+      const parsed = parseInt(stored, 10);
+      if (!isNaN(parsed) && parsed > 0) {
+        return parsed;
+      }
+    }
+  } catch (error) {
+    // Silent fail
+  }
+  return null;
+}
+
+/**
  * Load elapsed seconds from localStorage
  */
 function loadFromLocalStorage(askKey: string): number {
@@ -241,9 +279,19 @@ export function useSessionTimer(config: SessionTimerConfig = {}): SessionTimerSt
     return initialElapsedSeconds;
   };
 
+  // Determine if we should start paused (user was away for longer than inactivity timeout)
+  const shouldStartPaused = (): boolean => {
+    if (!askKey) return false;
+    const lastActivity = loadLastActivity(askKey);
+    if (lastActivity === null) return false;
+    const timeSinceLastActivity = Date.now() - lastActivity;
+    // If user was away for more than inactivity timeout, start paused
+    return timeSinceLastActivity > inactivityTimeout;
+  };
+
   // State
   const [elapsedSeconds, setElapsedSeconds] = useState(getInitialElapsedSeconds);
-  const [timerState, setTimerState] = useState<TimerState>('running');
+  const [timerState, setTimerState] = useState<TimerState>(() => shouldStartPaused() ? 'paused' : 'running');
   const [isSyncing, setIsSyncing] = useState(false);
 
   // Activity tracking refs
@@ -326,6 +374,10 @@ export function useSessionTimer(config: SessionTimerConfig = {}): SessionTimerSt
    */
   const updateActivityState = useCallback(() => {
     lastActivityTimestampRef.current = Date.now();
+    // Save last activity to localStorage for detecting long absences on page reload
+    if (askKey) {
+      saveLastActivity(askKey);
+    }
 
     if (hasActiveActivity()) {
       // Activity detected - ensure timer is running
@@ -335,7 +387,7 @@ export function useSessionTimer(config: SessionTimerConfig = {}): SessionTimerSt
       // No active activity - start countdown to pause
       startInactivityCountdown();
     }
-  }, [hasActiveActivity, clearInactivityTimeout, startInactivityCountdown]);
+  }, [hasActiveActivity, clearInactivityTimeout, startInactivityCountdown, askKey]);
 
   /**
    * Notify that AI is streaming
@@ -366,11 +418,15 @@ export function useSessionTimer(config: SessionTimerConfig = {}): SessionTimerSt
    */
   const notifyMessageSubmitted = useCallback(() => {
     lastActivityTimestampRef.current = Date.now();
+    // Save last activity to localStorage
+    if (askKey) {
+      saveLastActivity(askKey);
+    }
     clearInactivityTimeout();
     setTimerState('running');
     // Start countdown since submit is a one-time event
     startInactivityCountdown();
-  }, [clearInactivityTimeout, startInactivityCountdown]);
+  }, [clearInactivityTimeout, startInactivityCountdown, askKey]);
 
   /**
    * Manually start the timer
@@ -378,8 +434,11 @@ export function useSessionTimer(config: SessionTimerConfig = {}): SessionTimerSt
   const start = useCallback(() => {
     setTimerState('running');
     lastActivityTimestampRef.current = Date.now();
+    if (askKey) {
+      saveLastActivity(askKey);
+    }
     startInactivityCountdown();
-  }, [startInactivityCountdown]);
+  }, [startInactivityCountdown, askKey]);
 
   /**
    * Manually pause the timer
