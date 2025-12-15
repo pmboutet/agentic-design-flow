@@ -57,15 +57,29 @@ export async function GET(
 
     const existingMemberIds = new Set((memberData ?? []).map(m => m.user_id));
 
-    // Search for users in the same client
+    // Search for users - first get users who belong to the same client
+    let userIds: string[] = [];
+
+    if (clientId) {
+      // Get users who are members of this client
+      const { data: clientMembers } = await supabase
+        .from("client_members")
+        .select("user_id")
+        .eq("client_id", clientId);
+
+      userIds = (clientMembers ?? []).map(cm => cm.user_id).filter(Boolean);
+    }
+
+    // Build user query
     let usersQuery = supabase
       .from("profiles")
-      .select("id, full_name, email, role, job_title, is_active, client_id")
+      .select("id, full_name, email, role, job_title, is_active")
       .eq("is_active", true);
 
-    // Filter by client if project has a client
-    if (clientId) {
-      usersQuery = usersQuery.or(`client_id.eq.${clientId},role.ilike.%admin%,role.ilike.%owner%`);
+    // Filter by users in the client OR admins/owners (who can access any project)
+    if (clientId && userIds.length > 0) {
+      // Include users who are members of the client OR have admin/owner roles
+      usersQuery = usersQuery.or(`id.in.(${userIds.join(",")}),role.ilike.%admin%,role.ilike.%owner%`);
     }
 
     // Apply search filter if query provided
