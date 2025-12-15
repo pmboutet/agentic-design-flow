@@ -55,16 +55,6 @@ export function ProjectsAdminView() {
     }
   }, [globalProjectId, router]);
 
-  // Show loading state while redirecting to avoid content flash
-  if (globalProjectId !== "all") {
-    return (
-      <div className="flex items-center gap-2 text-slate-300">
-        <Loader2 className="h-5 w-5 animate-spin" />
-        Chargement du journey board…
-      </div>
-    );
-  }
-
   const loadProjects = async () => {
     setIsLoading(true);
     setError(null);
@@ -154,6 +144,17 @@ export function ProjectsAdminView() {
     }
     return "Accédez aux projets de ce client, inspectez le journey board et gérez les challenges.";
   }, [globalProjectId, globalSelectedProject, selectedClientId]);
+
+  // Show loading state while redirecting to avoid content flash
+  // This must be AFTER all hooks to respect React's Rules of Hooks
+  if (globalProjectId !== "all") {
+    return (
+      <div className="flex items-center gap-2 text-slate-300">
+        <Loader2 className="h-5 w-5 animate-spin" />
+        Chargement du journey board…
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
