@@ -1203,10 +1203,19 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
         });
 
         // Configuration de l'agent Speechmatics (plus de paramètres que Hybrid)
+        // Convert existing messages to conversation history format
+        const initialConversationHistory = messages
+          .filter(m => m.content && m.content.trim())
+          .map(m => ({
+            role: m.role === 'assistant' ? 'agent' as const : 'user' as const,
+            content: m.content,
+          }));
+
         const config: any = {
           systemPrompt,
           userPrompt, // Template de prompt utilisateur (optionnel)
           promptVariables: (modelConfig as any)?.promptVariables, // Variables pour le rendu du template
+          initialConversationHistory, // Pass existing messages for context continuity
           sttLanguage: modelConfig?.speechmaticsSttLanguage || "fr",
           sttOperatingPoint: modelConfig?.speechmaticsSttOperatingPoint || "enhanced",
           sttMaxDelay: modelConfig?.speechmaticsSttMaxDelay || 2.0,

@@ -278,6 +278,7 @@ export async function GET(
       const user = row.user_id ? usersById[row.user_id] ?? null : null;
       return {
         id: row.id,
+        userId: row.user_id ?? null, // Profile ID for message alignment in consultant mode
         name: buildParticipantDisplayName(row, user, index),
         email: row.participant_email ?? user?.email ?? null,
         role: row.role ?? null,

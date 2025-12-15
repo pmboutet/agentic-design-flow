@@ -376,7 +376,7 @@ export function ChatComponent({
     // Convert AskParticipant[] to ParticipantOption[] for speaker assignment
     const participantOptions = participants.map(p => ({
       id: p.id,
-      userId: null, // AskParticipant doesn't expose userId directly
+      userId: p.userId ?? null, // Profile ID for message alignment in consultant mode
       name: p.name,
       email: p.email,
       role: p.role,

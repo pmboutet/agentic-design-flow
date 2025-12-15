@@ -1369,6 +1369,9 @@ export default function HomePage() {
                 : msg
             ),
           }));
+
+          // Schedule insight detection after voice user message is persisted
+          scheduleInsightDetection();
         }
       } catch {
         // Voice message persistence error - silent fail
@@ -1462,7 +1465,7 @@ export default function HomePage() {
         // Voice message persistence error - silent fail
       }
     }
-  }, [sessionData.askKey, sessionData.ask?.askSessionId, sessionData.inviteToken, markMessagePosted, currentParticipantName, isTestMode]);
+  }, [sessionData.askKey, sessionData.ask?.askSessionId, sessionData.inviteToken, markMessagePosted, currentParticipantName, isTestMode, scheduleInsightDetection]);
 
 
   // Load voice mode configuration

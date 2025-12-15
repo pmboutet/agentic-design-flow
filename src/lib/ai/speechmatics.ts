@@ -186,6 +186,15 @@ export class SpeechmaticsVoiceAgent {
     // Réinitialiser le flag de déconnexion
     this.isDisconnected = false;
     this.config = config;
+
+    // Initialize conversation history from existing messages if provided
+    if (config.initialConversationHistory && config.initialConversationHistory.length > 0) {
+      this.conversationHistory = [...config.initialConversationHistory];
+      console.log('[Speechmatics] Initialized conversation history with', this.conversationHistory.length, 'messages');
+    } else {
+      this.conversationHistory = [];
+    }
+
     // Refresh semantic detector on each connection to pick up env changes
     this.semanticTurnConfig = resolveSemanticTurnDetectorConfig();
     this.semanticTurnDetector = createSemanticTurnDetector(this.semanticTurnConfig);

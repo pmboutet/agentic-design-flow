@@ -10,6 +10,7 @@ export type AskConversationMode =
 
 export interface AskParticipant {
   id: string;
+  userId?: string | null; // Profile ID of the participant (for message alignment in voice mode)
   name: string;
   email?: string | null;
   role?: string | null;

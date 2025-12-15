@@ -7,6 +7,8 @@ export interface SpeechmaticsConfig {
   userPrompt?: string; // User prompt template (same as text mode)
   // Prompt variables for template rendering (same as text mode)
   promptVariables?: Record<string, string | null | undefined>; // Variables for userPrompt template rendering
+  // Initial conversation history (to continue from existing messages)
+  initialConversationHistory?: Array<{ role: 'user' | 'agent'; content: string }>;
   // Speechmatics STT config
   sttLanguage?: string; // e.g., "fr", "en", "multi", "fr,en"
   sttOperatingPoint?: "enhanced" | "standard";

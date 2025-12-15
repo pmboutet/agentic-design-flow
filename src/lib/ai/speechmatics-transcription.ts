@@ -773,6 +773,17 @@ export class TranscriptionManager {
     const trimmedTranscript = transcript.trim();
     this.clearSemanticHold();
 
+    // CRITICAL: Skip if this is the same as what we just processed
+    // This prevents Speechmatics from creating duplicates when it resends the same final transcript
+    if (trimmedTranscript === this.lastProcessedContent) {
+      return;
+    }
+
+    // Also skip if this is >80% similar to what we just processed (fuzzy duplicate)
+    if (this.lastProcessedContent && this.calculateSimilarity(trimmedTranscript, this.lastProcessedContent) > 0.8) {
+      return;
+    }
+
     // SPEAKER CHANGE DETECTION: If speaker changes, finalize the previous speaker's message
     // This is critical for consultant mode where we want to track different speakers
     if (speaker && this.currentSpeaker && speaker !== this.currentSpeaker && this.pendingFinalTranscript) {
