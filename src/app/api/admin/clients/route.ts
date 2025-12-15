@@ -37,10 +37,10 @@ export async function GET() {
       .from("clients")
       .select("*");
 
-    // client_admin, facilitator, manager can only see their own client
+    // client_admin, facilitator, manager can only see their own clients
     const role = profile.role?.toLowerCase() ?? "";
-    if (role !== "full_admin" && profile.client_id) {
-      query = query.eq("id", profile.client_id);
+    if (role !== "full_admin" && profile.client_ids.length > 0) {
+      query = query.in("id", profile.client_ids);
     }
 
     const { data, error } = await query.order("created_at", { ascending: false });

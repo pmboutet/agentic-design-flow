@@ -102,17 +102,15 @@ export async function PATCH(
       if (payload.clientId !== currentProject.client_id) {
         // Only full_admin can change a project to any client
         if (role !== "full_admin") {
-          // Non full_admin users can only move projects within their own client
-          // Since they can only see their own client, they can't really change client
-          // Unless we allow moving between clients they have access to
-          if (profile.client_id !== payload.clientId) {
+          // Non full_admin users can only move projects between clients they belong to
+          if (!profile.client_ids.includes(payload.clientId)) {
             return NextResponse.json<ApiResponse>({
               success: false,
               error: "Vous ne pouvez transférer un projet que vers votre propre organisation"
             }, { status: 403 });
           }
           // Also check they have access to the source project
-          if (profile.client_id !== currentProject.client_id) {
+          if (!profile.client_ids.includes(currentProject.client_id)) {
             return NextResponse.json<ApiResponse>({
               success: false,
               error: "Vous n'avez pas accès à ce projet"

@@ -53,9 +53,9 @@ export async function GET() {
       .from("challenges")
       .select("*, projects(name, client_id)");
 
-    // Non full_admin users can only see challenges for their client's projects
-    if (!isFullAdmin && profile.client_id) {
-      query = query.eq("projects.client_id", profile.client_id);
+    // Non full_admin users can only see challenges for their clients' projects
+    if (!isFullAdmin && profile.client_ids.length > 0) {
+      query = query.in("projects.client_id", profile.client_ids);
     }
 
     const { data, error } = await query.order("updated_at", { ascending: false });
@@ -65,8 +65,8 @@ export async function GET() {
     }
 
     // Filter out challenges where project doesn't match (for non-full_admin)
-    const filteredData = !isFullAdmin && profile.client_id
-      ? (data ?? []).filter(row => row.projects?.client_id === profile.client_id)
+    const filteredData = !isFullAdmin && profile.client_ids.length > 0
+      ? (data ?? []).filter(row => profile.client_ids.includes(row.projects?.client_id))
       : data ?? [];
 
     return NextResponse.json<ApiResponse<ChallengeRecord[]>>({

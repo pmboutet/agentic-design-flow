@@ -107,9 +107,9 @@ export async function GET(request: NextRequest) {
       .select(selectQuery)
       .order("created_at", { ascending: false });
 
-    // Non full_admin users can only see asks for their client's projects
-    if (!isFullAdmin && profile.client_id) {
-      query = query.eq("projects.client_id", profile.client_id);
+    // Non full_admin users can only see asks for their clients' projects
+    if (!isFullAdmin && profile.client_ids.length > 0) {
+      query = query.in("projects.client_id", profile.client_ids);
     }
 
     if (challengeId) {

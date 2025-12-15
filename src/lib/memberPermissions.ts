@@ -8,7 +8,7 @@ import { getAdminSupabaseClient } from "@/lib/supabaseAdmin";
 export interface AdminProfile {
   role: string | null;
   is_active: boolean;
-  client_id: string | null;
+  client_ids: string[];  // User's client memberships from client_members table
 }
 
 /**
@@ -41,7 +41,7 @@ export async function canManageProjectMembers(
   }
 
   // User must belong to the same client as the project
-  if (!profile.client_id || profile.client_id !== project.client_id) {
+  if (!profile.client_ids.length || !profile.client_ids.includes(project.client_id)) {
     return {
       allowed: false,
       error: "You can only manage members of projects belonging to your organization"
@@ -78,7 +78,7 @@ export async function canManageClientMembers(
   }
 
   // client_admin can only manage their own client
-  if (!profile.client_id || profile.client_id !== clientId) {
+  if (!profile.client_ids.length || !profile.client_ids.includes(clientId)) {
     return {
       allowed: false,
       error: "You can only manage members of your own organization"
@@ -119,7 +119,7 @@ export async function canManageAskParticipants(
 
   // User must belong to the same client as the project
   const projectClientId = (ask.projects as any)?.client_id;
-  if (!profile.client_id || profile.client_id !== projectClientId) {
+  if (!profile.client_ids.length || !profile.client_ids.includes(projectClientId)) {
     return {
       allowed: false,
       error: "You can only view participants of ASKs belonging to your organization"

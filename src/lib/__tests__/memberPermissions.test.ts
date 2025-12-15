@@ -29,7 +29,7 @@ describe("memberPermissions", () => {
       const profile: AdminProfile = {
         role: "full_admin",
         is_active: true,
-        client_id: null
+        client_ids: []
       };
 
       const result = await canManageProjectMembers(profile, "project-123");
@@ -42,7 +42,7 @@ describe("memberPermissions", () => {
       const profile: AdminProfile = {
         role: "client_admin",
         is_active: true,
-        client_id: "client-123"
+        client_ids: ["client-123"]
       };
 
       const mockSupabase = {
@@ -66,7 +66,7 @@ describe("memberPermissions", () => {
       const profile: AdminProfile = {
         role: "client_admin",
         is_active: true,
-        client_id: "client-123"
+        client_ids: ["client-123"]
       };
 
       const mockSupabase = {
@@ -90,7 +90,7 @@ describe("memberPermissions", () => {
       const profile: AdminProfile = {
         role: "client_admin",
         is_active: true,
-        client_id: "client-123"
+        client_ids: ["client-123"]
       };
 
       const mockSupabase = {
@@ -110,11 +110,11 @@ describe("memberPermissions", () => {
       expect(result.error).toBe("Project not found");
     });
 
-    it("should deny user without client_id", async () => {
+    it("should deny user without client memberships", async () => {
       const profile: AdminProfile = {
         role: "client_admin",
         is_active: true,
-        client_id: null
+        client_ids: []
       };
 
       const mockSupabase = {
@@ -137,7 +137,7 @@ describe("memberPermissions", () => {
       const profile: AdminProfile = {
         role: "facilitator",
         is_active: true,
-        client_id: "client-123"
+        client_ids: ["client-123"]
       };
 
       const mockSupabase = {
@@ -160,7 +160,7 @@ describe("memberPermissions", () => {
       const profile: AdminProfile = {
         role: "manager",
         is_active: true,
-        client_id: "client-123"
+        client_ids: ["client-123"]
       };
 
       const mockSupabase = {
@@ -185,7 +185,7 @@ describe("memberPermissions", () => {
       const profile: AdminProfile = {
         role: "full_admin",
         is_active: true,
-        client_id: null
+        client_ids: []
       };
 
       const result = await canManageClientMembers(profile, "client-123");
@@ -197,7 +197,7 @@ describe("memberPermissions", () => {
       const profile: AdminProfile = {
         role: "client_admin",
         is_active: true,
-        client_id: "client-123"
+        client_ids: ["client-123"]
       };
 
       const result = await canManageClientMembers(profile, "client-123");
@@ -209,7 +209,7 @@ describe("memberPermissions", () => {
       const profile: AdminProfile = {
         role: "client_admin",
         is_active: true,
-        client_id: "client-123"
+        client_ids: ["client-123"]
       };
 
       const result = await canManageClientMembers(profile, "different-client");
@@ -222,7 +222,7 @@ describe("memberPermissions", () => {
       const profile: AdminProfile = {
         role: "facilitator",
         is_active: true,
-        client_id: "client-123"
+        client_ids: ["client-123"]
       };
 
       const result = await canManageClientMembers(profile, "client-123");
@@ -235,7 +235,7 @@ describe("memberPermissions", () => {
       const profile: AdminProfile = {
         role: "manager",
         is_active: true,
-        client_id: "client-123"
+        client_ids: ["client-123"]
       };
 
       const result = await canManageClientMembers(profile, "client-123");
@@ -250,7 +250,7 @@ describe("memberPermissions", () => {
       const profile: AdminProfile = {
         role: "full_admin",
         is_active: true,
-        client_id: null
+        client_ids: []
       };
 
       const result = await canManageAskParticipants(profile, "ask-123");
@@ -262,7 +262,7 @@ describe("memberPermissions", () => {
       const profile: AdminProfile = {
         role: "client_admin",
         is_active: true,
-        client_id: "client-123"
+        client_ids: ["client-123"]
       };
 
       const mockSupabase = {
@@ -288,7 +288,7 @@ describe("memberPermissions", () => {
       const profile: AdminProfile = {
         role: "client_admin",
         is_active: true,
-        client_id: "client-123"
+        client_ids: ["client-123"]
       };
 
       const mockSupabase = {
@@ -315,7 +315,7 @@ describe("memberPermissions", () => {
       const profile: AdminProfile = {
         role: "client_admin",
         is_active: true,
-        client_id: "client-123"
+        client_ids: ["client-123"]
       };
 
       const mockSupabase = {

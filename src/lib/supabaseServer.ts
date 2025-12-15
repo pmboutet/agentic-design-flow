@@ -99,6 +99,7 @@ export async function requireAuth() {
 /**
  * Helper to verify the current user is an admin.
  * Throws an error if not authenticated or not an admin.
+ * Returns profile with client_ids array from client_members table.
  */
 export async function requireAdmin() {
   // In development, allow simulating an admin user when IS_DEV=true
@@ -111,22 +112,22 @@ export async function requireAdmin() {
       profile: {
         role: 'full_admin',
         is_active: true,
-        client_id: null,
+        client_ids: [] as string[],
       },
     }
   }
 
   const supabase = await createServerSupabaseClient()
   const { data: { user }, error } = await supabase.auth.getUser()
-  
+
   if (error || !user) {
     throw new Error('Authentication required')
   }
-  
+
   // Check if user has admin role in profiles table
   let { data: profile, error: profileError } = await supabase
     .from('profiles')
-    .select('role, is_active, client_id')
+    .select('id, role, is_active')
     .eq('auth_id', user.id)
     .single()
 
@@ -155,7 +156,7 @@ export async function requireAdmin() {
           role: 'participant',
           is_active: true
         })
-        .select('role, is_active, client_id')
+        .select('id, role, is_active')
         .single()
 
       if (createError) {
@@ -163,7 +164,7 @@ export async function requireAdmin() {
         if (createError.code === '23505') {
           const { data: retryProfile } = await supabase
             .from('profiles')
-            .select('role, is_active, client_id')
+            .select('id, role, is_active')
             .eq('auth_id', user.id)
             .single()
 
@@ -194,6 +195,22 @@ export async function requireAdmin() {
     throw new Error('Admin access required')
   }
 
-  return { user, profile }
+  // Fetch user's client memberships
+  const adminSupabase = getAdminSupabaseClient()
+  const { data: clientMemberships } = await adminSupabase
+    .from('client_members')
+    .select('client_id')
+    .eq('user_id', profile.id)
+
+  const client_ids = (clientMemberships ?? []).map(cm => cm.client_id).filter(Boolean)
+
+  return {
+    user,
+    profile: {
+      role: profile.role,
+      is_active: profile.is_active,
+      client_ids,
+    }
+  }
 }
 

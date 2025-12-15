@@ -49,10 +49,10 @@ export async function GET() {
       .from("projects")
       .select("*, clients(name)");
 
-    // Non full_admin users can only see projects for their client
+    // Non full_admin users can only see projects for their clients
     const role = profile.role?.toLowerCase() ?? "";
-    if (role !== "full_admin" && profile.client_id) {
-      query = query.eq("client_id", profile.client_id);
+    if (role !== "full_admin" && profile.client_ids.length > 0) {
+      query = query.in("client_id", profile.client_ids);
     }
 
     const { data, error } = await query.order("created_at", { ascending: false });
@@ -83,9 +83,9 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const payload = projectSchema.parse(body);
 
-    // Non full_admin users can only create projects for their own client
+    // Non full_admin users can only create projects for their own clients
     const role = profile.role?.toLowerCase() ?? "";
-    if (role !== "full_admin" && profile.client_id && payload.clientId !== profile.client_id) {
+    if (role !== "full_admin" && profile.client_ids.length > 0 && !profile.client_ids.includes(payload.clientId)) {
       return NextResponse.json<ApiResponse>({
         success: false,
         error: "You can only create projects for your own organization"

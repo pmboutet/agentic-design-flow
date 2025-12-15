@@ -36,9 +36,9 @@ export async function GET(
     const resolvedParams = await params;
     const clientId = z.string().uuid().parse(resolvedParams.id);
 
-    // Check permissions: full_admin can view any client, others can only view their own
+    // Check permissions: full_admin can view any client, others can only view their own clients
     const normalizedRole = profile.role?.toLowerCase() ?? "";
-    if (normalizedRole !== "full_admin" && profile.client_id !== clientId) {
+    if (normalizedRole !== "full_admin" && !profile.client_ids.includes(clientId)) {
       return NextResponse.json<ApiResponse>({
         success: false,
         error: "You can only view your own organization"

@@ -30,10 +30,10 @@ function mapClientMember(row: any): ClientMember {
 /**
  * Check if user can view client members (less restrictive than manage)
  * - full_admin: can view any client
- * - client_admin/facilitator/manager: can view their own client
+ * - client_admin/facilitator/manager: can view their own clients
  */
 function canViewClientMembers(
-  profile: { role: string | null; client_id: string | null },
+  profile: { role: string | null; client_ids: string[] },
   clientId: string
 ): { allowed: boolean; error?: string } {
   const normalizedRole = profile.role?.toLowerCase() ?? "";
@@ -43,8 +43,8 @@ function canViewClientMembers(
     return { allowed: true };
   }
 
-  // Users with admin-level roles can view their own client
-  if (!profile.client_id || profile.client_id !== clientId) {
+  // Users with admin-level roles can view their own clients
+  if (!profile.client_ids.length || !profile.client_ids.includes(clientId)) {
     return {
       allowed: false,
       error: "You can only view members of your own organization"
