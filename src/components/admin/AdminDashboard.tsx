@@ -742,12 +742,16 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
       ).trim();
       const nameValue = displayName.length > 0 ? displayName : null;
 
+      // Check if any client membership name matches the search
+      const matchesAnyClientName = user.clientMemberships?.some(cm => matchesText(cm.clientName)) ?? false;
+
       if (
         matchesText(nameValue) ||
         matchesText(user.email) ||
         matchesText(user.role) ||
-        matchesText(user.clientMemberships?.[0]?.clientName)
+        matchesAnyClientName
       ) {
+        // For display, show the first client name as fallback (or get from clientById map)
         const clientName = user.clientMemberships?.[0]?.clientName || (user.clientMemberships?.[0]?.clientId ? clientById.get(user.clientMemberships[0].clientId)?.name : undefined);
         addResult({
           id: user.id,
@@ -1372,13 +1376,20 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
     }
     setShowUserForm(true);
     setEditingUserId(user.id);
+
+    // Prefer selectedClientId if user belongs to it, otherwise use first membership
+    const contextualClientId = selectedClientId && selectedClientId !== "all"
+      && user.clientMemberships?.some(cm => cm.clientId === selectedClientId)
+      ? selectedClientId
+      : user.clientMemberships?.[0]?.clientId ?? "";
+
     userForm.reset({
       email: user.email,
       fullName: user.fullName ?? "",
       firstName: user.firstName ?? "",
       lastName: user.lastName ?? "",
       role: (user.role as UserFormInput["role"]) || "participant",
-      clientId: user.clientMemberships?.[0]?.clientId ?? "",
+      clientId: contextualClientId,
       isActive: user.isActive,
       jobTitle: user.jobTitle ?? ""
     });
@@ -1488,7 +1499,8 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
       const isGlobal = normalizedRole.includes("admin") || normalizedRole.includes("owner");
       const userProjectIds = user.projectIds ?? [];
 
-      if (targetClientId && user.clientMemberships?.[0]?.clientId === targetClientId) {
+      // Check if user belongs to the target client (any membership)
+      if (targetClientId && user.clientMemberships?.some(cm => cm.clientId === targetClientId)) {
         return true;
       }
 
@@ -1513,8 +1525,9 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
         return aMemberPriority - bMemberPriority;
       }
 
-      const aClientPriority = targetClientId ? (a.clientMemberships?.[0]?.clientId === targetClientId ? 0 : 1) : 0;
-      const bClientPriority = targetClientId ? (b.clientMemberships?.[0]?.clientId === targetClientId ? 0 : 1) : 0;
+      // Check if user belongs to the target client (any membership)
+      const aClientPriority = targetClientId ? (a.clientMemberships?.some(cm => cm.clientId === targetClientId) ? 0 : 1) : 0;
+      const bClientPriority = targetClientId ? (b.clientMemberships?.some(cm => cm.clientId === targetClientId) ? 0 : 1) : 0;
       if (aClientPriority !== bClientPriority) {
         return aClientPriority - bClientPriority;
       }
@@ -2386,8 +2399,9 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                       filteredUsers.map(user => {
                         const projectIds = user.projectIds ?? [];
                         const isMemberOfSelectedProject = selectedProjectId ? projectIds.includes(selectedProjectId) : false;
+                        // Check if user belongs to the viewing client (any membership)
                         const canManageMembership = Boolean(
-                          selectedProjectId && selectedProject && viewingClientId && user.clientMemberships?.[0]?.clientId === viewingClientId
+                          selectedProjectId && selectedProject && viewingClientId && user.clientMemberships?.some(cm => cm.clientId === viewingClientId)
                         );
 
                         return (
@@ -2408,7 +2422,7 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
                                 )}
                                 <p className="text-[11px] text-slate-500">
                                   {user.clientMemberships?.[0]?.clientName || "No client assigned"}
-                                  {viewingClientId && user.clientMemberships?.[0]?.clientId && user.clientMemberships[0].clientId !== viewingClientId
+                                  {viewingClientId && user.clientMemberships?.length && !user.clientMemberships.some(cm => cm.clientId === viewingClientId)
                                     ? " • other client"
                                     : ""}
                                 </p>

@@ -178,9 +178,9 @@ export function UsersAdminView() {
     let result = users;
 
     if (selectedClientId) {
-      // Filter by client but keep admins visible
+      // Filter by client (check ALL memberships) but keep admins visible
       result = users.filter(u =>
-        u.clientMemberships?.[0]?.clientId === selectedClientId ||
+        u.clientMemberships?.some(cm => cm.clientId === selectedClientId) ||
         u.role === "full_admin" ||
         u.role === "client_admin"
       );
@@ -260,12 +260,15 @@ export function UsersAdminView() {
     if (!user) return;
     setShowUserForm(true);
     setEditingUserId(user.id);
+    // Use selected client from context, or find if user belongs to it, or fall back to first membership
+    const contextClientMembership = user.clientMemberships?.find(cm => cm.clientId === selectedClientId);
+    const defaultClientId = contextClientMembership?.clientId ?? user.clientMemberships?.[0]?.clientId ?? "";
     userForm.reset({
       email: user.email,
       firstName: user.firstName ?? "",
       lastName: user.lastName ?? "",
       role: (user.role as UserFormInput["role"]) || "participant",
-      clientId: user.clientMemberships?.[0]?.clientId ?? "",
+      clientId: defaultClientId,
       isActive: user.isActive,
       jobTitle: user.jobTitle ?? ""
     });
