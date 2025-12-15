@@ -8,6 +8,72 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { executeAgent } from "@/lib/ai/service";
 import { getAdminSupabaseClient } from "@/lib/supabaseAdmin";
 
+/**
+ * Variables for entity extraction agent
+ * Used by both production code and test mode
+ */
+export interface EntityExtractionVariables {
+  // Insight context
+  content: string;
+  summary: string;
+  type: string;
+  category: string;
+  // ASK context (for relevance scoring)
+  ask_question: string;
+  ask_description: string;
+  // Optional challenge context
+  challenge_name: string;
+  challenge_description: string;
+}
+
+/**
+ * Build variables for entity extraction agent
+ * This function is used by both production code and test mode to ensure consistency
+ */
+export async function buildEntityExtractionVariables(
+  supabase: SupabaseClient,
+  insight: {
+    content: string;
+    summary?: string | null;
+    type: string;
+    category?: string | null;
+    askSessionId: string;
+    challengeId?: string | null;
+  }
+): Promise<EntityExtractionVariables> {
+  // Fetch ASK session context
+  const { data: askSession } = await supabase
+    .from("ask_sessions")
+    .select("question, description")
+    .eq("id", insight.askSessionId)
+    .maybeSingle();
+
+  // Fetch challenge context if available
+  let challengeData: { name: string; description: string } | null = null;
+  if (insight.challengeId) {
+    const { data: challenge } = await supabase
+      .from("challenges")
+      .select("name, description")
+      .eq("id", insight.challengeId)
+      .maybeSingle();
+    challengeData = challenge;
+  }
+
+  return {
+    // Insight data
+    content: insight.content,
+    summary: insight.summary || "",
+    type: insight.type,
+    category: insight.category || "",
+    // ASK context
+    ask_question: askSession?.question || "",
+    ask_description: askSession?.description || "",
+    // Challenge context
+    challenge_name: challengeData?.name || "",
+    challenge_description: challengeData?.description || "",
+  };
+}
+
 export interface ExtractedEntity {
   text: string;
   relevance: number;
@@ -168,18 +234,27 @@ export async function extractEntitiesFromInsight(
 
   try {
     console.log(`[Graph RAG] Calling AI agent for entity extraction on insight ${insight.id}...`);
-    
+
+    // Build variables using the shared function (same as test mode)
+    const variables = await buildEntityExtractionVariables(supabase, {
+      content: insight.content,
+      summary: insight.summary,
+      type: insight.type,
+      category: insight.category,
+      askSessionId: insight.askSessionId,
+      challengeId: insight.challengeId,
+    });
+
+    console.log(`[Graph RAG] Entity extraction context: ASK="${variables.ask_question?.substring(0, 50)}..."`);
+
     // Call Anthropic agent for entity extraction
+    // Note: Cast needed because EntityExtractionVariables is a strict interface
+    // while executeAgent expects Record<string, string | null | undefined>
     const result = await executeAgent({
       supabase,
       agentSlug: "insight-entity-extraction",
       interactionType: "insight.entity.extraction",
-      variables: {
-        content: insight.content,
-        summary: insight.summary || "",
-        type: insight.type,
-        category: insight.category || "",
-      },
+      variables: variables as unknown as Record<string, string | null | undefined>,
     });
 
     console.log(`[Graph RAG] AI agent response received for insight ${insight.id}, content length: ${result.content?.length || 0}`);

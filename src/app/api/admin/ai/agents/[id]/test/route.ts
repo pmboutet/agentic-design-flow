@@ -9,6 +9,7 @@ import { getAskSessionByKey, getOrCreateConversationThread, getMessagesForThread
 import { getConversationPlanWithSteps } from '@/lib/ai/conversation-plan';
 import { fetchInsightTypesForPrompt, fetchInsightsForSession } from '@/lib/insightQueries';
 import { mapInsightRowToInsight } from '@/lib/insights';
+import { buildEntityExtractionVariables } from '@/lib/graphRAG/extractEntities';
 import {
   buildParticipantDisplayName,
   buildMessageSummary,
@@ -24,6 +25,7 @@ interface TestRequest {
   userId?: string;
   projectId?: string;
   challengeId?: string;
+  insightId?: string; // For testing entity extraction agent
 }
 
 export async function POST(
@@ -292,6 +294,64 @@ export async function POST(
             insightsCount: existingInsights.length,
             hasProject: !!projectData,
             hasChallenge: !!challengeData,
+          },
+        },
+      });
+    } else if (body.insightId) {
+      // Build variables for entity extraction agent (insight-entity-extraction)
+      // Uses THE SAME buildEntityExtractionVariables function as production code
+      const { data: insight, error: insightError } = await supabase
+        .from('insights')
+        .select('id, content, summary, ask_session_id, challenge_id, insight_type_id, insight_types(name)')
+        .eq('id', body.insightId)
+        .maybeSingle();
+
+      if (insightError) {
+        throw new Error(`Failed to fetch insight: ${insightError.message}`);
+      }
+
+      if (!insight) {
+        throw new Error('Insight not found');
+      }
+
+      // Get insight type name
+      const insightTypeName = Array.isArray(insight.insight_types)
+        ? insight.insight_types[0]?.name ?? 'unknown'
+        : (insight.insight_types as any)?.name ?? 'unknown';
+
+      // Build variables using the SAME function as production code
+      const entityVariables = await buildEntityExtractionVariables(supabase, {
+        content: insight.content ?? '',
+        summary: insight.summary,
+        type: insightTypeName,
+        category: '', // Category is not stored directly, could be derived
+        askSessionId: insight.ask_session_id,
+        challengeId: insight.challenge_id,
+      });
+
+      // Build resolved variables for highlighting
+      const resolvedVariables: Record<string, string> = {};
+      for (const [key, value] of Object.entries(entityVariables)) {
+        if (value !== undefined && value !== null && String(value).trim().length > 0) {
+          resolvedVariables[key] = String(value);
+        }
+      }
+
+      // Render templates with entity extraction variables
+      const systemPrompt = renderTemplate(agent.systemPrompt, entityVariables);
+      const userPrompt = renderTemplate(agent.userPrompt, entityVariables);
+
+      return NextResponse.json({
+        success: true,
+        data: {
+          systemPrompt,
+          userPrompt,
+          resolvedVariables,
+          metadata: {
+            insightId: insight.id,
+            askSessionId: insight.ask_session_id,
+            hasAskContext: !!entityVariables.ask_question,
+            hasChallengeContext: !!entityVariables.challenge_name,
           },
         },
       });

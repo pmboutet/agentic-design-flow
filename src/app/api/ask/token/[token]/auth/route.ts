@@ -76,69 +76,114 @@ export async function POST(
       user_id: rpcResult.user_id,
     };
 
-    // Generate a unique email for this participant
-    // Use the participant's email if available, otherwise generate one
-    const participantEmail = participant.participant_email ||
-      `participant-${participant.id}@agentic-ask.local`;
-
-    // Try to create an auth user for this participant
-    // If they already exist, we'll get an error and retrieve their ID
     let userId: string;
+    let authEmail: string;
 
-    const { data: newUser, error: createError } = await supabase.auth.admin.createUser({
-      email: participantEmail,
-      email_confirm: true,
-      user_metadata: {
-        participant_id: participant.id,
-        participant_name: participant.participant_name,
-        ask_session_id: participant.ask_session_id,
-      },
-    });
+    // Check if the participant has a linked profile with an existing auth_id
+    // If so, use that existing auth user instead of creating a new one
+    if (participant.user_id) {
+      const { data: existingProfile } = await supabase
+        .from('profiles')
+        .select('auth_id, email')
+        .eq('id', participant.user_id)
+        .maybeSingle();
 
-    if (createError) {
-      // User likely already exists - try to find them via listUsers
-      if (createError.message?.includes('already been registered') || createError.message?.includes('already exists')) {
-        const { data: existingUsers } = await supabase.auth.admin.listUsers({ page: 1, perPage: 1000 });
-        const existingUser = existingUsers?.users?.find(u => u.email === participantEmail);
-        if (existingUser) {
-          userId = existingUser.id;
+      if (existingProfile?.auth_id && existingProfile?.email) {
+        // Profile already has an auth user - use it
+        console.log('[token/auth] Using existing auth user from profile:', existingProfile.auth_id);
+        userId = existingProfile.auth_id;
+        authEmail = existingProfile.email;
+      } else {
+        // Profile exists but has no auth_id - create new auth user and link it
+        authEmail = participant.participant_email || existingProfile?.email ||
+          `participant-${participant.id}@agentic-ask.local`;
+
+        const { data: newUser, error: createError } = await supabase.auth.admin.createUser({
+          email: authEmail,
+          email_confirm: true,
+          user_metadata: {
+            participant_id: participant.id,
+            participant_name: participant.participant_name,
+            ask_session_id: participant.ask_session_id,
+          },
+        });
+
+        if (createError) {
+          // User likely already exists - try to find them
+          if (createError.message?.includes('already been registered') || createError.message?.includes('already exists')) {
+            const { data: existingUsers } = await supabase.auth.admin.listUsers({ page: 1, perPage: 1000 });
+            const existingUser = existingUsers?.users?.find(u => u.email === authEmail);
+            if (existingUser) {
+              userId = existingUser.id;
+            } else {
+              console.error('[token/auth] User exists but could not be found:', createError);
+              return NextResponse.json<ApiResponse>(
+                { success: false, error: 'Failed to find auth user' },
+                { status: 500 }
+              );
+            }
+          } else {
+            console.error('[token/auth] Error creating user:', createError);
+            return NextResponse.json<ApiResponse>(
+              { success: false, error: 'Failed to create auth user' },
+              { status: 500 }
+            );
+          }
         } else {
-          console.error('[token/auth] User exists but could not be found:', createError);
+          userId = newUser.user.id;
+        }
+
+        // Link the new auth user to the profile
+        await supabase
+          .from('profiles')
+          .update({ auth_id: userId })
+          .eq('id', participant.user_id)
+          .is('auth_id', null);
+      }
+    } else {
+      // No linked profile - create a standalone auth user
+      authEmail = participant.participant_email ||
+        `participant-${participant.id}@agentic-ask.local`;
+
+      const { data: newUser, error: createError } = await supabase.auth.admin.createUser({
+        email: authEmail,
+        email_confirm: true,
+        user_metadata: {
+          participant_id: participant.id,
+          participant_name: participant.participant_name,
+          ask_session_id: participant.ask_session_id,
+        },
+      });
+
+      if (createError) {
+        if (createError.message?.includes('already been registered') || createError.message?.includes('already exists')) {
+          const { data: existingUsers } = await supabase.auth.admin.listUsers({ page: 1, perPage: 1000 });
+          const existingUser = existingUsers?.users?.find(u => u.email === authEmail);
+          if (existingUser) {
+            userId = existingUser.id;
+          } else {
+            console.error('[token/auth] User exists but could not be found:', createError);
+            return NextResponse.json<ApiResponse>(
+              { success: false, error: 'Failed to find auth user' },
+              { status: 500 }
+            );
+          }
+        } else {
+          console.error('[token/auth] Error creating user:', createError);
           return NextResponse.json<ApiResponse>(
-            { success: false, error: 'Failed to find auth user' },
+            { success: false, error: 'Failed to create auth user' },
             { status: 500 }
           );
         }
       } else {
-        console.error('[token/auth] Error creating user:', createError);
-        return NextResponse.json<ApiResponse>(
-          { success: false, error: 'Failed to create auth user' },
-          { status: 500 }
-        );
+        userId = newUser.user.id;
       }
-    } else {
-      userId = newUser.user.id;
-    }
-
-    // Update the participant's profile with the auth_id so RLS policies work
-    // This links the Supabase auth user to the profile, enabling Realtime subscriptions
-    // SECURITY: Only update if auth_id is NULL to avoid overwriting legitimate users
-    if (participant.user_id) {
-      const { data: updatedProfile, error: updateError } = await supabase
-        .from('profiles')
-        .update({ auth_id: userId })
-        .eq('id', participant.user_id)
-        .is('auth_id', null)  // Only update if not already set
-        .select('id')
-        .maybeSingle();
-
-      // Ignore update error - profile auth_id may already be set
     }
 
     // Generate a magic link for the user
     const { data: linkData, error: linkError } = await supabase.auth.admin.generateLink({
       type: 'magiclink',
-      email: participantEmail,
+      email: authEmail,
     });
 
     if (linkError || !linkData?.properties?.hashed_token) {
