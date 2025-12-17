@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { motion, AnimatePresence, useMotionValue, useTransform, PanInfo } from "framer-motion";
-import { AlertCircle, Clock, MessageSquare, Sparkles, ChevronDown, ChevronUp, MessageCircle, Lightbulb, RefreshCw } from "lucide-react";
+import { AlertCircle, Clock, MessageSquare, Sparkles, ChevronDown, ChevronUp, MessageCircle, Lightbulb, RefreshCw, Info } from "lucide-react";
 import { ChatComponent } from "@/components/chat/ChatComponent";
 import { InsightPanel } from "@/components/insight/InsightPanel";
 import { SuggestedQuestionsPanel } from "@/components/consultant/SuggestedQuestionsPanel";
@@ -15,6 +15,7 @@ import { useSessionTimer } from "@/hooks/useSessionTimer";
 import { useConsultantAnalysis } from "@/hooks/useConsultantAnalysis";
 import { useRealtimeMessages } from "@/hooks/useRealtimeMessages";
 import {
+  cn,
   validateAskKey,
   parseErrorMessage,
   formatTimeRemaining,
@@ -522,6 +523,10 @@ export default function HomePage() {
   const [mobileActivePanel, setMobileActivePanel] = useState<'chat' | 'insights'>('chat');
   const [isMobileHeaderExpanded, setIsMobileHeaderExpanded] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
+  // Desktop compact mode states (tabbed layout when content is minimal)
+  const [desktopRightPanelTab, setDesktopRightPanelTab] = useState<'questions' | 'details' | 'insights'>('insights');
+  const [useCompactMode, setUseCompactMode] = useState(false);
+  const insightsPanelRef = useRef<HTMLDivElement>(null);
   // DEBUG: Afficher auth ID temporairement
   const [debugAuthId, setDebugAuthId] = useState<string | null>(null);
   // Voice mode configuration
@@ -599,6 +604,30 @@ export default function HomePage() {
     window.addEventListener('resize', checkMobile);
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
+
+  // Detect compact mode: switch to tabs when details collapsed AND insights panel is minimal
+  useEffect(() => {
+    if (!insightsPanelRef.current || isMobile) {
+      setUseCompactMode(false);
+      return;
+    }
+
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+
+      const insightsHeight = entry.contentRect.height;
+      const viewportHeight = window.innerHeight;
+      // Switch to compact mode when details are collapsed and insights panel is less than 30% of viewport
+      const shouldUseCompact = isDetailsCollapsed && insightsHeight < viewportHeight * 0.3;
+
+      setUseCompactMode(shouldUseCompact);
+    });
+
+    observer.observe(insightsPanelRef.current);
+    return () => observer.disconnect();
+  }, [isDetailsCollapsed, isMobile]);
+
   const askDetails = sessionData.ask;
   useEffect(() => {
     if (sessionData.inviteToken) {
@@ -2297,70 +2326,94 @@ export default function HomePage() {
             className="flex-1 min-w-0"
           >
             <div className="h-full flex flex-col overflow-hidden gap-4">
-              {/* Ask Details Card */}
-              {askDetails && (
-                <motion.div
-                  initial={{ opacity: 0, y: -10 }}
-                  animate={{ 
-                    opacity: 1, 
-                    y: 0
-                  }}
-                  className="rounded-xl border border-white/50 bg-white/80 backdrop-blur px-4 shadow-sm transition-all duration-300"
-                  style={{ 
-                    paddingTop: "0.75rem",
-                    paddingBottom: "0.75rem"
-                  }}
-                >
-                  <div className="flex flex-col gap-3">
-                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                      <div className="space-y-1 sm:pr-4">
-                        <h3 className="font-semibold tracking-tight text-xs sm:text-sm leading-snug text-foreground">
-                          {askDetails.question}
-                        </h3>
-                        {askDetails.description && !isDetailsCollapsed && (
-                          <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed">
-                            {askDetails.description}
-                          </p>
+              {useCompactMode ? (
+                /* Compact tabbed mode - when details collapsed and minimal content */
+                <div className="h-full flex flex-col glass-card rounded-xl p-4">
+                  {/* Tab buttons */}
+                  <div className="flex items-center gap-2 pb-3 border-b border-white/30 mb-3">
+                    {isConsultantMode && isSpokesperson && (
+                      <button
+                        onClick={() => setDesktopRightPanelTab('questions')}
+                        className={cn(
+                          "flex items-center gap-2 px-3 py-1.5 rounded-full transition-all text-sm font-medium",
+                          desktopRightPanelTab === 'questions'
+                            ? 'bg-primary text-white shadow-md'
+                            : 'bg-white/80 text-muted-foreground hover:bg-white hover:text-foreground'
                         )}
-                      </div>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setIsDetailsCollapsed(prev => !prev)}
-                        className="inline-flex items-center gap-1.5 whitespace-nowrap self-start sm:self-start"
-                        aria-expanded={!isDetailsCollapsed}
                       >
-                        {isDetailsCollapsed ? (
-                          <>
-                            <ChevronDown className="h-4 w-4" />
-                            Infos
-                          </>
-                        ) : (
-                          <>
-                            <ChevronUp className="h-4 w-4" />
-                            Masquer
-                          </>
-                        )}
-                      </Button>
-                    </div>
+                        <Sparkles className="h-4 w-4" />
+                        Questions
+                      </button>
+                    )}
+                    <button
+                      onClick={() => setDesktopRightPanelTab('details')}
+                      className={cn(
+                        "flex items-center gap-2 px-3 py-1.5 rounded-full transition-all text-sm font-medium",
+                        desktopRightPanelTab === 'details'
+                          ? 'bg-primary text-white shadow-md'
+                          : 'bg-white/80 text-muted-foreground hover:bg-white hover:text-foreground'
+                      )}
+                    >
+                      <Info className="h-4 w-4" />
+                      Détails
+                    </button>
+                    <button
+                      onClick={() => setDesktopRightPanelTab('insights')}
+                      className={cn(
+                        "flex items-center gap-2 px-3 py-1.5 rounded-full transition-all text-sm font-medium",
+                        desktopRightPanelTab === 'insights'
+                          ? 'bg-primary text-white shadow-md'
+                          : 'bg-white/80 text-muted-foreground hover:bg-white hover:text-foreground'
+                      )}
+                    >
+                      <Lightbulb className="h-4 w-4" />
+                      Insights
+                    </button>
+                  </div>
 
-                    <AnimatePresence initial={false}>
-                      {!isDetailsCollapsed && (
+                  {/* Tab content */}
+                  <div className="flex-1 min-h-0 overflow-auto">
+                    <AnimatePresence mode="wait">
+                      {desktopRightPanelTab === 'questions' && isConsultantMode && isSpokesperson && (
                         <motion.div
-                          key="ask-details"
-                          initial={{ height: 0, opacity: 0 }}
-                          animate={{ height: "auto", opacity: 1 }}
-                          exit={{ height: 0, opacity: 0 }}
-                          className="overflow-hidden"
+                          key="questions-tab"
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -10 }}
+                          transition={{ duration: 0.2 }}
                         >
-                          <div className="grid gap-2 text-xs text-muted-foreground sm:grid-cols-3">
+                          <SuggestedQuestionsPanel
+                            questions={consultantAnalysis.questions}
+                            isAnalyzing={consultantAnalysis.isAnalyzing}
+                          />
+                        </motion.div>
+                      )}
+                      {desktopRightPanelTab === 'details' && askDetails && (
+                        <motion.div
+                          key="details-tab"
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -10 }}
+                          transition={{ duration: 0.2 }}
+                          className="space-y-4"
+                        >
+                          <div>
+                            <h3 className="font-semibold tracking-tight text-sm leading-snug text-foreground mb-2">
+                              {askDetails.question}
+                            </h3>
+                            {askDetails.description && (
+                              <p className="text-sm text-muted-foreground leading-relaxed">
+                                {askDetails.description}
+                              </p>
+                            )}
+                          </div>
+                          <div className="grid gap-3 text-xs text-muted-foreground sm:grid-cols-2">
                             <div className="space-y-1">
                               <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/80">Session</p>
                               <div className="flex flex-wrap items-center gap-1">
                                 {sessionData.askKey && (
                                   <span className="inline-flex items-center rounded-full bg-white/80 px-2 py-0.5 text-[10px] font-medium text-foreground shadow-sm">
-                                    Session:
-                                    <span className="font-mono text-foreground ml-1">{sessionData.askKey}</span>
+                                    <span className="font-mono">{sessionData.askKey}</span>
                                   </span>
                                 )}
                                 {sessionData.ask && (
@@ -2370,7 +2423,6 @@ export default function HomePage() {
                                 )}
                               </div>
                             </div>
-
                             <div className="space-y-1">
                               <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/80">Statut</p>
                               <div className="flex flex-wrap items-center gap-1">
@@ -2385,7 +2437,6 @@ export default function HomePage() {
                                 )}
                               </div>
                             </div>
-
                             <div className="space-y-1">
                               <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/80">Cadre</p>
                               <div className="space-y-0.5 text-foreground">
@@ -2397,8 +2448,7 @@ export default function HomePage() {
                                 </p>
                               </div>
                             </div>
-
-                            <div className="space-y-1 sm:col-span-3">
+                            <div className="space-y-1">
                               <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/80">
                                 Participants ({participants.length})
                               </p>
@@ -2411,40 +2461,191 @@ export default function HomePage() {
                                     >
                                       <span className="font-medium text-primary/90">{participant.name}</span>
                                       {participant.isSpokesperson && (
-                                        <span className="text-[9px] uppercase tracking-wide text-primary/70">porte-parole</span>
+                                        <span className="text-[9px] uppercase tracking-wide text-primary/70">PP</span>
                                       )}
                                     </span>
                                   ))
                                 ) : (
-                                  <span className="text-muted-foreground text-[10px]">Aucun participant pour le moment</span>
+                                  <span className="text-muted-foreground text-[10px]">Aucun participant</span>
                                 )}
                               </div>
                             </div>
                           </div>
                         </motion.div>
                       )}
+                      {desktopRightPanelTab === 'insights' && (
+                        <motion.div
+                          key="insights-tab"
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -10 }}
+                          transition={{ duration: 0.2 }}
+                          className="h-full"
+                        >
+                          <InsightPanel
+                            insights={sessionData.insights}
+                            askKey={sessionData.askKey}
+                            isDetectingInsights={isDetectingInsights}
+                            onInsightUpdate={handleInsightUpdate}
+                          />
+                        </motion.div>
+                      )}
                     </AnimatePresence>
                   </div>
-                </motion.div>
-              )}
+                </div>
+              ) : (
+                /* Normal stacked mode */
+                <>
+                  {/* Ask Details Card */}
+                  {askDetails && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -10 }}
+                      animate={{
+                        opacity: 1,
+                        y: 0
+                      }}
+                      className="rounded-xl border border-white/50 bg-white/80 backdrop-blur px-4 shadow-sm transition-all duration-300"
+                      style={{
+                        paddingTop: "0.75rem",
+                        paddingBottom: "0.75rem"
+                      }}
+                    >
+                      <div className="flex flex-col gap-3">
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                          <div className="space-y-1 sm:pr-4">
+                            <h3 className="font-semibold tracking-tight text-xs sm:text-sm leading-snug text-foreground">
+                              {askDetails.question}
+                            </h3>
+                            {askDetails.description && !isDetailsCollapsed && (
+                              <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed">
+                                {askDetails.description}
+                              </p>
+                            )}
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setIsDetailsCollapsed(prev => !prev)}
+                            className="inline-flex items-center gap-1.5 whitespace-nowrap self-start sm:self-start"
+                            aria-expanded={!isDetailsCollapsed}
+                          >
+                            {isDetailsCollapsed ? (
+                              <>
+                                <ChevronDown className="h-4 w-4" />
+                                Infos
+                              </>
+                            ) : (
+                              <>
+                                <ChevronUp className="h-4 w-4" />
+                                Masquer
+                              </>
+                            )}
+                          </Button>
+                        </div>
 
-              {/* Suggested Questions Panel - Consultant mode, spokesperson only */}
-              {isConsultantMode && isSpokesperson && (
-                <SuggestedQuestionsPanel
-                  questions={consultantAnalysis.questions}
-                  isAnalyzing={consultantAnalysis.isAnalyzing}
-                />
-              )}
+                        <AnimatePresence initial={false}>
+                          {!isDetailsCollapsed && (
+                            <motion.div
+                              key="ask-details"
+                              initial={{ height: 0, opacity: 0 }}
+                              animate={{ height: "auto", opacity: 1 }}
+                              exit={{ height: 0, opacity: 0 }}
+                              className="overflow-hidden"
+                            >
+                              <div className="grid gap-2 text-xs text-muted-foreground sm:grid-cols-3">
+                                <div className="space-y-1">
+                                  <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/80">Session</p>
+                                  <div className="flex flex-wrap items-center gap-1">
+                                    {sessionData.askKey && (
+                                      <span className="inline-flex items-center rounded-full bg-white/80 px-2 py-0.5 text-[10px] font-medium text-foreground shadow-sm">
+                                        Session:
+                                        <span className="font-mono text-foreground ml-1">{sessionData.askKey}</span>
+                                      </span>
+                                    )}
+                                    {sessionData.ask && (
+                                      <span className={sessionData.ask.isActive ? 'session-active' : 'session-closed'}>
+                                        {sessionData.ask.isActive ? 'Active' : 'Closed'}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
 
-              {/* Insights Panel - with reduced height */}
-              <div className="flex-1 min-h-0 overflow-hidden">
-                <InsightPanel
-                  insights={sessionData.insights}
-                  askKey={sessionData.askKey}
-                  isDetectingInsights={isDetectingInsights}
-                  onInsightUpdate={handleInsightUpdate}
-                />
-              </div>
+                                <div className="space-y-1">
+                                  <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/80">Statut</p>
+                                  <div className="flex flex-wrap items-center gap-1">
+                                    <span className="inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
+                                      {statusLabel}
+                                    </span>
+                                    {timeRemaining && (
+                                      <span className="inline-flex items-center gap-1 text-primary text-[10px]">
+                                        <Clock className="h-3 w-3" />
+                                        <span>{timeRemaining}</span>
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+
+                                <div className="space-y-1">
+                                  <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/80">Cadre</p>
+                                  <div className="space-y-0.5 text-foreground">
+                                    <p className="font-medium text-[10px]">
+                                      {getDeliveryModeLabel(askDetails.deliveryMode)}
+                                    </p>
+                                    <p className="text-muted-foreground text-[10px]">
+                                      {getConversationModeDescription(askDetails.conversationMode)}
+                                    </p>
+                                  </div>
+                                </div>
+
+                                <div className="space-y-1 sm:col-span-3">
+                                  <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/80">
+                                    Participants ({participants.length})
+                                  </p>
+                                  <div className="flex flex-wrap gap-1">
+                                    {participants.length > 0 ? (
+                                      participants.map(participant => (
+                                        <span
+                                          key={participant.id}
+                                          className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] text-primary"
+                                        >
+                                          <span className="font-medium text-primary/90">{participant.name}</span>
+                                          {participant.isSpokesperson && (
+                                            <span className="text-[9px] uppercase tracking-wide text-primary/70">porte-parole</span>
+                                          )}
+                                        </span>
+                                      ))
+                                    ) : (
+                                      <span className="text-muted-foreground text-[10px]">Aucun participant pour le moment</span>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </div>
+                    </motion.div>
+                  )}
+
+                  {/* Suggested Questions Panel - Consultant mode, spokesperson only */}
+                  {isConsultantMode && isSpokesperson && (
+                    <SuggestedQuestionsPanel
+                      questions={consultantAnalysis.questions}
+                      isAnalyzing={consultantAnalysis.isAnalyzing}
+                    />
+                  )}
+
+                  {/* Insights Panel - with reduced height */}
+                  <div ref={insightsPanelRef} className="flex-1 min-h-0 overflow-hidden">
+                    <InsightPanel
+                      insights={sessionData.insights}
+                      askKey={sessionData.askKey}
+                      isDetectingInsights={isDetectingInsights}
+                      onInsightUpdate={handleInsightUpdate}
+                    />
+                  </div>
+                </>
+              )}
             </div>
           </motion.div>
         </main>

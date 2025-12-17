@@ -26,8 +26,8 @@ describe('TranscriptionManager silence-based turn detection', () => {
       undefined, // NO semantic options - disabled
     );
 
-    // User says something
-    manager.handlePartialTranscript('je voulais savoir si tu étais dispo demain');
+    // User says something (with timestamps)
+    manager.handlePartialTranscript('je voulais savoir si tu étais dispo demain', 0, 2);
 
     // Message should NOT be processed yet (silence timeout is 10s)
     expect(processUserMessage).not.toHaveBeenCalled();
@@ -78,14 +78,14 @@ describe('TranscriptionManager silence-based turn detection', () => {
     );
 
     // User starts speaking
-    manager.handlePartialTranscript('Bonjour');
+    manager.handlePartialTranscript('Bonjour', 0, 0.5);
 
     // Wait 8 seconds (not enough for 10s timeout)
     jest.advanceTimersByTime(8000);
     expect(processUserMessage).not.toHaveBeenCalled();
 
-    // User continues speaking - this resets the timeout
-    manager.handlePartialTranscript('Bonjour je voulais');
+    // User continues speaking - this resets the timeout (overlapping time range)
+    manager.handlePartialTranscript('Bonjour je voulais', 0, 1);
 
     // Wait another 8 seconds (total 16s but timeout was reset)
     jest.advanceTimersByTime(8000);
@@ -115,14 +115,14 @@ describe('TranscriptionManager silence-based turn detection', () => {
     );
 
     // User speaks and stops
-    manager.handlePartialTranscript('Je pense que');
+    manager.handlePartialTranscript('Je pense que', 0, 1);
 
     // Almost at timeout (9.5s)
     jest.advanceTimersByTime(9500);
     expect(processUserMessage).not.toHaveBeenCalled();
 
-    // User resumes just before timeout!
-    manager.handlePartialTranscript('Je pense que c\'est une bonne idée');
+    // User resumes just before timeout! (extended time range)
+    manager.handlePartialTranscript('Je pense que c\'est une bonne idée', 0, 2);
 
     // The timeout should have been cancelled and reset
     // Wait the full 10s from the new partial

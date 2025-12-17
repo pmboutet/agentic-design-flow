@@ -124,35 +124,16 @@ export async function POST(
       );
 
       // Get REAL messages (IMPORTANT: include plan_step_id for step variable support)
-      let messageRows: MessageRow[] = [];
-      if (conversationThread) {
-        const { messages: threadMessages } = await getMessagesForThread(
-          supabase,
-          conversationThread.id
-        );
+      // For TEST MODE, we fetch ALL messages from the session regardless of thread
+      // This ensures we see all messages even if they're in different threads
+      // (e.g., in consultant mode, messages might be in individual threads created during real usage)
+      const { data: allMessages } = await supabase
+        .from('messages')
+        .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at, conversation_thread_id, plan_step_id')
+        .eq('ask_session_id', askRow.id)
+        .order('created_at', { ascending: true });
 
-        const { data: messagesWithoutThread } = await supabase
-          .from('messages')
-          .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at, conversation_thread_id, plan_step_id')
-          .eq('ask_session_id', askRow.id)
-          .is('conversation_thread_id', null)
-          .order('created_at', { ascending: true });
-
-        const threadMessagesList = (threadMessages ?? []) as MessageRow[];
-        const messagesWithoutThreadList = (messagesWithoutThread ?? []) as MessageRow[];
-        messageRows = [...threadMessagesList, ...messagesWithoutThreadList].sort((a, b) => {
-          const timeA = new Date(a.created_at ?? new Date().toISOString()).getTime();
-          const timeB = new Date(b.created_at ?? new Date().toISOString()).getTime();
-          return timeA - timeB;
-        });
-      } else {
-        const { data } = await supabase
-          .from('messages')
-          .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at, conversation_thread_id, plan_step_id')
-          .eq('ask_session_id', askRow.id)
-          .order('created_at', { ascending: true });
-        messageRows = (data ?? []) as MessageRow[];
-      }
+      const messageRows: MessageRow[] = (allMessages ?? []) as MessageRow[];
 
       // Get user info for message senders
       const messageUserIds = (messageRows ?? [])

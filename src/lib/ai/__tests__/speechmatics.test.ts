@@ -537,17 +537,27 @@ describe('TranscriptionManager', () => {
   let mockMessageCallback: jest.Mock<void, [SpeechmaticsMessageEvent]>;
   let mockProcessUserMessage: jest.Mock<Promise<void>, [string]>;
   let conversationHistory: Array<{ role: 'user' | 'agent'; content: string }>;
+  // Helper to generate incrementing timestamps for tests
+  let timeCounter: number;
 
   beforeEach(() => {
     jest.useFakeTimers();
     mockMessageCallback = jest.fn();
     mockProcessUserMessage = jest.fn().mockResolvedValue(undefined);
     conversationHistory = [];
+    timeCounter = 0;
   });
 
   afterEach(() => {
     jest.useRealTimers();
   });
+
+  // Helper function to generate timestamps for test calls
+  const nextTime = () => {
+    const start = timeCounter;
+    timeCounter += 1;
+    return { start, end: timeCounter };
+  };
 
   describe('handlePartialTranscript', () => {
     test('should ignore empty transcripts', () => {
@@ -558,13 +568,15 @@ describe('TranscriptionManager', () => {
         true
       );
 
-      manager.handlePartialTranscript('');
-      manager.handlePartialTranscript('   ');
+      const t = nextTime();
+      manager.handlePartialTranscript('', t.start, t.end);
+      const t2 = nextTime();
+      manager.handlePartialTranscript('   ', t2.start, t2.end);
 
       expect(mockMessageCallback).not.toHaveBeenCalled();
     });
 
-    test('should skip duplicate partial transcripts', () => {
+    test('should skip duplicate partial transcripts with same time range', () => {
       const manager = new TranscriptionManager(
         mockMessageCallback,
         mockProcessUserMessage,
@@ -572,11 +584,14 @@ describe('TranscriptionManager', () => {
         true
       );
 
-      manager.handlePartialTranscript('Hello world');
+      const t = nextTime();
+      manager.handlePartialTranscript('Hello world', t.start, t.end);
       mockMessageCallback.mockClear();
 
-      manager.handlePartialTranscript('Hello world');
+      // Same time range = replacement, callback still fires with same content
+      manager.handlePartialTranscript('Hello world', t.start, t.end);
 
+      // Rate limited - won't fire again
       expect(mockMessageCallback).not.toHaveBeenCalled();
     });
 
@@ -588,7 +603,8 @@ describe('TranscriptionManager', () => {
         true
       );
 
-      manager.handlePartialTranscript('Hello world');
+      const t = nextTime();
+      manager.handlePartialTranscript('Hello world', t.start, t.end);
 
       expect(mockMessageCallback).toHaveBeenCalledWith(expect.objectContaining({
         role: 'user',
@@ -605,7 +621,8 @@ describe('TranscriptionManager', () => {
         false // Partials disabled
       );
 
-      manager.handlePartialTranscript('Hello world');
+      const t = nextTime();
+      manager.handlePartialTranscript('Hello world', t.start, t.end);
 
       expect(mockMessageCallback).not.toHaveBeenCalled();
     });
@@ -618,15 +635,18 @@ describe('TranscriptionManager', () => {
         true
       );
 
-      manager.handlePartialTranscript('Hello');
+      const t1 = nextTime();
+      manager.handlePartialTranscript('Bonjour', t1.start, t1.end);
 
       // Advance past rate limit
       jest.advanceTimersByTime(150);
 
-      manager.handlePartialTranscript('Hello world');
+      const t2 = nextTime();
+      manager.handlePartialTranscript('Comment allez-vous', t2.start, t2.end);
 
+      // Non-overlapping segments concatenate (cleaned of consecutive duplicates)
       expect(mockMessageCallback).toHaveBeenLastCalledWith(expect.objectContaining({
-        content: 'Hello world',
+        content: 'Bonjour Comment allez-vous',
       }));
     });
 
@@ -638,17 +658,20 @@ describe('TranscriptionManager', () => {
         true
       );
 
-      manager.handlePartialTranscript('Hello');
+      const t1 = nextTime();
+      manager.handlePartialTranscript('Hello', t1.start, t1.end);
       mockMessageCallback.mockClear();
 
       // Immediately send another (within rate limit)
-      manager.handlePartialTranscript('Hello world');
+      const t2 = nextTime();
+      manager.handlePartialTranscript('Hello world', t2.start, t2.end);
 
       expect(mockMessageCallback).not.toHaveBeenCalled();
 
       // Advance past rate limit
       jest.advanceTimersByTime(150);
-      manager.handlePartialTranscript('Hello world again');
+      const t3 = nextTime();
+      manager.handlePartialTranscript('Hello world again', t3.start, t3.end);
 
       expect(mockMessageCallback).toHaveBeenCalled();
     });
@@ -663,15 +686,17 @@ describe('TranscriptionManager', () => {
         true
       );
 
-      manager.handleFinalTranscript('');
-      manager.handleFinalTranscript('   ');
+      const t1 = nextTime();
+      manager.handleFinalTranscript('', t1.start, t1.end);
+      const t2 = nextTime();
+      manager.handleFinalTranscript('   ', t2.start, t2.end);
 
       jest.runAllTimers();
 
       expect(mockProcessUserMessage).not.toHaveBeenCalled();
     });
 
-    test('should accumulate transcript segments', () => {
+    test('should replace partial with final for same time range', () => {
       const manager = new TranscriptionManager(
         mockMessageCallback,
         mockProcessUserMessage,
@@ -679,8 +704,9 @@ describe('TranscriptionManager', () => {
         true
       );
 
-      manager.handleFinalTranscript('Hello');
-      manager.handleFinalTranscript('Hello world');
+      // Same time range - final replaces partial
+      manager.handleFinalTranscript('Hello', 0, 1);
+      manager.handleFinalTranscript('Hello world', 0, 2);
 
       // Trigger processing
       jest.runAllTimers();
@@ -688,7 +714,7 @@ describe('TranscriptionManager', () => {
       expect(mockProcessUserMessage).toHaveBeenCalledWith('Hello world');
     });
 
-    test('should merge separate transcript segments', () => {
+    test('should merge separate non-overlapping transcript segments', () => {
       const manager = new TranscriptionManager(
         mockMessageCallback,
         mockProcessUserMessage,
@@ -696,12 +722,12 @@ describe('TranscriptionManager', () => {
         true
       );
 
-      manager.handleFinalTranscript('First part');
-      manager.handleFinalTranscript('Second part');
+      manager.handleFinalTranscript('First part', 0, 1);
+      manager.handleFinalTranscript('Second part', 1, 2);
 
       jest.runAllTimers();
 
-      expect(mockProcessUserMessage).toHaveBeenCalledWith(expect.stringContaining('First part'));
+      expect(mockProcessUserMessage).toHaveBeenCalledWith('First part Second part');
     });
   });
 
@@ -714,7 +740,7 @@ describe('TranscriptionManager', () => {
         true
       );
 
-      manager.handleFinalTranscript('This is a complete sentence.');
+      manager.handleFinalTranscript('This is a complete sentence.', 0, 2);
       manager.markEndOfUtterance();
 
       jest.runAllTimers();
@@ -732,7 +758,7 @@ describe('TranscriptionManager', () => {
         true
       );
 
-      manager.handleFinalTranscript('Hi');
+      manager.handleFinalTranscript('Hi', 0, 0.5);
       // Without force and absoluteFailsafe, short messages should be skipped
       await manager.processPendingTranscript(false, false);
 
@@ -747,13 +773,13 @@ describe('TranscriptionManager', () => {
         true
       );
 
-      manager.handleFinalTranscript('This is a complete message for testing.');
+      manager.handleFinalTranscript('This is a complete message for testing.', 0, 2);
       await manager.processPendingTranscript(true, true);
 
       mockProcessUserMessage.mockClear();
 
-      // Same message again
-      manager.handleFinalTranscript('This is a complete message for testing.');
+      // Same message again (different time range, but same content = skip)
+      manager.handleFinalTranscript('This is a complete message for testing.', 2, 4);
       await manager.processPendingTranscript(true, true);
 
       expect(mockProcessUserMessage).not.toHaveBeenCalled();
@@ -767,7 +793,7 @@ describe('TranscriptionManager', () => {
         true
       );
 
-      manager.handleFinalTranscript('This is a complete test message.');
+      manager.handleFinalTranscript('This is a complete test message.', 0, 2);
       await manager.processPendingTranscript(true, true);
 
       expect(conversationHistory).toContainEqual({
@@ -784,7 +810,7 @@ describe('TranscriptionManager', () => {
         true
       );
 
-      manager.handleFinalTranscript('Hello, this is my message to the AI assistant.');
+      manager.handleFinalTranscript('Hello, this is my message to the AI assistant.', 0, 3);
       await manager.processPendingTranscript(true, true);
 
       expect(mockProcessUserMessage).toHaveBeenCalledWith('Hello, this is my message to the AI assistant.');
@@ -799,7 +825,7 @@ describe('TranscriptionManager', () => {
       );
 
       // Message with extra spaces and repeated words
-      manager.handleFinalTranscript('Hello   world   world');
+      manager.handleFinalTranscript('Hello   world   world', 0, 2);
       await manager.processPendingTranscript(true, true);
 
       // Should be cleaned
@@ -816,7 +842,7 @@ describe('TranscriptionManager', () => {
         true
       );
 
-      manager.handleFinalTranscript('This will be discarded');
+      manager.handleFinalTranscript('This will be discarded', 0, 2);
       manager.discardPendingTranscript();
 
       jest.runAllTimers();
@@ -834,7 +860,7 @@ describe('TranscriptionManager', () => {
         true
       );
 
-      manager.handleFinalTranscript('Test message');
+      manager.handleFinalTranscript('Test message', 0, 1);
       manager.cleanup();
 
       jest.runAllTimers();
@@ -853,7 +879,7 @@ describe('TranscriptionManager', () => {
       );
 
       // French connector words that indicate incomplete utterance
-      manager.handleFinalTranscript('Je pense que');
+      manager.handleFinalTranscript('Je pense que', 0, 1);
       await manager.processPendingTranscript(false, false);
 
       expect(mockProcessUserMessage).not.toHaveBeenCalled();
@@ -867,7 +893,7 @@ describe('TranscriptionManager', () => {
         true
       );
 
-      manager.handleFinalTranscript('Je pense que c\'est une bonne idée.');
+      manager.handleFinalTranscript('Je pense que c\'est une bonne idée.', 0, 3);
       await manager.processPendingTranscript(true, true);
 
       expect(mockProcessUserMessage).toHaveBeenCalled();
@@ -881,15 +907,15 @@ describe('TranscriptionManager', () => {
         true
       );
 
-      manager.handleFinalTranscript('Je pense que');
+      manager.handleFinalTranscript('Je pense que', 0, 1);
       await manager.processPendingTranscript(true, true); // absoluteFailsafe = true
 
       expect(mockProcessUserMessage).toHaveBeenCalledWith('Je pense que');
     });
   });
 
-  describe('deduplication', () => {
-    test('should detect orphan word repeats', async () => {
+  describe('deduplication via timestamps', () => {
+    test('should skip duplicate content after processing', async () => {
       const manager = new TranscriptionManager(
         mockMessageCallback,
         mockProcessUserMessage,
@@ -898,19 +924,19 @@ describe('TranscriptionManager', () => {
       );
 
       // First message
-      manager.handleFinalTranscript('Je suis reparti de mon côté');
+      manager.handleFinalTranscript('Je suis reparti de mon côté', 0, 2);
       await manager.processPendingTranscript(true, true);
 
       mockProcessUserMessage.mockClear();
 
-      // Orphan word from previous message
-      manager.handleFinalTranscript('côté');
+      // Same content = skipped (detected as duplicate)
+      manager.handleFinalTranscript('Je suis reparti de mon côté', 2, 3);
       await manager.processPendingTranscript(true, true);
 
       expect(mockProcessUserMessage).not.toHaveBeenCalled();
     });
 
-    test('should detect fuzzy end duplicates', async () => {
+    test('should process genuinely new content', async () => {
       const manager = new TranscriptionManager(
         mockMessageCallback,
         mockProcessUserMessage,
@@ -918,21 +944,21 @@ describe('TranscriptionManager', () => {
         true
       );
 
-      manager.handleFinalTranscript('Elle est allée à la fête');
+      manager.handleFinalTranscript('First message here', 0, 2);
       await manager.processPendingTranscript(true, true);
 
       mockProcessUserMessage.mockClear();
 
-      // Variation of last part
-      manager.handleFinalTranscript('fête.');
+      // Different content = should process
+      manager.handleFinalTranscript('Second completely different message', 2, 4);
       await manager.processPendingTranscript(true, true);
 
-      expect(mockProcessUserMessage).not.toHaveBeenCalled();
+      expect(mockProcessUserMessage).toHaveBeenCalledWith('Second completely different message');
     });
   });
 
-  describe('similarity calculation', () => {
-    test('should skip very similar transcripts', () => {
+  describe('timestamp-based segment handling', () => {
+    test('should replace overlapping partials with final', async () => {
       const manager = new TranscriptionManager(
         mockMessageCallback,
         mockProcessUserMessage,
@@ -940,17 +966,15 @@ describe('TranscriptionManager', () => {
         true
       );
 
-      manager.handlePartialTranscript('Hello world this is a test');
-      mockMessageCallback.mockClear();
+      // Partial covering 0-1
+      manager.handlePartialTranscript('Hel', 0, 0.5);
+      manager.handlePartialTranscript('Hello', 0, 1);
 
-      // Advance past rate limit
-      jest.advanceTimersByTime(150);
+      // Final covering 0-2 (overlaps and replaces partials)
+      manager.handleFinalTranscript('Hello world', 0, 2);
+      await manager.processPendingTranscript(true, true);
 
-      // Very similar (word order preserved, minor variation)
-      manager.handlePartialTranscript('Hello world this is a test!');
-
-      // Should be skipped due to high similarity
-      expect(mockMessageCallback).not.toHaveBeenCalled();
+      expect(mockProcessUserMessage).toHaveBeenCalledWith('Hello world');
     });
   });
 
@@ -963,10 +987,10 @@ describe('TranscriptionManager', () => {
         true
       );
 
-      manager.handleFinalTranscript('This is a complete sentence for testing purposes.');
+      manager.handleFinalTranscript('This is a complete sentence for testing purposes.', 0, 3);
 
-      // Advance past silence timeout (2 seconds)
-      jest.advanceTimersByTime(2500);
+      // Advance past silence timeout
+      jest.advanceTimersByTime(11000);
 
       expect(mockProcessUserMessage).toHaveBeenCalled();
     });
@@ -980,25 +1004,24 @@ describe('TranscriptionManager', () => {
       );
 
       // Use partial transcripts to test timeout reset
-      // Partials don't trigger utterance debounce as aggressively
-      manager.handlePartialTranscript('First part of');
+      manager.handlePartialTranscript('First part of', 0, 1);
 
-      // Advance partial time (less than silence timeout of 2000ms)
+      // Advance partial time (less than silence timeout)
       jest.advanceTimersByTime(500);
 
-      manager.handlePartialTranscript('First part of message');
+      manager.handlePartialTranscript('First part of message', 0, 2);
 
       // Advance partial time again
       jest.advanceTimersByTime(500);
 
-      // Should not have processed yet (no final transcript yet)
+      // Should not have processed yet
       expect(mockProcessUserMessage).not.toHaveBeenCalled();
 
       // Now add a final transcript
-      manager.handleFinalTranscript('First part of message continued here');
+      manager.handleFinalTranscript('First part of message continued here', 0, 3);
 
-      // Advance past timeout (2000ms + debounce)
-      jest.advanceTimersByTime(3000);
+      // Advance past timeout
+      jest.advanceTimersByTime(11000);
 
       expect(mockProcessUserMessage).toHaveBeenCalled();
     });
@@ -1013,7 +1036,7 @@ describe('TranscriptionManager', () => {
         true
       );
 
-      manager.handleFinalTranscript('Hello hello world world world');
+      manager.handleFinalTranscript('Hello hello world world world', 0, 2);
       await manager.processPendingTranscript(true, true);
 
       expect(mockProcessUserMessage).toHaveBeenCalledWith('Hello world');
@@ -1027,7 +1050,7 @@ describe('TranscriptionManager', () => {
         true
       );
 
-      manager.handleFinalTranscript('Hello , world .Test');
+      manager.handleFinalTranscript('Hello , world .Test', 0, 2);
       await manager.processPendingTranscript(true, true);
 
       expect(mockProcessUserMessage).toHaveBeenCalledWith('Hello, world. Test');
@@ -1042,7 +1065,7 @@ describe('TranscriptionManager', () => {
       );
 
       // The cleanTranscript normalizes multiple spaces to single space
-      manager.handleFinalTranscript('Hello    world   test');
+      manager.handleFinalTranscript('Hello    world   test', 0, 2);
       await manager.processPendingTranscript(true, true);
 
       expect(mockProcessUserMessage).toHaveBeenCalledWith('Hello world test');
@@ -1058,12 +1081,12 @@ describe('TranscriptionManager', () => {
         true
       );
 
-      manager.handlePartialTranscript('Hello');
+      manager.handlePartialTranscript('Hello', 0, 0.5);
       const firstId = mockMessageCallback.mock.calls[0][0].messageId;
 
       jest.advanceTimersByTime(150);
 
-      manager.handlePartialTranscript('Hello world');
+      manager.handlePartialTranscript('Hello world', 0, 1);
       const secondId = mockMessageCallback.mock.calls[1][0].messageId;
 
       expect(firstId).toBe(secondId);
@@ -1078,7 +1101,7 @@ describe('TranscriptionManager', () => {
       );
 
       // First turn
-      manager.handlePartialTranscript('First message here.');
+      manager.handlePartialTranscript('First message here.', 0, 1);
       const firstId = mockMessageCallback.mock.calls[0][0].messageId;
 
       await manager.processPendingTranscript(true, true);
@@ -1090,7 +1113,7 @@ describe('TranscriptionManager', () => {
       const callCountBefore = mockMessageCallback.mock.calls.length;
 
       // New turn - the message ID will be reset after processPendingTranscript
-      manager.handlePartialTranscript('Second message here.');
+      manager.handlePartialTranscript('Second message here.', 1, 2);
 
       // Check that a new call was made
       const newCalls = mockMessageCallback.mock.calls.slice(callCountBefore);
@@ -1186,7 +1209,7 @@ describe('Diarization Support', () => {
         true
       );
 
-      manager.handlePartialTranscript('Hello world', 'S1');
+      manager.handlePartialTranscript('Hello world', 0, 1, 'S1');
 
       expect(mockMessageCallback).toHaveBeenCalledWith(expect.objectContaining({
         role: 'user',
@@ -1204,7 +1227,7 @@ describe('Diarization Support', () => {
         true
       );
 
-      manager.handleFinalTranscript('This is a complete message for testing purposes.', 'S2');
+      manager.handleFinalTranscript('This is a complete message for testing purposes.', 0, 3, 'S2');
       await manager.processPendingTranscript(true, true);
 
       expect(mockMessageCallback).toHaveBeenCalledWith(expect.objectContaining({
@@ -1222,11 +1245,11 @@ describe('Diarization Support', () => {
         true
       );
 
-      manager.handlePartialTranscript('Hello', 'S1');
+      manager.handlePartialTranscript('Hello', 0, 0.5, 'S1');
 
       jest.advanceTimersByTime(150);
 
-      manager.handlePartialTranscript('Hello world', 'S1');
+      manager.handlePartialTranscript('Hello world', 0, 1, 'S1');
 
       const calls = mockMessageCallback.mock.calls;
       expect(calls[calls.length - 1][0].speaker).toBe('S1');
@@ -1240,12 +1263,12 @@ describe('Diarization Support', () => {
         true
       );
 
-      manager.handlePartialTranscript('Hello from speaker one', 'S1');
+      manager.handlePartialTranscript('Hello from speaker one', 0, 1, 'S1');
 
       jest.advanceTimersByTime(150);
 
-      // Different speaker
-      manager.handlePartialTranscript('Hello from speaker two', 'S2');
+      // Different speaker - new time range
+      manager.handlePartialTranscript('Hello from speaker two', 1, 2, 'S2');
 
       const lastCall = mockMessageCallback.mock.calls[mockMessageCallback.mock.calls.length - 1][0];
       expect(lastCall.speaker).toBe('S2');
@@ -1259,7 +1282,7 @@ describe('Diarization Support', () => {
         true
       );
 
-      manager.handlePartialTranscript('Unknown speaker content', 'UU');
+      manager.handlePartialTranscript('Unknown speaker content', 0, 1, 'UU');
 
       expect(mockMessageCallback).toHaveBeenCalledWith(expect.objectContaining({
         speaker: 'UU',
@@ -1276,7 +1299,7 @@ describe('Diarization Support', () => {
 
       expect(manager.getCurrentSpeaker()).toBeUndefined();
 
-      manager.handlePartialTranscript('Hello', 'S1');
+      manager.handlePartialTranscript('Hello', 0, 0.5, 'S1');
 
       expect(manager.getCurrentSpeaker()).toBe('S1');
     });
@@ -1289,7 +1312,7 @@ describe('Diarization Support', () => {
         true
       );
 
-      manager.handlePartialTranscript('Hello', 'S1');
+      manager.handlePartialTranscript('Hello', 0, 0.5, 'S1');
       expect(manager.getCurrentSpeaker()).toBe('S1');
 
       manager.cleanup();

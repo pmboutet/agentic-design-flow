@@ -57,3 +57,20 @@ export type SpeechmaticsMessageCallback = (message: SpeechmaticsMessageEvent) =>
 export type SpeechmaticsErrorCallback = (error: Error) => void;
 export type SpeechmaticsConnectionCallback = (connected: boolean) => void;
 export type SpeechmaticsAudioCallback = (audio: Uint8Array) => void;
+
+// Re-export segment store types for convenience
+export type { TimestampedSegment } from './speechmatics-segment-store';
+
+/**
+ * Word-level timing information from Speechmatics results array
+ */
+export interface WordSegment {
+  /** Start time in seconds from audio start */
+  startTime: number;
+  /** End time in seconds from audio start */
+  endTime: number;
+  /** The word content */
+  content: string;
+  /** Speaker identifier from diarization */
+  speaker?: string;
+}

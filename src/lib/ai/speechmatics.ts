@@ -329,9 +329,13 @@ export class SpeechmaticsVoiceAgent {
 
     // Handle partial transcription
     if (data.message === "AddPartialTranscript") {
-      // Speechmatics API structure: transcript is in metadata.transcript (full text)
-      // Speaker info is in results[].alternatives[0].speaker (S1, S2, UU)
+      // Speechmatics API structure:
+      // - transcript is in metadata.transcript (full text)
+      // - start_time/end_time are in metadata (segment timing)
+      // - Speaker info is in results[].alternatives[0].speaker (S1, S2, UU)
       const transcript = data.metadata?.transcript || "";
+      const startTime = data.metadata?.start_time ?? 0;
+      const endTime = data.metadata?.end_time ?? 0;
       const speaker = this.extractDominantSpeaker(data.results);
 
       if (this.audio && transcript && transcript.trim()) {
@@ -368,17 +372,21 @@ export class SpeechmaticsVoiceAgent {
         // Validate barge-in with transcript content, context, and speaker (for diarization-based echo detection)
         this.audio?.validateBargeInWithTranscript(trimmedTranscript, recentContext, speaker);
 
-        // Process partial transcript normally (pass speaker for diarization)
-        this.transcriptionManager?.handlePartialTranscript(trimmedTranscript, speaker);
+        // Process partial transcript with timestamps for deduplication
+        this.transcriptionManager?.handlePartialTranscript(trimmedTranscript, startTime, endTime, speaker);
       }
       return;
     }
 
     // Handle final transcription
     if (data.message === "AddTranscript") {
-      // Speechmatics API structure: transcript is in metadata.transcript (full text)
-      // Speaker info is in results[].alternatives[0].speaker (S1, S2, UU)
+      // Speechmatics API structure:
+      // - transcript is in metadata.transcript (full text)
+      // - start_time/end_time are in metadata (segment timing)
+      // - Speaker info is in results[].alternatives[0].speaker (S1, S2, UU)
       const transcript = data.metadata?.transcript || "";
+      const startTime = data.metadata?.start_time ?? 0;
+      const endTime = data.metadata?.end_time ?? 0;
       const speaker = this.extractDominantSpeaker(data.results);
 
       if (transcript && transcript.trim()) {
@@ -392,8 +400,8 @@ export class SpeechmaticsVoiceAgent {
         // Validate barge-in with transcript content, context, and speaker (for diarization-based echo detection)
         this.audio?.validateBargeInWithTranscript(transcript.trim(), recentContext, speaker);
 
-        // Process final transcript normally (pass speaker for diarization)
-        this.transcriptionManager?.handleFinalTranscript(transcript.trim(), speaker);
+        // Process final transcript with timestamps for deduplication
+        this.transcriptionManager?.handleFinalTranscript(transcript.trim(), startTime, endTime, speaker);
       }
       return;
     }

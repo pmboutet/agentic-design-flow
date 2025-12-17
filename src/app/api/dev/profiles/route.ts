@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminSupabaseClient } from "@/lib/supabaseAdmin";
 import { type ApiResponse, type ManagedUser } from "@/types";
-import { fetchProjectMemberships, mapManagedUser } from "../../admin/profiles/helpers";
+import { fetchProjectMemberships, fetchClientMemberships, mapManagedUser } from "../../admin/profiles/helpers";
 
 /**
  * Development-only endpoint to list all profiles.
@@ -23,10 +23,10 @@ export async function GET(request: NextRequest) {
   try {
     const supabase = getAdminSupabaseClient();
 
-    // Get all profiles
+    // Get all profiles (client_id was removed, use client_members for client info)
     const { data, error } = await supabase
       .from("profiles")
-      .select("*, clients(name)")
+      .select("*")
       .order("created_at", { ascending: false });
 
     if (error) {
@@ -34,11 +34,14 @@ export async function GET(request: NextRequest) {
     }
 
     const userIds = (data ?? []).map((row) => row.id).filter((id): id is string => Boolean(id));
-    const membershipMap = await fetchProjectMemberships(supabase, userIds);
+    const [membershipMap, clientMembershipMap] = await Promise.all([
+      fetchProjectMemberships(supabase, userIds),
+      fetchClientMemberships(supabase, userIds),
+    ]);
 
     return NextResponse.json<ApiResponse<ManagedUser[]>>({
       success: true,
-      data: (data ?? []).map((row) => mapManagedUser(row, membershipMap)),
+      data: (data ?? []).map((row) => mapManagedUser(row, membershipMap, clientMembershipMap)),
     });
   } catch (error) {
     return NextResponse.json<ApiResponse>(

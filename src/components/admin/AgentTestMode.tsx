@@ -173,7 +173,9 @@ export function AgentTestMode({ agentId, agentSlug, onClose, colorScheme }: Agen
   const [error, setError] = useState<string | null>(null);
 
   const slug = agentSlug.toLowerCase();
-  const isAskAgent = slug.includes("conversation") || slug.includes("chat") || slug.includes("ask-conversation");
+  // Consultant agents also need ASK session context (they use shared thread, no participant needed)
+  const isConsultantAgent = slug.includes("consultant");
+  const isAskAgent = slug.includes("conversation") || slug.includes("chat") || slug.includes("ask-conversation") || isConsultantAgent;
   const isInsightAgent = slug.includes("insight-detection") || slug.includes("insight");
   const isAskGenerator = slug.includes("ask-generator") || slug.includes("generator");
   const isChallengeBuilder = slug.includes("challenge") || slug.includes("builder");
@@ -250,8 +252,9 @@ export function AgentTestMode({ agentId, agentSlug, onClose, colorScheme }: Agen
   }, [selectedProjectId]);
 
   // Load participants when ASK session is selected
+  // Note: Consultant agents use shared thread, so they don't need participant selection
   useEffect(() => {
-    if (!selectedAskId || (!isAskAgent && !isInsightAgent)) {
+    if (!selectedAskId || (!isAskAgent && !isInsightAgent) || isConsultantAgent) {
       setParticipants([]);
       setSelectedParticipantUserId("");
       return;
@@ -288,7 +291,7 @@ export function AgentTestMode({ agentId, agentSlug, onClose, colorScheme }: Agen
     };
 
     loadParticipants();
-  }, [selectedAskId, isAskAgent, isInsightAgent]);
+  }, [selectedAskId, isAskAgent, isInsightAgent, isConsultantAgent]);
 
   const handleTest = async () => {
     setIsLoading(true);
@@ -303,13 +306,15 @@ export function AgentTestMode({ agentId, agentSlug, onClose, colorScheme }: Agen
           setIsLoading(false);
           return;
         }
-        if (!selectedParticipantUserId) {
+        // Consultant agents use shared thread, so they don't need participant selection
+        if (!isConsultantAgent && !selectedParticipantUserId) {
           setError("Veuillez sélectionner un participant (utilisateur) pour simuler");
           setIsLoading(false);
           return;
         }
         body.askSessionId = selectedAskId;
-        body.userId = selectedParticipantUserId;
+        // For consultant agents, userId is null (uses shared thread)
+        body.userId = isConsultantAgent ? null : selectedParticipantUserId;
       } else if (isAskGenerator) {
         if (!selectedChallengeId) {
           setError("Veuillez sélectionner un challenge");
@@ -385,7 +390,14 @@ export function AgentTestMode({ agentId, agentSlug, onClose, colorScheme }: Agen
                   ))}
                 </select>
               </div>
-              {selectedAskId && (
+              {selectedAskId && isConsultantAgent && (
+                <div className="p-3 bg-slate-800/50 rounded-lg border border-slate-600/40">
+                  <p className="text-xs text-slate-400">
+                    Les agents consultant utilisent un thread partagé. Tous les messages de la session seront inclus.
+                  </p>
+                </div>
+              )}
+              {selectedAskId && !isConsultantAgent && (
                 <div className="space-y-2">
                   <Label className="text-slate-300">Sélectionner un participant (pour simuler sa perspective)</Label>
                   <select
