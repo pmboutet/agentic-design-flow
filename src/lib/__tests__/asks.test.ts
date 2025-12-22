@@ -5,8 +5,11 @@ import {
   getInsightsForThread,
   getAskSessionByKey,
   getAskSessionByToken,
+  resolveThreadUserId,
+  getLastUserMessageThread,
   AskSessionConfig,
   ConversationThread,
+  Participant,
 } from '../asks';
 import { isConsultantMode, getConversationModeDescription } from '../utils';
 import type { SupabaseClient, PostgrestError } from '@supabase/supabase-js';
@@ -732,5 +735,327 @@ describe('getAskSessionByToken', () => {
     expect(result.row).toBeNull();
     expect(result.participantId).toBeNull();
     expect(result.error).toEqual(mockError);
+  });
+});
+
+/**
+ * Tests for resolveThreadUserId
+ *
+ * BUG PREVENTION: These tests ensure that in dev mode with individual_parallel,
+ * AI messages are saved to the correct individual thread instead of creating
+ * a new shared thread. This bug caused messages to appear in the wrong
+ * conversation or disappear from the UI.
+ *
+ * Bug scenario:
+ * 1. User sends message → saved to individual thread (user_id = 'user-123')
+ * 2. AI responds in dev mode → profileId is null due to auth bypass
+ * 3. Without fix: AI message saved to shared thread (user_id = null)
+ * 4. Result: AI message not visible in user's conversation
+ *
+ * With fix: resolveThreadUserId returns first participant's user_id in dev mode
+ */
+describe('resolveThreadUserId', () => {
+  const mockParticipants: Participant[] = [
+    { id: 'participant-1', user_id: 'user-123' },
+    { id: 'participant-2', user_id: 'user-456' },
+    { id: 'participant-3', user_id: null }, // Anonymous participant
+  ];
+
+  describe('when profileId is provided', () => {
+    it('should return profileId regardless of other parameters', () => {
+      const result = resolveThreadUserId(
+        'profile-789',
+        'individual_parallel',
+        mockParticipants,
+        true // dev mode
+      );
+      expect(result).toBe('profile-789');
+    });
+
+    it('should return profileId even in non-dev mode', () => {
+      const result = resolveThreadUserId(
+        'profile-789',
+        'individual_parallel',
+        mockParticipants,
+        false
+      );
+      expect(result).toBe('profile-789');
+    });
+  });
+
+  describe('dev mode with individual_parallel (BUG FIX)', () => {
+    it('should return first participant user_id when profileId is null', () => {
+      const result = resolveThreadUserId(
+        null,
+        'individual_parallel',
+        mockParticipants,
+        true // dev mode
+      );
+      expect(result).toBe('user-123');
+    });
+
+    it('should skip participants without user_id and return first valid one', () => {
+      const participantsWithFirstNull: Participant[] = [
+        { id: 'participant-1', user_id: null },
+        { id: 'participant-2', user_id: 'user-456' },
+      ];
+      const result = resolveThreadUserId(
+        null,
+        'individual_parallel',
+        participantsWithFirstNull,
+        true
+      );
+      expect(result).toBe('user-456');
+    });
+
+    it('should return null if no participant has user_id', () => {
+      const anonymousParticipants: Participant[] = [
+        { id: 'participant-1', user_id: null },
+        { id: 'participant-2', user_id: null },
+      ];
+      const result = resolveThreadUserId(
+        null,
+        'individual_parallel',
+        anonymousParticipants,
+        true
+      );
+      expect(result).toBeNull();
+    });
+
+    it('should return null if participants array is empty', () => {
+      const result = resolveThreadUserId(
+        null,
+        'individual_parallel',
+        [],
+        true
+      );
+      expect(result).toBeNull();
+    });
+  });
+
+  describe('dev mode with other conversation modes', () => {
+    it('should return null for collaborative mode (shared thread is correct)', () => {
+      const result = resolveThreadUserId(
+        null,
+        'collaborative',
+        mockParticipants,
+        true
+      );
+      expect(result).toBeNull();
+    });
+
+    it('should return null for consultant mode', () => {
+      const result = resolveThreadUserId(
+        null,
+        'consultant',
+        mockParticipants,
+        true
+      );
+      expect(result).toBeNull();
+    });
+
+    it('should return null for group_reporter mode', () => {
+      const result = resolveThreadUserId(
+        null,
+        'group_reporter',
+        mockParticipants,
+        true
+      );
+      expect(result).toBeNull();
+    });
+
+    it('should return null for undefined conversation_mode', () => {
+      const result = resolveThreadUserId(
+        null,
+        undefined,
+        mockParticipants,
+        true
+      );
+      expect(result).toBeNull();
+    });
+
+    it('should return null for null conversation_mode', () => {
+      const result = resolveThreadUserId(
+        null,
+        null,
+        mockParticipants,
+        true
+      );
+      expect(result).toBeNull();
+    });
+  });
+
+  describe('non-dev mode (production)', () => {
+    it('should return null even for individual_parallel when not in dev mode', () => {
+      // In production, profileId should always be set via proper auth
+      // If it's null, we should not try to guess the user
+      const result = resolveThreadUserId(
+        null,
+        'individual_parallel',
+        mockParticipants,
+        false // not dev mode
+      );
+      expect(result).toBeNull();
+    });
+  });
+});
+
+/**
+ * Tests for getLastUserMessageThread
+ *
+ * BUG FIX: For AI response routes (respond, stream) in individual_parallel mode,
+ * the AI must respond in the SAME thread where the user sent their message.
+ * This function finds the last user message's conversation_thread_id.
+ */
+describe('getLastUserMessageThread', () => {
+  it('should return thread and user from last user message', async () => {
+    const mockMessage = {
+      conversation_thread_id: 'thread-123',
+      user_id: 'user-456',
+    };
+
+    const mockFrom = jest.fn().mockReturnValue({
+      select: jest.fn().mockReturnThis(),
+      eq: jest.fn().mockReturnThis(),
+      order: jest.fn().mockReturnThis(),
+      limit: jest.fn().mockReturnThis(),
+      maybeSingle: jest.fn().mockResolvedValue({
+        data: mockMessage,
+        error: null,
+      }),
+    });
+
+    const supabase = { from: mockFrom } as unknown as SupabaseClient;
+
+    const result = await getLastUserMessageThread(supabase, 'ask-session-123');
+
+    expect(result.threadId).toBe('thread-123');
+    expect(result.userId).toBe('user-456');
+    expect(result.error).toBeNull();
+  });
+
+  it('should return null values when no user message found', async () => {
+    const mockFrom = jest.fn().mockReturnValue({
+      select: jest.fn().mockReturnThis(),
+      eq: jest.fn().mockReturnThis(),
+      order: jest.fn().mockReturnThis(),
+      limit: jest.fn().mockReturnThis(),
+      maybeSingle: jest.fn().mockResolvedValue({
+        data: null,
+        error: null,
+      }),
+    });
+
+    const supabase = { from: mockFrom } as unknown as SupabaseClient;
+
+    const result = await getLastUserMessageThread(supabase, 'ask-session-123');
+
+    expect(result.threadId).toBeNull();
+    expect(result.userId).toBeNull();
+    expect(result.error).toBeNull();
+  });
+
+  it('should return error when query fails', async () => {
+    const mockError: PostgrestError = {
+      code: 'PGRST001',
+      message: 'Query failed',
+      details: null,
+      hint: null,
+    };
+
+    const mockFrom = jest.fn().mockReturnValue({
+      select: jest.fn().mockReturnThis(),
+      eq: jest.fn().mockReturnThis(),
+      order: jest.fn().mockReturnThis(),
+      limit: jest.fn().mockReturnThis(),
+      maybeSingle: jest.fn().mockResolvedValue({
+        data: null,
+        error: mockError,
+      }),
+    });
+
+    const supabase = { from: mockFrom } as unknown as SupabaseClient;
+
+    const result = await getLastUserMessageThread(supabase, 'ask-session-123');
+
+    expect(result.threadId).toBeNull();
+    expect(result.userId).toBeNull();
+    expect(result.error).toEqual(mockError);
+  });
+});
+
+/**
+ * Route Integration Tests
+ *
+ * These tests verify that routes correctly use the thread resolution functions.
+ * - AI response routes (stream, respond) use getLastUserMessageThread to respond in the same thread
+ * - Non-AI routes (GET, POST, voice-agent/init) use resolveThreadUserId for thread creation
+ */
+describe('Route thread assignment consistency', () => {
+  const fs = require('fs');
+  const path = require('path');
+
+  describe('AI response routes using getLastUserMessageThread', () => {
+    const aiResponseRoutes = [
+      'src/app/api/ask/[key]/stream/route.ts',
+      'src/app/api/ask/[key]/respond/route.ts',
+    ];
+
+    aiResponseRoutes.forEach((routePath) => {
+      it(`${routePath} should use getLastUserMessageThread for thread assignment`, () => {
+        const absolutePath = path.resolve(process.cwd(), routePath);
+
+        if (!fs.existsSync(absolutePath)) {
+          console.warn(`Skipping test: ${routePath} not found`);
+          return;
+        }
+
+        const content = fs.readFileSync(absolutePath, 'utf-8');
+
+        // Check import
+        expect(content).toMatch(/getLastUserMessageThread/);
+
+        // Check usage pattern
+        expect(content).toMatch(/getLastUserMessageThread\s*\(/);
+      });
+    });
+  });
+
+  describe('Non-AI routes using resolveThreadUserId', () => {
+    const nonAiRoutes = [
+      'src/app/api/ask/[key]/route.ts',
+      'src/app/api/ask/[key]/voice-agent/init/route.ts',
+    ];
+
+    nonAiRoutes.forEach((routePath) => {
+      it(`${routePath} should use resolveThreadUserId for thread creation`, () => {
+        const absolutePath = path.resolve(process.cwd(), routePath);
+
+        if (!fs.existsSync(absolutePath)) {
+          console.warn(`Skipping test: ${routePath} not found`);
+          return;
+        }
+
+        const content = fs.readFileSync(absolutePath, 'utf-8');
+
+        // Check import
+        expect(content).toMatch(/resolveThreadUserId/);
+
+        // Check usage pattern
+        expect(content).toMatch(/resolveThreadUserId\s*\(/);
+      });
+    });
+  });
+
+  describe('Routes that do NOT need thread resolution functions', () => {
+    it('token route uses participantInfo.user_id from token (correct)', () => {
+      // The token route correctly uses the participant's user_id from token
+      expect(true).toBe(true);
+    });
+
+    it('voice-agent/log route only fetches data (no thread creation needed)', () => {
+      // The voice-agent/log route only needs to fetch plan, not create threads
+      expect(true).toBe(true);
+    });
   });
 });

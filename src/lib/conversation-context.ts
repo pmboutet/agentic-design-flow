@@ -106,6 +106,10 @@ export interface ConversationContextResult {
   conversationPlan: ConversationPlan | null;
   conversationThread: { id: string; is_shared: boolean } | null;
   usersById: Record<string, UserRow>;
+  /** Real elapsed active time in seconds (from participant timer) */
+  elapsedActiveSeconds: number;
+  /** Real elapsed active time for current step in seconds */
+  stepElapsedActiveSeconds: number;
 }
 
 export interface FetchConversationContextOptions {
@@ -568,6 +572,37 @@ export async function fetchConversationContext(
     conversationPlan = await getConversationPlanWithSteps(planClient, conversationThread.id);
   }
 
+  // 6. Fetch elapsed time from participant
+  let elapsedActiveSeconds = 0;
+  if (profileId) {
+    const { data: participantTimer } = await supabase
+      .from('ask_participants')
+      .select('elapsed_active_seconds')
+      .eq('ask_session_id', askSession.id)
+      .eq('user_id', profileId)
+      .maybeSingle();
+
+    elapsedActiveSeconds = participantTimer?.elapsed_active_seconds ?? 0;
+  }
+
+  // 7. Fetch elapsed time for current step
+  let stepElapsedActiveSeconds = 0;
+  if (conversationPlan?.current_step_id && 'steps' in conversationPlan && Array.isArray(conversationPlan.steps)) {
+    const currentStep = conversationPlan.steps.find(
+      (s: { step_identifier: string }) => s.step_identifier === conversationPlan.current_step_id
+    );
+    if (currentStep && 'id' in currentStep) {
+      const dataClient = adminClient ?? supabase;
+      const { data: stepTimer } = await dataClient
+        .from('ask_conversation_plan_steps')
+        .select('elapsed_active_seconds')
+        .eq('id', (currentStep as { id: string }).id)
+        .maybeSingle();
+
+      stepElapsedActiveSeconds = stepTimer?.elapsed_active_seconds ?? 0;
+    }
+  }
+
   return {
     askSession,
     participants,
@@ -579,6 +614,8 @@ export async function fetchConversationContext(
       ? { id: conversationThread.id, is_shared: conversationThread.is_shared }
       : null,
     usersById,
+    elapsedActiveSeconds,
+    stepElapsedActiveSeconds,
   };
 }
 

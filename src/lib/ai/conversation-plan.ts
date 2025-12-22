@@ -196,6 +196,83 @@ export async function createConversationPlan(
 }
 
 /**
+ * Context required for plan generation
+ * Uses the same types as buildConversationAgentVariables for compatibility
+ */
+export interface PlanGenerationContext {
+  askRow: {
+    id: string;
+    ask_key: string;
+    question: string;
+    description?: string | null;
+    expected_duration_minutes?: number | null;
+    system_prompt?: string | null;
+    project_id?: string | null;
+    challenge_id?: string | null;
+  };
+  projectData: { id?: string; name?: string | null; system_prompt?: string | null } | null;
+  challengeData: { id?: string; name?: string | null; system_prompt?: string | null } | null;
+  participantSummaries: Array<{
+    name: string;
+    role?: string | null;
+    description?: string | null;
+  }>;
+}
+
+/**
+ * Ensure a conversation plan exists for the given thread.
+ * If no plan exists, generates and creates one.
+ * IMPORTANT: Throws error if plan generation fails - plan is REQUIRED.
+ *
+ * @param supabase - Supabase client (should be admin client for RLS bypass)
+ * @param conversationThreadId - The conversation thread ID
+ * @param context - Context required for plan generation (ask, project, challenge, participants)
+ * @returns The existing or newly created plan
+ * @throws Error if plan generation fails
+ */
+export async function ensureConversationPlanExists(
+  supabase: SupabaseClient,
+  conversationThreadId: string,
+  context: PlanGenerationContext
+): Promise<ConversationPlanWithSteps> {
+  // Check if plan already exists
+  const existingPlan = await getConversationPlanWithSteps(supabase, conversationThreadId);
+  if (existingPlan) {
+    return existingPlan;
+  }
+
+  // Plan doesn't exist - generate one
+  console.log('📋 [ensureConversationPlanExists] Generating conversation plan for thread:', conversationThreadId);
+
+  // Import buildConversationAgentVariables to avoid circular dependency
+  const { buildConversationAgentVariables } = await import('./conversation-agent');
+
+  const planGenerationVariables = buildConversationAgentVariables({
+    ask: context.askRow,
+    project: context.projectData,
+    challenge: context.challengeData,
+    messages: [],
+    participants: context.participantSummaries,
+    conversationPlan: null,
+  });
+
+  const planData = await generateConversationPlan(
+    supabase,
+    context.askRow.id,
+    planGenerationVariables
+  );
+
+  const conversationPlan = await createConversationPlan(
+    supabase,
+    conversationThreadId,
+    planData
+  );
+
+  console.log('✅ [ensureConversationPlanExists] Plan created with', planData.steps.length, 'steps');
+  return conversationPlan;
+}
+
+/**
  * Get the conversation plan for a thread (without steps)
  */
 export async function getConversationPlan(
@@ -408,64 +485,68 @@ export async function completeStep(
     return null;
   }
 
-  // Trigger async summary generation if askSessionId is provided
+  // IMPORTANT: Summary generation is REQUIRED - generate and await result
   if (askSessionId) {
-    // Execute summary generation via a dedicated API endpoint
-    // This ensures execution even if the current request context ends
     const stepIdToSummarize = completedStep.id;
 
-    const triggerSummaryGeneration = async () => {
-      try {
-        // Get the ask_session_id from the conversation thread
-        const { data: thread } = await supabase
-          .from('conversation_threads')
-          .select('ask_session_id')
-          .eq('id', conversationThreadId)
-          .single();
+    try {
+      // Get the ask_session_id from the conversation thread
+      const { data: thread } = await supabase
+        .from('conversation_threads')
+        .select('ask_session_id')
+        .eq('id', conversationThreadId)
+        .single();
 
-        if (!thread?.ask_session_id) {
-          return;
-        }
-
-        // Get the ask_key from the ask_session
-        const { data: askSession } = await supabase
-          .from('ask_sessions')
-          .select('ask_key')
-          .eq('id', thread.ask_session_id)
-          .single();
-
-        if (!askSession?.ask_key) {
-          return;
-        }
-
-        // Build absolute URL for the endpoint
-        const baseUrl = process.env.NEXT_PUBLIC_APP_URL
-          || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null)
-          || 'http://localhost:3000';
-        const endpoint = `${baseUrl}/api/ask/${askSession.ask_key}/step-summary`;
-
-        // Call the endpoint without waiting for response (fire and forget)
-        fetch(endpoint, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            stepId: stepIdToSummarize,
-            askSessionId: askSessionId,
-          }),
-        }).catch(() => {
-          // Ignore errors - fire and forget
-        });
-      } catch (error) {
-        // Ignore errors - fire and forget
+      if (!thread?.ask_session_id) {
+        throw new Error('Thread not found or missing ask_session_id');
       }
-    };
 
-    // Execute in background without blocking
-    Promise.resolve().then(triggerSummaryGeneration).catch(() => {
-      // Ignore errors
-    });
+      // Get the ask_key from the ask_session
+      const { data: askSession } = await supabase
+        .from('ask_sessions')
+        .select('ask_key')
+        .eq('id', thread.ask_session_id)
+        .single();
+
+      if (!askSession?.ask_key) {
+        throw new Error('Ask session not found or missing ask_key');
+      }
+
+      // Build absolute URL for the endpoint
+      const baseUrl = process.env.NEXT_PUBLIC_APP_URL
+        || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null)
+        || 'http://localhost:3000';
+      const endpoint = `${baseUrl}/api/ask/${askSession.ask_key}/step-summary`;
+
+      // IMPORTANT: Await the summary generation - it must succeed
+      console.log('📝 [completeStep] Generating summary for step:', stepIdToSummarize);
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          stepId: stepIdToSummarize,
+          askSessionId: askSessionId,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(`Summary generation failed: ${errorData.error || response.statusText}`);
+      }
+
+      const result = await response.json();
+      if (!result.success) {
+        throw new Error(`Summary generation failed: ${result.error || 'Unknown error'}`);
+      }
+
+      console.log('✅ [completeStep] Summary generated successfully for step:', stepIdToSummarize);
+    } catch (error) {
+      // Summary generation is REQUIRED - log and throw error
+      console.error('❌ [completeStep] CRITICAL: Failed to generate step summary:', error);
+      throw new Error(`Step summary generation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
   }
 
   return updatedPlan as ConversationPlan;

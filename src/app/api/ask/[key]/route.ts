@@ -4,11 +4,11 @@ import { ApiResponse, Ask, AskParticipant, Insight, Message } from '@/types';
 import { isValidAskKey, parseErrorMessage } from '@/lib/utils';
 import { mapInsightRowToInsight } from '@/lib/insights';
 import { fetchInsightsForSession } from '@/lib/insightQueries';
-import { getAskSessionByKey, getOrCreateConversationThread, getMessagesForThread, shouldUseSharedThread } from '@/lib/asks';
+import { getAskSessionByKey, getOrCreateConversationThread, getMessagesForThread, shouldUseSharedThread, resolveThreadUserId } from '@/lib/asks';
 import { createServerSupabaseClient } from '@/lib/supabaseServer';
 import { executeAgent } from '@/lib/ai/service';
 import { buildConversationAgentVariables } from '@/lib/ai/conversation-agent';
-import { getConversationPlanWithSteps, getActiveStep, type ConversationPlan } from '@/lib/ai/conversation-plan';
+import { getConversationPlanWithSteps, getActiveStep, ensureConversationPlanExists, type ConversationPlan } from '@/lib/ai/conversation-plan';
 import {
   buildParticipantDisplayName,
   buildMessageSenderName,
@@ -18,7 +18,7 @@ import {
   type MessageRow,
 } from '@/lib/conversation-context';
 import { normaliseMessageMetadata } from '@/lib/messages';
-import { loadFullAuthContext, type AskViewer } from '@/lib/ask-session-loader';
+import { loadFullAuthContext, buildParticipantName, type AskViewer } from '@/lib/ask-session-loader';
 
 interface AskSessionRow {
   id: string;
@@ -172,7 +172,12 @@ export async function GET(
           participantId: devParticipant.id,
           profileId: devParticipant.user_id,
           isSpokesperson,
-          name: devParticipant.participant_name,
+          // Use buildParticipantName to ensure name is never null
+          name: buildParticipantName(
+            devParticipant.participant_name,
+            devParticipant.participant_email,
+            devParticipant.id
+          ),
           email: devParticipant.participant_email,
           role: devParticipant.role,
         };
@@ -297,9 +302,18 @@ export async function GET(
       conversation_mode: askRow.conversation_mode ?? null,
     };
 
+    // Use resolveThreadUserId for consistent thread assignment across all routes
+    const threadProfileId = resolveThreadUserId(
+      authContext.profileId,
+      askRow.conversation_mode,
+      participantRows ?? [],
+      isDevBypass
+    );
+
     console.log('🔍 GET /api/ask/[key]: Determining conversation thread:', {
       askSessionId,
       profileId: authContext.profileId,
+      threadProfileId,
       conversationMode: askConfig.conversation_mode,
       isDevBypass,
     });
@@ -310,13 +324,13 @@ export async function GET(
     const { thread: conversationThread, error: threadError } = await getOrCreateConversationThread(
       threadClient,
       askSessionId,
-      authContext.profileId,
+      threadProfileId,
       askConfig
     );
 
     console.log('🔍 GET /api/ask/[key]: Conversation thread determined:', {
       threadId: conversationThread?.id ?? null,
-      profileId: authContext.profileId,
+      threadProfileId,
       isShared: conversationThread?.is_shared ?? null,
     });
 
@@ -329,33 +343,8 @@ export async function GET(
 
     // Get messages for the thread (or all messages if no thread yet for backward compatibility)
     let messageRows: MessageRow[] = [];
-    
-    // Special handling for dev mode when falling back to shared thread in individual mode
-    // In this case, we want to show ALL messages (from all threads) to help with debugging
-    const isIndividualModeButUsingSharedThread = 
-      !shouldUseSharedThread(askConfig) && 
-      conversationThread?.is_shared === true &&
-      isDevBypass;
-    
-    if (isIndividualModeButUsingSharedThread) {
-      // In dev mode, if we're in individual mode but using shared thread (because authContext.profileId is null),
-      // fetch ALL messages from all threads to help with debugging
-      console.log('⚠️ Dev mode: Individual ASK but using shared thread (no profileId). Fetching ALL messages from all threads for debugging.');
-      const { data, error: messageError } = await dataClient
-        .from('messages')
-        .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at, conversation_thread_id')
-        .eq('ask_session_id', askSessionId)
-        .order('created_at', { ascending: true });
 
-      if (messageError) {
-        if (isPermissionDenied(messageError)) {
-          return permissionDeniedResponse();
-        }
-        throw messageError;
-      }
-      
-      messageRows = (data ?? []) as MessageRow[];
-    } else if (conversationThread) {
+    if (conversationThread) {
       const { messages: threadMessages, error: threadMessagesError } = await getMessagesForThread(
         dataClient,
         conversationThread.id
@@ -495,39 +484,26 @@ export async function GET(
       }
     }
 
-    // Ensure a conversation plan exists even when messages already exist (prod backfill)
+    // Ensure a conversation plan exists (centralized function handles generation if needed)
     if (conversationThread && !conversationPlan) {
-      console.log('📋 GET /api/ask/[key]: Generating conversation plan because none exists');
       try {
-        const { generateConversationPlan, createConversationPlan } = await import('@/lib/ai/conversation-plan');
-
-        // Use centralized function for plan generation variables (consistent with all routes)
-        const planGenerationVariables = buildConversationAgentVariables({
-          ask: askRow,
-          project: projectData,
-          challenge: challengeData,
-          messages: [],
-          participants: participantSummaries,
-          conversationPlan: null,
-        });
-
-        // Use admin client to bypass RLS for agent fetch + plan insert
-        const planData = await generateConversationPlan(
-          adminClient,
-          askRow.id,
-          planGenerationVariables
-        );
-
-        conversationPlan = await createConversationPlan(
+        conversationPlan = await ensureConversationPlanExists(
           adminClient,
           conversationThread.id,
-          planData
+          {
+            askRow,
+            projectData,
+            challengeData,
+            participantSummaries,
+          }
         );
-
-        console.log('✅ GET /api/ask/[key]: Conversation plan created with', planData.steps.length, 'steps');
       } catch (planError) {
-        console.error('⚠️ GET /api/ask/[key]: Failed to generate conversation plan:', planError);
-        // Continue without the plan - it's an enhancement, not a requirement
+        // IMPORTANT: Plan generation is REQUIRED - fail if it doesn't work
+        console.error('❌ GET /api/ask/[key]: Failed to generate conversation plan:', planError);
+        return NextResponse.json<ApiResponse>({
+          success: false,
+          error: 'Failed to generate conversation plan. Please try again.'
+        }, { status: 500 });
       }
     }
 
@@ -1040,21 +1016,36 @@ export async function POST(
       conversation_mode: askRow.conversation_mode ?? null,
     };
 
+    // Fetch participants for resolveThreadUserId
+    const { data: participantRowsForThread } = await dataClient
+      .from('ask_participants')
+      .select('id, user_id')
+      .eq('ask_session_id', askRow.id)
+      .order('joined_at', { ascending: true });
+
+    // Use resolveThreadUserId for consistent thread assignment across all routes
+    const threadProfileId = resolveThreadUserId(
+      finalProfileId,
+      askRow.conversation_mode,
+      participantRowsForThread ?? [],
+      isDevBypass
+    );
+
     console.log('🔍 POST /api/ask/[key]: Creating/getting conversation thread', {
       askSessionId: askRow.id,
-      profileId: finalProfileId,
+      finalProfileId,
+      threadProfileId,
       conversationMode: askConfig.conversation_mode,
       isDevBypass
     });
-    
+
     // In dev bypass mode, use admin client to bypass RLS for thread operations
     const threadClient = isDevBypass ? await getAdminClient() : dataClient;
-    
-    
+
     const { thread: conversationThread, error: threadError } = await getOrCreateConversationThread(
       threadClient,
       askRow.id,
-      finalProfileId,
+      threadProfileId,
       askConfig
     );
 
@@ -1187,9 +1178,15 @@ export async function POST(
     const timestamp = body.timestamp ?? new Date().toISOString();
     const metadata = body.metadata && typeof body.metadata === 'object' ? body.metadata : {};
 
-    if (body.senderName && typeof body.senderName === 'string' && body.senderName.trim().length > 0) {
-      metadata.senderName = body.senderName;
+    // IMPORTANT: senderName is REQUIRED for user messages - never use fallbacks like 'Vous'
+    if (!body.senderName || typeof body.senderName !== 'string' || body.senderName.trim().length === 0) {
+      console.error('❌ POST /api/ask/[key]: senderName is required for user messages');
+      return NextResponse.json<ApiResponse>({
+        success: false,
+        error: 'senderName is required for user messages'
+      }, { status: 400 });
     }
+    metadata.senderName = body.senderName.trim();
 
     const senderType: Message['senderType'] = 'user';
 

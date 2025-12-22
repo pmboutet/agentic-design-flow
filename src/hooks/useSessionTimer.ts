@@ -58,6 +58,13 @@ export interface SessionTimerConfig {
   inviteToken?: string | null;
 
   /**
+   * Current step ID for step-level time tracking
+   * When provided, the timer will also track time for the current step
+   * and sync it to the server
+   */
+  currentStepId?: string | null;
+
+  /**
    * Callback when timer syncs to server
    */
   onServerSync?: (elapsedSeconds: number, success: boolean) => void;
@@ -65,7 +72,7 @@ export interface SessionTimerConfig {
 
 export interface SessionTimerState {
   /**
-   * Elapsed time in seconds
+   * Elapsed time in seconds (total session)
    */
   elapsedSeconds: number;
 
@@ -73,6 +80,16 @@ export interface SessionTimerState {
    * Elapsed time in minutes (for display)
    */
   elapsedMinutes: number;
+
+  /**
+   * Elapsed time for current step in seconds
+   */
+  stepElapsedSeconds: number;
+
+  /**
+   * Elapsed time for current step in minutes (for display)
+   */
+  stepElapsedMinutes: number;
 
   /**
    * Current timer state
@@ -207,6 +224,44 @@ function saveToLocalStorage(askKey: string, elapsedSeconds: number): void {
 }
 
 /**
+ * Get the localStorage key for step elapsed seconds
+ */
+function getStepStorageKey(askKey: string, stepId: string): string {
+  return `${STORAGE_KEY_PREFIX}${askKey}_step_${stepId}`;
+}
+
+/**
+ * Load step elapsed seconds from localStorage
+ */
+function loadStepFromLocalStorage(askKey: string, stepId: string): number {
+  if (typeof window === 'undefined') return 0;
+  try {
+    const stored = localStorage.getItem(getStepStorageKey(askKey, stepId));
+    if (stored) {
+      const parsed = parseInt(stored, 10);
+      if (!isNaN(parsed) && parsed >= 0) {
+        return parsed;
+      }
+    }
+  } catch (error) {
+    // Silent fail
+  }
+  return 0;
+}
+
+/**
+ * Save step elapsed seconds to localStorage
+ */
+function saveStepToLocalStorage(askKey: string, stepId: string, elapsedSeconds: number): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(getStepStorageKey(askKey, stepId), String(Math.floor(elapsedSeconds)));
+  } catch (error) {
+    // Silent fail
+  }
+}
+
+/**
  * Fetch elapsed seconds from server
  */
 async function fetchFromServer(askKey: string, inviteToken?: string | null): Promise<number | null> {
@@ -233,12 +288,14 @@ async function fetchFromServer(askKey: string, inviteToken?: string | null): Pro
 }
 
 /**
- * Save elapsed seconds to server
+ * Save elapsed seconds to server (includes step time if provided)
  */
 async function saveToServer(
   askKey: string,
   elapsedSeconds: number,
-  inviteToken?: string | null
+  inviteToken?: string | null,
+  currentStepId?: string | null,
+  stepElapsedSeconds?: number
 ): Promise<boolean> {
   try {
     const headers: Record<string, string> = {
@@ -248,10 +305,20 @@ async function saveToServer(
       headers['X-Invite-Token'] = inviteToken;
     }
 
+    const body: Record<string, unknown> = {
+      elapsedActiveSeconds: elapsedSeconds,
+    };
+
+    // Include step info if available
+    if (currentStepId && typeof stepElapsedSeconds === 'number') {
+      body.currentStepId = currentStepId;
+      body.stepElapsedSeconds = stepElapsedSeconds;
+    }
+
     const response = await fetch(`/api/ask/${askKey}/timer`, {
       method: 'PATCH',
       headers,
-      body: JSON.stringify({ elapsedActiveSeconds: elapsedSeconds }),
+      body: JSON.stringify(body),
     });
 
     return response.ok;
@@ -267,6 +334,7 @@ export function useSessionTimer(config: SessionTimerConfig = {}): SessionTimerSt
     initialElapsedSeconds = 0,
     askKey,
     inviteToken,
+    currentStepId,
     onServerSync,
   } = config;
 
@@ -289,10 +357,22 @@ export function useSessionTimer(config: SessionTimerConfig = {}): SessionTimerSt
     return timeSinceLastActivity > inactivityTimeout;
   };
 
+  // Determine initial step elapsed seconds from localStorage
+  const getInitialStepElapsedSeconds = () => {
+    if (askKey && currentStepId) {
+      return loadStepFromLocalStorage(askKey, currentStepId);
+    }
+    return 0;
+  };
+
   // State
   const [elapsedSeconds, setElapsedSeconds] = useState(getInitialElapsedSeconds);
+  const [stepElapsedSeconds, setStepElapsedSeconds] = useState(getInitialStepElapsedSeconds);
   const [timerState, setTimerState] = useState<TimerState>(() => shouldStartPaused() ? 'paused' : 'running');
   const [isSyncing, setIsSyncing] = useState(false);
+
+  // Track current step ID to detect changes
+  const previousStepIdRef = useRef<string | null | undefined>(currentStepId);
 
   // Activity tracking refs
   const isAiStreamingRef = useRef(false);
@@ -312,15 +392,30 @@ export function useSessionTimer(config: SessionTimerConfig = {}): SessionTimerSt
     elapsedSecondsRef.current = elapsedSeconds;
   }, [elapsedSeconds]);
 
+  // Track step elapsed seconds for server sync
+  const stepElapsedSecondsRef = useRef(stepElapsedSeconds);
+  useEffect(() => {
+    stepElapsedSecondsRef.current = stepElapsedSeconds;
+  }, [stepElapsedSeconds]);
+
+  // Track current step ID for sync
+  const currentStepIdRef = useRef(currentStepId);
+
   /**
-   * Sync to server
+   * Sync to server (includes step time if available)
    */
   const syncToServer = useCallback(async (): Promise<boolean> => {
     if (!askKey) return false;
 
     setIsSyncing(true);
     try {
-      const success = await saveToServer(askKey, elapsedSecondsRef.current, inviteToken);
+      const success = await saveToServer(
+        askKey,
+        elapsedSecondsRef.current,
+        inviteToken,
+        currentStepIdRef.current,
+        stepElapsedSecondsRef.current
+      );
       lastServerSyncRef.current = Date.now();
       onServerSync?.(elapsedSecondsRef.current, success);
       return success;
@@ -526,11 +621,16 @@ export function useSessionTimer(config: SessionTimerConfig = {}): SessionTimerSt
     const handleUnload = () => {
       // Use sendBeacon for reliable delivery on page unload
       if (navigator.sendBeacon) {
-        const headers: Record<string, string> = {
-          'Content-Type': 'application/json',
+        const payload: Record<string, unknown> = {
+          elapsedActiveSeconds: elapsedSecondsRef.current,
         };
+        // Include step info if available
+        if (currentStepIdRef.current) {
+          payload.currentStepId = currentStepIdRef.current;
+          payload.stepElapsedSeconds = stepElapsedSecondsRef.current;
+        }
         const blob = new Blob(
-          [JSON.stringify({ elapsedActiveSeconds: elapsedSecondsRef.current })],
+          [JSON.stringify(payload)],
           { type: 'application/json' }
         );
         navigator.sendBeacon(`/api/ask/${askKey}/timer`, blob);
@@ -553,6 +653,10 @@ export function useSessionTimer(config: SessionTimerConfig = {}): SessionTimerSt
     if (timerState === 'running') {
       tickIntervalRef.current = setInterval(() => {
         setElapsedSeconds(prev => prev + 1);
+        // Also increment step timer if we have a current step
+        if (currentStepIdRef.current) {
+          setStepElapsedSeconds(prev => prev + 1);
+        }
       }, 1000);
     } else {
       if (tickIntervalRef.current) {
@@ -568,6 +672,35 @@ export function useSessionTimer(config: SessionTimerConfig = {}): SessionTimerSt
       }
     };
   }, [timerState]);
+
+  // Handle step change - reset step timer and load from localStorage
+  useEffect(() => {
+    if (currentStepId !== previousStepIdRef.current) {
+      // Step changed - sync old step time first, then reset
+      if (previousStepIdRef.current && askKey) {
+        syncToServer();
+      }
+
+      // Update refs
+      previousStepIdRef.current = currentStepId;
+      currentStepIdRef.current = currentStepId;
+
+      // Load step time from localStorage or reset to 0
+      if (askKey && currentStepId) {
+        const storedStepTime = loadStepFromLocalStorage(askKey, currentStepId);
+        setStepElapsedSeconds(storedStepTime);
+      } else {
+        setStepElapsedSeconds(0);
+      }
+    }
+  }, [currentStepId, askKey, syncToServer]);
+
+  // Save step elapsed seconds to localStorage on every change
+  useEffect(() => {
+    if (askKey && currentStepId) {
+      saveStepToLocalStorage(askKey, currentStepId, stepElapsedSeconds);
+    }
+  }, [askKey, currentStepId, stepElapsedSeconds]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -589,10 +722,13 @@ export function useSessionTimer(config: SessionTimerConfig = {}): SessionTimerSt
 
   // Calculate elapsed minutes with 1 decimal precision
   const elapsedMinutes = Math.round((elapsedSeconds / 60) * 10) / 10;
+  const stepElapsedMinutes = Math.round((stepElapsedSeconds / 60) * 10) / 10;
 
   return {
     elapsedSeconds,
     elapsedMinutes,
+    stepElapsedSeconds,
+    stepElapsedMinutes,
     timerState,
     isPaused: timerState === 'paused',
     isSyncing,

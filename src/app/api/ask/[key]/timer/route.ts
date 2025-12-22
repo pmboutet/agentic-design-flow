@@ -10,11 +10,15 @@ interface AskSessionRow {
 
 interface TimerUpdateRequest {
   elapsedActiveSeconds: number;
+  currentStepId?: string;
+  stepElapsedSeconds?: number;
 }
 
 interface TimerResponse {
   elapsedActiveSeconds: number;
   participantId: string;
+  stepElapsedSeconds?: number;
+  currentStepId?: string;
 }
 
 function isPermissionDenied(error: unknown): boolean {
@@ -153,6 +157,9 @@ export async function GET(
 
     if (profileId) {
       participantQuery = participantQuery.eq('user_id', profileId);
+    } else {
+      // In dev mode without profileId, just get the first participant
+      participantQuery = participantQuery.limit(1);
     }
 
     const { data: participant, error: participantError } = await participantQuery.maybeSingle();
@@ -347,7 +354,7 @@ export async function PATCH(
       }, { status: 404 });
     }
 
-    // Update the elapsed time
+    // Update the participant elapsed time
     const { error: updateError } = await dataClient
       .from('ask_participants')
       .update({ elapsed_active_seconds: Math.floor(body.elapsedActiveSeconds) })
@@ -360,11 +367,30 @@ export async function PATCH(
       throw updateError;
     }
 
+    // Update step elapsed time if provided
+    let stepElapsedSeconds: number | undefined;
+    if (body.currentStepId && typeof body.stepElapsedSeconds === 'number') {
+      const admin = await getAdminClient();
+      const { error: stepUpdateError } = await admin
+        .from('ask_conversation_plan_steps')
+        .update({ elapsed_active_seconds: Math.floor(body.stepElapsedSeconds) })
+        .eq('id', body.currentStepId);
+
+      if (stepUpdateError) {
+        // Log but don't fail the request - step update is secondary
+        console.warn('Failed to update step elapsed time:', stepUpdateError);
+      } else {
+        stepElapsedSeconds = Math.floor(body.stepElapsedSeconds);
+      }
+    }
+
     return NextResponse.json<ApiResponse<TimerResponse>>({
       success: true,
       data: {
         elapsedActiveSeconds: Math.floor(body.elapsedActiveSeconds),
         participantId,
+        stepElapsedSeconds,
+        currentStepId: body.currentStepId,
       }
     });
   } catch (error) {

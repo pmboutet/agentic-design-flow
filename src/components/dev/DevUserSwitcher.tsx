@@ -4,6 +4,7 @@ import React, { useState, useEffect } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import type { Profile, ManagedUser } from "@/types";
 import { useAuth } from "@/components/auth/AuthProvider";
+import { supabase } from "@/lib/supabaseClient";
 
 const DEV_USER_STORAGE_KEY = "dev_selected_user";
 
@@ -63,6 +64,30 @@ export function DevUserSwitcher() {
       setSelectedUserId(storedUserId);
     }
 
+    // Helper to create session for a user
+    const createSessionForUser = async (user: Profile | ManagedUser) => {
+      try {
+        const response = await fetch('/api/dev/auto-login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ profileId: user.id }),
+        });
+
+        if (response.ok) {
+          const result = await response.json();
+          if (result.success && result.data) {
+            await supabase.auth.setSession({
+              access_token: result.data.access_token,
+              refresh_token: result.data.refresh_token,
+            });
+            console.log('[DevUserSwitcher] Session restored for:', user.email);
+          }
+        }
+      } catch (error) {
+        console.warn('[DevUserSwitcher] Failed to restore session:', error);
+      }
+    };
+
     // Fetch all users
     fetch("/api/dev/profiles")
       .then((res) => {
@@ -71,7 +96,7 @@ export function DevUserSwitcher() {
         }
         return res.json();
       })
-      .then((data: { success: boolean; data?: any[]; error?: string }) => {
+      .then(async (data: { success: boolean; data?: any[]; error?: string }) => {
         if (!data.success) {
           const errorMsg = data.error || "Erreur lors du chargement des utilisateurs";
           console.error("API error:", errorMsg);
@@ -91,6 +116,8 @@ export function DevUserSwitcher() {
           if (storedUserId) {
             const storedUser = usersWithAuthId.find((u) => u.id === storedUserId);
             if (storedUser) {
+              // Create session for stored user (restored from localStorage)
+              await createSessionForUser(storedUser);
               setDevUser(storedUser);
             } else {
               // Clear invalid stored user ID
@@ -145,8 +172,37 @@ export function DevUserSwitcher() {
     );
   }
 
-  const handleUserSelect = (selectedUser: Profile | any) => {
+  const handleUserSelect = async (selectedUser: Profile | any) => {
     if (!setDevUser) return;
+
+    try {
+      // 1. Call auto-login to create a real JWT session
+      // This ensures the backend API routes can authenticate via Supabase session
+      const response = await fetch('/api/dev/auto-login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ profileId: selectedUser.id }),
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        if (result.success && result.data) {
+          // 2. Set the session in Supabase client
+          // This makes the session available to all subsequent API calls
+          await supabase.auth.setSession({
+            access_token: result.data.access_token,
+            refresh_token: result.data.refresh_token,
+          });
+          console.log('[DevUserSwitcher] Session created for:', selectedUser.email);
+        }
+      } else {
+        console.warn('[DevUserSwitcher] Auto-login failed, falling back to context-only mode');
+      }
+    } catch (error) {
+      console.warn('[DevUserSwitcher] Auto-login error, falling back to context-only mode:', error);
+    }
+
+    // 3. Update local state
     setSelectedUserId(selectedUser.id);
     if (typeof window !== "undefined") {
       localStorage.setItem(DEV_USER_STORAGE_KEY, selectedUser.id);

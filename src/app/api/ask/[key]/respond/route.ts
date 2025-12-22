@@ -4,7 +4,7 @@ import { ApiResponse, Insight, Message } from '@/types';
 import { getAdminSupabaseClient } from '@/lib/supabaseAdmin';
 import { createServerSupabaseClient, getCurrentUser } from '@/lib/supabaseServer';
 import { isValidAskKey, parseErrorMessage } from '@/lib/utils';
-import { getAskSessionByKey, getOrCreateConversationThread, getMessagesForThread, getInsightsForThread, shouldUseSharedThread } from '@/lib/asks';
+import { getAskSessionByKey, getOrCreateConversationThread, getMessagesForThread, getInsightsForThread, shouldUseSharedThread, getLastUserMessageThread } from '@/lib/asks';
 import { normaliseMessageMetadata } from '@/lib/messages';
 import { executeAgent, fetchAgentBySlug, type AgentExecutionResult } from '@/lib/ai';
 import { INSIGHT_TYPES, mapInsightRowToInsight, type InsightRow } from '@/lib/insights';
@@ -1463,66 +1463,50 @@ export async function POST(
       };
     });
 
-    // Get or create conversation thread
-    // Simplified logic: use currentUserId if available, otherwise use last user message's user_id
+    // Get conversation thread for AI response
+    // BUG FIX: For individual_parallel mode, AI must respond in the SAME thread as the user message.
+    // We find the last user message's thread instead of using resolveThreadUserId() which
+    // picks the first participant (may be different from the user who sent the message).
     const askConfig = {
       conversation_mode: askRow.conversation_mode ?? null,
     };
 
-    // Determine which user's thread to use
-    // Priority: 1) currentUserId (if available), 2) last user message's user_id, 3) null (shared thread)
-    let threadUserId: string | null = null;
-    
-    if (currentUserId) {
-      // If we have a current user, use their thread (most reliable)
-      threadUserId = currentUserId;
-    } else {
-      // Fallback: get the last user message to determine which thread to use
-      const { data: lastUserMessageRow, error: lastMessageError } = await supabase
-        .from('messages')
-        .select('id, user_id, conversation_thread_id')
-        .eq('ask_session_id', askRow.id)
-        .eq('sender_type', 'user')
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+    let conversationThread: { id: string; is_shared: boolean } | null = null;
 
-      if (lastMessageError && lastMessageError.code !== 'PGRST116') {
-        throw lastMessageError;
-      }
-
-      if (lastUserMessageRow?.user_id) {
-        // Use the user_id from the last message
-        threadUserId = lastUserMessageRow.user_id;
-      } else if (lastUserMessageRow?.conversation_thread_id) {
-        // If last message has a thread but no user_id, check if it's a shared thread
-        const { data: existingThread, error: threadError } = await supabase
-          .from('conversation_threads')
-          .select('user_id, is_shared')
-          .eq('id', lastUserMessageRow.conversation_thread_id)
-          .maybeSingle();
-
-        if (!threadError && existingThread) {
-          if (existingThread.is_shared) {
-            threadUserId = null; // Use shared thread
-          } else if (existingThread.user_id) {
-            threadUserId = existingThread.user_id; // Use the thread's user_id
-          }
-        }
-      }
-      // If no user_id found, threadUserId remains null (will use shared thread)
-    }
-
-    // Get or create the appropriate thread
-    const { thread: conversationThread, error: threadError } = await getOrCreateConversationThread(
+    // First, try to find the thread from the last user message
+    const { threadId: lastUserThreadId, userId: lastUserUserId } = await getLastUserMessageThread(
       supabase,
-      askRow.id,
-      threadUserId,
-      askConfig
+      askRow.id
     );
 
-    if (threadError) {
-      throw threadError;
+    if (lastUserThreadId) {
+      // Use the same thread as the last user message
+      console.log('[respond] Using thread from last user message:', lastUserThreadId);
+      const { data: existingThread, error: fetchError } = await supabase
+        .from('conversation_threads')
+        .select('id, is_shared')
+        .eq('id', lastUserThreadId)
+        .single();
+
+      if (!fetchError && existingThread) {
+        conversationThread = existingThread;
+      }
+    }
+
+    // Fallback: create/get thread based on currentUserId or last user's userId
+    if (!conversationThread) {
+      const threadUserId = currentUserId ?? lastUserUserId ?? null;
+      const { thread, error: threadError } = await getOrCreateConversationThread(
+        supabase,
+        askRow.id,
+        threadUserId,
+        askConfig
+      );
+
+      if (threadError) {
+        throw threadError;
+      }
+      conversationThread = thread;
     }
 
     // Get messages for the thread (or all messages if no thread for backward compatibility)

@@ -23,6 +23,7 @@ import {
   getDeliveryModeLabel,
 } from "@/lib/utils";
 import { UserProfileMenu } from "@/components/auth/UserProfileMenu";
+import { useAuth } from "@/components/auth/AuthProvider";
 import { supabase } from "@/lib/supabaseClient";
 
 type TokenSessionPayload = {
@@ -427,6 +428,11 @@ function MobileLayout({
  */
 export default function HomePage() {
   const searchParams = useSearchParams();
+
+  // Get authenticated user info as fallback for participant name
+  const { user: authUser } = useAuth();
+  const authUserName = authUser?.fullName || authUser?.email || null;
+
   const [sessionData, setSessionData] = useState<SessionData>({
     askKey: '',
     ask: null,
@@ -1021,13 +1027,29 @@ export default function HomePage() {
       hasPostedMessageSinceRefreshRef.current = hasPersistedMessages;
 
       setSessionData(prev => {
-        const messagesWithClientIds = (data.data?.messages ?? []).map(message => {
+        const messagesFromApi = (data.data?.messages ?? []).map(message => {
           const existing = prev.messages.find(prevMessage => prevMessage.id === message.id);
           return {
             ...message,
             clientId: existing?.clientId ?? message.clientId ?? message.id,
           };
         });
+
+        // Merge: keep messages that aren't yet in API response
+        // This prevents messages from disappearing during reload race conditions
+        const apiMessageIds = new Set(messagesFromApi.map(m => m.id));
+        const now = Date.now();
+        const ONE_MINUTE = 60 * 1000;
+
+        // Keep messages not in API response if they're recent (within 1 minute)
+        const pendingMessages = prev.messages.filter(m => {
+          if (apiMessageIds.has(m.id)) return false;
+          if (m.id?.startsWith('temp-') || m.clientId?.startsWith('ai-stream-')) return true;
+          const msgTime = m.timestamp ? new Date(m.timestamp).getTime() : 0;
+          return (now - msgTime) < ONE_MINUTE;
+        });
+
+        const mergedMessages = [...messagesFromApi, ...pendingMessages];
 
         // Update askKey to the actual ask key from the response
         const actualAskKey = data.data?.ask?.key || token;
@@ -1037,7 +1059,7 @@ export default function HomePage() {
           askKey: actualAskKey,
           inviteToken: token, // Keep the token for subsequent API calls
           ask: data.data!.ask,
-          messages: messagesWithClientIds,
+          messages: mergedMessages,
           insights: data.data?.insights ?? [],
           challenges: data.data?.challenges ?? [],
           conversationPlan: data.data?.conversationPlan ?? null,
@@ -1047,7 +1069,8 @@ export default function HomePage() {
         };
       });
 
-      const viewerName = data.data?.viewer?.name ?? data.data?.viewer?.email ?? derivedParticipantName ?? null;
+      // Fallback chain: viewer name > viewer email > URL param > auth user name
+      const viewerName = data.data?.viewer?.name ?? data.data?.viewer?.email ?? derivedParticipantName ?? authUserName ?? null;
       setCurrentParticipantName(viewerName);
       setCurrentUserId(data.data?.viewer?.profileId ?? null);
       setIsCurrentParticipantSpokesperson(data.data?.viewer?.isSpokesperson === true);
@@ -1100,7 +1123,7 @@ export default function HomePage() {
       hasPostedMessageSinceRefreshRef.current = hasPersistedMessages;
 
       setSessionData(prev => {
-        const messagesWithClientIds = (data.data?.messages ?? []).map(message => {
+        const messagesFromApi = (data.data?.messages ?? []).map(message => {
           const existing = prev.messages.find(prevMessage => prevMessage.id === message.id);
           return {
             ...message,
@@ -1108,10 +1131,26 @@ export default function HomePage() {
           };
         });
 
+        // Merge: keep messages that aren't yet in API response
+        // This prevents messages from disappearing during reload race conditions
+        const apiMessageIds = new Set(messagesFromApi.map(m => m.id));
+        const now = Date.now();
+        const ONE_MINUTE = 60 * 1000;
+
+        // Keep messages not in API response if they're recent (within 1 minute)
+        const pendingMessages = prev.messages.filter(m => {
+          if (apiMessageIds.has(m.id)) return false;
+          if (m.id?.startsWith('temp-') || m.clientId?.startsWith('ai-stream-')) return true;
+          const msgTime = m.timestamp ? new Date(m.timestamp).getTime() : 0;
+          return (now - msgTime) < ONE_MINUTE;
+        });
+
+        const mergedMessages = [...messagesFromApi, ...pendingMessages];
+
         return {
           ...prev,
           ask: data.data!.ask,
-          messages: messagesWithClientIds,
+          messages: mergedMessages,
           insights: data.data?.insights ?? [],
           challenges: data.data?.challenges ?? [],
           conversationPlan: data.data?.conversationPlan ?? null,
@@ -1121,8 +1160,8 @@ export default function HomePage() {
         };
       });
 
-      // Set participant name from viewer info (prioritize viewer data over URL param)
-      const viewerName = data.data?.viewer?.name ?? data.data?.viewer?.email ?? derivedParticipantName ?? null;
+      // Fallback chain: viewer name > viewer email > URL param > auth user name
+      const viewerName = data.data?.viewer?.name ?? data.data?.viewer?.email ?? derivedParticipantName ?? authUserName ?? null;
       setCurrentParticipantName(viewerName);
       setCurrentUserId(data.data?.viewer?.profileId ?? null);
 
@@ -1158,9 +1197,14 @@ export default function HomePage() {
     const timestamp = metadata?.timestamp || new Date().toISOString();
     const speaker = metadata?.speaker; // Speaker from diarization (S1, S2, etc.)
     const optimisticId = `temp-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
-    
+
     if (role === 'user') {
-      const senderName = currentParticipantName || 'Vous';
+      // IMPORTANT: Never use fallback like 'Vous' - participant name is required
+      if (!currentParticipantName) {
+        console.error('[handleVoiceMessage] Cannot send user message without participant name');
+        return;
+      }
+      const senderName = currentParticipantName;
       
       // If this is an interim message with messageId, update the existing message
       // Logic: add to the same message until we get an agent response
@@ -1677,6 +1721,8 @@ export default function HomePage() {
                   }));
                 } else if (parsed.type === 'message' && parsed.message) {
                   // Replace the streaming message with the final one
+                  // Stop showing "Generating response..." since AI message is complete
+                  stopAwaitingAiResponse();
                   markMessagePosted();
                   setSessionData(prev => ({
                     ...prev,
@@ -1690,7 +1736,6 @@ export default function HomePage() {
                   insightsUpdatedDuringStream = true;
                   const insights = Array.isArray(parsed.insights) ? parsed.insights : [];
                   cancelInsightDetectionTimer();
-                  setIsDetectingInsights(false);
                   setSessionData(prev => ({
                     ...prev,
                     insights,
@@ -1754,9 +1799,15 @@ export default function HomePage() {
       return;
     }
 
+    // IMPORTANT: Never use fallback like 'Vous' - participant name is required
+    if (!currentParticipantName) {
+      console.error('[handleSendMessage] Cannot send user message without participant name');
+      return;
+    }
+
     const timestamp = new Date().toISOString();
     const optimisticId = `temp-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
-    const senderName = currentParticipantName || 'Vous';
+    const senderName = currentParticipantName;
     const optimisticMetadata = {
       ...(metadata ?? {}),
       senderName,
@@ -2109,7 +2160,7 @@ export default function HomePage() {
                     transition={{ duration: 2, repeat: Infinity }}
                     className="text-lg font-semibold text-foreground"
                   >
-                    {isTestMode ? 'Loading Test Session' : 'Connecting to Backend'}
+                    {isTestMode ? 'Loading Test Session' : 'Preparing Your Session'}
                   </motion.h3>
                   
                   <div className="space-y-2">
@@ -2121,7 +2172,7 @@ export default function HomePage() {
                       />
                     </div>
                     <p className="text-sm text-muted-foreground">
-                      Please wait while we establish your session...
+                      Tailoring the interview to your profile...
                     </p>
                   </div>
                 </div>

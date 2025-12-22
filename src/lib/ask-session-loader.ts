@@ -3,22 +3,64 @@
  *
  * Centralizes authentication, session loading, and viewer detection
  * for both /api/ask/[key] and /api/ask/token/[token] routes.
+ *
+ * Also provides utilities for determining when diarization is needed
+ * (voice mode with multi-speaker scenarios).
  */
 
 import { SupabaseClient } from '@supabase/supabase-js';
 import { getAdminSupabaseClient } from './supabaseAdmin';
 
 /**
+ * Build a participant display name with proper fallbacks.
+ * Ensures we never return null/empty - always a usable name.
+ *
+ * Priority: participantName > email > generated ID
+ */
+export function buildParticipantName(
+  participantName: string | null | undefined,
+  email: string | null | undefined,
+  participantId?: string | null
+): string {
+  if (participantName?.trim()) return participantName.trim();
+  if (email?.trim()) return email.trim();
+  if (participantId) return `Participant ${participantId.slice(0, 8)}`;
+  return 'Participant';
+}
+
+/**
+ * Determine if the current scenario requires diarization (speaker assignment post-hoc).
+ *
+ * Diarization is needed when:
+ * - Input mode is VOICE (not text)
+ * - AND conversation mode is one of: collaborative, group_reporter, consultant
+ *
+ * In these scenarios, multiple speakers may use the same microphone,
+ * so messages are created without a user and assigned later via speaker-assignment.
+ */
+export function needsDiarization(
+  conversationMode: string | null | undefined,
+  inputMode: 'text' | 'voice'
+): boolean {
+  if (inputMode === 'text') return false;
+
+  const diarizationConvModes = ['collaborative', 'group_reporter', 'consultant'];
+  return diarizationConvModes.includes(conversationMode || '');
+}
+
+/**
  * Viewer information for the current user
  *
  * Note: profileId can be null for token-based access where
  * the participant was created before being linked to a user profile.
+ *
+ * name is guaranteed to be a non-empty string (uses fallbacks via buildParticipantName)
  */
 export interface AskViewer {
   participantId: string | null;
   profileId: string | null;
   isSpokesperson: boolean;
-  name: string | null;
+  name: string; // Never null - uses buildParticipantName() fallbacks
   email: string | null;
   role: string | null;
 }
@@ -249,6 +291,7 @@ export async function loadParticipantMembership(
  * Build viewer object from auth context
  *
  * Returns null if no authenticated user (profileId is required).
+ * Uses buildParticipantName() to ensure name is never null.
  */
 export function buildViewer(authContext: AuthContext): AskViewer | null {
   if (!authContext.profileId) {
@@ -256,11 +299,18 @@ export function buildViewer(authContext: AuthContext): AskViewer | null {
     return null;
   }
 
+  // Use buildParticipantName to ensure we always have a displayable name
+  const name = buildParticipantName(
+    authContext.participantName,
+    authContext.participantEmail,
+    authContext.participantId
+  );
+
   const viewer: AskViewer = {
     participantId: authContext.participantId,
     profileId: authContext.profileId,
     isSpokesperson: authContext.isSpokesperson,
-    name: authContext.participantName,
+    name,
     email: authContext.participantEmail,
     role: authContext.participantRole,
   };
@@ -270,6 +320,7 @@ export function buildViewer(authContext: AuthContext): AskViewer | null {
     isSpokesperson: viewer.isSpokesperson,
     participantId: viewer.participantId,
     profileId: viewer.profileId,
+    name: viewer.name,
   });
 
   return viewer;

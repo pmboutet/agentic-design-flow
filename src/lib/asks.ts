@@ -12,6 +12,103 @@ export interface AskSessionConfig {
   conversation_mode?: string | null;
 }
 
+export interface Participant {
+  id: string;
+  user_id: string | null;
+  [key: string]: unknown;
+}
+
+/**
+ * Get the conversation thread ID from the last user message.
+ *
+ * BUG FIX: For AI response routes (respond, stream) in individual_parallel mode,
+ * the AI must respond in the SAME thread where the user sent their message.
+ * Using resolveThreadUserId() picks the first participant, which may be different
+ * from the user who sent the message.
+ *
+ * This function finds the last user message's conversation_thread_id to ensure
+ * AI responses go to the correct thread.
+ *
+ * @param supabase - Supabase client
+ * @param askSessionId - The ASK session ID
+ * @returns The thread ID from the last user message, or null if not found
+ */
+export async function getLastUserMessageThread(
+  supabase: SupabaseClient,
+  askSessionId: string
+): Promise<{ threadId: string | null; userId: string | null; error: PostgrestError | null }> {
+  const { data: lastUserMessage, error } = await supabase
+    .from('messages')
+    .select('conversation_thread_id, user_id')
+    .eq('ask_session_id', askSessionId)
+    .eq('sender_type', 'user')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    return { threadId: null, userId: null, error };
+  }
+
+  if (lastUserMessage) {
+    console.log('[getLastUserMessageThread] Found last user message thread:', {
+      threadId: lastUserMessage.conversation_thread_id,
+      userId: lastUserMessage.user_id,
+    });
+    return {
+      threadId: lastUserMessage.conversation_thread_id,
+      userId: lastUserMessage.user_id,
+      error: null,
+    };
+  }
+
+  return { threadId: null, userId: null, error: null };
+}
+
+/**
+ * Determine the correct user ID for thread operations in dev mode.
+ *
+ * NOTE: This function is primarily for routes that CREATE threads (GET, POST).
+ * For AI RESPONSE routes (respond, stream), use getLastUserMessageThread() instead
+ * to ensure the AI responds in the same thread as the user message.
+ *
+ * BUG PREVENTION: In individual_parallel mode, AI messages must go to the same
+ * thread as user messages. In dev mode (IS_DEV=true), profileId is often null
+ * because auth is bypassed. Without this fix, AI messages would be saved to a
+ * shared thread instead of the user's individual thread, causing messages to
+ * appear in the wrong conversation or disappear from the UI.
+ *
+ * @param profileId - The current user's profile ID (often null in dev mode)
+ * @param conversationMode - The ASK session's conversation mode
+ * @param participants - List of participants in the session
+ * @param isDevMode - Whether we're in dev mode (bypassing auth)
+ * @returns The user ID to use for thread operations
+ */
+export function resolveThreadUserId(
+  profileId: string | null,
+  conversationMode: string | null | undefined,
+  participants: Participant[],
+  isDevMode: boolean
+): string | null {
+  // If we have a profileId, use it
+  if (profileId) {
+    return profileId;
+  }
+
+  // In dev mode with individual_parallel, use first participant's user_id
+  // to ensure AI messages go to the correct individual thread
+  if (isDevMode && conversationMode === 'individual_parallel') {
+    const firstParticipantWithUserId = participants.find(p => p.user_id);
+    if (firstParticipantWithUserId?.user_id) {
+      console.log('[resolveThreadUserId] Dev mode: Using first participant user_id for individual thread:', firstParticipantWithUserId.user_id);
+      return firstParticipantWithUserId.user_id;
+    }
+  }
+
+  // Default: return null (will use shared thread fallback)
+  return null;
+}
+
 /**
  * Determine if an ASK session should use a shared thread
  *

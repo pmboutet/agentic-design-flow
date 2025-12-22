@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabaseServer';
 import { executeAgent } from '@/lib/ai/service';
 import { DEFAULT_CHAT_AGENT_SLUG } from '@/lib/ai/agent-config';
-import { getAskSessionByKey, getOrCreateConversationThread, getMessagesForThread } from '@/lib/asks';
-import { getConversationPlanWithSteps, getActiveStep } from '@/lib/ai/conversation-plan';
+import { getAskSessionByKey, getOrCreateConversationThread, getMessagesForThread, resolveThreadUserId } from '@/lib/asks';
+import { getConversationPlanWithSteps, getActiveStep, ensureConversationPlanExists } from '@/lib/ai/conversation-plan';
 import { getAdminSupabaseClient } from '@/lib/supabaseAdmin';
 import { parseErrorMessage } from '@/lib/utils';
 import type { ApiResponse } from '@/types';
@@ -53,12 +53,19 @@ export async function POST(
       }, { status: 404 });
     }
 
-    // Get or create conversation thread
-    const askConfig = {
-      conversation_mode: askRow.conversation_mode ?? null,
-    };
+    // Fetch participants FIRST (needed for thread resolution and voice agent)
+    const { data: participantRows, error: participantError } = await supabase
+      .from('ask_participants')
+      .select('*')
+      .eq('ask_session_id', askRow.id)
+      .order('joined_at', { ascending: true });
+
+    if (participantError) {
+      throw participantError;
+    }
 
     // Try to get current user for thread determination
+    const isDevBypass = process.env.IS_DEV === 'true';
     let profileId: string | null = null;
     try {
       const { data: userResult } = await supabase.auth.getUser();
@@ -73,26 +80,28 @@ export async function POST(
         }
       }
     } catch (error) {
-      // Ignore auth errors - will use shared thread if needed
+      // Ignore auth errors - will use resolveThreadUserId fallback
     }
+
+    // Get or create conversation thread using resolveThreadUserId for proper thread assignment
+    const askConfig = {
+      conversation_mode: askRow.conversation_mode ?? null,
+    };
+
+    // Use resolveThreadUserId for consistent thread assignment across all routes
+    const threadProfileId = resolveThreadUserId(
+      profileId,
+      askRow.conversation_mode,
+      participantRows ?? [],
+      isDevBypass
+    );
 
     const { thread: conversationThread } = await getOrCreateConversationThread(
       supabase,
       askRow.id,
-      profileId,
+      threadProfileId,
       askConfig
     );
-
-    // Fetch participants (needed for both initial message and voice agent)
-    const { data: participantRows, error: participantError } = await supabase
-      .from('ask_participants')
-      .select('*')
-      .eq('ask_session_id', askRow.id)
-      .order('joined_at', { ascending: true });
-
-    if (participantError) {
-      throw participantError;
-    }
 
     const participantUserIds = (participantRows ?? [])
       .map(row => row.user_id)
@@ -149,10 +158,29 @@ export async function POST(
       }
     }
 
-    // Fetch conversation plan if thread exists
+    // Ensure a conversation plan exists (centralized function handles generation if needed)
     let conversationPlan = null;
     if (conversationThread) {
-      conversationPlan = await getConversationPlanWithSteps(supabase, conversationThread.id);
+      try {
+        const adminClient = getAdminSupabaseClient();
+        conversationPlan = await ensureConversationPlanExists(
+          adminClient,
+          conversationThread.id,
+          {
+            askRow,
+            projectData,
+            challengeData,
+            participantSummaries,
+          }
+        );
+      } catch (planError) {
+        // IMPORTANT: Plan generation is REQUIRED - fail if it doesn't work
+        console.error('❌ Voice agent init: Failed to generate conversation plan:', planError);
+        return NextResponse.json<ApiResponse>({
+          success: false,
+          error: 'Failed to generate conversation plan. Please try again.'
+        }, { status: 500 });
+      }
     }
 
     // Check if there are any messages in the thread

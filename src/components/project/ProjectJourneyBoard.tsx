@@ -12,7 +12,9 @@ import {
   Lightbulb,
   Loader2,
   Mail,
+  Megaphone,
   MessageSquare,
+  MessageSquareText,
   Pencil,
   Plus,
   RefreshCw,
@@ -22,6 +24,7 @@ import {
   Trash2,
   UserPlus,
   Users,
+  UsersRound,
   X,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
@@ -4079,8 +4082,37 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
                                     )}>
                                       {ask.status}
                                     </span>
-                                    <span className="inline-flex items-center gap-1 rounded-full bg-blue-500/10 px-2 py-0.5 text-[10px] text-blue-200">
-                                      <Users className="h-2.5 w-2.5" /> {ask.participants?.length ?? 0}
+                                    <span
+                                      className={cn(
+                                        "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px]",
+                                        ask.conversationMode === "collaborative" ? "bg-purple-500/20 text-purple-200" :
+                                        ask.conversationMode === "group_reporter" ? "bg-amber-500/20 text-amber-200" :
+                                        ask.conversationMode === "consultant" ? "bg-teal-500/20 text-teal-200" :
+                                        "bg-blue-500/10 text-blue-200"
+                                      )}
+                                      title={
+                                        ask.conversationMode === "collaborative" ? "Mode collaboratif" :
+                                        ask.conversationMode === "group_reporter" ? "Mode rapporteur" :
+                                        ask.conversationMode === "consultant" ? "Mode consultant" :
+                                        "Mode individuel parallèle"
+                                      }
+                                    >
+                                      {ask.conversationMode === "collaborative" ? (
+                                        <UsersRound className="h-2.5 w-2.5" />
+                                      ) : ask.conversationMode === "group_reporter" ? (
+                                        <Megaphone className="h-2.5 w-2.5" />
+                                      ) : ask.conversationMode === "consultant" ? (
+                                        <MessageSquareText className="h-2.5 w-2.5" />
+                                      ) : (
+                                        <Users className="h-2.5 w-2.5" />
+                                      )}
+                                      {ask.participants?.length ?? 0}
+                                      <span className="ml-0.5">
+                                        {ask.conversationMode === "collaborative" ? "collab" :
+                                         ask.conversationMode === "group_reporter" ? "report" :
+                                         ask.conversationMode === "consultant" ? "consult" :
+                                         "indiv"}
+                                      </span>
                                     </span>
                                   </div>
                                 </div>

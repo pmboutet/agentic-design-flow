@@ -42,10 +42,10 @@ npm run build
 - Fix all TypeScript errors before committing
 - Ensure no security vulnerabilities (keep dependencies updated)
 - Follow existing code patterns and conventions
-
+- DRY DRY DRY AND DRY !!! Always always ALWAYS check if you can factor your code with the exsiting one. 
 ## Clean Code Principles
 
-### No Legacy Code
+### No Legacy Code - DRY 
 
 **NEVER keep legacy/deprecated code when a new feature replaces it.** When a new functionality replaces an old one:
 
@@ -53,6 +53,7 @@ npm run build
 2. **Create a data migration** if needed to convert existing data to the new format
 3. **Update all references** across the codebase (types, API routes, components, tests)
 4. **Update unit tests** to reflect the new behavior
+4. **Stay DRY** try to factor all the code. Don't create duplicate
 
 Rationale: Legacy code accumulates technical debt, causes confusion, and leads to bugs when developers don't know which version to use.
 

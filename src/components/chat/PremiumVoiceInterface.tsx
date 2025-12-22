@@ -859,9 +859,11 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
           isInterim: true,
         }));
       } else {
+        // Pour les messages user, le SegmentStore a déjà fait la déduplication
+        // par timestamps - on remplace simplement le contenu sans fusionner
         setInterimUser(prev => ({
           ...(prev || baseMessage),
-          content: mergeStreamingContent(prev?.content, baseMessage.content),
+          content: baseMessage.content,
           isInterim: true,
         }));
       }

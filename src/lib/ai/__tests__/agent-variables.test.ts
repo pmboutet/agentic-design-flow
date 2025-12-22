@@ -1291,26 +1291,22 @@ describe('Pacing Variables', () => {
   });
 });
 
-describe('Time Tracking Variables (Activity-Based Estimation)', () => {
-  // Activity signal durations:
-  // - AI message: 45 seconds (0.75 min) - user reading
-  // - User message: 90 seconds (1.5 min) - waiting + reading
+describe('Time Tracking Variables (Real Timer from DB)', () => {
+  // Time tracking now uses real elapsed seconds from DB (participant timer)
+  // instead of estimating from messages
 
-  test('should estimate conversation_elapsed_minutes based on activity signals', () => {
+  test('should use real elapsedActiveSeconds for conversation_elapsed_minutes', () => {
     const context = createMinimalContext();
-    // 2 AI messages (2 * 0.75 = 1.5 min) + 2 user messages (2 * 1.5 = 3 min) = 4.5 min
+    context.elapsedActiveSeconds = 270; // 4.5 minutes in seconds
     context.messages = [
       createMockMessage({ senderType: 'ai', content: 'Question 1?' }),
       createMockMessage({ senderType: 'user', content: 'Answer 1' }),
-      createMockMessage({ senderType: 'ai', content: 'Question 2?' }),
-      createMockMessage({ senderType: 'user', content: 'Answer 2' }),
     ];
 
     const variables = buildConversationAgentVariables(context);
 
     expect(variables.conversation_elapsed_minutes).toBeDefined();
     const elapsed = parseFloat(variables.conversation_elapsed_minutes as string);
-    // 2 AI (2 * 45s) + 2 user (2 * 90s) = 90s + 180s = 270s = 4.5 min
     expect(elapsed).toBe(4.5);
   });
 
@@ -1329,34 +1325,24 @@ describe('Time Tracking Variables (Activity-Based Estimation)', () => {
     expect(variables.questions_asked_total).toBe('3');
   });
 
-  test('should include time_remaining_minutes based on estimated active time', () => {
+  test('should include time_remaining_minutes based on real elapsed time', () => {
     const context = createMinimalContext();
     context.ask.expected_duration_minutes = 10;
-    // 1 AI (0.75 min) + 1 user (1.5 min) = 2.25 min estimated
-    context.messages = [
-      createMockMessage({ senderType: 'ai', content: 'Hello!' }),
-      createMockMessage({ senderType: 'user', content: 'Hi there' }),
-    ];
+    context.elapsedActiveSeconds = 135; // 2.25 minutes
 
     const variables = buildConversationAgentVariables(context);
 
     expect(variables.time_remaining_minutes).toBeDefined();
     const remaining = parseFloat(variables.time_remaining_minutes as string);
-    // 10 min - 2.25 min = 7.75 min remaining (could round to 7.7 or 7.8)
+    // 10 min - 2.3 min = 7.7 min remaining
     expect(remaining).toBeGreaterThanOrEqual(7.7);
     expect(remaining).toBeLessThanOrEqual(7.8);
   });
 
-  test('should set is_overtime to true when estimated time exceeds duration', () => {
+  test('should set is_overtime to true when real elapsed time exceeds duration', () => {
     const context = createMinimalContext();
     context.ask.expected_duration_minutes = 2;
-    // 4 AI messages (4 * 0.75 = 3 min) > 2 min expected
-    context.messages = [
-      createMockMessage({ senderType: 'ai', content: 'Q1' }),
-      createMockMessage({ senderType: 'ai', content: 'Q2' }),
-      createMockMessage({ senderType: 'ai', content: 'Q3' }),
-      createMockMessage({ senderType: 'ai', content: 'Q4' }),
-    ];
+    context.elapsedActiveSeconds = 180; // 3 minutes > 2 min expected
 
     const variables = buildConversationAgentVariables(context);
 
@@ -1367,10 +1353,7 @@ describe('Time Tracking Variables (Activity-Based Estimation)', () => {
   test('should set is_overtime to false when within expected duration', () => {
     const context = createMinimalContext();
     context.ask.expected_duration_minutes = 30;
-    // 1 user message = 1.5 min estimated, well under 30 min
-    context.messages = [
-      createMockMessage({ senderType: 'user', content: 'Test' }),
-    ];
+    context.elapsedActiveSeconds = 90; // 1.5 min, well under 30 min
 
     const variables = buildConversationAgentVariables(context);
 
@@ -1378,21 +1361,15 @@ describe('Time Tracking Variables (Activity-Based Estimation)', () => {
     expect(variables.overtime_minutes).toBe('0');
   });
 
-  test('should estimate step_elapsed_minutes for current step only', () => {
+  test('should use real stepElapsedActiveSeconds for step_elapsed_minutes', () => {
     const context = createFullContext();
-    // Messages for current step (step_2): 1 AI + 1 user = 0.75 + 1.5 = 2.25 min
-    context.messages = [
-      createMockMessage({ senderType: 'ai', planStepId: 'step-uuid-1' }), // Previous step
-      createMockMessage({ senderType: 'ai', planStepId: 'step-uuid-2' }), // Current step
-      createMockMessage({ senderType: 'user', planStepId: 'step-uuid-2' }), // Current step
-    ];
+    context.stepElapsedActiveSeconds = 135; // 2.25 minutes for current step
 
     const variables = buildConversationAgentVariables(context);
 
     expect(variables.step_elapsed_minutes).toBeDefined();
     const stepElapsed = parseFloat(variables.step_elapsed_minutes as string);
-    // 1 AI + 1 user = 0.75 + 1.5 = 2.25 min
-    expect(stepElapsed).toBeCloseTo(2.3, 1); // Rounded to 1 decimal
+    expect(stepElapsed).toBeCloseTo(2.3, 1);
   });
 
   test('should include questions_asked_in_step for current step', () => {
@@ -1413,26 +1390,21 @@ describe('Time Tracking Variables (Activity-Based Estimation)', () => {
     expect(variables.questions_asked_in_step).toBe('2');
   });
 
-  test('should set step_is_overtime correctly based on activity estimation', () => {
+  test('should set step_is_overtime correctly based on real step elapsed time', () => {
     const context = createFullContext();
     context.ask.expected_duration_minutes = 3; // 3 min / 3 steps = 1 min per step
-    // 3 AI messages in step_2 = 3 * 0.75 = 2.25 min > 1 min budget
-    context.messages = [
-      createMockMessage({ senderType: 'ai', planStepId: 'step-uuid-2' }),
-      createMockMessage({ senderType: 'ai', planStepId: 'step-uuid-2' }),
-      createMockMessage({ senderType: 'ai', planStepId: 'step-uuid-2' }),
-    ];
+    context.stepElapsedActiveSeconds = 135; // 2.25 min > 1 min budget
 
     const variables = buildConversationAgentVariables(context);
 
-    // 2.25 min > 1 min per step = overtime
     expect(variables.step_is_overtime).toBe('true');
     expect(parseFloat(variables.step_overtime_minutes as string)).toBeGreaterThan(0);
   });
 
-  test('should handle zero messages for time tracking', () => {
+  test('should handle zero elapsed seconds for time tracking', () => {
     const context = createMinimalContext();
     context.messages = [];
+    context.elapsedActiveSeconds = 0;
 
     const variables = buildConversationAgentVariables(context);
 
@@ -1441,40 +1413,33 @@ describe('Time Tracking Variables (Activity-Based Estimation)', () => {
     expect(variables.is_overtime).toBe('false');
   });
 
-  test('should handle single user message for time tracking', () => {
+  test('should use real elapsed time (ignoring message count)', () => {
     const context = createMinimalContext();
+    context.elapsedActiveSeconds = 90; // 1.5 minutes
+    // Messages don't affect elapsed time anymore
     context.messages = [
       createMockMessage({ senderType: 'user', content: 'Hello' }),
     ];
 
     const variables = buildConversationAgentVariables(context);
 
-    // 1 user message = 90 seconds = 1.5 min
     expect(variables.conversation_elapsed_minutes).toBe('1.5');
-    expect(variables.questions_asked_total).toBe('0'); // User messages don't count as questions
+    expect(variables.questions_asked_total).toBe('0');
   });
 
-  test('should only count activity time, ignoring wall-clock gaps', () => {
+  test('should default to 0 when elapsedActiveSeconds not provided', () => {
     const context = createMinimalContext();
-    // Even if timestamps span hours, only activity signals matter
+    // elapsedActiveSeconds not set (undefined)
     context.messages = [
-      createMockMessage({
-        senderType: 'ai',
-        content: 'Morning question',
-        timestamp: '2024-01-15T09:00:00Z', // 9 AM
-      }),
-      createMockMessage({
-        senderType: 'user',
-        content: 'Afternoon answer',
-        timestamp: '2024-01-15T14:00:00Z', // 2 PM (5 hours later!)
-      }),
+      createMockMessage({ senderType: 'ai', content: 'Question' }),
+      createMockMessage({ senderType: 'user', content: 'Answer' }),
     ];
 
     const variables = buildConversationAgentVariables(context);
 
-    // Should be 0.75 + 1.5 = 2.25 min, NOT 5 hours!
-    const elapsed = parseFloat(variables.conversation_elapsed_minutes as string);
-    expect(elapsed).toBeCloseTo(2.3, 1);
+    // Should default to 0, not estimate from messages
+    expect(variables.conversation_elapsed_minutes).toBe('0');
+    expect(variables.questions_asked_total).toBe('1');
   });
 });
 

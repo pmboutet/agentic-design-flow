@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import type { PostgrestError, SupabaseClient } from '@supabase/supabase-js';
 import { isValidAskKey, parseErrorMessage } from '@/lib/utils';
-import { getAskSessionByKey, getOrCreateConversationThread, getMessagesForThread } from '@/lib/asks';
+import { getAskSessionByKey, getOrCreateConversationThread, getMessagesForThread, getLastUserMessageThread } from '@/lib/asks';
 import { normaliseMessageMetadata } from '@/lib/messages';
 import { callModelProviderStream } from '@/lib/ai/providers';
 import { createAgentLog, markAgentLogProcessing, completeAgentLog, failAgentLog, createStreamingDebugLogger, buildStreamingResponsePayload } from '@/lib/ai/logs';
@@ -253,7 +253,10 @@ export async function POST(
       };
     });
 
-    // Get or create conversation thread
+    // Get conversation thread for AI response
+    // BUG FIX: For individual_parallel mode, AI must respond in the SAME thread as the user message.
+    // We find the last user message's thread instead of using resolveThreadUserId() which
+    // picks the first participant (may be different from the user who sent the message).
     const askConfig = {
       conversation_mode: askRow.conversation_mode ?? null,
     };
@@ -261,18 +264,45 @@ export async function POST(
     // In dev bypass mode, use admin client to bypass RLS for thread operations
     const threadClient = isDevBypass ? await getAdminClient() : dataClient;
 
-    const { thread: conversationThread, error: threadError } = await getOrCreateConversationThread(
+    let conversationThread: { id: string; is_shared: boolean } | null = null;
+
+    // First, try to find the thread from the last user message
+    const { threadId: lastUserThreadId, userId: lastUserUserId } = await getLastUserMessageThread(
       threadClient,
-      askRow.id,
-      profileId,
-      askConfig
+      askRow.id
     );
 
-    if (threadError) {
-      if (isPermissionDenied(threadError)) {
-        return permissionDeniedResponse();
+    if (lastUserThreadId) {
+      // Use the same thread as the last user message
+      console.log('[stream] Using thread from last user message:', lastUserThreadId);
+      const { data: existingThread, error: fetchError } = await threadClient
+        .from('conversation_threads')
+        .select('id, is_shared')
+        .eq('id', lastUserThreadId)
+        .single();
+
+      if (!fetchError && existingThread) {
+        conversationThread = existingThread;
       }
-      throw threadError;
+    }
+
+    // Fallback: create/get thread based on profileId or last user's userId
+    if (!conversationThread) {
+      const threadUserId = profileId ?? lastUserUserId ?? null;
+      const { thread, error: threadError } = await getOrCreateConversationThread(
+        threadClient,
+        askRow.id,
+        threadUserId,
+        askConfig
+      );
+
+      if (threadError) {
+        if (isPermissionDenied(threadError)) {
+          return permissionDeniedResponse();
+        }
+        throw threadError;
+      }
+      conversationThread = thread;
     }
 
     // Get messages for the thread (or all messages if no thread for backward compatibility)
@@ -407,6 +437,37 @@ export async function POST(
       conversationPlan = await getConversationPlanWithSteps(planClient, conversationThread.id);
     }
 
+    // Fetch elapsed times from DB for real-time pacing
+    let elapsedActiveSeconds = 0;
+    let stepElapsedActiveSeconds = 0;
+
+    if (profileId) {
+      const { data: participantTimer } = await dataClient
+        .from('ask_participants')
+        .select('elapsed_active_seconds')
+        .eq('ask_session_id', askRow.id)
+        .eq('user_id', profileId)
+        .maybeSingle();
+
+      elapsedActiveSeconds = participantTimer?.elapsed_active_seconds ?? 0;
+    }
+
+    if (conversationPlan?.current_step_id && 'steps' in conversationPlan && Array.isArray(conversationPlan.steps)) {
+      const currentStep = conversationPlan.steps.find(
+        (s: { step_identifier: string }) => s.step_identifier === conversationPlan.current_step_id
+      );
+      if (currentStep && 'id' in currentStep) {
+        const planClient = await getAdminClient();
+        const { data: stepTimer } = await planClient
+          .from('ask_conversation_plan_steps')
+          .select('elapsed_active_seconds')
+          .eq('id', (currentStep as { id: string }).id)
+          .maybeSingle();
+
+        stepElapsedActiveSeconds = stepTimer?.elapsed_active_seconds ?? 0;
+      }
+    }
+
     // Parse the request body to get the new user message
     let newUserMessage = '';
     try {
@@ -423,6 +484,8 @@ export async function POST(
       messages,
       participants: participantSummaries,
       conversationPlan,
+      elapsedActiveSeconds,
+      stepElapsedActiveSeconds,
     });
 
     // Override latest_user_message with the new message from the request

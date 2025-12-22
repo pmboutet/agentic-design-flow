@@ -36,6 +36,10 @@ export interface ConversationAgentContext {
   messages: ConversationMessageSummary[];
   participants: ConversationParticipantSummary[];
   conversationPlan?: ConversationPlan | null;
+  /** Real elapsed active time in seconds (from participant timer in DB) */
+  elapsedActiveSeconds?: number;
+  /** Real elapsed active time for current step in seconds (from step timer in DB) */
+  stepElapsedActiveSeconds?: number;
   // Optional: for insight detection and other specialized use cases
   insights?: Insight[];
   insightTypes?: string;
@@ -310,24 +314,14 @@ export function buildConversationAgentVariables(context: ConversationAgentContex
   const pacingConfig = calculatePacingConfig(expectedDurationMinutes, totalSteps);
   const pacingVariables = formatPacingVariables(pacingConfig);
 
-  // Calculate time tracking variables (real-time metrics)
-  // Get the current step record ID for filtering
+  // Calculate time tracking variables using real elapsed times from DB
+  // Get the current step record ID for question counting
   let currentStepRecordId: string | null = null;
-  let stepActivatedAt: string | null = null;
 
   if (currentStepId && planSteps) {
     const currentStepRecord = planSteps.find(step => step.step_identifier === currentStepId);
     if (currentStepRecord) {
       currentStepRecordId = currentStepRecord.id;
-      // Try to get activated_at from the step if available
-      if (context.conversationPlan && 'steps' in context.conversationPlan && Array.isArray(context.conversationPlan.steps)) {
-        const stepWithActivatedAt = context.conversationPlan.steps.find(
-          (s: any) => s.step_identifier === currentStepId
-        );
-        if (stepWithActivatedAt && 'activated_at' in stepWithActivatedAt) {
-          stepActivatedAt = stepWithActivatedAt.activated_at as string;
-        }
-      }
     }
   }
 
@@ -337,12 +331,14 @@ export function buildConversationAgentVariables(context: ConversationAgentContex
     planStepId: m.planStepId ?? null,
   }));
 
+  // Use real elapsed seconds from context (from DB), default to 0 if not provided
   const timeTrackingStats = calculateTimeTrackingStats(
     messagesForTimeTracking,
     expectedDurationMinutes,
     pacingConfig.durationPerStep,
+    context.elapsedActiveSeconds ?? 0,
+    context.stepElapsedActiveSeconds ?? 0,
     currentStepRecordId,
-    stepActivatedAt
   );
   const timeTrackingVariables = formatTimeTrackingVariables(timeTrackingStats);
 

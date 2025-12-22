@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback } from "react";
+import React, { useCallback, useState, useEffect } from "react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { Loader2, LogIn, LogOut, Settings, UserCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -24,11 +24,17 @@ function getInitials(name?: string | null) {
 export function UserProfileMenu() {
   const { status, user, signOut, isProcessing } = useAuth();
   const router = useRouter();
+  const [mounted, setMounted] = useState(false);
   const isSignedIn = status === "signed-in" && Boolean(user);
   const isLoading = status === "loading";
   const fullName = user?.fullName ?? "";
   const email = user?.email ?? "";
   const role = user?.role ?? undefined;
+
+  // Prevent hydration mismatch with Radix UI generated IDs
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const handleAccountSettings = useCallback(() => {
     router.push("/account");
@@ -37,6 +43,32 @@ export function UserProfileMenu() {
   const handleSignIn = useCallback(() => {
     router.push("/auth/login");
   }, [router]);
+
+  // Render placeholder during SSR to avoid Radix ID hydration mismatch
+  if (!mounted) {
+    return (
+      <Button
+        variant="ghost"
+        type="button"
+        className={cn(
+          "flex items-center justify-center text-white transition-all duration-200 hover:bg-white/10 hover:scale-110",
+          isSignedIn ? "h-10 w-10 rounded-full" : "h-12 w-12 rounded-xl",
+          isLoading && "cursor-wait opacity-80"
+        )}
+        aria-disabled={isLoading}
+      >
+        {isLoading ? (
+          <Loader2 className="h-6 w-6 animate-spin" />
+        ) : isSignedIn ? (
+          <div className="flex h-8 w-8 aspect-square items-center justify-center rounded-full bg-gradient-to-br from-purple-500 via-pink-500 to-orange-500 text-sm font-bold text-white shrink-0">
+            {getInitials(fullName)}
+          </div>
+        ) : (
+          <UserCircle2 className="h-8 w-8" />
+        )}
+      </Button>
+    );
+  }
 
   return (
     <DropdownMenu.Root>

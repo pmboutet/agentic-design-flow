@@ -9,6 +9,7 @@ import {
   type ProjectParticipantOption,
   type ProjectParticipantSummary,
 } from "@/types";
+import { buildParticipantName } from "./ask-session-loader";
 
 const IMPACT_LEVELS: ProjectChallengeNode["impact"][] = ["low", "medium", "high", "critical"];
 
@@ -210,12 +211,13 @@ function resolveParticipantId(row: any): string {
 
 function buildParticipantSummary(row: any): ProjectParticipantSummary {
   const profile = getProfileFromRow(row);
-  const name =
-    row.participant_name ||
-    profile?.full_name ||
-    profile?.email ||
-    row.participant_email ||
-    "Participant";
+  // Use centralized buildParticipantName with proper fallback chain:
+  // participant_name > full_name > email > participant_email > generated ID
+  const name = buildParticipantName(
+    row.participant_name || profile?.full_name || null,
+    profile?.email || row.participant_email || null,
+    resolveParticipantId(row)
+  );
 
   const role = row.role ?? profile?.role ?? undefined;
   // Priority: project-specific > client-specific > global job title
@@ -299,7 +301,7 @@ export async function fetchProjectJourneyContext(
     supabase
       .from("ask_sessions")
       .select(
-        "id, ask_key, name, question, description, status, start_date, end_date, challenge_id, project_id",
+        "id, ask_key, name, question, description, status, start_date, end_date, challenge_id, project_id, conversation_mode",
       )
       .eq("project_id", projectId),
   ]);
@@ -441,7 +443,7 @@ export async function fetchProjectJourneyContext(
   for (const row of ownerRows) {
     ownerMap.set(row.id, {
       id: row.id,
-      name: row.full_name || row.email || "Owner",
+      name: buildParticipantName(row.full_name, row.email, row.id),
       role: row.role ?? undefined,
       jobTitle: row.job_title ?? undefined,
     });
@@ -495,7 +497,7 @@ export async function fetchProjectJourneyContext(
     }
     const ownerId = String(row.id);
     profileCache.set(ownerId, {
-      name: row.full_name || row.email || "Owner",
+      name: buildParticipantName(row.full_name, row.email, ownerId),
       role: row.role ?? null,
       email: row.email ?? null,
       jobTitle: row.job_title ?? null,
@@ -515,14 +517,14 @@ export async function fetchProjectJourneyContext(
 
     if (profile) {
       profileCache.set(userId, {
-        name: (profile.full_name || profile.email || "Participant").trim() || "Participant",
+        name: buildParticipantName(profile.full_name, profile.email, userId),
         role: profile.role ?? row.role ?? null,
         email: profile.email ?? null,
         jobTitle: profile.job_title ?? row.job_title ?? null,
       });
     } else if (!profileCache.has(userId)) {
       profileCache.set(userId, {
-        name: "Participant",
+        name: buildParticipantName(null, null, userId),
         role: row.role ?? null,
         email: null,
         jobTitle: row.job_title ?? null,
@@ -604,7 +606,7 @@ export async function fetchProjectJourneyContext(
       }
       const profileId = String(profileRow.id);
       profileCache.set(profileId, {
-        name: (profileRow.full_name || profileRow.email || "Participant").trim() || "Participant",
+        name: buildParticipantName(profileRow.full_name, profileRow.email, profileId),
         role: profileRow.role ?? null,
         email: profileRow.email ?? null,
         jobTitle: profileRow.job_title ?? null,
@@ -621,7 +623,7 @@ export async function fetchProjectJourneyContext(
 
     const userId = String(rawUserId);
     const cachedProfile = profileCache.get(userId);
-    const name = cachedProfile?.name ?? (profile?.full_name || profile?.email || "Participant");
+    const name = cachedProfile?.name ?? buildParticipantName(profile?.full_name, profile?.email, userId);
     const role = cachedProfile?.role ?? row.role ?? profile?.role ?? "member";
     // Priority: project-specific > global job title
     const jobTitle = row.job_title ?? profile?.job_title ?? cachedProfile?.jobTitle ?? undefined;
@@ -741,6 +743,7 @@ export async function fetchProjectJourneyContext(
       status: row.status ?? "active",
       theme: "General",
       dueDate: row.end_date ?? row.start_date ?? new Date().toISOString(),
+      conversationMode: row.conversation_mode ?? null,
       originatingChallengeIds: Array.from(originatingChallengeIds),
       primaryChallengeId,
       relatedChallengeIds: Array.from(relatedChallengeIds),

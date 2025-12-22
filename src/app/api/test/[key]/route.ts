@@ -109,9 +109,17 @@ export async function POST(
 
   console.log(`[TEST] Received message for key: ${key}`, body);
 
+  // IMPORTANT: senderName is required - never use fallback like 'Vous'
+  if (!body.senderName) {
+    return NextResponse.json({
+      success: false,
+      error: 'senderName is required for user messages'
+    }, { status: 400 });
+  }
+
   const askSessionId = `ask-session-${key}`;
   const timestamp = body.timestamp ?? new Date().toISOString();
-  const senderName = body.senderName ?? 'Vous';
+  const senderName = body.senderName;
 
   const message = {
     id: `msg-${Date.now()}`,

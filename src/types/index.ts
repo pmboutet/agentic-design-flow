@@ -631,6 +631,7 @@ export interface ProjectAskOverview {
   status: string;
   theme: string;
   dueDate: string;
+  conversationMode?: AskConversationMode | null;
   participants: ProjectAskParticipant[];
   originatingChallengeIds: string[];
   primaryChallengeId?: string | null;
