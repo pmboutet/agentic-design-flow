@@ -29,6 +29,7 @@ export interface ParticipantRow {
   is_spokesperson?: boolean | null;
   user_id?: string | null;
   last_active?: string | null;
+  elapsed_active_seconds?: number | null;
 }
 
 export interface UserRow {
@@ -38,6 +39,7 @@ export interface UserRow {
   first_name?: string | null;
   last_name?: string | null;
   description?: string | null;
+  job_title?: string | null;
 }
 
 export interface MessageRow {
@@ -305,6 +307,7 @@ export function buildParticipantSummary(
     name: buildParticipantDisplayName(participantRow, user, index),
     role: participantRow.role ?? null,
     description: user?.description ?? null,
+    jobTitle: user?.job_title ?? null,
   };
 }
 
@@ -325,7 +328,7 @@ export async function fetchUsersByIds(
 
   const { data: userRows, error } = await supabase
     .from('profiles')
-    .select('id, email, full_name, first_name, last_name, description')
+    .select('id, email, full_name, first_name, last_name, description, job_title')
     .in('id', userIds);
 
   if (error) {
@@ -341,25 +344,28 @@ export async function fetchUsersByIds(
 
 /**
  * Fetch participants for an ASK session with their user data.
+ * Returns raw participantRows for use with fetchElapsedTime.
  */
 export async function fetchParticipantsWithUsers(
   supabase: SupabaseClient,
   askSessionId: string
-): Promise<{ participants: ConversationParticipantSummary[]; usersById: Record<string, UserRow> }> {
-  // Fetch participants
+): Promise<{ participants: ConversationParticipantSummary[]; usersById: Record<string, UserRow>; participantRows: ParticipantRow[] }> {
+  // Fetch participants (include elapsed_active_seconds for timer)
   const { data: participantRows, error: participantError } = await supabase
     .from('ask_participants')
-    .select('id, participant_name, participant_email, role, is_spokesperson, user_id, last_active')
+    .select('id, participant_name, participant_email, role, is_spokesperson, user_id, last_active, elapsed_active_seconds')
     .eq('ask_session_id', askSessionId)
     .order('joined_at', { ascending: true });
 
   if (participantError) {
     console.warn('Failed to fetch participants:', participantError);
-    return { participants: [], usersById: {} };
+    return { participants: [], usersById: {}, participantRows: [] };
   }
 
+  const typedParticipantRows = (participantRows ?? []) as ParticipantRow[];
+
   // Collect user IDs
-  const participantUserIds = (participantRows ?? [])
+  const participantUserIds = typedParticipantRows
     .map(row => row.user_id)
     .filter((value): value is string => Boolean(value));
 
@@ -367,12 +373,12 @@ export async function fetchParticipantsWithUsers(
   const usersById = await fetchUsersByIds(supabase, participantUserIds);
 
   // Build participant summaries
-  const participants = (participantRows ?? []).map((row, index) => {
+  const participants = typedParticipantRows.map((row, index) => {
     const user = row.user_id ? usersById[row.user_id] ?? null : null;
     return buildParticipantSummary(row, user, index);
   });
 
-  return { participants, usersById };
+  return { participants, usersById, participantRows: typedParticipantRows };
 }
 
 /**
@@ -534,8 +540,8 @@ export async function fetchConversationContext(
   // Use admin client for plan fetching if provided (to bypass RLS)
   const planClient = adminClient ?? supabase;
 
-  // 1. Fetch participants with user data
-  const { participants, usersById: participantUsersById } = await fetchParticipantsWithUsers(
+  // 1. Fetch participants with user data (includes participantRows for elapsed time)
+  const { participants, usersById: participantUsersById, participantRows } = await fetchParticipantsWithUsers(
     supabase,
     askSession.id
   );
@@ -572,36 +578,16 @@ export async function fetchConversationContext(
     conversationPlan = await getConversationPlanWithSteps(planClient, conversationThread.id);
   }
 
-  // 6. Fetch elapsed time from participant
-  let elapsedActiveSeconds = 0;
-  if (profileId) {
-    const { data: participantTimer } = await supabase
-      .from('ask_participants')
-      .select('elapsed_active_seconds')
-      .eq('ask_session_id', askSession.id)
-      .eq('user_id', profileId)
-      .maybeSingle();
-
-    elapsedActiveSeconds = participantTimer?.elapsed_active_seconds ?? 0;
-  }
-
-  // 7. Fetch elapsed time for current step
-  let stepElapsedActiveSeconds = 0;
-  if (conversationPlan?.current_step_id && 'steps' in conversationPlan && Array.isArray(conversationPlan.steps)) {
-    const currentStep = conversationPlan.steps.find(
-      (s: { step_identifier: string }) => s.step_identifier === conversationPlan.current_step_id
-    );
-    if (currentStep && 'id' in currentStep) {
-      const dataClient = adminClient ?? supabase;
-      const { data: stepTimer } = await dataClient
-        .from('ask_conversation_plan_steps')
-        .select('elapsed_active_seconds')
-        .eq('id', (currentStep as { id: string }).id)
-        .maybeSingle();
-
-      stepElapsedActiveSeconds = stepTimer?.elapsed_active_seconds ?? 0;
-    }
-  }
+  // 6. Fetch elapsed times using centralized helper
+  // IMPORTANT: Pass participantRows to use fallback when profileId doesn't match
+  const { elapsedActiveSeconds, stepElapsedActiveSeconds } = await fetchElapsedTime({
+    supabase,
+    askSessionId: askSession.id,
+    profileId,
+    conversationPlan,
+    participantRows,
+    adminClient,
+  });
 
   return {
     askSession,
@@ -617,5 +603,92 @@ export async function fetchConversationContext(
     elapsedActiveSeconds,
     stepElapsedActiveSeconds,
   };
+}
+
+// ============================================================================
+// Elapsed Time Helper
+// ============================================================================
+
+export interface ElapsedTimeResult {
+  elapsedActiveSeconds: number;
+  stepElapsedActiveSeconds: number;
+}
+
+export interface FetchElapsedTimeOptions {
+  supabase: SupabaseClient;
+  askSessionId: string;
+  profileId?: string | null;
+  conversationPlan?: ConversationPlan | null;
+  /** Participant rows if already fetched (avoids extra query) */
+  participantRows?: Array<{ user_id?: string | null; elapsed_active_seconds?: number | null }>;
+  adminClient?: SupabaseClient;
+}
+
+/**
+ * Fetch elapsed time from participant and step timers.
+ *
+ * This is the SINGLE source of truth for elapsed time fetching.
+ * Use this function instead of duplicating the logic in routes.
+ */
+export async function fetchElapsedTime(options: FetchElapsedTimeOptions): Promise<ElapsedTimeResult> {
+  const { supabase, askSessionId, profileId, conversationPlan, participantRows, adminClient } = options;
+
+  // 1. Fetch participant's elapsed time
+  let elapsedActiveSeconds = 0;
+
+  if (participantRows && participantRows.length > 0) {
+    // Use pre-fetched participant rows
+    const participant = participantRows.find(p => p.user_id === profileId);
+    if (participant) {
+      elapsedActiveSeconds = participant.elapsed_active_seconds ?? 0;
+    } else if (participantRows.length > 0) {
+      // Fallback: use first participant if current user not found
+      elapsedActiveSeconds = participantRows[0].elapsed_active_seconds ?? 0;
+    }
+  } else if (profileId) {
+    // Fetch from DB
+    const { data: participantTimer } = await supabase
+      .from('ask_participants')
+      .select('elapsed_active_seconds')
+      .eq('ask_session_id', askSessionId)
+      .eq('user_id', profileId)
+      .maybeSingle();
+
+    elapsedActiveSeconds = participantTimer?.elapsed_active_seconds ?? 0;
+  }
+
+  // 2. Fetch step elapsed time
+  let stepElapsedActiveSeconds = 0;
+
+  if (conversationPlan?.current_step_id) {
+    // Handle normalized format (steps array with step_identifier)
+    if ('steps' in conversationPlan && Array.isArray(conversationPlan.steps)) {
+      const currentStep = conversationPlan.steps.find(
+        (s: { step_identifier: string }) => s.step_identifier === conversationPlan.current_step_id
+      );
+      if (currentStep && 'id' in currentStep) {
+        const dataClient = adminClient ?? supabase;
+        const { data: stepTimer } = await dataClient
+          .from('ask_conversation_plan_steps')
+          .select('elapsed_active_seconds')
+          .eq('id', (currentStep as { id: string }).id)
+          .maybeSingle();
+
+        stepElapsedActiveSeconds = stepTimer?.elapsed_active_seconds ?? 0;
+      }
+    } else {
+      // Fallback: current_step_id is already the DB record ID
+      const dataClient = adminClient ?? supabase;
+      const { data: stepTimer } = await dataClient
+        .from('ask_conversation_plan_steps')
+        .select('elapsed_active_seconds')
+        .eq('id', conversationPlan.current_step_id)
+        .maybeSingle();
+
+      stepElapsedActiveSeconds = stepTimer?.elapsed_active_seconds ?? 0;
+    }
+  }
+
+  return { elapsedActiveSeconds, stepElapsedActiveSeconds };
 }
 

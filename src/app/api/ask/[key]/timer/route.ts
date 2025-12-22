@@ -368,19 +368,42 @@ export async function PATCH(
     }
 
     // Update step elapsed time if provided
+    // Note: currentStepId is a step_identifier (e.g. "step_1"), not an UUID
     let stepElapsedSeconds: number | undefined;
     if (body.currentStepId && typeof body.stepElapsedSeconds === 'number') {
       const admin = await getAdminClient();
-      const { error: stepUpdateError } = await admin
-        .from('ask_conversation_plan_steps')
-        .update({ elapsed_active_seconds: Math.floor(body.stepElapsedSeconds) })
-        .eq('id', body.currentStepId);
 
-      if (stepUpdateError) {
-        // Log but don't fail the request - step update is secondary
-        console.warn('Failed to update step elapsed time:', stepUpdateError);
-      } else {
-        stepElapsedSeconds = Math.floor(body.stepElapsedSeconds);
+      // Step 1: Find conversation thread for this ASK session
+      const { data: threadData } = await admin
+        .from('conversation_threads')
+        .select('id')
+        .eq('ask_session_id', askRow.id)
+        .limit(1)
+        .maybeSingle();
+
+      if (threadData) {
+        // Step 2: Find the plan for this thread
+        const { data: planData } = await admin
+          .from('ask_conversation_plans')
+          .select('id')
+          .eq('conversation_thread_id', threadData.id)
+          .maybeSingle();
+
+        if (planData) {
+          // Step 3: Update the step by step_identifier within this plan
+          const { error: stepUpdateError } = await admin
+            .from('ask_conversation_plan_steps')
+            .update({ elapsed_active_seconds: Math.floor(body.stepElapsedSeconds) })
+            .eq('plan_id', planData.id)
+            .eq('step_identifier', body.currentStepId);
+
+          if (stepUpdateError) {
+            // Log but don't fail the request - step update is secondary
+            console.warn('Failed to update step elapsed time:', stepUpdateError);
+          } else {
+            stepElapsedSeconds = Math.floor(body.stepElapsedSeconds);
+          }
+        }
       }
     }
 

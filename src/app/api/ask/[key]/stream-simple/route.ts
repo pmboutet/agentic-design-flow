@@ -5,6 +5,7 @@ import { getAdminSupabaseClient } from '@/lib/supabaseAdmin';
 import { getAskSessionByKey } from '@/lib/asks';
 import { getAgentConfigForAsk } from '@/lib/ai/agent-config';
 import { buildConversationAgentVariables } from '@/lib/ai/conversation-agent';
+import { fetchElapsedTime } from '@/lib/conversation-context';
 import type { AiModelConfig } from '@/types';
 
 export async function POST(
@@ -55,6 +56,15 @@ export async function POST(
       );
     }
 
+    // Fetch elapsed times using centralized helper (DRY - same as stream route)
+    // Note: For stream-simple, there's no conversation context, so times will be 0
+    const { elapsedActiveSeconds, stepElapsedActiveSeconds } = await fetchElapsedTime({
+      supabase,
+      askSessionId: askRow.id,
+      profileId: null,
+      conversationPlan: null,
+    });
+
     // Use centralized function for prompt variables
     const promptVariables = buildConversationAgentVariables({
       ask: {
@@ -68,6 +78,8 @@ export async function POST(
       messages: [],
       participants: [],
       conversationPlan: null,
+      elapsedActiveSeconds,
+      stepElapsedActiveSeconds,
     });
 
     const agentConfig = await getAgentConfigForAsk(

@@ -15,6 +15,7 @@ import {
   buildParticipantDisplayName,
   buildMessageSenderName,
   buildParticipantSummary,
+  fetchElapsedTime,
   type AskSessionRow,
   type UserRow,
   type ParticipantRow,
@@ -941,6 +942,10 @@ async function persistInsights(
   }
 }
 
+// Maximum time a job can run before being considered stuck (30 seconds)
+// Average latency is ~5s, so 30s gives plenty of margin
+const JOB_TIMEOUT_MS = 30 * 1000;
+
 async function findActiveInsightJob(
   supabase: ReturnType<typeof getAdminSupabaseClient>,
   askSessionId: string,
@@ -955,6 +960,24 @@ async function findActiveInsightJob(
 
   if (error) {
     throw error;
+  }
+
+  // Auto-expire stuck jobs that have been running for too long
+  if (data && data.started_at) {
+    const startedAt = new Date(data.started_at).getTime();
+    const now = Date.now();
+    if (now - startedAt > JOB_TIMEOUT_MS) {
+      console.warn(`[Insight Job] Auto-expiring stuck job ${data.id} (started ${Math.round((now - startedAt) / 1000)}s ago)`);
+      await supabase
+        .from('ai_insight_jobs')
+        .update({
+          status: 'failed',
+          last_error: 'Job timed out after 5 minutes',
+          finished_at: new Date().toISOString(),
+        })
+        .eq('id', data.id);
+      return null; // Allow a new job to be created
+    }
   }
 
   return data ?? null;
@@ -1233,7 +1256,7 @@ async function triggerInsightDetection(
 
     let parsedPayload: unknown;
     let parsingFailed = false;
-    
+
     const payload = resolveInsightAgentPayload(result);
     if (payload && typeof payload === 'object') {
       const payloadObj = payload as Record<string, unknown>;
@@ -1642,6 +1665,15 @@ export async function POST(
       conversationPlan = await getConversationPlanWithSteps(supabase, conversationThread.id);
     }
 
+    // Fetch elapsed times using centralized helper (DRY)
+    const { elapsedActiveSeconds, stepElapsedActiveSeconds } = await fetchElapsedTime({
+      supabase,
+      askSessionId: askRow.id,
+      profileId: currentUserId,
+      conversationPlan,
+      participantRows: participantRows ?? [],
+    });
+
     if (detectInsightsOnly) {
       try {
         const lastAiMessage = [...messages].reverse().find(message => message.senderType === 'ai');
@@ -1661,6 +1693,8 @@ export async function POST(
           messages: conversationMessages,
           participants: participantSummaries,
           conversationPlan,
+          elapsedActiveSeconds,
+          stepElapsedActiveSeconds,
           insights: existingInsights,
           latestAiResponse: lastAiMessage?.content ?? '',
           insightTypes,
@@ -1827,6 +1861,8 @@ export async function POST(
           messages: conversationMessages,
           participants: participantSummaries,
           conversationPlan,
+          elapsedActiveSeconds,
+          stepElapsedActiveSeconds,
         });
 
         const aiResult = await executeAgent({
@@ -1967,6 +2003,8 @@ export async function POST(
       messages: conversationMessages,
       participants: participantSummaries,
       conversationPlan,
+      elapsedActiveSeconds,
+      stepElapsedActiveSeconds,
       insights: existingInsights,
       latestAiResponse,
       insightTypes,

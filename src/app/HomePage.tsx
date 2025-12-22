@@ -1,9 +1,9 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
 import { motion, AnimatePresence, useMotionValue, useTransform, PanInfo } from "framer-motion";
-import { AlertCircle, Clock, MessageSquare, Sparkles, ChevronDown, ChevronUp, MessageCircle, Lightbulb, RefreshCw, Info } from "lucide-react";
+import { AlertCircle, Clock, MessageSquare, Sparkles, ChevronDown, ChevronUp, MessageCircle, Lightbulb, RefreshCw, Info, Mic, MessageSquareText } from "lucide-react";
 import { ChatComponent } from "@/components/chat/ChatComponent";
 import { InsightPanel } from "@/components/insight/InsightPanel";
 import { SuggestedQuestionsPanel } from "@/components/consultant/SuggestedQuestionsPanel";
@@ -93,6 +93,8 @@ interface MobileLayoutProps {
   sessionElapsedMinutes: number;
   /** Whether the session timer is paused */
   isSessionTimerPaused: boolean;
+  /** Toggle the session timer pause state */
+  onToggleTimerPause: () => void;
   /** Notify session timer of user typing */
   onUserTyping: (isTyping: boolean) => void;
   /** Consultant mode - AI-assisted question suggestions */
@@ -136,6 +138,7 @@ function MobileLayout({
   onInsightUpdate,
   sessionElapsedMinutes,
   isSessionTimerPaused,
+  onToggleTimerPause,
   onUserTyping,
   isConsultantMode,
   isSpokesperson,
@@ -333,6 +336,7 @@ function MobileLayout({
                     currentStepId={sessionData.conversationPlan.current_step_id}
                     elapsedMinutes={sessionElapsedMinutes}
                     isTimerPaused={isSessionTimerPaused}
+                    onTogglePause={onToggleTimerPause}
                   />
                 </div>
               )}
@@ -351,6 +355,7 @@ function MobileLayout({
                   isMultiUser={Boolean(sessionData.ask && sessionData.ask.participants.length > 1)}
                   showAgentTyping={awaitingAiResponse && !isDetectingInsights}
                   voiceModeEnabled={!!voiceModeConfig?.systemPrompt}
+                  initialVoiceMode={isVoiceModeActive}
                   voiceModeSystemPrompt={voiceModeConfig?.systemPrompt || undefined}
                   voiceModeUserPrompt={voiceModeConfig?.userPrompt || undefined}
                   voiceModePromptVariables={voiceModeConfig?.promptVariables || undefined}
@@ -360,6 +365,9 @@ function MobileLayout({
                   onVoiceModeChange={setIsVoiceModeActive}
                   onEditMessage={onEditMessage}
                   consultantMode={sessionData.ask?.conversationMode === 'consultant'}
+                  elapsedMinutes={sessionElapsedMinutes}
+                  isTimerPaused={isSessionTimerPaused}
+                  onTogglePause={onToggleTimerPause}
                 />
               </div>
             </div>
@@ -458,13 +466,38 @@ export default function HomePage() {
   const [isDetailsCollapsed, setIsDetailsCollapsed] = useState(false);
   const [isReplyBoxFocused, setIsReplyBoxFocused] = useState(false);
   const [isVoiceModeActive, setIsVoiceModeActive] = useState(false);
+  // Mode selection state - null means not yet selected, 'voice' or 'text' means selected
+  const [selectedInputMode, setSelectedInputMode] = useState<'voice' | 'text' | null>(null);
+  // Track if voice config is loading
+  const [isVoiceConfigLoading, setIsVoiceConfigLoading] = useState(false);
+
+  // Get current step record ID for timer tracking
+  // We need the actual UUID (step record id), not the step_identifier
+  const currentStepRecordId = useMemo(() => {
+    if (!sessionData.conversationPlan?.current_step_id) return null;
+    const steps = sessionData.conversationPlan.plan_data?.steps ?? [];
+    const currentStep = steps.find(
+      (s) => s.id === sessionData.conversationPlan?.current_step_id
+    );
+    return currentStep?.id ?? null;
+  }, [sessionData.conversationPlan]);
 
   // Session timer with intelligent pause/resume logic and persistence
   const sessionTimer = useSessionTimer({
     inactivityTimeout: 30000, // 30 seconds before pause
     askKey: sessionData.askKey || undefined, // Enable persistence when askKey is available
     inviteToken: sessionData.inviteToken,
+    currentStepId: currentStepRecordId, // Track time per step
   });
+
+  // Toggle timer pause - switches between pause and start
+  const handleToggleTimerPause = useCallback(() => {
+    if (sessionTimer.isPaused) {
+      sessionTimer.start();
+    } else {
+      sessionTimer.pause();
+    }
+  }, [sessionTimer]);
 
   // Consultant analysis for AI-assisted question suggestions
   const isConsultantMode = sessionData.ask?.conversationMode === 'consultant';
@@ -1075,6 +1108,10 @@ export default function HomePage() {
       setCurrentUserId(data.data?.viewer?.profileId ?? null);
       setIsCurrentParticipantSpokesperson(data.data?.viewer?.isSpokesperson === true);
 
+      // Mark voice config as loading - will be loaded by useEffect
+      // This prevents the auto-select effect from running too early
+      setIsVoiceConfigLoading(true);
+
     } catch (error) {
       console.error('Error loading session data by token:', error);
       setSessionData(prev => ({
@@ -1169,6 +1206,10 @@ export default function HomePage() {
       if (data.data?.viewer) {
         setIsCurrentParticipantSpokesperson(data.data.viewer.isSpokesperson === true);
       }
+
+      // Mark voice config as loading - will be loaded by useEffect
+      // This prevents the auto-select effect from running too early
+      setIsVoiceConfigLoading(true);
 
     } catch (error) {
       console.error('Error loading session data:', error);
@@ -1547,6 +1588,7 @@ export default function HomePage() {
       return;
     }
 
+    setIsVoiceConfigLoading(true);
     try {
       // Build API URL with token if available
       const apiUrl = new URL(`/api/ask/${sessionData.askKey}/agent-config`, window.location.origin);
@@ -1604,6 +1646,8 @@ export default function HomePage() {
       }
     } catch {
       // Voice config loading error - silent fail, will use defaults
+    } finally {
+      setIsVoiceConfigLoading(false);
     }
   }, [sessionData.askKey, sessionData.ask?.askSessionId]);
 
@@ -1613,6 +1657,23 @@ export default function HomePage() {
       loadVoiceModeConfig();
     }
   }, [sessionData.ask?.askSessionId, loadVoiceModeConfig]);
+
+  // Auto-select text mode when voice mode is not available
+  useEffect(() => {
+    // Only run when:
+    // - Session is loaded
+    // - Voice config finished loading
+    // - No mode selected yet
+    // - Voice mode is NOT available
+    if (
+      sessionData.ask &&
+      !isVoiceConfigLoading &&
+      selectedInputMode === null &&
+      !voiceModeConfig?.systemPrompt
+    ) {
+      setSelectedInputMode('text');
+    }
+  }, [sessionData.ask, isVoiceConfigLoading, selectedInputMode, voiceModeConfig?.systemPrompt]);
 
   // Handle streaming AI response
   const handleStreamingResponse = useCallback(async (latestUserMessageContent?: string): Promise<boolean> => {
@@ -2135,50 +2196,133 @@ export default function HomePage() {
   }
 
   // Render loading state with beautiful animations
-  if (sessionData.isLoading && !sessionData.ask) {
+  // Show when: initial session loading OR voice config loading (before mode selection)
+  const showLoadingScreen = (sessionData.isLoading && !sessionData.ask) ||
+    (sessionData.ask && isVoiceConfigLoading && selectedInputMode === null);
+
+  if (showLoadingScreen) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-indigo-100 via-white to-indigo-200 flex items-center justify-center">
-        <motion.div 
-          initial={{ opacity: 0, scale: 0.8 }}
+      <div className="min-h-[100dvh] bg-gradient-to-br from-pink-500 via-pink-400 to-rose-400 flex items-center justify-center p-4">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.9 }}
           animate={{ opacity: 1, scale: 1 }}
-          className="glass-card max-w-md w-full"
+          transition={{ duration: 0.5 }}
+          className="w-full max-w-md"
         >
-          <Card className="border-0 bg-transparent shadow-none">
-            <CardContent className="flex items-center justify-center py-12">
-              <div className="text-center space-y-6">
-                <motion.div
-                  animate={{ rotate: 360 }}
-                  transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-                  className="mx-auto w-16 h-16 bg-gradient-to-r from-primary to-accent rounded-full flex items-center justify-center"
-                >
-                  <Sparkles className="h-8 w-8 text-white" />
-                </motion.div>
-                
-                <div className="space-y-3">
-                  <motion.h3 
-                    animate={{ opacity: [0.5, 1, 0.5] }}
-                    transition={{ duration: 2, repeat: Infinity }}
-                    className="text-lg font-semibold text-foreground"
-                  >
-                    {isTestMode ? 'Loading Test Session' : 'Preparing Your Session'}
-                  </motion.h3>
-                  
-                  <div className="space-y-2">
-                    <div className="h-2 bg-muted rounded-full overflow-hidden">
-                      <motion.div
-                        animate={{ x: [-100, 400] }}
-                        transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-                        className="h-full w-24 bg-gradient-to-r from-primary to-accent"
-                      />
-                    </div>
-                    <p className="text-sm text-muted-foreground">
-                      Tailoring the interview to your profile...
-                    </p>
-                  </div>
+          <div className="text-center space-y-8">
+            {/* Animated loading spinner */}
+            <motion.div
+              animate={{ rotate: 360 }}
+              transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+              className="mx-auto w-20 h-20 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center shadow-lg"
+            >
+              <Sparkles className="h-10 w-10 text-white" />
+            </motion.div>
+
+            <div className="space-y-4">
+              <motion.h2
+                animate={{ opacity: [0.7, 1, 0.7] }}
+                transition={{ duration: 2, repeat: Infinity }}
+                className="text-2xl font-bold text-white"
+              >
+                {isTestMode ? 'Chargement du test...' : 'Préparation de votre entretien...'}
+              </motion.h2>
+
+              {/* Progress bar */}
+              <div className="max-w-xs mx-auto">
+                <div className="h-2 bg-white/30 rounded-full overflow-hidden">
+                  <motion.div
+                    initial={{ x: '-100%' }}
+                    animate={{ x: '200%' }}
+                    transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
+                    className="h-full w-1/3 bg-white rounded-full"
+                  />
                 </div>
               </div>
-            </CardContent>
-          </Card>
+
+              <p className="text-white/80 text-sm">
+                Configuration de votre session personnalisée...
+              </p>
+            </div>
+          </div>
+        </motion.div>
+      </div>
+    );
+  }
+
+  // Check if voice mode is available (has system prompt configured)
+  const isVoiceModeAvailable = !!voiceModeConfig?.systemPrompt;
+
+  // Show mode selection screen when:
+  // - Session is loaded
+  // - Voice mode is available
+  // - User hasn't selected a mode yet
+  // - Voice config has finished loading
+  if (sessionData.ask && isVoiceModeAvailable && selectedInputMode === null && !isVoiceConfigLoading) {
+    const userName = currentParticipantName?.split(' ')[0] || currentParticipantName || 'vous';
+
+    return (
+      <div className="min-h-[100dvh] bg-gradient-to-br from-pink-500 via-pink-400 to-rose-400 flex items-center justify-center p-4">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.5, ease: "easeOut" }}
+          className="w-full max-w-md"
+        >
+          {/* Welcome message */}
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.2 }}
+            className="text-center mb-8"
+          >
+            <h1 className="text-2xl sm:text-3xl font-bold text-white mb-4">
+              Bienvenue {userName} !
+            </h1>
+            <p className="text-lg text-white/90">
+              Avant de commencer notre entretien comment voulez vous répondre?
+            </p>
+          </motion.div>
+
+          {/* Mode selection buttons */}
+          <div className="space-y-4">
+            {/* Voice mode button */}
+            <motion.button
+              initial={{ opacity: 0, x: -30 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: 0.4 }}
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={() => {
+                setSelectedInputMode('voice');
+                setIsVoiceModeActive(true);
+              }}
+              className="w-full bg-white/90 hover:bg-white rounded-2xl p-6 flex items-center gap-4 shadow-lg hover:shadow-xl transition-all duration-200 group"
+            >
+              <div className="w-14 h-14 bg-gradient-to-br from-pink-100 to-rose-100 rounded-xl flex items-center justify-center group-hover:from-pink-200 group-hover:to-rose-200 transition-colors">
+                <Mic className="h-7 w-7 text-pink-600" />
+              </div>
+              <span className="text-xl font-semibold text-slate-700">Voix</span>
+            </motion.button>
+
+            {/* Text mode button */}
+            <motion.button
+              initial={{ opacity: 0, x: -30 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: 0.5 }}
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={() => {
+                setSelectedInputMode('text');
+              }}
+              className="w-full bg-white/90 hover:bg-white rounded-2xl p-6 flex items-center gap-4 shadow-lg hover:shadow-xl transition-all duration-200 group"
+            >
+              <div className="w-14 h-14 bg-gradient-to-br from-pink-100 to-rose-100 rounded-xl flex items-center justify-center group-hover:from-pink-200 group-hover:to-rose-200 transition-colors">
+                <MessageSquareText className="h-7 w-7 text-pink-600" />
+              </div>
+              <span className="text-xl font-semibold text-slate-700">Texte</span>
+            </motion.button>
+          </div>
         </motion.div>
       </div>
     );
@@ -2315,6 +2459,7 @@ export default function HomePage() {
           onInsightUpdate={handleInsightUpdate}
           sessionElapsedMinutes={sessionTimer.elapsedMinutes}
           isSessionTimerPaused={sessionTimer.isPaused}
+          onToggleTimerPause={handleToggleTimerPause}
           onUserTyping={sessionTimer.notifyUserTyping}
           isConsultantMode={isConsultantMode}
           isSpokesperson={isSpokesperson}
@@ -2338,6 +2483,7 @@ export default function HomePage() {
                   currentStepId={sessionData.conversationPlan.current_step_id}
                   elapsedMinutes={sessionTimer.elapsedMinutes}
                   isTimerPaused={sessionTimer.isPaused}
+                  onTogglePause={handleToggleTimerPause}
                 />
               )}
               <div className="flex-1 overflow-hidden">
@@ -2355,6 +2501,7 @@ export default function HomePage() {
                   isMultiUser={Boolean(sessionData.ask && sessionData.ask.participants.length > 1)}
                   showAgentTyping={awaitingAiResponse && !isDetectingInsights}
                   voiceModeEnabled={!!voiceModeConfig?.systemPrompt}
+                  initialVoiceMode={selectedInputMode === 'voice'}
                   voiceModeSystemPrompt={voiceModeConfig?.systemPrompt || undefined}
                   voiceModeUserPrompt={voiceModeConfig?.userPrompt || undefined}
                   voiceModePromptVariables={voiceModeConfig?.promptVariables || undefined}
@@ -2364,6 +2511,9 @@ export default function HomePage() {
                   onVoiceModeChange={handleVoiceModeChange}
                   onEditMessage={handleEditMessage}
                   consultantMode={sessionData.ask?.conversationMode === 'consultant'}
+                  elapsedMinutes={sessionTimer.elapsedMinutes}
+                  isTimerPaused={sessionTimer.isPaused}
+                  onTogglePause={handleToggleTimerPause}
                 />
               </div>
             </div>

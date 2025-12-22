@@ -13,6 +13,7 @@ import {
   buildMessageSummary,
   buildParticipantSummary,
   fetchUsersByIds,
+  fetchElapsedTime,
   type AskSessionRow,
   type UserRow,
   type ParticipantRow,
@@ -111,7 +112,7 @@ export async function POST(
     if (participantUserIds.length > 0) {
       const { data: userRows, error: userError } = await supabase
         .from('profiles')
-        .select('id, email, full_name, first_name, last_name, description')
+        .select('id, email, full_name, first_name, last_name, description, job_title')
         .in('id', participantUserIds);
 
       if (userError) {
@@ -222,15 +223,39 @@ export async function POST(
       return buildMessageSummary(row, user, index);
     });
 
+    // Fetch elapsed times using centralized helper (DRY)
+    const { elapsedActiveSeconds, stepElapsedActiveSeconds } = await fetchElapsedTime({
+      supabase,
+      askSessionId: askRow.id,
+      profileId,
+      conversationPlan,
+      participantRows: participantRows ?? [],
+      adminClient: getAdminSupabaseClient(),
+    });
+
+    // Find the current participant name from profileId
+    const currentParticipant = profileId
+      ? participantSummaries.find((p, index) => {
+          const participantRow = (participantRows ?? [])[index];
+          return participantRow?.user_id === profileId;
+        })
+      : null;
+
     // Build agent variables using THE SAME function as text/stream mode
     // This ensures 100% consistency between voice and text modes
     const agentVariables = buildConversationAgentVariables({
-      ask: askRow,
+      ask: {
+        ...askRow,
+        conversation_mode: askRow.conversation_mode ?? null,
+      },
       project: projectData,
       challenge: challengeData,
       messages,
       participants: participantSummaries,
+      currentParticipantName: currentParticipant?.name ?? null,
       conversationPlan,
+      elapsedActiveSeconds,
+      stepElapsedActiveSeconds,
     });
 
     // If no messages exist, initiate conversation with agent

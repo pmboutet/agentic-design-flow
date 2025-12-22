@@ -308,6 +308,7 @@ describe('conversation-context', () => {
       const user: UserRow = {
         id: 'user-1',
         description: 'Senior developer at Company X',
+        job_title: 'Software Engineer',
       };
 
       const result = buildParticipantSummary(participant, user, 0);
@@ -316,6 +317,7 @@ describe('conversation-context', () => {
         name: 'John Doe',
         role: 'Developer',
         description: 'Senior developer at Company X',
+        jobTitle: 'Software Engineer',
       });
     });
 
@@ -328,6 +330,7 @@ describe('conversation-context', () => {
       const result = buildParticipantSummary(participant, null, 0);
 
       expect(result.role).toBeNull();
+      expect(result.jobTitle).toBeNull();
     });
 
     it('should return null for missing description', () => {
@@ -337,12 +340,13 @@ describe('conversation-context', () => {
       };
       const user: UserRow = {
         id: 'user-1',
-        // No description
+        // No description or job_title
       };
 
       const result = buildParticipantSummary(participant, user, 0);
 
       expect(result.description).toBeNull();
+      expect(result.jobTitle).toBeNull();
     });
 
     it('should use buildParticipantDisplayName for name', () => {

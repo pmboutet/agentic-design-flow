@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { executeAgent } from './service';
 import type { PromptVariables } from './agent-config';
+import { detectStepComplete } from '@/lib/sanitize';
 
 /**
  * Represents a single step in the conversation plan (database record)
@@ -774,21 +775,13 @@ export function formatPlanProgress(plan: ConversationPlan): string {
  * - null if no marker detected
  */
 export function detectStepCompletion(content: string): string | null {
-  // Remove markdown formatting (**, *, __, _) around STEP_COMPLETE
-  // This handles cases like **STEP_COMPLETE:step_1** or *STEP_COMPLETE:*
-  const cleanedContent = content.replace(/(\*{1,2}|_{1,2})(STEP_COMPLETE:?\s*\w*)(\*{1,2}|_{1,2})/gi, '$2');
+  // Use centralized detection from sanitize.ts to stay DRY
+  const { hasMarker, stepId } = detectStepComplete(content);
 
-  // Try to match with step_id (with optional space after colon)
-  const matchWithId = cleanedContent.match(/STEP_COMPLETE:\s*(\w+)/i);
-  if (matchWithId) {
-    return matchWithId[1];
+  if (!hasMarker) {
+    return null;
   }
 
-  // Check for marker without step_id (e.g., "STEP_COMPLETE:" or "STEP_COMPLETE")
-  const matchWithoutId = cleanedContent.match(/STEP_COMPLETE:?\s*(?!\w)/i);
-  if (matchWithoutId) {
-    return 'CURRENT';
-  }
-
-  return null;
+  // Return step_id if found, otherwise 'CURRENT' to use the current active step
+  return stepId ?? 'CURRENT';
 }

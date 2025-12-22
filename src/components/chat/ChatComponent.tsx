@@ -18,6 +18,7 @@ import {
   validateFileType,
   formatFileSize,
 } from "@/lib/utils";
+import { cleanStepCompleteMarker, detectStepComplete } from "@/lib/sanitize";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
@@ -45,6 +46,7 @@ export function ChatComponent({
   isMultiUser,
   showAgentTyping,
   voiceModeEnabled = false,
+  initialVoiceMode = false,
   voiceModeSystemPrompt,
   voiceModeUserPrompt,
   voiceModePromptVariables,
@@ -55,6 +57,11 @@ export function ChatComponent({
   onEditMessage,
   consultantMode = false,
   onSpeakerChange,
+  // Timer props for voice mode
+  elapsedMinutes,
+  isTimerPaused,
+  onTogglePause,
+  expectedDurationMinutes,
 }: ChatComponentProps) {
   // Temporarily disabled to reduce log spam
   // console.log('[ChatComponent] 🔄 Rendering', {
@@ -68,7 +75,7 @@ export function ChatComponent({
   const [selectedFiles, setSelectedFiles] = useState<FileUpload[]>([]);
   const [isRecording, setIsRecording] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
-  const [isVoiceMode, setIsVoiceMode] = useState(false);
+  const [isVoiceMode, setIsVoiceMode] = useState(initialVoiceMode);
   // Edit mode state
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editContent, setEditContent] = useState("");
@@ -396,6 +403,10 @@ export function ChatComponent({
         onEditMessage={onEditMessage}
         messages={voiceMessages}
         conversationPlan={conversationPlan}
+        elapsedMinutes={elapsedMinutes}
+        isTimerPaused={isTimerPaused}
+        onTogglePause={onTogglePause}
+        expectedDurationMinutes={expectedDurationMinutes}
         consultantMode={consultantMode}
         participants={consultantMode ? participantOptions : undefined}
         currentUserId={currentUserId}
@@ -795,19 +806,9 @@ function MessageBubble({
 
   // Check if this is an interim message (streaming update)
   const isInterim = message.metadata?.isInterim === true;
-  
+
   // Detect and extract step completion marker (handles markdown formatting like **STEP_COMPLETE:**)
-  // First, clean markdown formatting around STEP_COMPLETE
-  const cleanedForDetection = message.content.replace(
-    /(\*{1,2}|_{1,2})(STEP_COMPLETE:?\s*\w*)(\*{1,2}|_{1,2})/gi,
-    '$2'
-  );
-  const stepCompleteMatch = cleanedForDetection.match(/STEP_COMPLETE:\s*(\w+)/i);
-  const hasStepCompleteWithId = stepCompleteMatch !== null;
-  // Also detect STEP_COMPLETE without ID (e.g., "STEP_COMPLETE:" or "**STEP_COMPLETE:**")
-  const hasStepCompleteWithoutId = !hasStepCompleteWithId && /STEP_COMPLETE:?\s*(?!\w)/i.test(cleanedForDetection);
-  const hasStepComplete = hasStepCompleteWithId || hasStepCompleteWithoutId;
-  const completedStepId = stepCompleteMatch?.[1];
+  const { hasMarker: hasStepComplete, stepId: completedStepId } = detectStepComplete(message.content);
 
   // Find the completed step in conversation plan
   // If no step_id in marker, use the current active step
@@ -823,9 +824,7 @@ function MessageBubble({
     : undefined;
 
   // Remove the marker from display (handles all formats including markdown)
-  const cleanContent = message.content
-    .replace(/(\*{1,2}|_{1,2})?(STEP_COMPLETE:?\s*\w*)(\*{1,2}|_{1,2})?/gi, '')
-    .trim();
+  const cleanContent = cleanStepCompleteMarker(message.content);
   
   return (
     <motion.div

@@ -14,7 +14,7 @@ import {
 import { executeAgent } from "@/lib/ai/service";
 import { buildConversationAgentVariables } from "@/lib/ai/conversation-agent";
 import { normaliseMessageMetadata } from "@/lib/messages";
-import { buildMessageSenderName, buildParticipantDisplayName, type MessageRow, type UserRow, type ParticipantRow } from "@/lib/conversation-context";
+import { buildMessageSenderName, buildParticipantDisplayName, fetchElapsedTime, type MessageRow, type UserRow, type ParticipantRow } from "@/lib/conversation-context";
 import { type AskViewer } from "@/lib/ask-session-loader";
 
 type AskSessionRow = {
@@ -585,6 +585,16 @@ export async function GET(
             // Skip in consultant mode - AI doesn't respond automatically, only suggests questions
             if (askRow.conversation_mode !== 'consultant') {
               try {
+              // Fetch elapsed times using centralized helper (DRY - same as stream route)
+              // IMPORTANT: Pass participantRows to use fallback when profileId doesn't match
+              const { elapsedActiveSeconds, stepElapsedActiveSeconds } = await fetchElapsedTime({
+                supabase: adminClient,
+                askSessionId: askRow.ask_session_id,
+                profileId: participantInfo?.user_id ?? null,
+                conversationPlan,
+                participantRows: participantRows ?? [],
+              });
+
               // Use centralized function for initial message variables
               const agentVariables = buildConversationAgentVariables({
                 ask: {
@@ -598,6 +608,8 @@ export async function GET(
                 messages: [],
                 participants: participants.map(p => ({ name: p.name, role: p.role ?? null, description: null })),
                 conversationPlan,
+                elapsedActiveSeconds,
+                stepElapsedActiveSeconds,
               });
 
               const agentResult = await executeAgent({

@@ -11,11 +11,14 @@ import { buildConversationAgentVariables } from '@/lib/ai/conversation-agent';
 import { getConversationPlanWithSteps, getActiveStep, ensureConversationPlanExists, type ConversationPlan } from '@/lib/ai/conversation-plan';
 import {
   buildParticipantDisplayName,
+  buildParticipantSummary,
   buildMessageSenderName,
+  fetchElapsedTime,
   type UserRow,
   type ProjectRow,
   type ChallengeRow,
   type MessageRow,
+  type ParticipantRow,
 } from '@/lib/conversation-context';
 import { normaliseMessageMetadata } from '@/lib/messages';
 import { loadFullAuthContext, buildParticipantName, type AskViewer } from '@/lib/ask-session-loader';
@@ -161,24 +164,44 @@ export async function GET(
 
         const isSpokesperson = devParticipant.is_spokesperson === true || devParticipant.role === 'spokesperson';
 
+        // Fetch the linked profile to get name/email if participant fields are empty
+        let profileName: string | null = null;
+        let profileEmail: string | null = null;
+        if (devParticipant.user_id) {
+          const { data: profile } = await adminClient
+            .from('profiles')
+            .select('full_name, first_name, last_name, email')
+            .eq('id', devParticipant.user_id)
+            .maybeSingle();
+
+          if (profile) {
+            profileName = profile.full_name
+              || [profile.first_name, profile.last_name].filter(Boolean).join(' ')
+              || null;
+            profileEmail = profile.email || null;
+          }
+        }
+
         console.log(`✅ GET /api/ask/[key]: Dev mode - using participant for viewer:`, {
           participantId: devParticipant.id,
           profileId: devParticipant.user_id,
           isSpokesperson,
           role: devParticipant.role,
+          profileName,
+          profileEmail,
         });
 
         viewer = {
           participantId: devParticipant.id,
           profileId: devParticipant.user_id,
           isSpokesperson,
-          // Use buildParticipantName to ensure name is never null
+          // Use buildParticipantName with profile fallback
           name: buildParticipantName(
-            devParticipant.participant_name,
-            devParticipant.participant_email,
+            devParticipant.participant_name || profileName,
+            devParticipant.participant_email || profileEmail,
             devParticipant.id
           ),
-          email: devParticipant.participant_email,
+          email: devParticipant.participant_email || profileEmail,
           role: devParticipant.role,
         };
 
@@ -188,8 +211,8 @@ export async function GET(
           profileId: devParticipant.user_id,
           participantId: devParticipant.id,
           isSpokesperson,
-          participantName: devParticipant.participant_name,
-          participantEmail: devParticipant.participant_email,
+          participantName: devParticipant.participant_name || profileName,
+          participantEmail: devParticipant.participant_email || profileEmail,
           participantRole: devParticipant.role,
           authMethod: 'anonymous',
         };
@@ -263,7 +286,7 @@ export async function GET(
     if (participantUserIds.length > 0) {
       const { data: userRows, error: userError } = await dataClient
         .from('profiles')
-        .select('id, email, full_name, first_name, last_name')
+        .select('id, email, full_name, first_name, last_name, description, job_title')
         .in('id', participantUserIds);
 
       if (userError) {
@@ -292,10 +315,12 @@ export async function GET(
       };
     });
 
-    const participantSummaries = participants.map(participant => ({
-      name: participant.name,
-      role: participant.role ?? null,
-    }));
+    // Build participant summaries with full details (name, role, description, jobTitle)
+    // Uses centralized buildParticipantSummary for DRY
+    const participantSummaries = (participantRows ?? []).map((row, index) => {
+      const user = row.user_id ? usersById[row.user_id] ?? null : null;
+      return buildParticipantSummary(row as ParticipantRow, user, index);
+    });
 
     // Get or create conversation thread for this user/ASK
     const askConfig = {
@@ -512,13 +537,30 @@ export async function GET(
       try {
         console.log('💬 GET /api/ask/[key]: No messages found, initiating conversation with agent');
 
+        // Fetch elapsed times using centralized helper (DRY - same as stream route)
+        // IMPORTANT: Pass participantRows to use fallback when profileId doesn't match
+        const { elapsedActiveSeconds, stepElapsedActiveSeconds } = await fetchElapsedTime({
+          supabase: dataClient,
+          askSessionId: askSessionId,
+          profileId: authContext.profileId,
+          conversationPlan,
+          participantRows: participantRows ?? [],
+          adminClient,
+        });
+
         const agentVariables = buildConversationAgentVariables({
-          ask: askRow,
+          ask: {
+            ...askRow,
+            conversation_mode: askRow.conversation_mode ?? null,
+          },
           project: projectData,
           challenge: challengeData,
           messages,
           participants: participantSummaries,
+          currentParticipantName: viewer?.name ?? null,
           conversationPlan,
+          elapsedActiveSeconds,
+          stepElapsedActiveSeconds,
         });
         
         // Execute agent to get initial response

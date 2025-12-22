@@ -10,6 +10,7 @@ import { buildConversationAgentVariables } from '@/lib/ai/conversation-agent';
 import {
   buildParticipantDisplayName,
   buildMessageSenderName,
+  fetchElapsedTime,
   type AskSessionRow,
   type UserRow,
   type MessageRow,
@@ -514,6 +515,16 @@ export async function POST(
       conversationPlan = await getConversationPlanWithSteps(supabase, conversationThread.id);
     }
 
+    // Fetch elapsed times using centralized helper (DRY - same as stream route)
+    // IMPORTANT: Pass participantRows to use fallback when profileId doesn't match
+    const { elapsedActiveSeconds, stepElapsedActiveSeconds } = await fetchElapsedTime({
+      supabase,
+      askSessionId: askRow.id,
+      profileId: currentUserId,
+      conversationPlan,
+      participantRows: participantRows ?? [],
+    });
+
     // Build variables for the consultant helper agent
     const helperVariables = buildConversationAgentVariables({
       ask: askRow,
@@ -522,6 +533,8 @@ export async function POST(
       messages,
       participants,
       conversationPlan,
+      elapsedActiveSeconds,
+      stepElapsedActiveSeconds,
     });
 
     // Execute both agents in parallel:

@@ -8,6 +8,7 @@ import {
   buildParticipantDisplayName,
   buildMessageSummary,
   buildParticipantSummary,
+  fetchElapsedTime,
   type AskSessionRow,
   type UserRow,
   type ParticipantRow,
@@ -303,6 +304,16 @@ export async function GET(
       planStepId: message.planStepId,
     }));
 
+    // Fetch elapsed times using centralized helper (DRY - same as stream route)
+    // IMPORTANT: Pass participantRows to use fallback when profileId is null
+    const { elapsedActiveSeconds, stepElapsedActiveSeconds } = await fetchElapsedTime({
+      supabase,
+      askSessionId: askSession.id,
+      profileId: null, // agent-config doesn't have a specific user context
+      conversationPlan,
+      participantRows: participantRows ?? [],
+    });
+
     // Use centralized function for ALL prompt variables - no manual overrides
     const promptVariables = buildConversationAgentVariables({
       ask: askSession,
@@ -311,6 +322,8 @@ export async function GET(
       messages: conversationMessagesPayload,
       participants: participantSummaries,
       conversationPlan,
+      elapsedActiveSeconds,
+      stepElapsedActiveSeconds,
     });
 
     // Debug logging for STEP_COMPLETE troubleshooting

@@ -12,6 +12,7 @@ export interface ConversationParticipantSummary {
   name: string;
   role?: string | null;
   description?: string | null;
+  jobTitle?: string | null;
 }
 
 export interface ConversationMessageSummary {
@@ -30,11 +31,14 @@ export interface ConversationAgentContext {
     description?: string | null;
     system_prompt?: string | null;
     expected_duration_minutes?: number | null;
+    conversation_mode?: string | null;
   };
   project?: { system_prompt?: string | null } | null;
   challenge?: { system_prompt?: string | null } | null;
   messages: ConversationMessageSummary[];
   participants: ConversationParticipantSummary[];
+  /** Name of the current participant (for filtering in individual mode) */
+  currentParticipantName?: string | null;
   conversationPlan?: ConversationPlan | null;
   /** Real elapsed active time in seconds (from participant timer in DB) */
   elapsedActiveSeconds?: number;
@@ -44,6 +48,33 @@ export interface ConversationAgentContext {
   insights?: Insight[];
   insightTypes?: string;
   latestAiResponse?: string;
+}
+
+/**
+ * Filter participants based on conversation mode.
+ * - individual_parallel: only the current participant (isolated conversations)
+ * - collaborative, group_reporter, consultant: all participants visible
+ *
+ * @param participants - All participants in the session
+ * @param conversationMode - The conversation mode of the ASK
+ * @param currentParticipantName - Name of the current participant (for filtering in individual mode)
+ * @returns Filtered list of active participants
+ */
+export function filterActiveParticipants(
+  participants: ConversationParticipantSummary[],
+  conversationMode?: string | null,
+  currentParticipantName?: string | null
+): ConversationParticipantSummary[] {
+  // In individual_parallel mode, only show the current participant
+  if (conversationMode === 'individual_parallel' && currentParticipantName) {
+    const currentParticipant = participants.find(
+      p => p.name?.toLowerCase().trim() === currentParticipantName.toLowerCase().trim()
+    );
+    return currentParticipant ? [currentParticipant] : [];
+  }
+
+  // In other modes (collaborative, group_reporter, consultant), show all participants
+  return participants;
 }
 
 function buildParticipantsSummary(participants: ConversationParticipantSummary[]): string {
@@ -62,7 +93,7 @@ function buildParticipantsSummary(participants: ConversationParticipantSummary[]
 }
 
 /**
- * Build a detailed participant string with name, role, and description
+ * Build a detailed participant string with name, role, jobTitle, and description
  */
 export function buildParticipantDetails(participant: ConversationParticipantSummary): string {
   const parts: string[] = [];
@@ -77,6 +108,11 @@ export function buildParticipantDetails(participant: ConversationParticipantSumm
   // Add role if present
   if (participant.role?.trim()) {
     parts.push(`Rôle: ${participant.role.trim()}`);
+  }
+
+  // Add job title if present
+  if (participant.jobTitle?.trim()) {
+    parts.push(`Poste: ${participant.jobTitle.trim()}`);
   }
 
   // Add description if present
@@ -198,7 +234,15 @@ function serialiseInsightsForPrompt(insights?: Insight[]): string {
  * @returns PromptVariables object ready for Handlebars compilation
  */
 export function buildConversationAgentVariables(context: ConversationAgentContext): PromptVariables {
-  const participantsSummary = buildParticipantsSummary(context.participants);
+  // Filter participants based on conversation mode
+  // In individual_parallel mode, only show the current participant
+  const activeParticipants = filterActiveParticipants(
+    context.participants,
+    context.ask.conversation_mode,
+    context.currentParticipantName
+  );
+
+  const participantsSummary = buildParticipantsSummary(activeParticipants);
 
   const conversationMessagesPayload = context.messages.map(message => ({
     id: message.id,
@@ -358,10 +402,12 @@ export function buildConversationAgentVariables(context: ConversationAgentContex
     ask_question: context.ask.question,
     ask_description: context.ask.description ?? '',
     // Participants (dual format for backward compatibility)
+    // Uses activeParticipants (filtered by conversation_mode)
     participants: participantsSummary,
-    participants_list: context.participants,
+    participants_list: activeParticipants,
     participant_name: lastUserMessage?.senderName ?? '',
     participant_description: lastUserParticipant?.description ?? '',
+    participant_job_title: lastUserParticipant?.jobTitle ?? '',
     participant_details: participantDetails,
     // Messages (modern JSON format)
     messages_json: JSON.stringify(conversationMessagesPayload),

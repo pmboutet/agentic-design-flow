@@ -26,8 +26,10 @@ import { DeepgramVoiceAgent, DeepgramMessageEvent } from '@/lib/ai/deepgram';
 import { HybridVoiceAgent, HybridVoiceAgentMessage } from '@/lib/ai/hybrid-voice-agent';
 import { SpeechmaticsVoiceAgent, SpeechmaticsMessageEvent } from '@/lib/ai/speechmatics';
 import { cn } from '@/lib/utils';
+import { cleanStepCompleteMarker } from '@/lib/sanitize';
 import { useAuth } from '@/components/auth/AuthProvider';
-import type { ConversationPlan, ConversationPlanStep } from '@/types';
+import type { ConversationPlan } from '@/types';
+import { ConversationProgressBar } from '@/components/conversation/ConversationProgressBar';
 import type { SemanticTurnTelemetryEvent } from '@/lib/ai/turn-detection';
 import { useInactivityMonitor } from '@/hooks/useInactivityMonitor';
 import { SpeakerAssignmentOverlay, type ParticipantOption, type SpeakerAssignmentDecision, type SpeakerMessage } from './SpeakerAssignmentOverlay';
@@ -96,6 +98,11 @@ interface PremiumVoiceInterfaceProps {
     metadata?: Record<string, unknown>; // Preserve metadata to access messageId
   }>;
   conversationPlan?: ConversationPlan | null;
+  // Timer props for progress bar
+  elapsedMinutes?: number;
+  isTimerPaused?: boolean;
+  onTogglePause?: () => void;
+  expectedDurationMinutes?: number | null;
   consultantMode?: boolean; // If true, AI listens but doesn't respond (no TTS, diarization enabled)
   // Consultant mode: participants for speaker assignment
   participants?: ParticipantOption[];
@@ -148,6 +155,10 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
   onEditMessage,
   messages = [],
   conversationPlan,
+  elapsedMinutes = 0,
+  isTimerPaused = false,
+  onTogglePause,
+  expectedDurationMinutes,
   consultantMode = false,
   participants = [],
   onSpeakerMappingChange,
@@ -2055,9 +2066,14 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
 
         {hasConversationSteps && (
           <div className="px-3 pb-1">
-            <VoiceModeStepsBar
+            <ConversationProgressBar
               steps={conversationSteps}
-              currentStepId={currentConversationStepId}
+              currentStepId={currentConversationStepId ?? ''}
+              elapsedMinutes={elapsedMinutes}
+              isTimerPaused={isTimerPaused}
+              onTogglePause={onTogglePause}
+              expectedDurationMinutes={expectedDurationMinutes}
+              variant="dark"
             />
           </div>
         )}
@@ -2305,7 +2321,7 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
                       ) : (
                         <>
                           <AnimatedText
-                            content={message.content}
+                            content={cleanStepCompleteMarker(message.content)}
                             isInterim={message.isInterim}
                           />
                           {isStreamingAssistant && (
@@ -2570,135 +2586,3 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
   return true; // Props are equal, skip re-render
 });
 
-interface VoiceModeStepsBarProps {
-  steps: ConversationPlanStep[];
-  currentStepId?: string;
-}
-
-function VoiceModeStepsBar({ steps, currentStepId }: VoiceModeStepsBarProps) {
-  const [hoveredStep, setHoveredStep] = useState<string | null>(null);
-
-  if (!steps.length) {
-    return null;
-  }
-
-  const activeStepIndex = steps.findIndex(
-    (step) => step.id === currentStepId || step.status === 'active'
-  );
-
-  const getStepClasses = (step: ConversationPlanStep) => {
-    return cn(
-      "flex-1 h-1.5 rounded-full cursor-pointer transition-all duration-300 border border-white/10 bg-white/10",
-      step.status === 'completed' && "bg-emerald-400/80 border-emerald-300/60 shadow-[0_0_8px_rgba(16,185,129,0.4)]",
-      (step.status === 'active' || step.id === currentStepId) && "bg-sky-400/90 border-sky-300/60 shadow-[0_0_8px_rgba(14,165,233,0.4)]",
-      step.status === 'skipped' && "bg-white/5 border-white/5 opacity-40",
-      step.status === 'pending' && "bg-white/15 border-white/5 opacity-60"
-    );
-  };
-
-  return (
-    <div className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 backdrop-blur-xl">
-      <div className="flex items-center gap-3">
-        <span className="text-[10px] text-white/50 whitespace-nowrap">
-          {activeStepIndex >= 0 ? `${activeStepIndex + 1}/${steps.length}` : `${steps.length}`}
-        </span>
-        <div className="flex-1 flex items-center gap-1.5">
-        {steps.map((step, index) => {
-          const isActive = step.id === currentStepId || step.status === 'active';
-          const isCompleted = step.status === 'completed';
-          const isPending = step.status === 'pending';
-
-          return (
-            <React.Fragment key={step.id}>
-              <Popover>
-                <PopoverTrigger asChild>
-                  <motion.div
-                    className={getStepClasses(step)}
-                    whileHover={{ height: 8, opacity: 1 }}
-                    animate={{
-                      height: hoveredStep === step.id ? 8 : 6,
-                    }}
-                    onHoverStart={() => setHoveredStep(step.id)}
-                    onHoverEnd={() => setHoveredStep(null)}
-                  />
-                </PopoverTrigger>
-                <PopoverContent
-                  side="bottom"
-                  align="center"
-                  sideOffset={10}
-                  className="w-80 bg-[#080b18]/95 text-white border border-white/10 shadow-[0_25px_60px_rgba(0,0,0,0.55)] backdrop-blur-2xl p-4"
-                >
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2 text-xs text-white/70">
-                      <div className="w-2 h-2 rounded-full bg-white/50" />
-                      <span className="font-semibold tracking-wide">
-                        Étape {index + 1}/{steps.length}
-                      </span>
-                      {isActive && (
-                        <span className="ml-auto text-[10px] px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-100">
-                          En cours
-                        </span>
-                      )}
-                      {isCompleted && (
-                        <span className="ml-auto text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-100">
-                          Terminée
-                        </span>
-                      )}
-                      {isPending && (
-                        <span className="ml-auto text-[10px] px-2 py-0.5 rounded-full bg-white/10 text-white/70">
-                          À venir
-                        </span>
-                      )}
-                      {step.status === 'skipped' && (
-                        <span className="ml-auto text-[10px] px-2 py-0.5 rounded-full bg-white/5 text-white/60">
-                          Sautée
-                        </span>
-                      )}
-                    </div>
-                    <h4 className="text-sm font-semibold text-white">
-                      {step.title}
-                    </h4>
-                    <p className="text-xs text-white/70 leading-relaxed">
-                      {step.objective}
-                    </p>
-                    {isCompleted && step.summary && (
-                      <div className="mt-3 pt-3 border-t border-emerald-500/20">
-                        <div className="flex items-center gap-1.5 mb-2">
-                          <svg
-                            className="w-3.5 h-3.5 text-emerald-400"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth={2}
-                              d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-                            />
-                          </svg>
-                          <span className="text-xs font-semibold text-emerald-400">
-                            Résumé de l'étape
-                          </span>
-                        </div>
-                        <div className="bg-emerald-500/10 rounded-lg p-2.5 border border-emerald-500/20">
-                          <p className="text-xs text-emerald-100 leading-relaxed">
-                            {step.summary}
-                          </p>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </PopoverContent>
-              </Popover>
-              {index < steps.length - 1 && (
-                <div className="w-0.5" />
-              )}
-            </React.Fragment>
-          );
-        })}
-        </div>
-      </div>
-    </div>
-  );
-}

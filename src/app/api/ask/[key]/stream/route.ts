@@ -15,6 +15,7 @@ import {
   buildParticipantDisplayName,
   buildDetailedMessage,
   buildParticipantSummary,
+  fetchElapsedTime,
   type AskSessionRow,
   type UserRow,
   type MessageRow,
@@ -224,7 +225,7 @@ export async function POST(
     if (participantUserIds.length > 0) {
       const { data: userRows, error: userError } = await dataClient
         .from('profiles')
-        .select('id, email, full_name, first_name, last_name, description')
+        .select('id, email, full_name, first_name, last_name, description, job_title')
         .in('id', participantUserIds);
 
       if (userError) {
@@ -427,7 +428,11 @@ export async function POST(
       challengeData = data ?? null;
     }
 
-    const participantSummaries = participants.map(p => ({ name: p.name, role: p.role ?? null, description: p.description ?? null }));
+    // Build participant summaries using centralized function (DRY)
+    const participantSummaries = (participantRows ?? []).map((row, index) => {
+      const user = row.user_id ? usersById[row.user_id] ?? null : null;
+      return buildParticipantSummary(row as ParticipantRow, user, index);
+    });
 
     // Load conversation plan if thread exists
     // Use admin client to bypass RLS and ensure we always get the plan data
@@ -437,36 +442,16 @@ export async function POST(
       conversationPlan = await getConversationPlanWithSteps(planClient, conversationThread.id);
     }
 
-    // Fetch elapsed times from DB for real-time pacing
-    let elapsedActiveSeconds = 0;
-    let stepElapsedActiveSeconds = 0;
-
-    if (profileId) {
-      const { data: participantTimer } = await dataClient
-        .from('ask_participants')
-        .select('elapsed_active_seconds')
-        .eq('ask_session_id', askRow.id)
-        .eq('user_id', profileId)
-        .maybeSingle();
-
-      elapsedActiveSeconds = participantTimer?.elapsed_active_seconds ?? 0;
-    }
-
-    if (conversationPlan?.current_step_id && 'steps' in conversationPlan && Array.isArray(conversationPlan.steps)) {
-      const currentStep = conversationPlan.steps.find(
-        (s: { step_identifier: string }) => s.step_identifier === conversationPlan.current_step_id
-      );
-      if (currentStep && 'id' in currentStep) {
-        const planClient = await getAdminClient();
-        const { data: stepTimer } = await planClient
-          .from('ask_conversation_plan_steps')
-          .select('elapsed_active_seconds')
-          .eq('id', (currentStep as { id: string }).id)
-          .maybeSingle();
-
-        stepElapsedActiveSeconds = stepTimer?.elapsed_active_seconds ?? 0;
-      }
-    }
+    // Fetch elapsed times using centralized helper (DRY)
+    // IMPORTANT: Pass participantRows to use fallback (first participant) when profileId is null
+    const { elapsedActiveSeconds, stepElapsedActiveSeconds } = await fetchElapsedTime({
+      supabase: dataClient,
+      askSessionId: askRow.id,
+      profileId,
+      conversationPlan,
+      participantRows: participantRows ?? [],
+      adminClient: await getAdminClient(),
+    });
 
     // Parse the request body to get the new user message
     let newUserMessage = '';
@@ -477,12 +462,26 @@ export async function POST(
       // Ignore parsing errors - may not have a body
     }
 
+    // Find the current participant name from the last user message sender
+    // or from the profileId (user who made this request)
+    const currentUserId = profileId ?? lastUserUserId;
+    const currentParticipant = currentUserId
+      ? participants.find(p => {
+          const participantRow = (participantRows ?? []).find(r => r.id === p.id);
+          return participantRow?.user_id === currentUserId;
+        })
+      : null;
+
     const agentVariables = buildConversationAgentVariables({
-      ask: askRow,
+      ask: {
+        ...askRow,
+        conversation_mode: askRow.conversation_mode ?? null,
+      },
       project: projectData,
       challenge: challengeData,
       messages,
       participants: participantSummaries,
+      currentParticipantName: currentParticipant?.name ?? null,
       conversationPlan,
       elapsedActiveSeconds,
       stepElapsedActiveSeconds,

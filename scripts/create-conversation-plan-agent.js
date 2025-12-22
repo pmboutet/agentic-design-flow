@@ -77,7 +77,8 @@ Instructions spécifiques ASK :
 {{#if (notEmpty participants_list)}}
 Participants ({{length participants_list}}) :
 {{#each participants_list}}
-- {{name}}{{#if role}} ({{role}}){{/if}}
+- {{name}}{{#if role}} ({{role}}){{/if}}{{#if jobTitle}} - {{jobTitle}}{{/if}}{{#if description}}
+  Bio: {{description}}{{/if}}
 {{/each}}
 {{/if}}
 
@@ -127,7 +128,11 @@ Réponds uniquement avec le JSON du plan (dans un bloc \`\`\`json ... \`\`\`).`,
           'system_prompt_project',
           'system_prompt_challenge',
           'participants',
-          'participants_list'
+          'participants_list',
+          'participant_name',
+          'participant_description',
+          'participant_job_title',
+          'participant_details'
         ]
       }, { onConflict: 'slug' })
       .select()

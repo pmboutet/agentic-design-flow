@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabaseServer';
 import { createAgentLog, completeAgentLog } from '@/lib/ai/logs';
 import { getAgentConfigForAsk, type PromptVariables } from '@/lib/ai/agent-config';
-import { getAskSessionByKey, getOrCreateConversationThread } from '@/lib/asks';
+import { getAskSessionByKey, getOrCreateConversationThread, getLastUserMessageThread } from '@/lib/asks';
 import { getConversationPlanWithSteps } from '@/lib/ai/conversation-plan';
+import { getAdminSupabaseClient } from '@/lib/supabaseAdmin';
 import { parseErrorMessage } from '@/lib/utils';
 import type { ApiResponse } from '@/types';
 import { buildConversationAgentVariables } from '@/lib/ai/conversation-agent';
@@ -11,6 +12,7 @@ import {
   buildParticipantDisplayName,
   buildDetailedMessage,
   fetchUsersByIds,
+  fetchElapsedTime,
   type AskSessionRow,
   type UserRow,
   type ParticipantRow,
@@ -44,11 +46,11 @@ export async function POST(
 
     const supabase = await createServerSupabaseClient();
 
-    // Get ASK session with all needed fields
-    const { row: askRow, error: askError } = await getAskSessionByKey<AskSessionRow>(
+    // Get ASK session with all needed fields (including conversation_mode for thread resolution)
+    const { row: askRow, error: askError } = await getAskSessionByKey<AskSessionRow & { conversation_mode?: string | null }>(
       supabase,
       key,
-      'id, ask_key, question, description, project_id, challenge_id, system_prompt'
+      'id, ask_key, question, description, project_id, challenge_id, system_prompt, conversation_mode, expected_duration_minutes'
     );
 
     if (askError || !askRow) {
@@ -78,7 +80,7 @@ export async function POST(
     if (participantUserIds.length > 0) {
       const { data: userRows, error: userError } = await supabase
         .from('profiles')
-        .select('id, email, full_name, first_name, last_name')
+        .select('id, email, full_name, first_name, last_name, description')
         .in('id', participantUserIds);
 
       if (userError) {
@@ -98,7 +100,7 @@ export async function POST(
         name: buildParticipantDisplayName(row, user, index),
         email: row.participant_email ?? user?.email ?? null,
         role: row.role ?? null,
-        description: row.description ?? null,
+        description: user?.description ?? null, // FIX: description comes from profile, not participant row
         isSpokesperson: Boolean(row.is_spokesperson),
         isActive: true,
       };
@@ -184,21 +186,67 @@ export async function POST(
       timestamp: message.timestamp,
     }));
 
-    // Get conversation thread and plan
-    const { thread: conversationThread } = await getOrCreateConversationThread(
-      supabase,
-      askRow.id,
-      null, // profileId - not needed for fetching plan
-      { conversation_mode: null }
+    // Get conversation thread - use the same logic as stream route
+    // Find the thread from the last user message to ensure we use the correct thread
+    // (important for individual_parallel mode where each participant has their own thread)
+    const adminClient = getAdminSupabaseClient();
+    const askConfig = {
+      conversation_mode: askRow.conversation_mode ?? null,
+    };
+
+    let conversationThread: { id: string; is_shared: boolean } | null = null;
+
+    // First, try to find the thread from the last user message
+    const { threadId: lastUserThreadId } = await getLastUserMessageThread(
+      adminClient,
+      askRow.id
     );
+
+    if (lastUserThreadId) {
+      // Use the same thread as the last user message
+      const { data: existingThread, error: fetchError } = await adminClient
+        .from('conversation_threads')
+        .select('id, is_shared')
+        .eq('id', lastUserThreadId)
+        .single();
+
+      if (!fetchError && existingThread) {
+        conversationThread = existingThread;
+      }
+    }
+
+    // Fallback: create/get thread based on conversation mode
+    if (!conversationThread) {
+      const { thread, error: threadError } = await getOrCreateConversationThread(
+        adminClient,
+        askRow.id,
+        null,
+        askConfig
+      );
+
+      if (!threadError) {
+        conversationThread = thread;
+      }
+    }
 
     let conversationPlan = null;
     if (conversationThread) {
-      conversationPlan = await getConversationPlanWithSteps(supabase, conversationThread.id);
+      conversationPlan = await getConversationPlanWithSteps(adminClient, conversationThread.id);
       if (conversationPlan && conversationPlan.plan_data) {
         console.log('📋 Voice agent log: Loaded conversation plan with', conversationPlan.plan_data.steps.length, 'steps');
       }
     }
+
+    // Fetch elapsed times using centralized helper (DRY - same as stream route)
+    // IMPORTANT: Pass participantRows to use fallback (first participant) when profileId is null
+    const { elapsedActiveSeconds, stepElapsedActiveSeconds } = await fetchElapsedTime({
+      supabase,
+      askSessionId: askRow.id,
+      profileId: null, // voice-agent log doesn't have a specific user context
+      conversationPlan,
+      participantRows: participantRows ?? [],
+      adminClient,
+    });
 
     // Use centralized function for ALL prompt variables - no manual overrides
     const promptVariables = buildConversationAgentVariables({
@@ -208,6 +256,8 @@ export async function POST(
       messages: conversationMessagesPayload,
       participants: participantSummaries,
       conversationPlan,
+      elapsedActiveSeconds,
+      stepElapsedActiveSeconds,
     });
 
     // Pass the complete promptVariables directly - no manual subset

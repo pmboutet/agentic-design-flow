@@ -350,6 +350,7 @@ export interface ChatComponentProps {
   showAgentTyping?: boolean;
   // Voice mode props
   voiceModeEnabled?: boolean;
+  initialVoiceMode?: boolean; // Start in voice mode immediately
   voiceModeSystemPrompt?: string;
   voiceModeUserPrompt?: string; // User prompt template (same as text mode)
   voiceModePromptVariables?: Record<string, string | null | undefined>; // Variables for userPrompt template rendering
@@ -367,6 +368,11 @@ export interface ChatComponentProps {
   // Consultant mode props
   consultantMode?: boolean; // If true, AI listens but doesn't respond (no TTS)
   onSpeakerChange?: (speaker: string) => void; // Callback when speaker changes (diarization)
+  // Timer props for voice mode progress bar
+  elapsedMinutes?: number;
+  isTimerPaused?: boolean;
+  onTogglePause?: () => void;
+  expectedDurationMinutes?: number | null;
 }
 
 export interface ChallengeComponentProps {

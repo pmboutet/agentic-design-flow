@@ -15,6 +15,7 @@ import {
   buildMessageSummary,
   buildParticipantSummary,
   fetchUsersByIds,
+  fetchElapsedTime,
   type UserRow,
   type ParticipantRow,
   type MessageRow,
@@ -207,6 +208,16 @@ export async function POST(
         }
       }
 
+      // Fetch elapsed times using centralized helper (DRY - same as stream route)
+      // IMPORTANT: Pass participantRows to use fallback when profileId doesn't match
+      const { elapsedActiveSeconds, stepElapsedActiveSeconds } = await fetchElapsedTime({
+        supabase,
+        askSessionId: askRow.id,
+        profileId,
+        conversationPlan,
+        participantRows: participantRows ?? [],
+      });
+
       // Build variables using THE SAME function as streaming route
       const agentVariables = buildConversationAgentVariables({
         ask: askRow,
@@ -215,6 +226,8 @@ export async function POST(
         messages,
         participants,
         conversationPlan,
+        elapsedActiveSeconds,
+        stepElapsedActiveSeconds,
         insightTypes,
         insights: existingInsights,
         latestAiResponse: lastAiMessage?.content ?? '',
