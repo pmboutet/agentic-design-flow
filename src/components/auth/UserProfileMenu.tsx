@@ -60,7 +60,7 @@ export function UserProfileMenu() {
         {isLoading ? (
           <Loader2 className="h-6 w-6 animate-spin" />
         ) : isSignedIn ? (
-          <div className="flex h-8 w-8 aspect-square items-center justify-center rounded-full bg-gradient-to-br from-purple-500 via-pink-500 to-orange-500 text-sm font-bold text-white shrink-0">
+          <div className="flex h-8 w-8 aspect-square items-center justify-center rounded-full bg-gradient-to-br from-pink-500 to-rose-400 text-sm font-bold text-white shrink-0">
             {getInitials(fullName)}
           </div>
         ) : (
@@ -86,7 +86,7 @@ export function UserProfileMenu() {
           {isLoading ? (
             <Loader2 className="h-6 w-6 animate-spin" />
           ) : isSignedIn ? (
-            <div className="flex h-8 w-8 aspect-square items-center justify-center rounded-full bg-gradient-to-br from-purple-500 via-pink-500 to-orange-500 text-sm font-bold text-white shrink-0">
+            <div className="flex h-8 w-8 aspect-square items-center justify-center rounded-full bg-gradient-to-br from-pink-500 to-rose-400 text-sm font-bold text-white shrink-0">
               {getInitials(fullName)}
             </div>
           ) : (
@@ -95,62 +95,61 @@ export function UserProfileMenu() {
         </Button>
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
-        <DropdownMenu.Content className="z-[9999] mt-2 w-64 rounded-2xl border border-white/60 bg-white/90 p-3 text-sm shadow-xl backdrop-blur">
-          <DropdownMenu.Label className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        <DropdownMenu.Content className="z-[9999] mt-2 w-64 rounded-2xl border border-slate-200 bg-white p-3 text-sm shadow-xl">
+          <DropdownMenu.Label className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
             Profil utilisateur
           </DropdownMenu.Label>
-          <div className="rounded-xl bg-white/70 p-3 shadow-inner">
+          <div className="rounded-xl bg-slate-50 p-3">
             {isLoading ? (
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <div className="flex items-center gap-2 text-xs text-slate-500">
                 <Loader2 className="h-4 w-4 animate-spin" />
                 Chargement du profil...
               </div>
             ) : isSignedIn ? (
               <div className="space-y-1">
-                <p className="text-sm font-semibold text-foreground">{fullName || email || "Utilisateur"}</p>
+                <p className="text-sm font-semibold text-slate-800">{fullName || email || "Utilisateur"}</p>
                 {email && fullName !== email && (
-                  <p className="text-xs text-muted-foreground">{email}</p>
+                  <p className="text-xs text-slate-500">{email}</p>
                 )}
                 {role && (
-                  <span className="inline-flex items-center rounded-full bg-primary/10 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
+                  <span className="inline-flex items-center rounded-full bg-pink-100 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-pink-600">
                     {role}
                   </span>
                 )}
               </div>
             ) : (
-              <p className="text-xs text-muted-foreground">
+              <p className="text-xs text-slate-500">
                 Connectez-vous pour synchroniser vos défis, conversations et expériences personnalisées.
               </p>
             )}
           </div>
 
-          <DropdownMenu.Separator className="my-3 h-px bg-gradient-to-r from-transparent via-primary/20 to-transparent" />
+          <DropdownMenu.Separator className="my-3 h-px bg-slate-100" />
 
           {isSignedIn ? (
             <DropdownMenu.Item
-              className="flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-foreground outline-none transition hover:bg-primary/10"
+              className="flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-slate-700 outline-none transition hover:bg-slate-100"
               onSelect={handleAccountSettings}
             >
-              <Settings className="h-4 w-4 text-primary" />
+              <Settings className="h-4 w-4 text-slate-500" />
               Paramètres du compte
             </DropdownMenu.Item>
           ) : !isLoading ? (
             <DropdownMenu.Item
-              className="flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-foreground outline-none transition hover:bg-primary/10"
+              className="flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-slate-700 outline-none transition hover:bg-slate-100"
             >
-              <Settings className="h-4 w-4 text-primary" />
+              <Settings className="h-4 w-4 text-slate-500" />
               Préférences invité
             </DropdownMenu.Item>
           ) : null}
 
-          <DropdownMenu.Arrow className="fill-white/70" />
+          <DropdownMenu.Arrow className="fill-white" />
 
-          <div className="mt-3 rounded-xl bg-gradient-to-r from-primary/90 to-accent/90 p-3 text-white">
+          <div className="mt-3">
             {isSignedIn ? (
               <Button
                 onClick={() => signOut()}
-                variant="glassDark"
-                className="flex w-full items-center justify-center gap-2 rounded-full"
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-slate-800 to-indigo-900 text-white hover:from-slate-700 hover:to-indigo-800"
                 disabled={isProcessing}
               >
                 {isProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogOut className="h-4 w-4" />}
@@ -159,7 +158,7 @@ export function UserProfileMenu() {
             ) : (
               <Button
                 onClick={handleSignIn}
-                className="flex w-full items-center justify-center gap-2 rounded-full bg-white/90 text-primary hover:bg-white"
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-pink-500 to-rose-400 text-white hover:from-pink-600 hover:to-rose-500"
                 disabled={isProcessing || isLoading}
               >
                 {isProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogIn className="h-4 w-4" />}

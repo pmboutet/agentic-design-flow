@@ -58,9 +58,10 @@ export class TranscriptionManager {
   private pendingSemanticTrigger: SemanticTurnTrigger | null = null;
 
   // ===== CONSTANTES DE CONFIGURATION =====
-  private readonly SILENCE_DETECTION_TIMEOUT = 10000; // 10s
-  private readonly SILENCE_DETECTION_TIMEOUT_NO_PARTIALS = 5000; // 5s
-  private readonly UTTERANCE_FINALIZATION_DELAY = 800; // 800ms
+  // Silence timeout is now just a fallback - primary trigger is EndOfUtterance from Speechmatics VAD
+  private readonly SILENCE_DETECTION_TIMEOUT = 2000; // 2s fallback (reduced from 3s)
+  private readonly SILENCE_DETECTION_TIMEOUT_NO_PARTIALS = 2000; // 2s fallback (reduced from 5s)
+  private readonly UTTERANCE_FINALIZATION_DELAY = 300; // 300ms debounce after EndOfUtterance (reduced from 800ms)
   private readonly MIN_PARTIAL_UPDATE_INTERVAL_MS = 100; // 100ms rate limit
   private readonly MIN_UTTERANCE_CHAR_LENGTH = 20;
   private readonly MIN_UTTERANCE_WORDS = 3;
@@ -197,10 +198,14 @@ export class TranscriptionManager {
 
   /**
    * Mark that EndOfUtterance was received from Speechmatics
+   * This is the PRIMARY trigger for processing - Speechmatics VAD already detected ~700ms of silence
+   * We add a short debounce (300ms) to catch any final words, then process immediately
    */
   markEndOfUtterance(): void {
     this.receivedEndOfUtterance = true;
-    // Let the silence timeout handle processing
+    // Trigger processing with a short debounce (instead of waiting for long silence timeout)
+    // This makes the conversation much more responsive
+    this.scheduleUtteranceFinalization();
   }
 
   /**

@@ -26,10 +26,11 @@ import { DeepgramVoiceAgent, DeepgramMessageEvent } from '@/lib/ai/deepgram';
 import { HybridVoiceAgent, HybridVoiceAgentMessage } from '@/lib/ai/hybrid-voice-agent';
 import { SpeechmaticsVoiceAgent, SpeechmaticsMessageEvent } from '@/lib/ai/speechmatics';
 import { cn } from '@/lib/utils';
-import { cleanStepCompleteMarker } from '@/lib/sanitize';
+import { cleanStepCompleteMarker, detectStepComplete } from '@/lib/sanitize';
 import { useAuth } from '@/components/auth/AuthProvider';
 import type { ConversationPlan } from '@/types';
 import { ConversationProgressBar } from '@/components/conversation/ConversationProgressBar';
+import { StepCompletionCard } from '@/components/conversation/StepCompletionCard';
 import type { SemanticTurnTelemetryEvent } from '@/lib/ai/turn-detection';
 import { useInactivityMonitor } from '@/hooks/useInactivityMonitor';
 import { SpeakerAssignmentOverlay, type ParticipantOption, type SpeakerAssignmentDecision, type SpeakerMessage } from './SpeakerAssignmentOverlay';
@@ -1884,47 +1885,38 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
 
   return (
     <div className="fixed inset-0 z-50 overflow-hidden">
-      {/* Dark base background */}
+      {/* Deep blue gradient background */}
+      <div
+        className="absolute inset-0 bg-gradient-to-br from-slate-900 via-blue-950 to-indigo-950"
+        style={{ zIndex: 0 }}
+      />
+
+      {/* Light blue glow effects */}
       <div
         className="absolute inset-0"
         style={{
-          background: 'rgb(15, 15, 25)',
-          zIndex: 0,
-        }}
-      />
-      
-      {/* Complex multi-layer radial gradient background - darker with primary/accent colors */}
-      <div 
-        className="absolute inset-0"
-        style={{
           background: `
-            radial-gradient(circle at 20% 30%, rgba(59, 130, 246, 0.4) 0%, transparent 50%),
-            radial-gradient(circle at 80% 70%, rgba(255, 0, 128, 0.35) 0%, transparent 50%),
-            radial-gradient(circle at 50% 50%, rgba(147, 51, 234, 0.3) 0%, transparent 60%),
-            radial-gradient(circle at 10% 80%, rgba(59, 130, 246, 0.25) 0%, transparent 40%),
-            radial-gradient(circle at 90% 20%, rgba(255, 0, 128, 0.3) 0%, transparent 40%),
-            radial-gradient(circle at 30% 60%, rgba(147, 51, 234, 0.25) 0%, transparent 35%),
-            radial-gradient(circle at 70% 40%, rgba(59, 130, 246, 0.2) 0%, transparent 35%),
-            linear-gradient(135deg, rgba(59, 130, 246, 0.15) 0%, rgba(147, 51, 234, 0.15) 50%, rgba(255, 0, 128, 0.15) 100%)
+            radial-gradient(circle at 20% 30%, rgba(96, 165, 250, 0.15) 0%, transparent 50%),
+            radial-gradient(circle at 80% 70%, rgba(59, 130, 246, 0.12) 0%, transparent 50%),
+            radial-gradient(circle at 50% 50%, rgba(147, 197, 253, 0.1) 0%, transparent 60%),
+            radial-gradient(circle at 10% 80%, rgba(96, 165, 250, 0.08) 0%, transparent 40%)
           `,
           zIndex: 1,
         }}
       />
-      
+
       {/* Animated gradient overlay that responds to voice */}
       <motion.div
         className="absolute inset-0"
         style={{
           background: `
-            radial-gradient(circle at 20% 30%, rgba(59, 130, 246, 0.25) 0%, transparent 50%),
-            radial-gradient(circle at 80% 70%, rgba(255, 0, 128, 0.25) 0%, transparent 50%),
-            radial-gradient(circle at 50% 50%, rgba(147, 51, 234, 0.2) 0%, transparent 60%)
+            radial-gradient(circle at 50% 50%, rgba(147, 197, 253, 0.25) 0%, transparent 60%)
           `,
           zIndex: 2,
         }}
         animate={{
-          opacity: isSpeaking ? 0.5 : 0,
-          scale: isSpeaking ? 1.1 : 1,
+          opacity: isSpeaking ? 0.8 : 0,
+          scale: isSpeaking ? 1.2 : 1,
         }}
         transition={{
           duration: 0.3,
@@ -1956,7 +1948,7 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
                 <Settings className="h-4 w-4" />
               </Button>
               {showMicrophoneSettings && (
-                <div className="absolute top-full right-0 mt-2 w-64 bg-gray-900/95 backdrop-blur-xl border border-white/20 rounded-lg shadow-2xl p-4 z-50 microphone-settings-container">
+                <div className="absolute top-full right-0 mt-2 w-64 bg-slate-900/95 backdrop-blur-xl border border-blue-400/20 rounded-lg shadow-2xl p-4 z-50 microphone-settings-container">
                   <h4 className="text-white text-sm font-semibold mb-3">Paramètres audio</h4>
 
                   {/* Microphone selection */}
@@ -2123,6 +2115,21 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
               const hasRealId = message.messageId && !message.messageId.startsWith('temp-');
               const canEdit = isUser && !message.isInterim && hasRealId && onEditMessage;
 
+              // Detect step completion marker (handles markdown formatting like **STEP_COMPLETE:**)
+              const { hasMarker: hasStepComplete, stepId: completedStepId } = detectStepComplete(message.content);
+
+              // Find the completed step in conversation plan
+              const completedStep = hasStepComplete && conversationPlan
+                ? completedStepId
+                  ? conversationPlan.plan_data.steps.find(step => step.id === completedStepId)
+                  : conversationPlan.plan_data.steps.find(step => step.status === 'active')
+                : undefined;
+
+              // Find step number (1-based index)
+              const stepNumber = completedStep && conversationPlan
+                ? conversationPlan.plan_data.steps.findIndex(step => step.id === completedStep.id) + 1
+                : undefined;
+
               // Consultant mode: determine if this message is from the current user (for alignment)
               // Check if the speaker is mapped to a participant whose userId matches currentUserId
               const isCurrentUserMessage = (() => {
@@ -2177,7 +2184,7 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
                       {editingSpeaker === message.speaker ? (
                         // Dropdown for reassigning speaker
                         <div className="relative">
-                          <div className="flex flex-col gap-1 bg-slate-800/95 backdrop-blur-xl rounded-lg border border-white/20 shadow-xl p-1 min-w-[160px]">
+                          <div className="flex flex-col gap-1 bg-slate-900/95 backdrop-blur-xl rounded-lg border border-blue-400/20 shadow-xl p-1 min-w-[160px]">
                             {/* Existing participants */}
                             {participants?.filter(p => {
                               // Filter out participants already assigned to other speakers
@@ -2239,6 +2246,16 @@ export const PremiumVoiceInterface = React.memo(function PremiumVoiceInterface({
                         </button>
                       )}
                     </div>
+                  )}
+                  {/* Step completion indicator - shown BEFORE the message */}
+                  {hasStepComplete && !isUser && completedStep && stepNumber !== undefined && (
+                    <StepCompletionCard
+                      stepNumber={stepNumber}
+                      stepTitle={completedStep.title}
+                      stepObjective={completedStep.objective}
+                      variant="dark"
+                      className="mb-3 max-w-[75%]"
+                    />
                   )}
                   <div className="relative group max-w-[75%]">
                     {/* Edit button for user messages */}

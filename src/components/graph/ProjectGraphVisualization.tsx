@@ -12,6 +12,7 @@ import {
   Maximize2,
   Minimize2,
   Minus,
+  Palette,
   Plus,
   RefreshCw,
   Search,
@@ -66,6 +67,11 @@ interface GraphNodeResponse {
   label: string;
   subtitle?: string;
   meta?: Record<string, unknown>;
+  // Analytics fields (from Graphology)
+  community?: number;
+  betweenness?: number;
+  pageRank?: number;
+  degree?: number;
 }
 
 interface GraphEdgeResponse {
@@ -117,6 +123,12 @@ interface ForceGraphNode {
   x?: number;
   y?: number;
   degree?: number;
+  frequency?: number; // For entity nodes in concepts mode
+  // Analytics fields (from Graphology)
+  community?: number;
+  communityColor?: string;
+  betweenness?: number;
+  pageRank?: number;
 }
 
 interface ForceGraphLink {
@@ -179,6 +191,7 @@ const EDGE_COLORS: Record<string, string> = {
   CONTAINS: "rgba(16, 185, 129, 0.5)",     // emerald - containment
   HAS_TYPE: "rgba(244, 63, 94, 0.5)",      // rose - insight type classification
   INDIRECT: "rgba(148, 163, 184, 0.35)",   // slate - virtual/indirect links (dashed visually)
+  CO_OCCURS: "rgba(14, 165, 233, 0.8)",    // cyan - entity co-occurrence in concepts mode (more visible)
   default: "rgba(148, 163, 184, 0.4)",     // slate default
 };
 
@@ -200,6 +213,7 @@ const EDGE_LABELS: Record<string, string> = {
   CONTAINS: "contient",
   HAS_TYPE: "type",
   INDIRECT: "indirect",
+  CO_OCCURS: "co-occurrence",
 };
 
 // Base node sizes by type
@@ -211,6 +225,23 @@ const NODE_SIZES: Record<GraphNodeType | "default", number> = {
   insight_type: 8,  // Larger for category nodes
   default: 4,
 };
+
+// Community colors for Louvain clustering visualization
+// 12 distinct colors that work well together
+const COMMUNITY_COLORS: Array<{ fill: string; solid: string }> = [
+  { fill: "rgba(239, 68, 68, 0.9)", solid: "#EF4444" },   // red-500
+  { fill: "rgba(34, 197, 94, 0.9)", solid: "#22C55E" },   // green-500
+  { fill: "rgba(59, 130, 246, 0.9)", solid: "#3B82F6" },  // blue-500
+  { fill: "rgba(249, 115, 22, 0.9)", solid: "#F97316" },  // orange-500
+  { fill: "rgba(168, 85, 247, 0.9)", solid: "#A855F7" },  // purple-500
+  { fill: "rgba(236, 72, 153, 0.9)", solid: "#EC4899" },  // pink-500
+  { fill: "rgba(20, 184, 166, 0.9)", solid: "#14B8A6" },  // teal-500
+  { fill: "rgba(234, 179, 8, 0.9)", solid: "#EAB308" },   // yellow-500
+  { fill: "rgba(99, 102, 241, 0.9)", solid: "#6366F1" },  // indigo-500
+  { fill: "rgba(14, 165, 233, 0.9)", solid: "#0EA5E9" },  // sky-500
+  { fill: "rgba(244, 63, 94, 0.9)", solid: "#F43F5E" },   // rose-500
+  { fill: "rgba(132, 204, 22, 0.9)", solid: "#84CC16" },  // lime-500
+];
 
 // ============================================================================
 // COMPONENT PROPS
@@ -267,9 +298,17 @@ function buildForceGraphData(payload: GraphPayload): ForceGraphData {
     nodeDegrees.set(targetId, (nodeDegrees.get(targetId) || 0) + 1);
   }
 
-  // Build nodes with dynamic sizing based on degree
+  // Build nodes with dynamic sizing based on degree, frequency, and centrality
   const uniqueNodeIds = new Set(nodeIdMapping.values());
   const maxDegree = Math.max(...Array.from(nodeDegrees.values()), 1);
+
+  // Calculate max frequency for normalization (for entity nodes)
+  const maxFrequency = Math.max(
+    ...payload.nodes
+      .filter(n => n.type === "entity" && n.meta?.frequency)
+      .map(n => (n.meta?.frequency as number) || 1),
+    1
+  );
 
   const nodes: ForceGraphNode[] = payload.nodes
     .filter((node) => uniqueNodeIds.has(node.id) && nodeIdMapping.get(node.id) === node.id)
@@ -278,9 +317,29 @@ function buildForceGraphData(payload: GraphPayload): ForceGraphData {
       const baseSize = NODE_SIZES[node.type as GraphNodeType] || NODE_SIZES.default;
       const degree = nodeDegrees.get(node.id) || 0;
 
-      // Scale size based on degree (1x to 2.5x base size)
-      const degreeScale = 1 + (degree / maxDegree) * 1.5;
-      const size = baseSize * degreeScale;
+      let size: number;
+
+      if (node.type === "entity") {
+        // For entities: combine frequency and centrality
+        const frequency = (node.meta?.frequency as number) || 1;
+        const centrality = node.betweenness || node.pageRank || 0;
+
+        // Normalize and combine: frequency (log scale) + centrality boost
+        const freqScore = Math.log1p(frequency) / Math.log1p(maxFrequency);
+        const centralityScore = centrality * 5; // centrality is typically 0-1
+
+        // Size: base + frequency contribution + centrality contribution
+        size = baseSize * (1 + freqScore * 1.5 + centralityScore);
+      } else {
+        // For other nodes: use degree-based sizing
+        const degreeScale = 1 + (degree / maxDegree) * 1.5;
+        size = baseSize * degreeScale;
+      }
+
+      // Get community color if available
+      const communityColor = node.community !== undefined
+        ? COMMUNITY_COLORS[node.community % COMMUNITY_COLORS.length]
+        : undefined;
 
       return {
         id: node.id,
@@ -291,6 +350,12 @@ function buildForceGraphData(payload: GraphPayload): ForceGraphData {
         color: colors.fill,
         size,
         degree,
+        frequency: (node.meta?.frequency as number) || undefined,
+        // Analytics fields
+        community: node.community,
+        communityColor: communityColor?.fill,
+        betweenness: node.betweenness,
+        pageRank: node.pageRank,
       };
     });
 
@@ -364,6 +429,14 @@ export function ProjectGraphVisualization({ projectId, clientId, refreshKey }: P
   const [semanticResults, setSemanticResults] = useState<Map<string, number> | null>(null);
   const [isSearching, setIsSearching] = useState(false);
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Color mode state (type-based or community-based)
+  type ColorMode = "type" | "community";
+  const [colorMode, setColorMode] = useState<ColorMode>("type");
+
+  // View mode state (full graph or concepts-only)
+  type ViewMode = "full" | "concepts";
+  const [viewMode, setViewMode] = useState<ViewMode>("full");
 
   // Refs
   const fgRef = useRef<any>(null);
@@ -706,6 +779,10 @@ export function ProjectGraphVisualization({ projectId, clientId, refreshKey }: P
       if (effectiveProjectId) params.set("projectId", effectiveProjectId);
       if (effectiveClientId) params.set("clientId", effectiveClientId);
       if (selectedChallengeId) params.set("challengeId", selectedChallengeId);
+      // Include analytics for community detection and centrality
+      if (effectiveProjectId) params.set("includeAnalytics", "true");
+      // Include view mode for concepts-only view
+      if (viewMode === "concepts") params.set("mode", "concepts");
 
       const response = await fetch(`/api/admin/graph/visualization?${params}`, {
         cache: "no-store",
@@ -727,7 +804,7 @@ export function ProjectGraphVisualization({ projectId, clientId, refreshKey }: P
     } finally {
       setIsLoading(false);
     }
-  }, [projectId, selectedProjectId, selectedClientId, selectedChallengeId]);
+  }, [projectId, selectedProjectId, selectedClientId, selectedChallengeId, viewMode]);
 
   const loadFilters = useCallback(async () => {
     try {
@@ -755,14 +832,25 @@ export function ProjectGraphVisualization({ projectId, clientId, refreshKey }: P
 
   useEffect(() => {
     if (fgRef.current && filteredGraphData) {
-      // Configure forces for better layout
-      // Strong charge to push nodes apart and avoid label overlap
-      fgRef.current.d3Force("charge")?.strength(-1500);
-      fgRef.current.d3Force("link")?.distance(180);
-      fgRef.current.d3Force("center")?.strength(0.03);
+      // Configure forces based on view mode
+      // In concepts mode, use gentler forces to keep clusters closer
+      if (viewMode === "concepts") {
+        // Gentler charge for concepts - clusters stay closer
+        fgRef.current.d3Force("charge")?.strength(-400);
+        // Shorter link distance for tighter clusters
+        fgRef.current.d3Force("link")?.distance(80);
+        // Stronger center pull to keep everything together
+        fgRef.current.d3Force("center")?.strength(0.15);
+      } else {
+        // Full mode: stronger forces for larger graph
+        fgRef.current.d3Force("charge")?.strength(-1500);
+        fgRef.current.d3Force("link")?.distance(180);
+        fgRef.current.d3Force("center")?.strength(0.03);
+      }
 
       // Add collision force to prevent node/label overlap
       // Radius accounts for node size + label box below the node
+      const collideRadius = viewMode === "concepts" ? 0.6 : 1.0; // Smaller collision in concepts mode
       fgRef.current.d3Force(
         "collide",
         forceCollide<ForceGraphNode>()
@@ -775,13 +863,14 @@ export function ProjectGraphVisualization({ projectId, clientId, refreshKey }: P
             const estimatedLines = Math.ceil(labelLength / 28);
             const estimatedLabelHeight = estimatedLines * 20; // ~20px per line
             // Collision radius = half text width + label height + generous padding
-            return Math.max(estimatedTextWidth / 2, 60) + estimatedLabelHeight + 35;
+            const baseRadius = Math.max(estimatedTextWidth / 2, 60) + estimatedLabelHeight + 35;
+            return baseRadius * collideRadius;
           })
           .strength(1.0)
           .iterations(6)
       );
     }
-  }, [filteredGraphData]);
+  }, [filteredGraphData, viewMode]);
 
   // ========================================================================
   // EVENT HANDLERS
@@ -799,7 +888,10 @@ export function ProjectGraphVisualization({ projectId, clientId, refreshKey }: P
   }, []);
 
   const handleZoom = useCallback((transform: { k: number }) => {
-    setZoomLevel(transform.k);
+    // Defer state update to avoid React warning about setState during render
+    requestAnimationFrame(() => {
+      setZoomLevel(transform.k);
+    });
   }, []);
 
   const handleBackgroundClick = useCallback(() => {
@@ -862,10 +954,15 @@ export function ProjectGraphVisualization({ projectId, clientId, refreshKey }: P
       else if (hoveredNode && !selectedNode && !isHoverConnected) alpha = 0.15;
       if (searchMatchIds && !isSearchMatch) alpha = 0.1;
 
+      // Determine base color based on color mode
+      const baseColor = colorMode === "community" && n.communityColor
+        ? n.communityColor
+        : n.color;
+
       // Parse color and apply alpha
-      let fillColor = n.color;
+      let fillColor = baseColor;
       if (alpha < 1) {
-        fillColor = n.color.replace(/[\d.]+\)$/, `${alpha * 0.6})`);
+        fillColor = baseColor.replace(/[\d.]+\)$/, `${alpha * 0.6})`);
       }
 
       // Draw node circle
@@ -910,14 +1007,21 @@ export function ProjectGraphVisualization({ projectId, clientId, refreshKey }: P
         // Show label for hovered node's direct neighbors
         showLabel = true;
       } else if (!selectedNode && !hoveredNode) {
-        // Key nodes (hubs and challenges) are always visible
-        // Other nodes only visible at high zoom
-        const isKeyNode = isHub || n.type === "challenge";
-        if (isKeyNode) {
-          showLabel = true;
+        // In concepts mode, show labels for high-frequency entities
+        if (viewMode === "concepts" && n.type === "entity") {
+          const frequency = n.frequency || 0;
+          // Show label if frequency >= 3 or at high zoom
+          showLabel = frequency >= 3 || globalScale >= 0.6;
         } else {
-          const ZOOM_THRESHOLD = 0.8;
-          showLabel = globalScale >= ZOOM_THRESHOLD;
+          // Key nodes (hubs and challenges) are always visible
+          // Other nodes only visible at high zoom
+          const isKeyNode = isHub || n.type === "challenge";
+          if (isKeyNode) {
+            showLabel = true;
+          } else {
+            const ZOOM_THRESHOLD = 0.8;
+            showLabel = globalScale >= ZOOM_THRESHOLD;
+          }
         }
       }
 
@@ -978,7 +1082,7 @@ export function ProjectGraphVisualization({ projectId, clientId, refreshKey }: P
         ctx.fillText(line, node.x, lineY);
       });
     },
-    [selectedNode, hoveredNode, connectedNodeIds, hoveredConnectedNodeIds, hubNodeIds, searchMatchIds, semanticResults, isSemanticSearch]
+    [selectedNode, hoveredNode, connectedNodeIds, hoveredConnectedNodeIds, hubNodeIds, searchMatchIds, semanticResults, isSemanticSearch, colorMode, viewMode]
   );
 
   const linkColor = useCallback(
@@ -1189,6 +1293,38 @@ export function ProjectGraphVisualization({ projectId, clientId, refreshKey }: P
           {(selectedClientId || selectedChallengeId) && (
             <span className="ml-1 h-1.5 w-1.5 rounded-full bg-yellow-400" />
           )}
+        </Button>
+
+        {/* View mode toggle (full vs concepts) */}
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => setViewMode(viewMode === "full" ? "concepts" : "full")}
+          title={viewMode === "full" ? "Vue complète" : "Vue concepts uniquement"}
+          className={`gap-1.5 border-slate-600/50 text-xs ${
+            viewMode === "concepts"
+              ? "bg-sky-500/20 text-sky-300 border-sky-500/50"
+              : "bg-slate-800/60 text-slate-300"
+          }`}
+        >
+          <Layers className="h-3 w-3" />
+          {viewMode === "full" ? "Complet" : "Concepts"}
+        </Button>
+
+        {/* Color mode toggle (type vs community) */}
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => setColorMode(colorMode === "type" ? "community" : "type")}
+          title={colorMode === "type" ? "Colorer par type" : "Colorer par communauté (Louvain)"}
+          className={`gap-1.5 border-slate-600/50 text-xs ${
+            colorMode === "community"
+              ? "bg-green-500/20 text-green-300 border-green-500/50"
+              : "bg-slate-800/60 text-slate-300"
+          }`}
+        >
+          <Palette className="h-3 w-3" />
+          {colorMode === "type" ? "Type" : "Communauté"}
         </Button>
 
         {/* Divider */}

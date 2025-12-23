@@ -10,7 +10,7 @@ describe('TranscriptionManager silence-based turn detection', () => {
     jest.useRealTimers();
   });
 
-  test('processes message after 10s silence timeout (no semantic detection)', async () => {
+  test('processes message after 2s silence timeout fallback (no EndOfUtterance)', async () => {
     const onMessage = jest.fn();
     const processUserMessage = jest.fn().mockResolvedValue(undefined);
 
@@ -29,25 +29,24 @@ describe('TranscriptionManager silence-based turn detection', () => {
     // User says something (with timestamps)
     manager.handlePartialTranscript('je voulais savoir si tu étais dispo demain', 0, 2);
 
-    // Message should NOT be processed yet (silence timeout is 10s)
+    // Message should NOT be processed yet (silence timeout is 2s)
     expect(processUserMessage).not.toHaveBeenCalled();
 
-    // End of utterance from Speechmatics - should NOT trigger processing
-    // (we now wait for full silence timeout)
-    manager.markEndOfUtterance();
+    // NOTE: We don't call markEndOfUtterance() here because that triggers
+    // fast processing (300ms). This test verifies the silence timeout FALLBACK
+    // which kicks in after 2s if no EndOfUtterance signal is received.
+
+    // Fast forward 1 second - still not processed
+    jest.advanceTimersByTime(1000);
     expect(processUserMessage).not.toHaveBeenCalled();
 
-    // Fast forward 5 seconds - still not processed
-    jest.advanceTimersByTime(5000);
-    expect(processUserMessage).not.toHaveBeenCalled();
-
-    // Fast forward another 5 seconds (total 10s) - NOW it should process
-    jest.advanceTimersByTime(5000);
+    // Fast forward another 1 second (total 2s) - NOW the silence fallback should trigger
+    jest.advanceTimersByTime(1000);
 
     // Need to flush promises for async processing
     await Promise.resolve();
 
-    // Message should have been processed after 10s of silence
+    // Message should have been processed after 2s of silence
     expect(processUserMessage).toHaveBeenCalledTimes(1);
     expect(processUserMessage).toHaveBeenCalledWith(
       expect.stringContaining('je voulais savoir si tu étais dispo demain')
@@ -80,19 +79,19 @@ describe('TranscriptionManager silence-based turn detection', () => {
     // User starts speaking
     manager.handlePartialTranscript('Bonjour', 0, 0.5);
 
-    // Wait 8 seconds (not enough for 10s timeout)
-    jest.advanceTimersByTime(8000);
+    // Wait 1 second (not enough for 2s timeout)
+    jest.advanceTimersByTime(1000);
     expect(processUserMessage).not.toHaveBeenCalled();
 
     // User continues speaking - this resets the timeout (overlapping time range)
     manager.handlePartialTranscript('Bonjour je voulais', 0, 1);
 
-    // Wait another 8 seconds (total 16s but timeout was reset)
-    jest.advanceTimersByTime(8000);
+    // Wait another 1 second (total 2s but timeout was reset)
+    jest.advanceTimersByTime(1000);
     expect(processUserMessage).not.toHaveBeenCalled();
 
-    // Wait 2 more seconds (now 10s since last partial)
-    jest.advanceTimersByTime(2000);
+    // Wait 1 more second (now 2s since last partial)
+    jest.advanceTimersByTime(1000);
     await Promise.resolve();
 
     // NOW it should be processed

@@ -99,6 +99,10 @@ export class SpeechmaticsVoiceAgent {
   private conversationHistory: Array<{ role: 'user' | 'agent'; content: string }> = [];
   // Flag indiquant si une réponse est en cours de génération (pour la queue)
   private isGeneratingResponse: boolean = false;
+  // Timestamp when generation started (for stuck flag recovery)
+  private generationStartedAt: number = 0;
+  // Maximum time allowed for response generation before auto-reset (60 seconds)
+  private readonly GENERATION_TIMEOUT_MS = 60000;
   // Queue des messages utilisateur en attente (si plusieurs messages arrivent pendant la génération)
   private userMessageQueue: Array<{ content: string; timestamp: string }> = [];
   // Track if user continues speaking during response generation (abort-on-continue)
@@ -470,19 +474,36 @@ export class SpeechmaticsVoiceAgent {
     }
 
     if (this.isGeneratingResponse) {
-      // DEDUPLICATION: Check if this message is already in queue or identical to what's being processed
-      const isInQueue = this.userMessageQueue.some(q => q.content.trim().toLowerCase() === normalizedTranscript);
-      const isCurrentlyProcessing = this.lastSentUserMessage.trim().toLowerCase() === normalizedTranscript;
+      // SAFETY CHECK: Auto-reset if generation has been stuck for too long
+      // This prevents the agent from becoming unresponsive if something goes wrong
+      if (this.generationStartedAt > 0 &&
+          processStartedAt - this.generationStartedAt > this.GENERATION_TIMEOUT_MS) {
+        console.warn('[Speechmatics] ⚠️ Generation stuck for', Math.round((processStartedAt - this.generationStartedAt) / 1000), 'seconds - auto-resetting flag');
+        this.isGeneratingResponse = false;
+        this.generationStartedAt = 0;
+        this.lastSentUserMessage = '';
+        this.userMessageQueue = [];
+        // Abort any in-flight LLM request
+        if (this.llmAbortController) {
+          this.llmAbortController.abort();
+          this.llmAbortController = null;
+        }
+      } else {
+        // DEDUPLICATION: Check if this message is already in queue or identical to what's being processed
+        const isInQueue = this.userMessageQueue.some(q => q.content.trim().toLowerCase() === normalizedTranscript);
+        const isCurrentlyProcessing = this.lastSentUserMessage.trim().toLowerCase() === normalizedTranscript;
 
-      if (isInQueue || isCurrentlyProcessing) {
+        if (isInQueue || isCurrentlyProcessing) {
+          return;
+        }
+
+        this.userMessageQueue.push({ content: transcript, timestamp: new Date().toISOString() });
         return;
       }
-
-      this.userMessageQueue.push({ content: transcript, timestamp: new Date().toISOString() });
-      return;
     }
 
     this.isGeneratingResponse = true;
+    this.generationStartedAt = processStartedAt;
 
     // Track the message we're about to process (for abort-on-continue detection)
     this.lastSentUserMessage = transcript;
@@ -622,15 +643,18 @@ export class SpeechmaticsVoiceAgent {
           await this.processUserMessage(nextMessage.content);
         } else {
           this.isGeneratingResponse = false;
+          this.generationStartedAt = 0;
         }
       } else {
         this.isGeneratingResponse = false;
+        this.generationStartedAt = 0;
       }
     } catch (error) {
       // Check if error was caused by user aborting (barge-in or continuation)
       if (error instanceof Error && error.name === 'AbortError') {
         // Don't treat abort as error - it's expected behavior
         this.isGeneratingResponse = false;
+        this.generationStartedAt = 0;
         // Keep lastSentUserMessage if aborted due to continuation
         // (will be compared against new partials)
         if (!this.responseAbortedDueToUserContinuation) {
@@ -651,6 +675,7 @@ export class SpeechmaticsVoiceAgent {
         if (nextMessage) {
           // Reset flag before recursive call (it will be set to true again in processUserMessage)
           this.isGeneratingResponse = false;
+          this.generationStartedAt = 0;
           // Use setTimeout to avoid deep recursion and allow event loop to process
           setTimeout(() => {
             this.processUserMessage(nextMessage.content).catch(err => {
@@ -659,9 +684,11 @@ export class SpeechmaticsVoiceAgent {
           }, 100);
         } else {
           this.isGeneratingResponse = false;
+          this.generationStartedAt = 0;
         }
       } else {
         this.isGeneratingResponse = false;
+        this.generationStartedAt = 0;
       }
     } finally {
       // Clear abort controller

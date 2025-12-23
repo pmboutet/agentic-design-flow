@@ -463,6 +463,7 @@ export default function HomePage() {
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [isCurrentParticipantSpokesperson, setIsCurrentParticipantSpokesperson] = useState(false);
   const isTestMode = searchParams.get('mode') === 'test';
+  const isDevMode = process.env.NEXT_PUBLIC_IS_DEV === 'true';
   const [isDetailsCollapsed, setIsDetailsCollapsed] = useState(false);
   const [isReplyBoxFocused, setIsReplyBoxFocused] = useState(false);
   const [isVoiceModeActive, setIsVoiceModeActive] = useState(false);
@@ -614,7 +615,7 @@ export default function HomePage() {
 
   // Extract stable functions from sessionTimer to avoid re-running effects on every tick
   // (sessionTimer is a new object every second due to elapsedSeconds changing)
-  const { notifyAiStreaming, notifyVoiceActive } = sessionTimer;
+  const { notifyAiStreaming, notifyVoiceActive, start: startTimer } = sessionTimer;
 
   // Connect AI streaming state to session timer
   useEffect(() => {
@@ -622,9 +623,14 @@ export default function HomePage() {
   }, [awaitingAiResponse, notifyAiStreaming]);
 
   // Connect voice mode state to session timer
+  // When voice mode is activated, explicitly start the timer in addition to notifying activity
   useEffect(() => {
     notifyVoiceActive(isVoiceModeActive);
-  }, [isVoiceModeActive, notifyVoiceActive]);
+    // Explicitly start the timer when entering voice mode to ensure it runs
+    if (isVoiceModeActive) {
+      startTimer();
+    }
+  }, [isVoiceModeActive, notifyVoiceActive, startTimer]);
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
@@ -2202,7 +2208,7 @@ export default function HomePage() {
 
   if (showLoadingScreen) {
     return (
-      <div className="min-h-[100dvh] bg-gradient-to-br from-pink-500 via-pink-400 to-rose-400 flex items-center justify-center p-4">
+      <div className="min-h-[100dvh] bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-900 flex items-center justify-center p-4">
         <motion.div
           initial={{ opacity: 0, scale: 0.9 }}
           animate={{ opacity: 1, scale: 1 }}
@@ -2214,7 +2220,7 @@ export default function HomePage() {
             <motion.div
               animate={{ rotate: 360 }}
               transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-              className="mx-auto w-20 h-20 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center shadow-lg"
+              className="mx-auto w-20 h-20 bg-gradient-to-br from-pink-500 to-rose-400 rounded-full flex items-center justify-center shadow-lg"
             >
               <Sparkles className="h-10 w-10 text-white" />
             </motion.div>
@@ -2230,17 +2236,17 @@ export default function HomePage() {
 
               {/* Progress bar */}
               <div className="max-w-xs mx-auto">
-                <div className="h-2 bg-white/30 rounded-full overflow-hidden">
+                <div className="h-2 bg-white/20 rounded-full overflow-hidden">
                   <motion.div
                     initial={{ x: '-100%' }}
                     animate={{ x: '200%' }}
                     transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
-                    className="h-full w-1/3 bg-white rounded-full"
+                    className="h-full w-1/3 bg-gradient-to-r from-pink-500 to-rose-400 rounded-full"
                   />
                 </div>
               </div>
 
-              <p className="text-white/80 text-sm">
+              <p className="text-slate-300 text-sm">
                 Configuration de votre session personnalisée...
               </p>
             </div>
@@ -2262,7 +2268,7 @@ export default function HomePage() {
     const userName = currentParticipantName?.split(' ')[0] || currentParticipantName || 'vous';
 
     return (
-      <div className="min-h-[100dvh] bg-gradient-to-br from-pink-500 via-pink-400 to-rose-400 flex items-center justify-center p-4">
+      <div className="min-h-[100dvh] bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-900 flex items-center justify-center p-4">
         <motion.div
           initial={{ opacity: 0, scale: 0.9 }}
           animate={{ opacity: 1, scale: 1 }}
@@ -2279,8 +2285,8 @@ export default function HomePage() {
             <h1 className="text-2xl sm:text-3xl font-bold text-white mb-4">
               Bienvenue {userName} !
             </h1>
-            <p className="text-lg text-white/90">
-              Avant de commencer notre entretien comment voulez vous répondre?
+            <p className="text-lg text-slate-300">
+              Avant de commencer notre entretien, comment voulez-vous répondre ?
             </p>
           </motion.div>
 
@@ -2288,8 +2294,8 @@ export default function HomePage() {
           <div className="space-y-4">
             {/* Voice mode button */}
             <motion.button
-              initial={{ opacity: 0, x: -30 }}
-              animate={{ opacity: 1, x: 0 }}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.4 }}
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
@@ -2297,7 +2303,7 @@ export default function HomePage() {
                 setSelectedInputMode('voice');
                 setIsVoiceModeActive(true);
               }}
-              className="w-full bg-white/90 hover:bg-white rounded-2xl p-6 flex items-center gap-4 shadow-lg hover:shadow-xl transition-all duration-200 group"
+              className="w-full bg-white hover:bg-gray-50 rounded-2xl p-6 flex items-center gap-4 shadow-lg hover:shadow-xl transition-all duration-200 group"
             >
               <div className="w-14 h-14 bg-gradient-to-br from-pink-100 to-rose-100 rounded-xl flex items-center justify-center group-hover:from-pink-200 group-hover:to-rose-200 transition-colors">
                 <Mic className="h-7 w-7 text-pink-600" />
@@ -2307,15 +2313,15 @@ export default function HomePage() {
 
             {/* Text mode button */}
             <motion.button
-              initial={{ opacity: 0, x: -30 }}
-              animate={{ opacity: 1, x: 0 }}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.5 }}
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
               onClick={() => {
                 setSelectedInputMode('text');
               }}
-              className="w-full bg-white/90 hover:bg-white rounded-2xl p-6 flex items-center gap-4 shadow-lg hover:shadow-xl transition-all duration-200 group"
+              className="w-full bg-white hover:bg-gray-50 rounded-2xl p-6 flex items-center gap-4 shadow-lg hover:shadow-xl transition-all duration-200 group"
             >
               <div className="w-14 h-14 bg-gradient-to-br from-pink-100 to-rose-100 rounded-xl flex items-center justify-center group-hover:from-pink-200 group-hover:to-rose-200 transition-colors">
                 <MessageSquareText className="h-7 w-7 text-pink-600" />
@@ -2410,6 +2416,11 @@ export default function HomePage() {
                 </h1>
                 {isTestMode && (
                   <span className="test-mode-badge text-[10px]">TEST</span>
+                )}
+                {isDevMode && isSharedThread && !isSubscribed && !isPolling && (
+                  <span className="text-[10px] bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded border border-orange-300" title="En mode dev, la synchronisation temps réel ne fonctionne pas. Utilisez ?token= pour activer le realtime.">
+                    ⚠️ Realtime off
+                  </span>
                 )}
                 {debugAuthId && !isMobile && (
                   <div className="mt-1 text-xs font-mono bg-yellow-100 px-2 py-1 rounded border border-yellow-300">
