@@ -7,6 +7,7 @@ import {
   AlertTriangle,
   Calendar,
   Check,
+  CheckCircle2,
   ChevronRight,
   Copy,
   Lightbulb,
@@ -4075,38 +4076,59 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
                                     )}>
                                       {ask.status}
                                     </span>
-                                    <span
-                                      className={cn(
-                                        "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px]",
-                                        ask.conversationMode === "collaborative" ? "bg-purple-500/20 text-purple-200" :
-                                        ask.conversationMode === "group_reporter" ? "bg-amber-500/20 text-amber-200" :
-                                        ask.conversationMode === "consultant" ? "bg-teal-500/20 text-teal-200" :
-                                        "bg-blue-500/10 text-blue-200"
-                                      )}
-                                      title={
-                                        ask.conversationMode === "collaborative" ? "Mode collaboratif" :
-                                        ask.conversationMode === "group_reporter" ? "Mode rapporteur" :
-                                        ask.conversationMode === "consultant" ? "Mode consultant" :
-                                        "Mode individuel parallèle"
-                                      }
-                                    >
-                                      {ask.conversationMode === "collaborative" ? (
-                                        <UsersRound className="h-2.5 w-2.5" />
-                                      ) : ask.conversationMode === "group_reporter" ? (
-                                        <Megaphone className="h-2.5 w-2.5" />
-                                      ) : ask.conversationMode === "consultant" ? (
-                                        <MessageSquareText className="h-2.5 w-2.5" />
-                                      ) : (
-                                        <Users className="h-2.5 w-2.5" />
-                                      )}
-                                      {ask.participants?.length ?? 0}
-                                      <span className="ml-0.5">
-                                        {ask.conversationMode === "collaborative" ? "collab" :
-                                         ask.conversationMode === "group_reporter" ? "report" :
-                                         ask.conversationMode === "consultant" ? "consult" :
-                                         "indiv"}
-                                      </span>
-                                    </span>
+                                    {(() => {
+                                      // Calculate response progress for individual mode
+                                      const totalParticipants = ask.participants?.length ?? 0;
+                                      const respondedCount = ask.participants?.filter(p => p.insights.length > 0).length ?? 0;
+                                      const allResponded = totalParticipants > 0 && respondedCount === totalParticipants;
+                                      const someResponded = respondedCount > 0 && !allResponded;
+                                      const isIndividualMode = ask.conversationMode === "individual_parallel";
+
+                                      return (
+                                        <span
+                                          className={cn(
+                                            "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px]",
+                                            ask.conversationMode === "collaborative" ? "bg-purple-500/20 text-purple-200" :
+                                            ask.conversationMode === "group_reporter" ? "bg-amber-500/20 text-amber-200" :
+                                            ask.conversationMode === "consultant" ? "bg-teal-500/20 text-teal-200" :
+                                            // Individual mode: green if all responded, blue otherwise
+                                            allResponded ? "bg-emerald-500/20 text-emerald-200" :
+                                            someResponded ? "bg-blue-500/20 text-blue-200" :
+                                            "bg-blue-500/10 text-blue-200"
+                                          )}
+                                          title={
+                                            ask.conversationMode === "collaborative" ? "Mode collaboratif" :
+                                            ask.conversationMode === "group_reporter" ? "Mode rapporteur" :
+                                            ask.conversationMode === "consultant" ? "Mode consultant" :
+                                            allResponded ? `Mode individuel - Tous ont répondu (${respondedCount}/${totalParticipants})` :
+                                            `Mode individuel - ${respondedCount}/${totalParticipants} ont répondu`
+                                          }
+                                        >
+                                          {ask.conversationMode === "collaborative" ? (
+                                            <UsersRound className="h-2.5 w-2.5" />
+                                          ) : ask.conversationMode === "group_reporter" ? (
+                                            <Megaphone className="h-2.5 w-2.5" />
+                                          ) : ask.conversationMode === "consultant" ? (
+                                            <MessageSquareText className="h-2.5 w-2.5" />
+                                          ) : allResponded ? (
+                                            <CheckCircle2 className="h-2.5 w-2.5" />
+                                          ) : (
+                                            <Users className="h-2.5 w-2.5" />
+                                          )}
+                                          {isIndividualMode ? (
+                                            <span>{respondedCount}/{totalParticipants}</span>
+                                          ) : (
+                                            <span>{totalParticipants}</span>
+                                          )}
+                                          <span className="ml-0.5">
+                                            {ask.conversationMode === "collaborative" ? "collab" :
+                                             ask.conversationMode === "group_reporter" ? "report" :
+                                             ask.conversationMode === "consultant" ? "consult" :
+                                             "indiv"}
+                                          </span>
+                                        </span>
+                                      );
+                                    })()}
                                   </div>
                                 </div>
                               </div>
