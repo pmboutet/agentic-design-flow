@@ -1170,18 +1170,11 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
         }
 
         await loadJourneyData({ silent: true });
-        
-        // Sélectionner automatiquement le challenge nouvellement créé
-        if (newChallengeId) {
-          console.log('🎯 Auto-selecting newly created challenge:', newChallengeId);
-          setActiveChallengeId(newChallengeId);
-          
-          // Scroll vers la section des insights (si possible)
-          setTimeout(() => {
-            rightColumnRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-          }, 300);
-        }
-        
+
+        // NOTE: On ne change PAS le activeChallengeId ici pour permettre à l'utilisateur
+        // de continuer à voir et appliquer les autres suggestions AI dans la même vue.
+        // L'utilisateur peut cliquer sur le nouveau challenge manuellement s'il le souhaite.
+
         setAiNewChallenges(current => current.filter((_, candidateIndex) => candidateIndex !== index));
         
         const insightCount = suggestion.foundationInsights?.length || 0;
@@ -4488,7 +4481,10 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
                         // Filter suggestions for this challenge and its descendants
                         const filteredSuggestions = aiSuggestions.filter(s => relevantIds.has(s.challengeId));
 
-                        if (filteredSuggestions.length === 0 && !hasAiBuilderResults) {
+                        // Filter new challenges that would be children of this challenge or its descendants
+                        const filteredNewChallenges = aiNewChallenges.filter(c => c.parentId && relevantIds.has(c.parentId));
+
+                        if (filteredSuggestions.length === 0 && filteredNewChallenges.length === 0 && !hasAiBuilderResults) {
                           return (
                             <Card className="border-dashed border-indigo-400/20 bg-slate-900/40">
                               <CardContent className="py-8 text-center">
@@ -4504,7 +4500,7 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
                           );
                         }
 
-                        if (filteredSuggestions.length === 0) {
+                        if (filteredSuggestions.length === 0 && filteredNewChallenges.length === 0) {
                           return (
                             <Card className="border-dashed border-emerald-400/20 bg-emerald-500/5">
                               <CardContent className="py-8 text-center">
@@ -4525,7 +4521,7 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
                           <AiChallengeBuilderContent
                             isRunning={isAiBuilderRunning}
                             suggestions={filteredSuggestions}
-                            newChallenges={[]}
+                            newChallenges={filteredNewChallenges}
                             challengeLookup={challengeById}
                             onApplyChallengeUpdates={handleApplyChallengeUpdate}
                             onDismissChallengeUpdates={handleDismissChallengeUpdate}
@@ -4537,9 +4533,9 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
                             onApplySuggestedNewSubChallenge={handleApplySuggestedNewSubChallenge}
                             onDismissSuggestedNewSubChallenge={handleDismissSuggestedNewSubChallenge}
                             applyingNewSubChallengeKeys={applyingNewSubChallengeKeys}
-                            onApplyNewChallenge={() => {}}
-                            onDismissNewChallenge={() => {}}
-                            applyingNewChallengeIndices={new Set()}
+                            onApplyNewChallenge={handleApplyNewChallengeSuggestion}
+                            onDismissNewChallenge={handleDismissNewChallengeSuggestion}
+                            applyingNewChallengeIndices={applyingNewChallengeIndices}
                             showLoader={false}
                           />
                         );

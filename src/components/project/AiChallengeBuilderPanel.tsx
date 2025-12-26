@@ -617,89 +617,9 @@ function SuggestionCard({
           </div>
         ) : null}
 
-        {draft.newSubChallenges?.length ? (
-          <div className="space-y-3">
-            <SectionTitle>New sub-challenges</SectionTitle>
-            {draft.newSubChallenges.map((newChallenge, index) => {
-              const key = `${suggestion.challengeId}:${newChallenge.referenceId ?? index}`;
-              const isApplying = applyingNewSubChallengeKeys.has(key);
-              return (
-                <div
-                  key={`${suggestion.challengeId}-${index}`}
-                  className="space-y-3 rounded-md border border-indigo-400/30 bg-gradient-to-r from-indigo-500/15 to-emerald-500/15 px-3 py-2"
-                >
-                  <Input
-                    value={newChallenge.title}
-                    onChange={event => handleNewSubChallengeChange(index, "title", event.target.value)}
-                    className="border-0 bg-transparent text-sm font-semibold text-white placeholder:text-slate-400 focus-visible:ring-0 focus-visible:ring-offset-0 hover:bg-white/5 transition-colors rounded-md"
-                    disabled={isApplying}
-                />
-                <EditableText
-                  value={newChallenge.description ?? ""}
-                  onChange={value => handleNewSubChallengeChange(index, "description", value)}
-                  placeholder="Describe the new sub-challenge"
-                  className="border-indigo-300/30 bg-gradient-to-r from-indigo-500/10 to-emerald-500/10 text-xs text-slate-200"
-                  textClassName="text-xs text-slate-200"
-                  disabled={isApplying}
-                />
-                {newChallenge.summary ? (
-                  <EditableText
-                    value={newChallenge.summary}
-                    onChange={value => handleNewSubChallengeChange(index, "summary", value)}
-                    placeholder="Résumé"
-                    className="border-indigo-300/30 bg-gradient-to-r from-indigo-500/10 to-emerald-500/10 text-xs text-slate-200"
-                    textClassName="text-xs text-slate-200"
-                    disabled={isApplying}
-                  />
-                ) : null}
-                <div className="flex flex-wrap gap-2 text-[11px] text-slate-300">
-                  {newChallenge.status ? (
-                    <span className="rounded-full border border-indigo-300/40 bg-indigo-500/10 px-2 py-0.5">
-                      Status: {newChallenge.status}
-                    </span>
-                  ) : null}
-                  {newChallenge.impact ? (
-                    <span className="rounded-full border border-indigo-300/40 bg-indigo-500/10 px-2 py-0.5">
-                      Impact: {newChallenge.impact}
-                    </span>
-                  ) : null}
-                  {newChallenge.owners?.length ? (
-                    <span className="rounded-full border border-indigo-300/40 bg-indigo-500/10 px-2 py-0.5">
-                      Owners: {formatOwnerList(newChallenge.owners)}
-                    </span>
-                  ) : null}
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="border-slate-600 bg-slate-800/60 text-slate-200 hover:bg-slate-700/60"
-                    onClick={() => onDismissNewSubChallenge(index)}
-                    disabled={isApplying}
-                  >
-                    Dismiss
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    className="gap-1 bg-gradient-to-r from-indigo-500 to-emerald-500 text-white hover:from-indigo-600 hover:to-emerald-600"
-                    onClick={() => handleApplyNewSubChallenge(index)}
-                    disabled={isApplying}
-                  >
-                    {isApplying ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <ShieldPlus className="h-3.5 w-3.5" />
-                    )}
-                    Create
-                  </Button>
-                </div>
-                </div>
-              );
-            })}
-          </div>
-        ) : null}
+        {/* NOTE: "New sub-challenges" section removed to avoid duplication with "New challenges to create"
+            which provides the same information with Foundation Insights.
+            The newSubChallenges data is still processed but displayed via the newChallenges section instead. */}
       </div>
     </div>
   );

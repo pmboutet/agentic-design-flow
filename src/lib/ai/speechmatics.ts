@@ -41,6 +41,7 @@ import {
   type SemanticTurnTelemetryEvent,
 } from './turn-detection';
 import { resolveSemanticTurnDetectorConfig } from './turn-detection-config';
+import { cleanStepCompleteMarker } from '@/lib/sanitize';
 
 // Import and re-export types for backward compatibility
 import type {
@@ -609,10 +610,13 @@ export class SpeechmaticsVoiceAgent {
       // Generate TTS audio only if ElevenLabs is enabled (not in text-only mode)
       if (!this.config?.disableElevenLabsTTS && this.elevenLabsTTS && this.audio) {
         try {
-          // Set current assistant speech for echo detection
-          this.audio.setCurrentAssistantSpeech(llmResponse);
+          // Clean STEP_COMPLETE markers before sending to TTS (we don't want to "say" them)
+          const ttsText = cleanStepCompleteMarker(llmResponse);
 
-          const audioStream = await this.elevenLabsTTS.streamTextToSpeech(llmResponse);
+          // Set current assistant speech for echo detection (use cleaned text)
+          this.audio.setCurrentAssistantSpeech(ttsText);
+
+          const audioStream = await this.elevenLabsTTS.streamTextToSpeech(ttsText);
           const audioData = await this.audio.streamToUint8Array(audioStream);
           if (audioData) {
             this.onAudioCallback?.(audioData);

@@ -111,7 +111,7 @@ export function createEmptyAskForm(challengeId?: string): AskFormState {
     participantIds: [],
     spokespersonId: "",
     deliveryMode: "digital",
-    conversationMode: "collaborative",
+    conversationMode: "individual_parallel",
     systemPrompt: "",
     expectedDurationMinutes: 8,
   };
