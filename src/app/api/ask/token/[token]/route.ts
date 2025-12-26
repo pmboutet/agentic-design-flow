@@ -672,12 +672,16 @@ export async function GET(
               // Continue without initial message - user can still interact
             }
             } // end non-consultant mode
-          } catch {
+          } catch (planError) {
+            // Log the error for debugging
+            console.error('❌ [token route] Plan generation failed:', planError instanceof Error ? planError.message : planError);
             // Continue without the plan - it's an enhancement, not a requirement
           }
         }
       }
-    } catch {
+    } catch (threadPlanError) {
+      // Log the error for debugging
+      console.error('❌ [token route] Thread/plan setup failed:', threadPlanError instanceof Error ? threadPlanError.message : threadPlanError);
       // Continue without the plan - it's an enhancement, not a requirement
     }
 

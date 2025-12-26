@@ -142,6 +142,9 @@ export async function createConversationPlan(
   conversationThreadId: string,
   planData: LegacyConversationPlanData
 ): Promise<ConversationPlanWithSteps> {
+  console.log('📋 [createConversationPlan] Starting for thread:', conversationThreadId);
+  console.log('📋 [createConversationPlan] Steps count:', planData.steps?.length ?? 0);
+
   const currentStepId = planData.steps.length > 0 ? planData.steps[0].id : null;
   const totalSteps = planData.steps.length;
 
@@ -160,9 +163,11 @@ export async function createConversationPlan(
     .single();
 
   if (planError || !planRecord) {
-    console.error('Failed to create conversation plan:', planError);
+    console.error('❌ [createConversationPlan] Failed to create plan record:', planError?.message, planError?.details, planError?.hint);
     throw new Error(`Failed to create conversation plan: ${planError?.message}`);
   }
+
+  console.log('✅ [createConversationPlan] Plan record created:', planRecord.id);
 
   // Create step records in normalized table
   const now = new Date().toISOString();
@@ -186,9 +191,11 @@ export async function createConversationPlan(
     .select();
 
   if (stepsError || !insertedSteps) {
-    console.error('Failed to create plan steps:', stepsError);
+    console.error('❌ [createConversationPlan] Failed to create steps:', stepsError?.message, stepsError?.details, stepsError?.hint);
     throw new Error(`Failed to create plan steps: ${stepsError?.message}`);
   }
+
+  console.log('✅ [createConversationPlan] Steps created:', insertedSteps.length);
 
   return {
     ...planRecord,
