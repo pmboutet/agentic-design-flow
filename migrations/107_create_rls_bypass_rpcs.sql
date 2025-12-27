@@ -215,6 +215,46 @@ END;
 $$;
 
 -- =====================================================
+-- PLAN FETCH RPCs
+-- =====================================================
+
+-- Get conversation plan with steps
+CREATE OR REPLACE FUNCTION public.get_conversation_plan_with_steps(
+  p_conversation_thread_id uuid
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_plan_record ask_conversation_plans;
+  v_steps jsonb;
+BEGIN
+  -- Get the plan
+  SELECT * INTO v_plan_record
+  FROM ask_conversation_plans
+  WHERE conversation_thread_id = p_conversation_thread_id;
+
+  IF v_plan_record IS NULL THEN
+    RETURN NULL;
+  END IF;
+
+  -- Get the steps
+  SELECT jsonb_agg(row_to_json(s.*)::jsonb ORDER BY s.step_order)
+  INTO v_steps
+  FROM ask_conversation_plan_steps s
+  WHERE s.plan_id = v_plan_record.id;
+
+  -- Return plan with steps
+  RETURN jsonb_build_object(
+    'plan', to_jsonb(v_plan_record),
+    'steps', COALESCE(v_steps, '[]'::jsonb)
+  );
+END;
+$$;
+
+-- =====================================================
 -- PARTICIPANT RPCs
 -- =====================================================
 
@@ -253,6 +293,7 @@ GRANT EXECUTE ON FUNCTION public.activate_plan_step TO anon, authenticated, serv
 GRANT EXECUTE ON FUNCTION public.update_plan_current_step TO anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.insert_insight TO anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.update_insight TO anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.get_conversation_plan_with_steps TO anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.get_participant_by_id TO anon, authenticated, service_role;
 
 NOTIFY pgrst, 'reload schema';

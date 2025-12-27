@@ -293,39 +293,37 @@ export async function getConversationPlan(
 
 /**
  * Get the conversation plan with all steps loaded from normalized table
+ * Uses RPC to bypass RLS issues in production
  */
 export async function getConversationPlanWithSteps(
   supabase: SupabaseClient,
   conversationThreadId: string
 ): Promise<ConversationPlanWithSteps | null> {
-  // Get the plan
-  const plan = await getConversationPlan(supabase, conversationThreadId);
-  if (!plan) {
+  // Use RPC to bypass RLS
+  const { data: result, error: rpcError } = await supabase.rpc('get_conversation_plan_with_steps', {
+    p_conversation_thread_id: conversationThreadId,
+  });
+
+  if (rpcError) {
+    console.error('Failed to fetch conversation plan via RPC:', rpcError);
     return null;
   }
 
-  // Get the steps
-  const { data: steps, error: stepsError } = await supabase
-    .from('ask_conversation_plan_steps')
-    .select('*')
-    .eq('plan_id', plan.id)
-    .order('step_order', { ascending: true });
-
-  if (stepsError) {
-    console.error('Failed to fetch plan steps:', stepsError);
+  if (!result) {
     return null;
   }
+
+  const plan = result.plan as ConversationPlan;
+  const steps = (result.steps || []) as ConversationPlanStep[];
 
   // Ensure the legacy plan_data structure stays in sync with normalized steps
-  // BUT preserve original plan_data.steps if no normalized steps exist (pre-migration plans)
-  const normalizedSteps = steps || [];
-  const hasNormalizedSteps = normalizedSteps.length > 0;
+  const hasNormalizedSteps = steps.length > 0;
 
   let planDataWithSyncedSteps: LegacyConversationPlanData;
 
   if (hasNormalizedSteps) {
     // Sync plan_data.steps from normalized steps (source of truth)
-    const legacySteps: LegacyConversationPlanStep[] = normalizedSteps.map((step) => ({
+    const legacySteps: LegacyConversationPlanStep[] = steps.map((step) => ({
       id: step.step_identifier,
       title: step.title,
       objective: step.objective,
@@ -347,7 +345,7 @@ export async function getConversationPlanWithSteps(
   return {
     ...plan,
     plan_data: planDataWithSyncedSteps,
-    steps: normalizedSteps as ConversationPlanStep[],
+    steps: steps,
   } as ConversationPlanWithSteps;
 }
 
