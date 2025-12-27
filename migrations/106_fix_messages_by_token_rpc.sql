@@ -3,6 +3,10 @@
 -- Fix: Now filters by conversation_thread_id for the specific user's thread
 -- This is critical for individual_parallel mode where each user has their own thread
 
+-- Drop any existing versions to avoid overload ambiguity (PGRST203)
+DROP FUNCTION IF EXISTS public.get_ask_messages_by_token(character varying);
+DROP FUNCTION IF EXISTS public.get_ask_messages_by_token(text);
+
 CREATE OR REPLACE FUNCTION public.get_ask_messages_by_token(p_token TEXT)
 RETURNS TABLE (
   id UUID,
