@@ -67,13 +67,13 @@ BEGIN
   END IF;
 
   -- Return messages for the specific thread only
-  -- Use explicit column aliases to avoid ambiguity with RETURNS TABLE columns
+  -- Use explicit column aliases and casts to match RETURNS TABLE types
   RETURN QUERY
   SELECT
     msg.id AS id,
     msg.content AS content,
-    msg.message_type AS type,
-    msg.sender_type AS sender_type,
+    msg.message_type::TEXT AS type,
+    msg.sender_type::TEXT AS sender_type,
     msg.user_id AS sender_id,
     COALESCE(
       msg.metadata->>'senderName',
