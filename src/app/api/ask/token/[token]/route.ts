@@ -637,6 +637,9 @@ export async function GET(
                   .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at, conversation_thread_id')
                   .limit(1);
 
+                if (insertError) {
+                  console.error('❌ [token route] Failed to insert initial message:', insertError.message, insertError.details, insertError.hint);
+                }
                 if (!insertError && insertedRows && insertedRows.length > 0) {
                   const inserted = insertedRows[0];
                   const initialMessage: Message = {
@@ -668,7 +671,9 @@ export async function GET(
                   });
                 }
               }
-            } catch {
+            } catch (initMsgError) {
+              // Log the error for debugging
+              console.error('❌ [token route] Initial message generation failed:', initMsgError instanceof Error ? initMsgError.message : initMsgError);
               // Continue without initial message - user can still interact
             }
             } // end non-consultant mode
