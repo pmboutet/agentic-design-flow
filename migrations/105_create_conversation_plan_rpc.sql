@@ -2,20 +2,25 @@
 -- Purpose: Bypass RLS issues when creating plans in production
 -- These functions use SECURITY DEFINER to execute with owner privileges
 
+-- Drop existing functions if they exist (to handle return type changes)
+DROP FUNCTION IF EXISTS public.create_conversation_plan(uuid,jsonb,text,integer);
+DROP FUNCTION IF EXISTS public.create_conversation_plan_steps(uuid,jsonb);
+
 -- Create RPC function to create conversation plan (bypasses RLS)
-CREATE OR REPLACE FUNCTION public.create_conversation_plan(
+-- Returns full plan record as JSONB
+CREATE FUNCTION public.create_conversation_plan(
   p_conversation_thread_id uuid,
   p_plan_data jsonb,
   p_current_step_id text,
   p_total_steps integer
 )
-RETURNS uuid
+RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-  v_plan_id uuid;
+  v_plan_record ask_conversation_plans;
 BEGIN
   INSERT INTO ask_conversation_plans (
     conversation_thread_id,
@@ -32,14 +37,15 @@ BEGIN
     0,
     'active'
   )
-  RETURNING id INTO v_plan_id;
+  RETURNING * INTO v_plan_record;
 
-  RETURN v_plan_id;
+  RETURN to_jsonb(v_plan_record);
 END;
 $$;
 
 -- Create RPC function to create plan steps (bypasses RLS)
-CREATE OR REPLACE FUNCTION public.create_conversation_plan_steps(
+-- Returns full step records as JSONB array
+CREATE FUNCTION public.create_conversation_plan_steps(
   p_plan_id uuid,
   p_steps jsonb
 )
@@ -50,8 +56,8 @@ SET search_path = public
 AS $$
 DECLARE
   v_step record;
-  v_inserted_ids jsonb := '[]'::jsonb;
-  v_step_id uuid;
+  v_inserted_steps jsonb := '[]'::jsonb;
+  v_step_record ask_conversation_plan_steps;
   v_now timestamptz := NOW();
 BEGIN
   FOR v_step IN SELECT * FROM jsonb_array_elements(p_steps)
@@ -73,12 +79,12 @@ BEGIN
       v_step.value->>'status',
       CASE WHEN v_step.value->>'status' = 'active' THEN v_now ELSE NULL END
     )
-    RETURNING id INTO v_step_id;
+    RETURNING * INTO v_step_record;
 
-    v_inserted_ids := v_inserted_ids || jsonb_build_object('id', v_step_id, 'step_identifier', v_step.value->>'step_identifier');
+    v_inserted_steps := v_inserted_steps || to_jsonb(v_step_record);
   END LOOP;
 
-  RETURN v_inserted_ids;
+  RETURN v_inserted_steps;
 END;
 $$;
 
