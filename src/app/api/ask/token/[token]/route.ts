@@ -623,25 +623,18 @@ export async function GET(
               if (typeof agentResult.content === 'string' && agentResult.content.trim().length > 0) {
                 const aiResponse = agentResult.content.trim();
 
-                // Insert the initial AI message
-                const { data: insertedRows, error: insertError } = await adminClient
-                  .from('messages')
-                  .insert({
-                    ask_session_id: askRow.ask_session_id,
-                    content: aiResponse,
-                    sender_type: 'ai',
-                    message_type: 'text',
-                    metadata: { senderName: 'Agent' },
-                    conversation_thread_id: conversationThread.id,
-                  })
-                  .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at, conversation_thread_id')
-                  .limit(1);
+                // Insert the initial AI message using RPC to bypass RLS
+                const { data: inserted, error: insertError } = await adminClient.rpc('insert_ai_message', {
+                  p_ask_session_id: askRow.ask_session_id,
+                  p_conversation_thread_id: conversationThread.id,
+                  p_content: aiResponse,
+                  p_sender_name: 'Agent',
+                });
 
                 if (insertError) {
                   console.error('❌ [token route] Failed to insert initial message:', insertError.message, insertError.details, insertError.hint);
                 }
-                if (!insertError && insertedRows && insertedRows.length > 0) {
-                  const inserted = insertedRows[0];
+                if (!insertError && inserted) {
                   const initialMessage: Message = {
                     id: inserted.id,
                     askKey: askRow.ask_key,
