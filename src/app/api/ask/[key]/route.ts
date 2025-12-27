@@ -588,20 +588,14 @@ export async function GET(
             }
           }
 
-          // Insert the initial AI message
-          const { data: insertedRows, error: insertError } = await dataClient
-            .from('messages')
-            .insert({
-              ask_session_id: askSessionId,
-              content: aiResponse,
-              sender_type: 'ai',
-              message_type: 'text',
-              metadata: { senderName: 'Agent' },
-              conversation_thread_id: conversationThread?.id ?? null,
-              plan_step_id: initialPlanStepId,
-            })
-            .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at, conversation_thread_id')
-            .limit(1);
+          // Insert the initial AI message via RPC to bypass RLS
+          const { data: insertedJson, error: insertError } = await dataClient.rpc('insert_ai_message', {
+            p_ask_session_id: askSessionId,
+            p_conversation_thread_id: conversationThread?.id ?? null,
+            p_content: aiResponse,
+            p_sender_name: 'Agent',
+          });
+          const insertedRows = insertedJson ? [insertedJson] : null;
 
           if (!insertError && insertedRows && insertedRows.length > 0) {
             const inserted = insertedRows[0] as MessageRow;

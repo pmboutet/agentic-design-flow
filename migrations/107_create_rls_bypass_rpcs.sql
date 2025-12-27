@@ -305,6 +305,28 @@ END;
 $$;
 
 -- =====================================================
+-- PROFILE RPCs
+-- =====================================================
+
+-- Get profiles by IDs
+CREATE OR REPLACE FUNCTION public.get_profiles_by_ids(
+  p_user_ids uuid[]
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  RETURN (
+    SELECT jsonb_agg(row_to_json(p.*)::jsonb)
+    FROM profiles p
+    WHERE p.id = ANY(p_user_ids)
+  );
+END;
+$$;
+
+-- =====================================================
 -- PARTICIPANT RPCs
 -- =====================================================
 
@@ -345,6 +367,7 @@ GRANT EXECUTE ON FUNCTION public.update_plan_current_step TO anon, authenticated
 GRANT EXECUTE ON FUNCTION public.insert_insight TO anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.update_insight TO anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.get_conversation_plan_with_steps TO anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.get_profiles_by_ids TO anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.get_participant_by_id TO anon, authenticated, service_role;
 
 NOTIFY pgrst, 'reload schema';

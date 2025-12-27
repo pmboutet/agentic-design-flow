@@ -370,17 +370,16 @@ export async function GET(
       .map((row: any) => row.user_id)
       .filter((value: any): value is string => Boolean(value));
 
-    // Get user profiles for participants (using normal client - profiles may have RLS)
-    // If RLS blocks this, we'll just use participant_name from the participant data
+    // Get user profiles for participants using RPC to bypass RLS
     let usersById: Record<string, any> = {};
     if (participantUserIds.length > 0) {
-      const { data: users } = await profileClient
-        .from('profiles')
-        .select('id, full_name, first_name, last_name, email, role, job_title')
-        .in('id', participantUserIds);
+      const profileAdmin = getAdminSupabaseClient();
+      const { data: usersJson } = await profileAdmin.rpc('get_profiles_by_ids', {
+        p_user_ids: participantUserIds,
+      });
 
-      if (users) {
-        users.forEach(user => {
+      if (usersJson && Array.isArray(usersJson)) {
+        usersJson.forEach((user: any) => {
           usersById[user.id] = user;
         });
       }
