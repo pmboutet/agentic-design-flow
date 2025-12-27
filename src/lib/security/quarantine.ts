@@ -52,22 +52,21 @@ export async function releaseProfileFromQuarantine(
 
 /**
  * Check if a profile is quarantined
+ * Uses RPC to bypass RLS in production
  */
 export async function isProfileQuarantined(
   supabase: SupabaseClient,
   profileId: string
 ): Promise<boolean> {
-  const { data, error } = await supabase
-    .from('profiles')
-    .select('is_quarantined')
-    .eq('id', profileId)
-    .single();
+  const { data, error } = await supabase.rpc('is_profile_quarantined', {
+    p_profile_id: profileId,
+  });
 
   if (error) {
     throw new Error(`Failed to check quarantine status: ${error.message}`);
   }
 
-  return data?.is_quarantined ?? false;
+  return data ?? false;
 }
 
 /**

@@ -327,6 +327,30 @@ END;
 $$;
 
 -- =====================================================
+-- QUARANTINE RPCs
+-- =====================================================
+
+-- Check if profile is quarantined
+CREATE OR REPLACE FUNCTION public.is_profile_quarantined(
+  p_profile_id uuid
+)
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_is_quarantined boolean;
+BEGIN
+  SELECT is_quarantined INTO v_is_quarantined
+  FROM profiles
+  WHERE id = p_profile_id;
+
+  RETURN COALESCE(v_is_quarantined, false);
+END;
+$$;
+
+-- =====================================================
 -- PARTICIPANT RPCs
 -- =====================================================
 
@@ -368,6 +392,7 @@ GRANT EXECUTE ON FUNCTION public.insert_insight TO anon, authenticated, service_
 GRANT EXECUTE ON FUNCTION public.update_insight TO anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.get_conversation_plan_with_steps TO anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.get_profiles_by_ids TO anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.is_profile_quarantined TO anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.get_participant_by_id TO anon, authenticated, service_role;
 
 NOTIFY pgrst, 'reload schema';
