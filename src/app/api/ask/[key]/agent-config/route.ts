@@ -4,6 +4,8 @@ import { getAgentConfigForAsk, type PromptVariables } from '@/lib/ai/agent-confi
 import { isValidAskKey } from '@/lib/utils';
 import { buildConversationAgentVariables } from '@/lib/ai/conversation-agent';
 import { getConversationPlanWithSteps } from '@/lib/ai/conversation-plan';
+import { getAskSessionByKey } from '@/lib/asks';
+import { getAdminSupabaseClient } from '@/lib/supabaseAdmin';
 import {
   buildParticipantDisplayName,
   buildMessageSummary,
@@ -77,19 +79,20 @@ export async function GET(
         };
       }
     } else {
-      console.log(`[agent-config] No token, using standard RLS access`);
-      // Standard authenticated access via RLS
-      const { data, error: askError } = await supabase
-        .from('ask_sessions')
-        .select('id, ask_key, question, description, project_id, challenge_id, system_prompt')
-        .eq('ask_key', key)
-        .maybeSingle<AskSessionRow>();
+      console.log(`[agent-config] No token, using RPC-based access (bypasses RLS)`);
+      // Use RPC-based access to bypass RLS (consistent with other routes)
+      const adminClient = getAdminSupabaseClient();
+      const { row, error: askError } = await getAskSessionByKey<AskSessionRow>(
+        adminClient,
+        key,
+        'id, ask_key, question, description, project_id, challenge_id, system_prompt'
+      );
 
       if (askError) {
         throw new Error(`Failed to fetch ASK session: ${askError.message}`);
       }
 
-      askSession = data;
+      askSession = row;
     }
 
     if (!askSession) {
