@@ -1752,26 +1752,19 @@ export async function POST(
           }
         }
 
-        const { data: insertedRows, error: insertError } = await supabase
-          .from('messages')
-          .insert({
-            ask_session_id: askRow.id,
-            content: messageContent,
-            sender_type: 'ai',
-            message_type: 'text',
-            metadata: { senderName: 'Agent', ...metadata },
-            parent_message_id: parentMessageId,
-            conversation_thread_id: conversationThread?.id ?? null,
-            plan_step_id: voicePlanStepId,
-          })
-          .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at')
-          .limit(1);
+        // Insert AI message via RPC to bypass RLS
+        const { data: insertedJson, error: insertError } = await supabase.rpc('insert_ai_message', {
+          p_ask_session_id: askRow.id,
+          p_conversation_thread_id: conversationThread?.id ?? null,
+          p_content: messageContent,
+          p_sender_name: 'Agent',
+        });
 
         if (insertError) {
           throw insertError;
         }
 
-        const inserted = insertedRows?.[0] as MessageRow | undefined;
+        const inserted = insertedJson as MessageRow | null;
 
         if (inserted) {
           message = {
@@ -1898,26 +1891,19 @@ export async function POST(
           }
         }
 
-        const { data: insertedRows, error: insertError } = await supabase
-          .from('messages')
-          .insert({
-            ask_session_id: askRow.id,
-            content: latestAiResponse,
-            sender_type: 'ai',
-            message_type: 'text',
-            metadata: aiMetadata,
-            parent_message_id: parentMessageId,
-            conversation_thread_id: conversationThread?.id ?? null,
-            plan_step_id: planStepId,
-          })
-          .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at')
-          .limit(1);
+        // Insert AI message via RPC to bypass RLS
+        const { data: insertedJson, error: insertError } = await supabase.rpc('insert_ai_message', {
+          p_ask_session_id: askRow.id,
+          p_conversation_thread_id: conversationThread?.id ?? null,
+          p_content: latestAiResponse,
+          p_sender_name: 'Agent',
+        });
 
         if (insertError) {
           throw insertError;
         }
 
-        const inserted = insertedRows?.[0] as MessageRow | undefined;
+        const inserted = insertedJson as MessageRow | null;
 
         if (!inserted) {
           throw new Error('Unable to store AI response');

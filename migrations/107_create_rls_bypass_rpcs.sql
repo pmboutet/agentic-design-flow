@@ -97,6 +97,9 @@ $$;
 -- =====================================================
 
 -- Update step summary (with optional error field)
+-- Drop any old version without p_summary_error to avoid signature conflicts
+DROP FUNCTION IF EXISTS public.update_plan_step_summary(uuid, text);
+
 CREATE OR REPLACE FUNCTION public.update_plan_step_summary(
   p_step_id uuid,
   p_summary text,
@@ -407,13 +410,345 @@ BEGIN
 END;
 $$;
 
+-- Get participant by invite token
+CREATE OR REPLACE FUNCTION public.get_participant_by_invite_token(
+  p_token text
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_participant_record ask_participants;
+BEGIN
+  SELECT * INTO v_participant_record
+  FROM ask_participants
+  WHERE invite_token = p_token;
+
+  IF v_participant_record IS NULL THEN
+    RETURN NULL;
+  END IF;
+
+  RETURN to_jsonb(v_participant_record);
+END;
+$$;
+
+-- Check if user is participant of session
+CREATE OR REPLACE FUNCTION public.check_user_is_participant(
+  p_ask_session_id uuid,
+  p_user_id uuid
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_participant_record ask_participants;
+BEGIN
+  SELECT * INTO v_participant_record
+  FROM ask_participants
+  WHERE ask_session_id = p_ask_session_id
+    AND user_id = p_user_id;
+
+  IF v_participant_record IS NULL THEN
+    RETURN NULL;
+  END IF;
+
+  RETURN to_jsonb(v_participant_record);
+END;
+$$;
+
+-- Get recent messages for parent linking
+CREATE OR REPLACE FUNCTION public.get_recent_messages(
+  p_ask_session_id uuid,
+  p_limit integer DEFAULT 10
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  RETURN (
+    SELECT jsonb_agg(row_to_json(m.*)::jsonb ORDER BY m.created_at DESC)
+    FROM (
+      SELECT id, sender_type, created_at
+      FROM messages
+      WHERE ask_session_id = p_ask_session_id
+      ORDER BY created_at DESC
+      LIMIT p_limit
+    ) m
+  );
+END;
+$$;
+
+-- =====================================================
+-- PROJECT/CHALLENGE RPCs
+-- =====================================================
+
+-- Get project by ID
+CREATE OR REPLACE FUNCTION public.get_project_by_id(
+  p_project_id uuid
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_project_record projects;
+BEGIN
+  SELECT * INTO v_project_record
+  FROM projects
+  WHERE id = p_project_id;
+
+  IF v_project_record IS NULL THEN
+    RETURN NULL;
+  END IF;
+
+  RETURN to_jsonb(v_project_record);
+END;
+$$;
+
+-- Get challenge by ID
+CREATE OR REPLACE FUNCTION public.get_challenge_by_id(
+  p_challenge_id uuid
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_challenge_record challenges;
+BEGIN
+  SELECT * INTO v_challenge_record
+  FROM challenges
+  WHERE id = p_challenge_id;
+
+  IF v_challenge_record IS NULL THEN
+    RETURN NULL;
+  END IF;
+
+  RETURN to_jsonb(v_challenge_record);
+END;
+$$;
+
+-- =====================================================
+-- CONVERSATION THREAD RPCs
+-- =====================================================
+
+-- Get conversation thread by ID
+CREATE OR REPLACE FUNCTION public.get_conversation_thread_by_id(
+  p_thread_id uuid
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_thread_record conversation_threads;
+BEGIN
+  SELECT * INTO v_thread_record
+  FROM conversation_threads
+  WHERE id = p_thread_id;
+
+  IF v_thread_record IS NULL THEN
+    RETURN NULL;
+  END IF;
+
+  RETURN to_jsonb(v_thread_record);
+END;
+$$;
+
+-- Get messages without thread for backward compatibility
+CREATE OR REPLACE FUNCTION public.get_messages_without_thread(
+  p_ask_session_id uuid
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  RETURN (
+    SELECT jsonb_agg(row_to_json(m.*)::jsonb ORDER BY m.created_at ASC)
+    FROM messages m
+    WHERE m.ask_session_id = p_ask_session_id
+      AND m.conversation_thread_id IS NULL
+  );
+END;
+$$;
+
+-- Get all messages for session (fallback mode)
+CREATE OR REPLACE FUNCTION public.get_messages_by_session(
+  p_ask_session_id uuid
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  RETURN (
+    SELECT jsonb_agg(row_to_json(m.*)::jsonb ORDER BY m.created_at ASC)
+    FROM messages m
+    WHERE m.ask_session_id = p_ask_session_id
+  );
+END;
+$$;
+
+-- =====================================================
+-- PARTICIPANT RPCs (extended)
+-- =====================================================
+
+-- Get participants by ask session ID
+CREATE OR REPLACE FUNCTION public.get_participants_by_ask_session(
+  p_ask_session_id uuid
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  RETURN (
+    SELECT jsonb_agg(row_to_json(ap.*)::jsonb)
+    FROM ask_participants ap
+    WHERE ap.ask_session_id = p_ask_session_id
+  );
+END;
+$$;
+
+-- Add anonymous participant
+CREATE OR REPLACE FUNCTION public.add_anonymous_participant(
+  p_ask_session_id uuid,
+  p_user_id uuid,
+  p_participant_name text,
+  p_role text DEFAULT 'participant'
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_participant_record ask_participants;
+  v_invite_token text;
+BEGIN
+  -- Generate a unique invite token
+  v_invite_token := encode(gen_random_bytes(16), 'hex');
+
+  INSERT INTO ask_participants (
+    ask_session_id,
+    user_id,
+    participant_name,
+    role,
+    invite_token,
+    status
+  ) VALUES (
+    p_ask_session_id,
+    p_user_id,
+    p_participant_name,
+    p_role,
+    v_invite_token,
+    'active'
+  )
+  RETURNING * INTO v_participant_record;
+
+  RETURN to_jsonb(v_participant_record);
+END;
+$$;
+
+-- Get profile by auth ID (user_id from auth.users)
+CREATE OR REPLACE FUNCTION public.get_profile_by_auth_id(
+  p_auth_id uuid
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_profile_record profiles;
+BEGIN
+  SELECT * INTO v_profile_record
+  FROM profiles
+  WHERE id = p_auth_id;
+
+  IF v_profile_record IS NULL THEN
+    RETURN NULL;
+  END IF;
+
+  RETURN to_jsonb(v_profile_record);
+END;
+$$;
+
+-- =====================================================
+-- MESSAGE RPCs (extended)
+-- =====================================================
+
+-- Update message
+CREATE OR REPLACE FUNCTION public.update_message(
+  p_message_id uuid,
+  p_content text DEFAULT NULL,
+  p_metadata jsonb DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_message_record messages;
+BEGIN
+  UPDATE messages
+  SET
+    content = COALESCE(p_content, content),
+    metadata = COALESCE(p_metadata, metadata),
+    updated_at = NOW()
+  WHERE id = p_message_id
+  RETURNING * INTO v_message_record;
+
+  RETURN to_jsonb(v_message_record);
+END;
+$$;
+
+-- Delete messages after a specific message (for regeneration)
+CREATE OR REPLACE FUNCTION public.delete_messages_after(
+  p_conversation_thread_id uuid,
+  p_after_created_at timestamptz
+)
+RETURNS integer
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_deleted_count integer;
+BEGIN
+  WITH deleted AS (
+    DELETE FROM messages
+    WHERE conversation_thread_id = p_conversation_thread_id
+      AND created_at > p_after_created_at
+    RETURNING id
+  )
+  SELECT COUNT(*) INTO v_deleted_count FROM deleted;
+
+  RETURN v_deleted_count;
+END;
+$$;
+
 -- =====================================================
 -- GRANTS
 -- =====================================================
 
 GRANT EXECUTE ON FUNCTION public.insert_ai_message TO anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.insert_user_message TO anon, authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.update_plan_step_summary TO anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.update_plan_step_summary(uuid, text, text) TO anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.complete_plan_step TO anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.activate_plan_step TO anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.get_next_plan_step TO anon, authenticated, service_role;
@@ -424,5 +759,18 @@ GRANT EXECUTE ON FUNCTION public.get_conversation_plan_with_steps TO anon, authe
 GRANT EXECUTE ON FUNCTION public.get_profiles_by_ids TO anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.is_profile_quarantined TO anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.get_participant_by_id TO anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.get_participants_by_ask_session TO anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.add_anonymous_participant TO anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.get_profile_by_auth_id TO anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.update_message TO anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.delete_messages_after TO anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.get_participant_by_invite_token TO anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.check_user_is_participant TO anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.get_recent_messages TO anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.get_project_by_id TO anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.get_challenge_by_id TO anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.get_conversation_thread_by_id TO anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.get_messages_without_thread TO anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.get_messages_by_session TO anon, authenticated, service_role;
 
 NOTIFY pgrst, 'reload schema';

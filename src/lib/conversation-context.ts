@@ -317,6 +317,7 @@ export function buildParticipantSummary(
 
 /**
  * Fetch users by their IDs and return a lookup map.
+ * Uses RPC to bypass RLS in production.
  */
 export async function fetchUsersByIds(
   supabase: SupabaseClient,
@@ -326,17 +327,18 @@ export async function fetchUsersByIds(
     return {};
   }
 
-  const { data: userRows, error } = await supabase
-    .from('profiles')
-    .select('id, email, full_name, first_name, last_name, description, job_title')
-    .in('id', userIds);
+  // Use RPC to bypass RLS in production
+  const { data: userRowsJson, error } = await supabase.rpc('get_profiles_by_ids', {
+    p_user_ids: userIds,
+  });
 
   if (error) {
     console.warn('Failed to fetch users:', error);
     return {};
   }
 
-  return (userRows ?? []).reduce<Record<string, UserRow>>((acc, user) => {
+  const userRows = (userRowsJson as UserRow[] | null) ?? [];
+  return userRows.reduce<Record<string, UserRow>>((acc, user) => {
     acc[user.id] = user;
     return acc;
   }, {});

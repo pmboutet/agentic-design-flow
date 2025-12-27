@@ -54,28 +54,28 @@ export async function POST(
       }, { status: 404 });
     }
 
-    // Fetch participants FIRST (needed for thread resolution and voice agent)
-    const { data: participantRows, error: participantError } = await supabase
-      .from('ask_participants')
-      .select('*')
-      .eq('ask_session_id', askRow.id)
-      .order('joined_at', { ascending: true });
+    // Fetch participants FIRST via RPC (needed for thread resolution and voice agent)
+    const adminClient = getAdminSupabaseClient();
+    const { data: participantRowsJson, error: participantError } = await adminClient.rpc('get_participants_by_ask_session', {
+      p_ask_session_id: askRow.id,
+    });
 
     if (participantError) {
       throw participantError;
     }
 
-    // Try to get current user for thread determination
+    const participantRows = (participantRowsJson as ParticipantRow[] | null) ?? [];
+
+    // Try to get current user for thread determination via RPC
     const isDevBypass = process.env.IS_DEV === 'true';
     let profileId: string | null = null;
     try {
       const { data: userResult } = await supabase.auth.getUser();
       if (userResult?.user) {
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('id')
-          .eq('auth_id', userResult.user.id)
-          .single();
+        const { data: profileJson } = await adminClient.rpc('get_profile_by_auth_id', {
+          p_auth_id: userResult.user.id,
+        });
+        const profile = profileJson as { id: string } | null;
         if (profile) {
           profileId = profile.id;
         }
@@ -90,10 +90,15 @@ export async function POST(
     };
 
     // Use resolveThreadUserId for consistent thread assignment across all routes
+    // Map participantRows to ensure they conform to Participant interface
+    const participantsForThread = participantRows.map(p => ({
+      ...p,
+      user_id: p.user_id ?? null,
+    }));
     const threadProfileId = resolveThreadUserId(
       profileId,
       askRow.conversation_mode,
-      participantRows ?? [],
+      participantsForThread,
       isDevBypass
     );
 
@@ -110,16 +115,17 @@ export async function POST(
 
     let usersById: Record<string, UserRow> = {};
     if (participantUserIds.length > 0) {
-      const { data: userRows, error: userError } = await supabase
-        .from('profiles')
-        .select('id, email, full_name, first_name, last_name, description, job_title')
-        .in('id', participantUserIds);
+      // Use RPC to bypass RLS in production
+      const { data: userRowsJson, error: userError } = await adminClient.rpc('get_profiles_by_ids', {
+        p_user_ids: participantUserIds,
+      });
 
       if (userError) {
         throw userError;
       }
 
-      usersById = (userRows ?? []).reduce<Record<string, UserRow>>((acc, user) => {
+      const userRows = (userRowsJson as UserRow[] | null) ?? [];
+      usersById = userRows.reduce<Record<string, UserRow>>((acc, user) => {
         acc[user.id] = user;
         return acc;
       }, {});
@@ -131,31 +137,27 @@ export async function POST(
       return buildParticipantSummary(row as ParticipantRow, user, index);
     });
 
-    // Fetch project data
+    // Fetch project data via RPC
     let projectData: ProjectRow | null = null;
     if (askRow.project_id) {
-      const { data, error } = await supabase
-        .from('projects')
-        .select('id, name, system_prompt')
-        .eq('id', askRow.project_id)
-        .maybeSingle<ProjectRow>();
+      const { data: projectJson, error } = await adminClient.rpc('get_project_by_id', {
+        p_project_id: askRow.project_id,
+      });
 
       if (!error) {
-        projectData = data ?? null;
+        projectData = (projectJson as ProjectRow | null) ?? null;
       }
     }
 
-    // Fetch challenge data
+    // Fetch challenge data via RPC
     let challengeData: ChallengeRow | null = null;
     if (askRow.challenge_id) {
-      const { data, error } = await supabase
-        .from('challenges')
-        .select('id, name, system_prompt')
-        .eq('id', askRow.challenge_id)
-        .maybeSingle<ChallengeRow>();
+      const { data: challengeJson, error } = await adminClient.rpc('get_challenge_by_id', {
+        p_challenge_id: askRow.challenge_id,
+      });
 
       if (!error) {
-        challengeData = data ?? null;
+        challengeData = (challengeJson as ChallengeRow | null) ?? null;
       }
     }
 
@@ -195,14 +197,12 @@ export async function POST(
       messageRows = (threadMessages ?? []) as MessageRow[];
       hasMessages = messageRows.length > 0;
     } else {
-      // Check for messages without thread
-      const { data: messagesWithoutThread } = await supabase
-        .from('messages')
-        .select('id')
-        .eq('ask_session_id', askRow.id)
-        .is('conversation_thread_id', null)
-        .limit(1);
-      hasMessages = (messagesWithoutThread ?? []).length > 0;
+      // Check for messages without thread via RPC
+      const { data: messagesWithoutThreadJson } = await adminClient.rpc('get_messages_without_thread', {
+        p_ask_session_id: askRow.id,
+      });
+      const messagesWithoutThread = (messagesWithoutThreadJson as { id: string }[] | null) ?? [];
+      hasMessages = messagesWithoutThread.length > 0;
     }
 
     // Fetch additional user data for message senders not already in usersById
@@ -288,18 +288,13 @@ export async function POST(
             }
           }
 
-          // Insert the initial AI message
-          const { error: insertError } = await supabase
-            .from('messages')
-            .insert({
-              ask_session_id: askRow.id,
-              content: aiResponse,
-              sender_type: 'ai',
-              message_type: 'text',
-              metadata: { senderName: 'Agent' },
-              conversation_thread_id: conversationThread?.id ?? null,
-              plan_step_id: initialPlanStepId,
-            });
+          // Insert the initial AI message via RPC
+          const { error: insertError } = await adminClient.rpc('insert_ai_message', {
+            p_ask_session_id: askRow.id,
+            p_conversation_thread_id: conversationThread?.id ?? null,
+            p_content: aiResponse,
+            p_sender_name: 'Agent',
+          });
 
           if (insertError) {
             console.error('Voice agent init: Failed to insert initial message:', insertError);

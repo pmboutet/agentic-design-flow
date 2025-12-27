@@ -88,16 +88,17 @@ export async function POST(
 
     if (!isDevBypass && inviteToken) {
       const admin = await getAdminClient();
-      const { data: participant, error: tokenError } = await admin
-        .from('ask_participants')
-        .select('id, user_id, ask_session_id')
-        .eq('invite_token', inviteToken)
-        .maybeSingle();
+      // Use RPC to bypass RLS in production
+      const { data: participantJson, error: tokenError } = await admin.rpc('get_participant_by_invite_token', {
+        p_token: inviteToken,
+      });
 
       if (tokenError) {
         console.error('❌ Error validating invite token for streaming:', tokenError);
         return new Response('Token invalide', { status: 403 });
       }
+
+      const participant = participantJson as { id: string; user_id: string | null; ask_session_id: string } | null;
 
       if (!participant || !participant.user_id) {
         console.error('❌ Invite token missing linked user profile for streaming');
@@ -126,11 +127,13 @@ export async function POST(
         return new Response('Authentification requise', { status: 401 });
       }
 
-      const { data: profile, error: profileError } = await supabase
-        .from('profiles')
-        .select('id')
-        .eq('auth_id', user.id)
-        .single();
+      // Use RPC to bypass RLS in production
+      const admin = await getAdminClient();
+      const { data: profileJson, error: profileError } = await admin.rpc('get_profile_by_auth_id', {
+        p_auth_id: user.id,
+      });
+
+      const profile = profileJson as { id: string } | null;
 
       if (profileError || !profile) {
         return new Response('Profil utilisateur introuvable', { status: 401 });
@@ -164,13 +167,12 @@ export async function POST(
     if (!isDevBypass && profileId && !authenticatedViaToken) {
       const isAnonymous = askRow.is_anonymous === true;
 
-      // Check if user is a participant
-      const { data: membership, error: membershipError } = await supabase
-        .from('ask_participants')
-        .select('id, user_id, role, is_spokesperson')
-        .eq('ask_session_id', askRow.id)
-        .eq('user_id', profileId)
-        .maybeSingle();
+      // Check if user is a participant via RPC
+      const adminCheck = await getAdminClient();
+      const { data: membershipJson, error: membershipError } = await adminCheck.rpc('check_user_is_participant', {
+        p_ask_session_id: askRow.id,
+        p_user_id: profileId,
+      });
 
       if (membershipError) {
         if (isPermissionDenied(membershipError)) {
@@ -179,21 +181,22 @@ export async function POST(
         throw membershipError;
       }
 
+      const membership = membershipJson as { id: string; user_id: string; role: string; is_spokesperson: boolean } | null;
+
       // If session allows anonymous participation, allow access even if not in participants list
       // Otherwise, require explicit participation
       if (!membership && !isAnonymous) {
         return permissionDeniedResponse();
       }
 
-      // If anonymous and user is not yet a participant, create one automatically
+      // If anonymous and user is not yet a participant, create one automatically via RPC
       if (isAnonymous && !membership) {
-        const { error: insertError } = await supabase
-          .from('ask_participants')
-          .insert({
-            ask_session_id: askRow.id,
-            user_id: profileId,
-            role: 'participant',
-          });
+        const { error: insertError } = await adminCheck.rpc('add_anonymous_participant', {
+          p_ask_session_id: askRow.id,
+          p_user_id: profileId,
+          p_participant_name: null,
+          p_role: 'participant',
+        });
 
         if (insertError && !isPermissionDenied(insertError)) {
           // Log but don't fail - RLS policies will handle access
@@ -202,12 +205,11 @@ export async function POST(
       }
     }
 
-    // Fetch participants
-    const { data: participantRows, error: participantError } = await dataClient
-      .from('ask_participants')
-      .select('*')
-      .eq('ask_session_id', askRow.id)
-      .order('joined_at', { ascending: true });
+    // Fetch participants via RPC
+    const adminParticipants = await getAdminClient();
+    const { data: participantRowsJson, error: participantError } = await adminParticipants.rpc('get_participants_by_ask_session', {
+      p_ask_session_id: askRow.id,
+    });
 
     if (participantError) {
       if (isPermissionDenied(participantError)) {
@@ -216,6 +218,8 @@ export async function POST(
       throw participantError;
     }
 
+    const participantRows = (participantRowsJson as ParticipantRow[] | null) ?? [];
+
     const participantUserIds = (participantRows ?? [])
       .map(row => row.user_id)
       .filter((value): value is string => Boolean(value));
@@ -223,10 +227,10 @@ export async function POST(
     let usersById: Record<string, UserRow> = {};
 
     if (participantUserIds.length > 0) {
-      const { data: userRows, error: userError } = await dataClient
-        .from('profiles')
-        .select('id, email, full_name, first_name, last_name, description, job_title')
-        .in('id', participantUserIds);
+      // Use RPC to bypass RLS in production
+      const { data: userRowsJson, error: userError } = await adminParticipants.rpc('get_profiles_by_ids', {
+        p_user_ids: participantUserIds,
+      });
 
       if (userError) {
         if (isPermissionDenied(userError)) {
@@ -235,7 +239,8 @@ export async function POST(
         throw userError;
       }
 
-      usersById = (userRows ?? []).reduce<Record<string, UserRow>>((acc, user) => {
+      const userRows = (userRowsJson as UserRow[] | null) ?? [];
+      usersById = userRows.reduce<Record<string, UserRow>>((acc, user) => {
         acc[user.id] = user;
         return acc;
       }, {});
@@ -274,15 +279,15 @@ export async function POST(
     );
 
     if (lastUserThreadId) {
-      // Use the same thread as the last user message
+      // Use the same thread as the last user message via RPC
       console.log('[stream] Using thread from last user message:', lastUserThreadId);
-      const { data: existingThread, error: fetchError } = await threadClient
-        .from('conversation_threads')
-        .select('id, is_shared')
-        .eq('id', lastUserThreadId)
-        .single();
+      const threadAdmin = await getAdminClient();
+      const { data: existingThreadJson, error: fetchError } = await threadAdmin.rpc('get_conversation_thread_by_id', {
+        p_thread_id: lastUserThreadId,
+      });
 
-      if (!fetchError && existingThread) {
+      if (!fetchError && existingThreadJson) {
+        const existingThread = existingThreadJson as { id: string; is_shared: boolean };
         conversationThread = existingThread;
       }
     }
@@ -321,18 +326,18 @@ export async function POST(
         throw threadMessagesError;
       }
       
-      // Also get messages without conversation_thread_id for backward compatibility
+      // Also get messages without conversation_thread_id for backward compatibility via RPC
       // This ensures messages created before thread creation are still visible
-      const { data: messagesWithoutThread, error: messagesWithoutThreadError } = await dataClient
-        .from('messages')
-        .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at, conversation_thread_id, plan_step_id')
-        .eq('ask_session_id', askRow.id)
-        .is('conversation_thread_id', null)
-        .order('created_at', { ascending: true });
+      const msgAdmin = await getAdminClient();
+      const { data: messagesWithoutThreadJson, error: messagesWithoutThreadError } = await msgAdmin.rpc('get_messages_without_thread', {
+        p_ask_session_id: askRow.id,
+      });
 
       if (messagesWithoutThreadError && !isPermissionDenied(messagesWithoutThreadError)) {
         console.warn('⚠️ Error fetching messages without thread:', messagesWithoutThreadError);
       }
+
+      const messagesWithoutThread = (messagesWithoutThreadJson as MessageRow[] | null) ?? [];
       
       // Combine thread messages with messages without thread
       const threadMessagesList = (threadMessages ?? []) as any[];
@@ -343,12 +348,11 @@ export async function POST(
         return timeA - timeB;
       });
     } else {
-      // Fallback: get all messages for backward compatibility
-      const { data, error: messageError } = await dataClient
-        .from('messages')
-        .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at, conversation_thread_id, plan_step_id')
-        .eq('ask_session_id', askRow.id)
-        .order('created_at', { ascending: true });
+      // Fallback: get all messages for backward compatibility via RPC
+      const fallbackMsgAdmin = await getAdminClient();
+      const { data: dataJson, error: messageError } = await fallbackMsgAdmin.rpc('get_messages_by_session', {
+        p_ask_session_id: askRow.id,
+      });
 
       if (messageError) {
         if (isPermissionDenied(messageError)) {
@@ -356,8 +360,8 @@ export async function POST(
         }
         throw messageError;
       }
-      
-      messageRows = data ?? [];
+
+      messageRows = (dataJson as MessageRow[] | null) ?? [];
     }
 
     const messageUserIds = (messageRows ?? [])
@@ -367,10 +371,11 @@ export async function POST(
     const additionalUserIds = messageUserIds.filter(id => !usersById[id]);
 
     if (additionalUserIds.length > 0) {
-      const { data: extraUsers, error: extraUsersError } = await dataClient
-        .from('profiles')
-        .select('id, email, full_name, first_name, last_name, description')
-        .in('id', additionalUserIds);
+      // Use RPC to bypass RLS in production
+      const extraProfilesAdmin = await getAdminClient();
+      const { data: extraUsersJson, error: extraUsersError } = await extraProfilesAdmin.rpc('get_profiles_by_ids', {
+        p_user_ids: additionalUserIds,
+      });
 
       if (extraUsersError) {
         if (isPermissionDenied(extraUsersError)) {
@@ -379,7 +384,8 @@ export async function POST(
         throw extraUsersError;
       }
 
-      (extraUsers ?? []).forEach(user => {
+      const extraUsers = (extraUsersJson as UserRow[] | null) ?? [];
+      extraUsers.forEach(user => {
         usersById[user.id] = user;
       });
     }
@@ -391,14 +397,13 @@ export async function POST(
       return buildDetailedMessage(row, user, index, askRow.ask_key);
     });
 
-    // Fetch project and challenge data
+    // Fetch project and challenge data via RPC
+    const contextAdmin = await getAdminClient();
     let projectData: ProjectRow | null = null;
     if (askRow.project_id) {
-      const { data, error } = await dataClient
-        .from('projects')
-        .select('id, name, system_prompt')
-        .eq('id', askRow.project_id)
-        .maybeSingle<ProjectRow>();
+      const { data: projectJson, error } = await contextAdmin.rpc('get_project_by_id', {
+        p_project_id: askRow.project_id,
+      });
 
       if (error) {
         if (isPermissionDenied(error)) {
@@ -407,16 +412,14 @@ export async function POST(
         throw error;
       }
 
-      projectData = data ?? null;
+      projectData = (projectJson as ProjectRow | null) ?? null;
     }
 
     let challengeData: ChallengeRow | null = null;
     if (askRow.challenge_id) {
-      const { data, error } = await dataClient
-        .from('challenges')
-        .select('id, name, system_prompt')
-        .eq('id', askRow.challenge_id)
-        .maybeSingle<ChallengeRow>();
+      const { data: challengeJson, error } = await contextAdmin.rpc('get_challenge_by_id', {
+        p_challenge_id: askRow.challenge_id,
+      });
 
       if (error) {
         if (isPermissionDenied(error)) {
@@ -425,7 +428,7 @@ export async function POST(
         throw error;
       }
 
-      challengeData = data ?? null;
+      challengeData = (challengeJson as ChallengeRow | null) ?? null;
     }
 
     // Build participant summaries using centralized function (DRY)
@@ -609,16 +612,14 @@ export async function POST(
                 // This ensures AI responses are always saved, regardless of user permissions
                 const insertClient = await getAdminClient();
 
-                // Trouver le dernier message utilisateur pour le lier comme parent
-                // On récupère les messages depuis la base pour trouver le dernier message utilisateur
-                const { data: recentMessages } = await insertClient
-                  .from('messages')
-                  .select('id, sender_type')
-                  .eq('ask_session_id', askRow.id)
-                  .order('created_at', { ascending: false })
-                  .limit(10);
+                // Trouver le dernier message utilisateur pour le lier comme parent via RPC
+                const { data: recentMessagesJson } = await insertClient.rpc('get_recent_messages', {
+                  p_ask_session_id: askRow.id,
+                  p_limit: 10,
+                });
 
-                const lastUserMessage = (recentMessages ?? []).find(msg => msg.sender_type === 'user');
+                const recentMessages = (recentMessagesJson as { id: string; sender_type: string }[] | null) ?? [];
+                const lastUserMessage = recentMessages.find(msg => msg.sender_type === 'user');
                 const parentMessageId = lastUserMessage?.id ?? null;
 
                 // Get the currently active plan step to link this message
@@ -638,20 +639,13 @@ export async function POST(
                   }
                 }
 
-                const { data: insertedRows, error: insertError } = await insertClient
-                  .from('messages')
-                  .insert({
-                    ask_session_id: askRow.id,
-                    content: fullContent.trim(),
-                    sender_type: 'ai',
-                    message_type: 'text',
-                    metadata: aiMetadata,
-                    parent_message_id: parentMessageId,
-                    conversation_thread_id: conversationThread?.id ?? null,
-                    plan_step_id: planStepId,
-                  })
-                  .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at')
-                  .limit(1);
+                // Insert AI message via RPC to bypass RLS
+                const { data: insertedJson, error: insertError } = await insertClient.rpc('insert_ai_message', {
+                  p_ask_session_id: askRow.id,
+                  p_conversation_thread_id: conversationThread?.id ?? null,
+                  p_content: fullContent.trim(),
+                  p_sender_name: 'Agent',
+                });
 
                 if (insertError) {
                   console.error('Error storing AI response:', insertError);
@@ -662,7 +656,7 @@ export async function POST(
                   });
                   controller.enqueue(encoder.encode(`data: ${errorData}\n\n`));
                 } else {
-                  const inserted = insertedRows?.[0] as MessageRow | undefined;
+                  const inserted = insertedJson as MessageRow | null;
                   if (inserted) {
                     const message = {
                       id: inserted.id,
