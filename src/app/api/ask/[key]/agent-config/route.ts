@@ -245,17 +245,43 @@ export async function GET(
     });
 
     // Fetch conversation plan with steps (for step-aware prompt variables)
+    // Need to get the correct thread based on token/user context
     let conversationPlan = null;
+    let conversationThreadId: string | null = null;
     try {
-      // Get conversation thread for this ask session
-      const { data: threadData } = await supabase
-        .from('conversation_threads')
-        .select('id')
-        .eq('ask_session_id', askSession.id)
-        .maybeSingle();
+      if (token) {
+        // Use RPC to get the thread for this token's user
+        // This handles individual_parallel mode correctly by finding the user's thread
+        const { data: threadRows, error: threadError } = await supabase.rpc(
+          'get_conversation_thread_by_token',
+          { p_token: token }
+        );
 
-      if (threadData?.id) {
-        conversationPlan = await getConversationPlanWithSteps(supabase, threadData.id);
+        if (threadError) {
+          console.warn('[agent-config] Could not get thread by token:', threadError.message);
+        } else if (threadRows && threadRows.length > 0) {
+          conversationThreadId = threadRows[0].thread_id;
+        }
+      } else {
+        // Fallback: try direct query (for authenticated users without token)
+        const { data: threadData } = await supabase
+          .from('conversation_threads')
+          .select('id')
+          .eq('ask_session_id', askSession.id)
+          .maybeSingle();
+
+        if (threadData?.id) {
+          conversationThreadId = threadData.id;
+        }
+      }
+
+      if (conversationThreadId) {
+        conversationPlan = await getConversationPlanWithSteps(supabase, conversationThreadId);
+        console.log('[agent-config] 🧵 Thread resolved:', {
+          threadId: conversationThreadId,
+          hasPlan: !!conversationPlan,
+          usingToken: !!token,
+        });
       }
     } catch (planError) {
       console.warn('[agent-config] Could not load conversation plan:', planError);
