@@ -1272,7 +1272,7 @@ export async function POST(
       plan_step_id: planStepId,
     };
 
-    console.log('🔍 POST /api/ask/[key]: Inserting message', {
+    console.log('🔍 POST /api/ask/[key]: Inserting message via RPC', {
       askSessionId: askRow.id,
       userId: finalProfileId,
       hasThreadId: !!conversationThread?.id,
@@ -1280,11 +1280,19 @@ export async function POST(
       payloadKeys: Object.keys(insertPayload)
     });
 
-    const { data: insertedRows, error: insertError } = await dataClient
-      .from('messages')
-      .insert(insertPayload)
-      .select('id, ask_session_id, user_id, sender_type, content, message_type, metadata, created_at, parent_message_id')
-      .limit(1);
+    // Use RPC to bypass RLS in production
+    const { data: insertedJson, error: insertError } = await dataClient.rpc('insert_user_message', {
+      p_ask_session_id: insertPayload.ask_session_id,
+      p_content: insertPayload.content,
+      p_message_type: insertPayload.message_type,
+      p_sender_type: insertPayload.sender_type,
+      p_metadata: insertPayload.metadata,
+      p_created_at: insertPayload.created_at,
+      p_user_id: insertPayload.user_id,
+      p_parent_message_id: insertPayload.parent_message_id ?? null,
+      p_conversation_thread_id: insertPayload.conversation_thread_id ?? null,
+      p_plan_step_id: insertPayload.plan_step_id ?? null,
+    });
 
     if (insertError) {
       console.error('❌ POST /api/ask/[key]: Message insert error:', {
@@ -1303,10 +1311,10 @@ export async function POST(
     }
 
     console.log('✅ POST /api/ask/[key]: Message inserted successfully', {
-      messageId: insertedRows?.[0]?.id
+      messageId: (insertedJson as any)?.id
     });
 
-    const inserted = insertedRows?.[0] as MessageRow | undefined;
+    const inserted = insertedJson as MessageRow | undefined;
 
     if (!inserted) {
       throw new Error('Unable to insert message');

@@ -42,6 +42,56 @@ BEGIN
 END;
 $$;
 
+-- Insert user message (full version with all fields)
+CREATE OR REPLACE FUNCTION public.insert_user_message(
+  p_ask_session_id uuid,
+  p_content text,
+  p_message_type text,
+  p_sender_type text,
+  p_metadata jsonb,
+  p_created_at timestamptz,
+  p_user_id uuid,
+  p_parent_message_id uuid DEFAULT NULL,
+  p_conversation_thread_id uuid DEFAULT NULL,
+  p_plan_step_id uuid DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_message_record messages;
+BEGIN
+  INSERT INTO messages (
+    ask_session_id,
+    content,
+    message_type,
+    sender_type,
+    metadata,
+    created_at,
+    user_id,
+    parent_message_id,
+    conversation_thread_id,
+    plan_step_id
+  ) VALUES (
+    p_ask_session_id,
+    p_content,
+    p_message_type,
+    p_sender_type,
+    p_metadata,
+    p_created_at,
+    p_user_id,
+    p_parent_message_id,
+    p_conversation_thread_id,
+    p_plan_step_id
+  )
+  RETURNING * INTO v_message_record;
+
+  RETURN to_jsonb(v_message_record);
+END;
+$$;
+
 -- =====================================================
 -- PLAN STEP RPCs
 -- =====================================================
@@ -287,6 +337,7 @@ $$;
 -- =====================================================
 
 GRANT EXECUTE ON FUNCTION public.insert_ai_message TO anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.insert_user_message TO anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.update_plan_step_summary TO anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.complete_plan_step TO anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.activate_plan_step TO anon, authenticated, service_role;
