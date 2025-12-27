@@ -67,26 +67,27 @@ BEGIN
   END IF;
 
   -- Return messages for the specific thread only
+  -- Use explicit column aliases to avoid ambiguity with RETURNS TABLE columns
   RETURN QUERY
   SELECT
-    m.id,
-    m.content,
-    m.message_type AS type,
-    m.sender_type,
-    m.user_id AS sender_id,
+    msg.id AS id,
+    msg.content AS content,
+    msg.message_type AS type,
+    msg.sender_type AS sender_type,
+    msg.user_id AS sender_id,
     COALESCE(
-      m.metadata->>'senderName',
-      p.full_name,
-      TRIM(COALESCE(p.first_name, '') || ' ' || COALESCE(p.last_name, '')),
-      p.email,
+      msg.metadata->>'senderName',
+      prof.full_name,
+      TRIM(COALESCE(prof.first_name, '') || ' ' || COALESCE(prof.last_name, '')),
+      prof.email,
       NULL
-    ) AS sender_name,
-    m.created_at,
-    m.metadata
-  FROM public.messages m
-  LEFT JOIN public.profiles p ON p.id = m.user_id
-  WHERE m.conversation_thread_id = v_thread_id
-  ORDER BY m.created_at ASC;
+    )::TEXT AS sender_name,
+    msg.created_at AS created_at,
+    msg.metadata AS metadata
+  FROM public.messages msg
+  LEFT JOIN public.profiles prof ON prof.id = msg.user_id
+  WHERE msg.conversation_thread_id = v_thread_id
+  ORDER BY msg.created_at ASC;
 END;
 $$;
 
