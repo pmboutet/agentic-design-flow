@@ -422,59 +422,43 @@ export async function completeStep(
     return null;
   }
 
-  const now = new Date().toISOString();
-
-  // Mark the step as completed
-  const { error: completeError } = await supabase
-    .from('ask_conversation_plan_steps')
-    .update({
-      status: 'completed',
-      completed_at: now,
-      summary: stepSummary || completedStep.summary,
-    })
-    .eq('id', completedStep.id);
+  // Mark the step as completed via RPC
+  const { error: completeError } = await supabase.rpc('complete_plan_step', {
+    p_step_id: completedStep.id,
+    p_summary: stepSummary || completedStep.summary,
+  });
 
   if (completeError) {
     console.error('Failed to complete step:', completeError);
     return null;
   }
 
-  // Find the next step by order
-  const { data: nextStep } = await supabase
-    .from('ask_conversation_plan_steps')
-    .select('*')
-    .eq('plan_id', plan.id)
-    .eq('step_order', completedStep.step_order + 1)
-    .maybeSingle();
+  // Find the next step by order via RPC
+  const { data: nextStepJson } = await supabase.rpc('get_next_plan_step', {
+    p_plan_id: plan.id,
+    p_current_step_order: completedStep.step_order,
+  });
 
   let nextStepIdentifier: string | null = null;
 
   // Activate the next step if it exists
-  if (nextStep) {
-    const { error: activateError } = await supabase
-      .from('ask_conversation_plan_steps')
-      .update({
-        status: 'active',
-        activated_at: now,
-      })
-      .eq('id', nextStep.id);
+  if (nextStepJson) {
+    const { error: activateError } = await supabase.rpc('activate_plan_step', {
+      p_step_id: (nextStepJson as ConversationPlanStep).id,
+    });
 
     if (!activateError) {
-      nextStepIdentifier = (nextStep as ConversationPlanStep).step_identifier;
+      nextStepIdentifier = (nextStepJson as ConversationPlanStep).step_identifier;
     }
   }
 
-  // Update the plan's current_step_id
-  // The completed_steps counter is auto-updated by the trigger
-  const { data: updatedPlan, error: updateError } = await supabase
-    .from('ask_conversation_plans')
-    .update({
-      current_step_id: nextStepIdentifier,
-      updated_at: now,
-    })
-    .eq('id', plan.id)
-    .select()
-    .single();
+  // Update the plan's current_step_id via RPC
+  const { data: updatedPlanJson, error: updateError } = await supabase.rpc('update_plan_current_step', {
+    p_plan_id: plan.id,
+    p_current_step_id: nextStepIdentifier,
+  });
+
+  const updatedPlan = updatedPlanJson as ConversationPlan | null;
 
   if (updateError) {
     console.error('Failed to update plan:', updateError);

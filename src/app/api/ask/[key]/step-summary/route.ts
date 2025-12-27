@@ -57,14 +57,12 @@ export async function POST(
 
     if (generatedSummary) {
       console.log('📝 [STEP-SUMMARY] Summary generated, updating step:', stepId);
-      // Update the step with the generated summary and clear any previous error
-      const { error: updateError } = await adminSupabase
-        .from('ask_conversation_plan_steps')
-        .update({
-          summary: generatedSummary,
-          summary_error: null // Clear any previous error
-        })
-        .eq('id', stepId);
+      // Update the step with the generated summary via RPC to bypass RLS
+      const { error: updateError } = await adminSupabase.rpc('update_plan_step_summary', {
+        p_step_id: stepId,
+        p_summary: generatedSummary,
+        p_summary_error: null // Clear any previous error
+      });
 
       if (updateError) {
         console.error('❌ [STEP-SUMMARY] Failed to update step summary:', updateError);
@@ -96,16 +94,14 @@ export async function POST(
       stack: error instanceof Error ? error.stack : undefined,
     });
 
-    // Store the error in the database for visibility
+    // Store the error in the database for visibility via RPC
     if (stepId) {
       try {
-        await adminSupabase
-          .from('ask_conversation_plan_steps')
-          .update({
-            summary_error: errorMessage,
-            summary: `[ERREUR] La génération du résumé a échoué: ${errorMessage}`
-          })
-          .eq('id', stepId);
+        await adminSupabase.rpc('update_plan_step_summary', {
+          p_step_id: stepId,
+          p_summary: `[ERREUR] La génération du résumé a échoué: ${errorMessage}`,
+          p_summary_error: errorMessage
+        });
         console.log('📝 [STEP-SUMMARY] Error stored in step record:', stepId);
       } catch (dbError) {
         console.error('❌ [STEP-SUMMARY] Failed to store error in database:', dbError);

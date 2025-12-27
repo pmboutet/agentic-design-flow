@@ -96,10 +96,11 @@ $$;
 -- PLAN STEP RPCs
 -- =====================================================
 
--- Update step summary
+-- Update step summary (with optional error field)
 CREATE OR REPLACE FUNCTION public.update_plan_step_summary(
   p_step_id uuid,
-  p_summary text
+  p_summary text,
+  p_summary_error text DEFAULT NULL
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -110,7 +111,9 @@ DECLARE
   v_step_record ask_conversation_plan_steps;
 BEGIN
   UPDATE ask_conversation_plan_steps
-  SET summary = p_summary
+  SET
+    summary = p_summary,
+    summary_error = p_summary_error
   WHERE id = p_step_id
   RETURNING * INTO v_step_record;
 
@@ -161,6 +164,32 @@ BEGIN
     activated_at = NOW()
   WHERE id = p_step_id
   RETURNING * INTO v_step_record;
+
+  RETURN to_jsonb(v_step_record);
+END;
+$$;
+
+-- Get next step by order
+CREATE OR REPLACE FUNCTION public.get_next_plan_step(
+  p_plan_id uuid,
+  p_current_step_order integer
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_step_record ask_conversation_plan_steps;
+BEGIN
+  SELECT * INTO v_step_record
+  FROM ask_conversation_plan_steps
+  WHERE plan_id = p_plan_id
+    AND step_order = p_current_step_order + 1;
+
+  IF v_step_record IS NULL THEN
+    RETURN NULL;
+  END IF;
 
   RETURN to_jsonb(v_step_record);
 END;
@@ -387,6 +416,7 @@ GRANT EXECUTE ON FUNCTION public.insert_user_message TO anon, authenticated, ser
 GRANT EXECUTE ON FUNCTION public.update_plan_step_summary TO anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.complete_plan_step TO anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.activate_plan_step TO anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.get_next_plan_step TO anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.update_plan_current_step TO anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.insert_insight TO anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.update_insight TO anon, authenticated, service_role;
