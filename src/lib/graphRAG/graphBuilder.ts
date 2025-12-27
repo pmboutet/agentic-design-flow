@@ -236,10 +236,15 @@ export async function buildChallengeEdges(
     .from("insights")
     .select("challenge_id, related_challenge_ids")
     .eq("id", insightId)
-    .single();
+    .maybeSingle();
 
-  if (insightError || !insight) {
-    console.error("Error fetching insight:", insightError);
+  if (insightError) {
+    console.error("[Graph RAG] Error fetching insight:", insightError);
+    return;
+  }
+
+  if (!insight) {
+    // Insight doesn't exist (yet) - this is normal, not an error
     return;
   }
 
@@ -414,10 +419,15 @@ export async function rebuildGraphForInsight(
       .from("insights")
       .select("*")
       .eq("id", insightId)
-      .single();
+      .maybeSingle();
 
-    if (fetchError || !insightRow) {
+    if (fetchError) {
       console.error(`[Graph RAG] Error fetching insight ${insightId}:`, fetchError);
+      return;
+    }
+
+    if (!insightRow) {
+      // Insight doesn't exist (yet) - this is normal, not an error
       return;
     }
 
