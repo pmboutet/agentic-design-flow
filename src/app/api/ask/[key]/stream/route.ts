@@ -16,6 +16,19 @@ import {
   buildDetailedMessage,
   buildParticipantSummary,
   fetchElapsedTime,
+  fetchUsersByIds,
+  fetchParticipantsBySession,
+  fetchParticipantByToken,
+  fetchProfileByAuthId,
+  fetchUserParticipation,
+  addAnonymousParticipant,
+  fetchThreadById,
+  fetchMessagesWithoutThread,
+  fetchMessagesBySession,
+  fetchProjectById,
+  fetchChallengeById,
+  fetchRecentMessages,
+  insertAiMessage,
   type AskSessionRow,
   type UserRow,
   type MessageRow,
@@ -88,25 +101,16 @@ export async function POST(
 
     if (!isDevBypass && inviteToken) {
       const admin = await getAdminClient();
-      // Use RPC to bypass RLS in production
-      const { data: participantJson, error: tokenError } = await admin.rpc('get_participant_by_invite_token', {
-        p_token: inviteToken,
-      });
-
-      if (tokenError) {
-        console.error('❌ Error validating invite token for streaming:', tokenError);
-        return new Response('Token invalide', { status: 403 });
-      }
-
-      const participant = participantJson as { id: string; user_id: string | null; ask_session_id: string } | null;
+      // Use RPC wrapper to bypass RLS in production
+      const participant = await fetchParticipantByToken(admin, inviteToken);
 
       if (!participant || !participant.user_id) {
-        console.error('❌ Invite token missing linked user profile for streaming');
+        console.error('❌ Invite token invalid or missing linked user profile for streaming');
         return new Response("Ce lien d'invitation n'est associé à aucun profil utilisateur. Contactez votre administrateur.", { status: 403 });
       }
 
       profileId = participant.user_id;
-      tokenAskSessionId = participant.ask_session_id;
+      tokenAskSessionId = (participant as ParticipantRow & { ask_session_id?: string }).ask_session_id ?? null;
       dataClient = admin;
       authenticatedViaToken = true;
     }
@@ -127,15 +131,11 @@ export async function POST(
         return new Response('Authentification requise', { status: 401 });
       }
 
-      // Use RPC to bypass RLS in production
+      // Use RPC wrapper to bypass RLS in production
       const admin = await getAdminClient();
-      const { data: profileJson, error: profileError } = await admin.rpc('get_profile_by_auth_id', {
-        p_auth_id: user.id,
-      });
+      const profile = await fetchProfileByAuthId(admin, user.id);
 
-      const profile = profileJson as { id: string } | null;
-
-      if (profileError || !profile) {
+      if (!profile) {
         return new Response('Profil utilisateur introuvable', { status: 401 });
       }
 
@@ -167,21 +167,9 @@ export async function POST(
     if (!isDevBypass && profileId && !authenticatedViaToken) {
       const isAnonymous = askRow.is_anonymous === true;
 
-      // Check if user is a participant via RPC
+      // Check if user is a participant via RPC wrapper
       const adminCheck = await getAdminClient();
-      const { data: membershipJson, error: membershipError } = await adminCheck.rpc('check_user_is_participant', {
-        p_ask_session_id: askRow.id,
-        p_user_id: profileId,
-      });
-
-      if (membershipError) {
-        if (isPermissionDenied(membershipError)) {
-          return permissionDeniedResponse();
-        }
-        throw membershipError;
-      }
-
-      const membership = membershipJson as { id: string; user_id: string; role: string; is_spokesperson: boolean } | null;
+      const membership = await fetchUserParticipation(adminCheck, askRow.id, profileId);
 
       // If session allows anonymous participation, allow access even if not in participants list
       // Otherwise, require explicit participation
@@ -189,61 +177,24 @@ export async function POST(
         return permissionDeniedResponse();
       }
 
-      // If anonymous and user is not yet a participant, create one automatically via RPC
+      // If anonymous and user is not yet a participant, create one automatically via RPC wrapper
       if (isAnonymous && !membership) {
-        const { error: insertError } = await adminCheck.rpc('add_anonymous_participant', {
-          p_ask_session_id: askRow.id,
-          p_user_id: profileId,
-          p_participant_name: null,
-          p_role: 'participant',
-        });
-
-        if (insertError && !isPermissionDenied(insertError)) {
-          // Log but don't fail - RLS policies will handle access
-          console.warn('Failed to auto-add participant to anonymous session:', insertError);
-        }
+        await addAnonymousParticipant(adminCheck, askRow.id, profileId, null);
       }
     }
 
-    // Fetch participants via RPC
+    // Fetch participants and users via RPC wrappers
     const adminParticipants = await getAdminClient();
-    const { data: participantRowsJson, error: participantError } = await adminParticipants.rpc('get_participants_by_ask_session', {
-      p_ask_session_id: askRow.id,
-    });
+    const participantRows = await fetchParticipantsBySession(adminParticipants, askRow.id);
 
-    if (participantError) {
-      if (isPermissionDenied(participantError)) {
-        return permissionDeniedResponse();
-      }
-      throw participantError;
-    }
-
-    const participantRows = (participantRowsJson as ParticipantRow[] | null) ?? [];
-
-    const participantUserIds = (participantRows ?? [])
+    const participantUserIds = participantRows
       .map(row => row.user_id)
       .filter((value): value is string => Boolean(value));
 
     let usersById: Record<string, UserRow> = {};
 
     if (participantUserIds.length > 0) {
-      // Use RPC to bypass RLS in production
-      const { data: userRowsJson, error: userError } = await adminParticipants.rpc('get_profiles_by_ids', {
-        p_user_ids: participantUserIds,
-      });
-
-      if (userError) {
-        if (isPermissionDenied(userError)) {
-          return permissionDeniedResponse();
-        }
-        throw userError;
-      }
-
-      const userRows = (userRowsJson as UserRow[] | null) ?? [];
-      usersById = userRows.reduce<Record<string, UserRow>>((acc, user) => {
-        acc[user.id] = user;
-        return acc;
-      }, {});
+      usersById = await fetchUsersByIds(adminParticipants, participantUserIds);
     }
 
     const participants = (participantRows ?? []).map((row, index) => {
@@ -279,15 +230,12 @@ export async function POST(
     );
 
     if (lastUserThreadId) {
-      // Use the same thread as the last user message via RPC
+      // Use the same thread as the last user message via RPC wrapper
       console.log('[stream] Using thread from last user message:', lastUserThreadId);
       const threadAdmin = await getAdminClient();
-      const { data: existingThreadJson, error: fetchError } = await threadAdmin.rpc('get_conversation_thread_by_id', {
-        p_thread_id: lastUserThreadId,
-      });
+      const existingThread = await fetchThreadById(threadAdmin, lastUserThreadId);
 
-      if (!fetchError && existingThreadJson) {
-        const existingThread = existingThreadJson as { id: string; is_shared: boolean };
+      if (existingThread) {
         conversationThread = existingThread;
       }
     }
@@ -312,82 +260,49 @@ export async function POST(
     }
 
     // Get messages for the thread (or all messages if no thread for backward compatibility)
-    let messageRows: any[] = [];
+    let messageRows: MessageRow[] = [];
     if (conversationThread) {
       const { messages: threadMessages, error: threadMessagesError } = await getMessagesForThread(
         dataClient,
         conversationThread.id
       );
-      
+
       if (threadMessagesError) {
         if (isPermissionDenied(threadMessagesError)) {
           return permissionDeniedResponse();
         }
         throw threadMessagesError;
       }
-      
-      // Also get messages without conversation_thread_id for backward compatibility via RPC
+
+      // Also get messages without conversation_thread_id for backward compatibility via RPC wrapper
       // This ensures messages created before thread creation are still visible
       const msgAdmin = await getAdminClient();
-      const { data: messagesWithoutThreadJson, error: messagesWithoutThreadError } = await msgAdmin.rpc('get_messages_without_thread', {
-        p_ask_session_id: askRow.id,
-      });
+      const messagesWithoutThread = await fetchMessagesWithoutThread(msgAdmin, askRow.id);
 
-      if (messagesWithoutThreadError && !isPermissionDenied(messagesWithoutThreadError)) {
-        console.warn('⚠️ Error fetching messages without thread:', messagesWithoutThreadError);
-      }
-
-      const messagesWithoutThread = (messagesWithoutThreadJson as MessageRow[] | null) ?? [];
-      
       // Combine thread messages with messages without thread
-      const threadMessagesList = (threadMessages ?? []) as any[];
-      const messagesWithoutThreadList = (messagesWithoutThread ?? []) as any[];
-      messageRows = [...threadMessagesList, ...messagesWithoutThreadList].sort((a, b) => {
+      const threadMessagesList = (threadMessages ?? []) as MessageRow[];
+      messageRows = [...threadMessagesList, ...messagesWithoutThread].sort((a, b) => {
         const timeA = new Date(a.created_at ?? new Date().toISOString()).getTime();
         const timeB = new Date(b.created_at ?? new Date().toISOString()).getTime();
         return timeA - timeB;
       });
     } else {
-      // Fallback: get all messages for backward compatibility via RPC
+      // Fallback: get all messages for backward compatibility via RPC wrapper
       const fallbackMsgAdmin = await getAdminClient();
-      const { data: dataJson, error: messageError } = await fallbackMsgAdmin.rpc('get_messages_by_session', {
-        p_ask_session_id: askRow.id,
-      });
-
-      if (messageError) {
-        if (isPermissionDenied(messageError)) {
-          return permissionDeniedResponse();
-        }
-        throw messageError;
-      }
-
-      messageRows = (dataJson as MessageRow[] | null) ?? [];
+      messageRows = await fetchMessagesBySession(fallbackMsgAdmin, askRow.id);
     }
 
-    const messageUserIds = (messageRows ?? [])
+    const messageUserIds = messageRows
       .map(row => row.user_id)
       .filter((value): value is string => Boolean(value));
 
     const additionalUserIds = messageUserIds.filter(id => !usersById[id]);
 
     if (additionalUserIds.length > 0) {
-      // Use RPC to bypass RLS in production
+      // Use RPC wrapper to fetch additional profiles
       const extraProfilesAdmin = await getAdminClient();
-      const { data: extraUsersJson, error: extraUsersError } = await extraProfilesAdmin.rpc('get_profiles_by_ids', {
-        p_user_ids: additionalUserIds,
-      });
-
-      if (extraUsersError) {
-        if (isPermissionDenied(extraUsersError)) {
-          return permissionDeniedResponse();
-        }
-        throw extraUsersError;
-      }
-
-      const extraUsers = (extraUsersJson as UserRow[] | null) ?? [];
-      extraUsers.forEach(user => {
-        usersById[user.id] = user;
-      });
+      const additionalUsers = await fetchUsersByIds(extraProfilesAdmin, additionalUserIds);
+      usersById = { ...usersById, ...additionalUsers };
     }
 
     // Use unified buildDetailedMessage function for consistent message mapping
@@ -397,39 +312,14 @@ export async function POST(
       return buildDetailedMessage(row, user, index, askRow.ask_key);
     });
 
-    // Fetch project and challenge data via RPC
+    // Fetch project and challenge data via RPC wrappers
     const contextAdmin = await getAdminClient();
-    let projectData: ProjectRow | null = null;
-    if (askRow.project_id) {
-      const { data: projectJson, error } = await contextAdmin.rpc('get_project_by_id', {
-        p_project_id: askRow.project_id,
-      });
-
-      if (error) {
-        if (isPermissionDenied(error)) {
-          return permissionDeniedResponse();
-        }
-        throw error;
-      }
-
-      projectData = (projectJson as ProjectRow | null) ?? null;
-    }
-
-    let challengeData: ChallengeRow | null = null;
-    if (askRow.challenge_id) {
-      const { data: challengeJson, error } = await contextAdmin.rpc('get_challenge_by_id', {
-        p_challenge_id: askRow.challenge_id,
-      });
-
-      if (error) {
-        if (isPermissionDenied(error)) {
-          return permissionDeniedResponse();
-        }
-        throw error;
-      }
-
-      challengeData = (challengeJson as ChallengeRow | null) ?? null;
-    }
+    const projectData = askRow.project_id
+      ? await fetchProjectById(contextAdmin, askRow.project_id)
+      : null;
+    const challengeData = askRow.challenge_id
+      ? await fetchChallengeById(contextAdmin, askRow.challenge_id)
+      : null;
 
     // Build participant summaries using centralized function (DRY)
     const participantSummaries = (participantRows ?? []).map((row, index) => {
@@ -606,19 +496,12 @@ export async function POST(
             if (chunk.done) {
               // Store the complete message in database
               if (fullContent.trim()) {
-                const aiMetadata = { senderName: 'Agent' } satisfies Record<string, unknown>;
-
                 // Use admin client for AI message insertion to bypass RLS
                 // This ensures AI responses are always saved, regardless of user permissions
                 const insertClient = await getAdminClient();
 
-                // Trouver le dernier message utilisateur pour le lier comme parent via RPC
-                const { data: recentMessagesJson } = await insertClient.rpc('get_recent_messages', {
-                  p_ask_session_id: askRow.id,
-                  p_limit: 10,
-                });
-
-                const recentMessages = (recentMessagesJson as { id: string; sender_type: string }[] | null) ?? [];
+                // Trouver le dernier message utilisateur pour le lier comme parent via RPC wrapper
+                const recentMessages = await fetchRecentMessages(insertClient, askRow.id, 10);
                 const lastUserMessage = recentMessages.find(msg => msg.sender_type === 'user');
                 const parentMessageId = lastUserMessage?.id ?? null;
 
@@ -639,16 +522,17 @@ export async function POST(
                   }
                 }
 
-                // Insert AI message via RPC to bypass RLS
-                const { data: insertedJson, error: insertError } = await insertClient.rpc('insert_ai_message', {
-                  p_ask_session_id: askRow.id,
-                  p_conversation_thread_id: conversationThread?.id ?? null,
-                  p_content: fullContent.trim(),
-                  p_sender_name: 'Agent',
-                });
+                // Insert AI message via RPC wrapper to bypass RLS
+                const inserted = await insertAiMessage(
+                  insertClient,
+                  askRow.id,
+                  conversationThread?.id ?? null,
+                  fullContent.trim(),
+                  'Agent'
+                );
 
-                if (insertError) {
-                  console.error('Error storing AI response:', insertError);
+                if (!inserted) {
+                  console.error('Error storing AI response');
                   // Send error event to client so they know the message wasn't saved
                   const errorData = JSON.stringify({
                     type: 'error',
@@ -656,78 +540,75 @@ export async function POST(
                   });
                   controller.enqueue(encoder.encode(`data: ${errorData}\n\n`));
                 } else {
-                  const inserted = insertedJson as MessageRow | null;
-                  if (inserted) {
-                    const message = {
-                      id: inserted.id,
-                      askKey: askRow.ask_key,
-                      askSessionId: inserted.ask_session_id,
-                      content: inserted.content,
-                      type: (inserted.message_type as any) ?? 'text',
-                      senderType: 'ai' as const,
-                      senderId: inserted.user_id ?? null,
-                      senderName: 'Agent',
-                      timestamp: inserted.created_at ?? new Date().toISOString(),
-                      metadata: normaliseMessageMetadata(inserted.metadata),
-                    };
+                  const message = {
+                    id: inserted.id,
+                    askKey: askRow.ask_key,
+                    askSessionId: inserted.ask_session_id,
+                    content: inserted.content,
+                    type: (inserted.message_type as any) ?? 'text',
+                    senderType: 'ai' as const,
+                    senderId: inserted.user_id ?? null,
+                    senderName: 'Agent',
+                    timestamp: inserted.created_at ?? new Date().toISOString(),
+                    metadata: normaliseMessageMetadata(inserted.metadata),
+                  };
 
-                    // Send final message
-                    const finalData = JSON.stringify({
-                      type: 'message',
-                      message: message
-                    });
-                    controller.enqueue(encoder.encode(`data: ${finalData}\n\n`));
+                  // Send final message
+                  const finalData = JSON.stringify({
+                    type: 'message',
+                    message: message
+                  });
+                  controller.enqueue(encoder.encode(`data: ${finalData}\n\n`));
 
-                    // Check for step completion markers
-                    if (conversationThread) {
-                      const detectedStepId = detectStepCompletion(fullContent.trim());
-                      if (detectedStepId) {
-                        try {
-                          // Use admin client to ensure we can read the plan regardless of RLS
-                          const adminForPlan = await getAdminClient();
-                          const plan = await getConversationPlanWithSteps(adminForPlan, conversationThread.id);
-                          if (plan) {
-                            const currentStep = getCurrentStep(plan);
+                  // Check for step completion markers
+                  if (conversationThread) {
+                    const detectedStepId = detectStepCompletion(fullContent.trim());
+                    if (detectedStepId) {
+                      try {
+                        // Use admin client to ensure we can read the plan regardless of RLS
+                        const adminForPlan = await getAdminClient();
+                        const plan = await getConversationPlanWithSteps(adminForPlan, conversationThread.id);
+                        if (plan) {
+                          const currentStep = getCurrentStep(plan);
 
-                            // Support both normalized and legacy step structures
-                            const currentStepIdentifier = currentStep && 'step_identifier' in currentStep
-                              ? currentStep.step_identifier
-                              : currentStep?.id;
+                          // Support both normalized and legacy step structures
+                          const currentStepIdentifier = currentStep && 'step_identifier' in currentStep
+                            ? currentStep.step_identifier
+                            : currentStep?.id;
 
-                            // If 'CURRENT' was returned, use the current step identifier
-                            // Otherwise validate that detected ID matches current step
-                            const stepIdToComplete = detectedStepId === 'CURRENT'
-                              ? currentStepIdentifier
-                              : detectedStepId;
+                          // If 'CURRENT' was returned, use the current step identifier
+                          // Otherwise validate that detected ID matches current step
+                          const stepIdToComplete = detectedStepId === 'CURRENT'
+                            ? currentStepIdentifier
+                            : detectedStepId;
 
-                            if (currentStep && (detectedStepId === 'CURRENT' || currentStepIdentifier === detectedStepId)) {
-                              // Complete the step (summary will be generated asynchronously)
-                              // Use admin client for RLS bypass
-                              const adminForStepUpdate = await getAdminClient();
-                              await completeStep(
-                                adminForStepUpdate,
-                                conversationThread.id,
-                                stepIdToComplete!,
-                                undefined, // No pre-generated summary - let the async agent generate it
-                                askRow.id // Pass askSessionId to trigger async summary generation
-                              );
+                          if (currentStep && (detectedStepId === 'CURRENT' || currentStepIdentifier === detectedStepId)) {
+                            // Complete the step (summary will be generated asynchronously)
+                            // Use admin client for RLS bypass
+                            const adminForStepUpdate = await getAdminClient();
+                            await completeStep(
+                              adminForStepUpdate,
+                              conversationThread.id,
+                              stepIdToComplete!,
+                              undefined, // No pre-generated summary - let the async agent generate it
+                              askRow.id // Pass askSessionId to trigger async summary generation
+                            );
 
-                              // Fetch the updated plan and send step_completed event to client
-                              const updatedPlan = await getConversationPlanWithSteps(adminForStepUpdate, conversationThread.id);
-                              if (updatedPlan) {
-                                const stepCompletedEvent = JSON.stringify({
-                                  type: 'step_completed',
-                                  conversationPlan: updatedPlan,
-                                  completedStepId: stepIdToComplete,
-                                });
-                                controller.enqueue(encoder.encode(`data: ${stepCompletedEvent}\n\n`));
-                              }
+                            // Fetch the updated plan and send step_completed event to client
+                            const updatedPlan = await getConversationPlanWithSteps(adminForStepUpdate, conversationThread.id);
+                            if (updatedPlan) {
+                              const stepCompletedEvent = JSON.stringify({
+                                type: 'step_completed',
+                                conversationPlan: updatedPlan,
+                                completedStepId: stepIdToComplete,
+                              });
+                              controller.enqueue(encoder.encode(`data: ${stepCompletedEvent}\n\n`));
                             }
                           }
-                        } catch (planError) {
-                          console.error('Failed to update conversation plan in stream:', planError);
-                          // Don't fail the stream if plan update fails
                         }
+                      } catch (planError) {
+                        console.error('Failed to update conversation plan in stream:', planError);
+                        // Don't fail the stream if plan update fails
                       }
                     }
                   }

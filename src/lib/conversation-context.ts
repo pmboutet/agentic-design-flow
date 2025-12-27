@@ -694,3 +694,251 @@ export async function fetchElapsedTime(options: FetchElapsedTimeOptions): Promis
   return { elapsedActiveSeconds, stepElapsedActiveSeconds };
 }
 
+// ============================================================================
+// RPC Wrapper Functions (DRY - centralized RPC calls)
+// ============================================================================
+
+/**
+ * Fetch participants by ASK session ID via RPC.
+ */
+export async function fetchParticipantsBySession(
+  supabase: SupabaseClient,
+  askSessionId: string
+): Promise<ParticipantRow[]> {
+  const { data, error } = await supabase.rpc('get_participants_by_ask_session', {
+    p_ask_session_id: askSessionId,
+  });
+
+  if (error) {
+    console.warn('Failed to fetch participants by session:', error);
+    return [];
+  }
+
+  return (data as ParticipantRow[] | null) ?? [];
+}
+
+/**
+ * Fetch a project by ID via RPC.
+ */
+export async function fetchProjectById(
+  supabase: SupabaseClient,
+  projectId: string
+): Promise<ProjectRow | null> {
+  const { data, error } = await supabase.rpc('get_project_by_id', {
+    p_project_id: projectId,
+  });
+
+  if (error) {
+    console.warn('Failed to fetch project:', error);
+    return null;
+  }
+
+  return (data as ProjectRow | null) ?? null;
+}
+
+/**
+ * Fetch a challenge by ID via RPC.
+ */
+export async function fetchChallengeById(
+  supabase: SupabaseClient,
+  challengeId: string
+): Promise<ChallengeRow | null> {
+  const { data, error } = await supabase.rpc('get_challenge_by_id', {
+    p_challenge_id: challengeId,
+  });
+
+  if (error) {
+    console.warn('Failed to fetch challenge:', error);
+    return null;
+  }
+
+  return (data as ChallengeRow | null) ?? null;
+}
+
+/**
+ * Fetch a participant by invite token via RPC.
+ */
+export async function fetchParticipantByToken(
+  supabase: SupabaseClient,
+  token: string
+): Promise<ParticipantRow | null> {
+  const { data, error } = await supabase.rpc('get_participant_by_invite_token', {
+    p_token: token,
+  });
+
+  if (error) {
+    console.warn('Failed to fetch participant by token:', error);
+    return null;
+  }
+
+  return (data as ParticipantRow | null) ?? null;
+}
+
+/**
+ * Check if a user is a participant of a session via RPC.
+ * Returns the participant record or null if not found.
+ */
+export async function fetchUserParticipation(
+  supabase: SupabaseClient,
+  askSessionId: string,
+  userId: string
+): Promise<ParticipantRow | null> {
+  const { data, error } = await supabase.rpc('check_user_is_participant', {
+    p_ask_session_id: askSessionId,
+    p_user_id: userId,
+  });
+
+  if (error) {
+    console.warn('Failed to check user participation:', error);
+    return null;
+  }
+
+  return (data as ParticipantRow | null) ?? null;
+}
+
+/**
+ * Add an anonymous participant to a session via RPC.
+ */
+export async function addAnonymousParticipant(
+  supabase: SupabaseClient,
+  askSessionId: string,
+  userId: string,
+  participantName?: string | null
+): Promise<ParticipantRow | null> {
+  const { data, error } = await supabase.rpc('add_anonymous_participant', {
+    p_ask_session_id: askSessionId,
+    p_user_id: userId,
+    p_participant_name: participantName ?? null,
+    p_role: 'participant',
+  });
+
+  if (error) {
+    console.warn('Failed to add anonymous participant:', error);
+    return null;
+  }
+
+  return (data as ParticipantRow | null) ?? null;
+}
+
+/**
+ * Fetch a profile by auth ID via RPC.
+ */
+export async function fetchProfileByAuthId(
+  supabase: SupabaseClient,
+  authId: string
+): Promise<{ id: string } | null> {
+  const { data, error } = await supabase.rpc('get_profile_by_auth_id', {
+    p_auth_id: authId,
+  });
+
+  if (error) {
+    console.warn('Failed to fetch profile by auth ID:', error);
+    return null;
+  }
+
+  return (data as { id: string } | null) ?? null;
+}
+
+/**
+ * Fetch a conversation thread by ID via RPC.
+ */
+export async function fetchThreadById(
+  supabase: SupabaseClient,
+  threadId: string
+): Promise<{ id: string; is_shared: boolean } | null> {
+  const { data, error } = await supabase.rpc('get_conversation_thread_by_id', {
+    p_thread_id: threadId,
+  });
+
+  if (error) {
+    console.warn('Failed to fetch thread:', error);
+    return null;
+  }
+
+  return (data as { id: string; is_shared: boolean } | null) ?? null;
+}
+
+/**
+ * Fetch messages without a conversation thread (backward compatibility) via RPC.
+ */
+export async function fetchMessagesWithoutThread(
+  supabase: SupabaseClient,
+  askSessionId: string
+): Promise<MessageRow[]> {
+  const { data, error } = await supabase.rpc('get_messages_without_thread', {
+    p_ask_session_id: askSessionId,
+  });
+
+  if (error) {
+    console.warn('Failed to fetch messages without thread:', error);
+    return [];
+  }
+
+  return (data as MessageRow[] | null) ?? [];
+}
+
+/**
+ * Fetch all messages for a session via RPC.
+ */
+export async function fetchMessagesBySession(
+  supabase: SupabaseClient,
+  askSessionId: string
+): Promise<MessageRow[]> {
+  const { data, error } = await supabase.rpc('get_messages_by_session', {
+    p_ask_session_id: askSessionId,
+  });
+
+  if (error) {
+    console.warn('Failed to fetch messages by session:', error);
+    return [];
+  }
+
+  return (data as MessageRow[] | null) ?? [];
+}
+
+/**
+ * Insert an AI message via RPC.
+ */
+export async function insertAiMessage(
+  supabase: SupabaseClient,
+  askSessionId: string,
+  conversationThreadId: string | null,
+  content: string,
+  senderName: string = 'Agent'
+): Promise<MessageRow | null> {
+  const { data, error } = await supabase.rpc('insert_ai_message', {
+    p_ask_session_id: askSessionId,
+    p_conversation_thread_id: conversationThreadId,
+    p_content: content,
+    p_sender_name: senderName,
+  });
+
+  if (error) {
+    console.error('Failed to insert AI message:', error);
+    return null;
+  }
+
+  return (data as MessageRow | null) ?? null;
+}
+
+/**
+ * Fetch recent messages for parent linking via RPC.
+ */
+export async function fetchRecentMessages(
+  supabase: SupabaseClient,
+  askSessionId: string,
+  limit: number = 10
+): Promise<{ id: string; sender_type: string }[]> {
+  const { data, error } = await supabase.rpc('get_recent_messages', {
+    p_ask_session_id: askSessionId,
+    p_limit: limit,
+  });
+
+  if (error) {
+    console.warn('Failed to fetch recent messages:', error);
+    return [];
+  }
+
+  return (data as { id: string; sender_type: string }[] | null) ?? [];
+}
+

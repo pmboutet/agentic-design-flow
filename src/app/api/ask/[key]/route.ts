@@ -14,6 +14,7 @@ import {
   buildParticipantSummary,
   buildMessageSenderName,
   fetchElapsedTime,
+  insertAiMessage,
   type UserRow,
   type ProjectRow,
   type ChallengeRow,
@@ -588,17 +589,16 @@ export async function GET(
             }
           }
 
-          // Insert the initial AI message via RPC to bypass RLS
-          const { data: insertedJson, error: insertError } = await dataClient.rpc('insert_ai_message', {
-            p_ask_session_id: askSessionId,
-            p_conversation_thread_id: conversationThread?.id ?? null,
-            p_content: aiResponse,
-            p_sender_name: 'Agent',
-          });
-          const insertedRows = insertedJson ? [insertedJson] : null;
+          // Insert the initial AI message via RPC wrapper to bypass RLS
+          const inserted = await insertAiMessage(
+            dataClient,
+            askSessionId,
+            conversationThread?.id ?? null,
+            aiResponse,
+            'Agent'
+          );
 
-          if (!insertError && insertedRows && insertedRows.length > 0) {
-            const inserted = insertedRows[0] as MessageRow;
+          if (inserted) {
             const initialMessage: Message = {
               id: inserted.id,
               askKey: askRow.ask_key,
@@ -615,7 +615,7 @@ export async function GET(
             messages.push(initialMessage);
             console.log('✅ GET /api/ask/[key]: Initial conversation message created:', initialMessage.id);
           } else {
-            console.error('❌ GET /api/ask/[key]: Failed to insert initial message:', insertError);
+            console.error('❌ GET /api/ask/[key]: Failed to insert initial message');
           }
         }
       } catch (error) {

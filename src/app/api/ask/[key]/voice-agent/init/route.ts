@@ -14,6 +14,12 @@ import {
   buildParticipantSummary,
   fetchUsersByIds,
   fetchElapsedTime,
+  fetchParticipantsBySession,
+  fetchProfileByAuthId,
+  fetchProjectById,
+  fetchChallengeById,
+  fetchMessagesWithoutThread,
+  insertAiMessage,
   type AskSessionRow,
   type UserRow,
   type ParticipantRow,
@@ -54,28 +60,17 @@ export async function POST(
       }, { status: 404 });
     }
 
-    // Fetch participants FIRST via RPC (needed for thread resolution and voice agent)
+    // Fetch participants FIRST via RPC wrapper (needed for thread resolution and voice agent)
     const adminClient = getAdminSupabaseClient();
-    const { data: participantRowsJson, error: participantError } = await adminClient.rpc('get_participants_by_ask_session', {
-      p_ask_session_id: askRow.id,
-    });
+    const participantRows = await fetchParticipantsBySession(adminClient, askRow.id);
 
-    if (participantError) {
-      throw participantError;
-    }
-
-    const participantRows = (participantRowsJson as ParticipantRow[] | null) ?? [];
-
-    // Try to get current user for thread determination via RPC
+    // Try to get current user for thread determination via RPC wrapper
     const isDevBypass = process.env.IS_DEV === 'true';
     let profileId: string | null = null;
     try {
       const { data: userResult } = await supabase.auth.getUser();
       if (userResult?.user) {
-        const { data: profileJson } = await adminClient.rpc('get_profile_by_auth_id', {
-          p_auth_id: userResult.user.id,
-        });
-        const profile = profileJson as { id: string } | null;
+        const profile = await fetchProfileByAuthId(adminClient, userResult.user.id);
         if (profile) {
           profileId = profile.id;
         }
@@ -109,26 +104,13 @@ export async function POST(
       askConfig
     );
 
-    const participantUserIds = (participantRows ?? [])
+    const participantUserIds = participantRows
       .map(row => row.user_id)
       .filter((value): value is string => Boolean(value));
 
     let usersById: Record<string, UserRow> = {};
     if (participantUserIds.length > 0) {
-      // Use RPC to bypass RLS in production
-      const { data: userRowsJson, error: userError } = await adminClient.rpc('get_profiles_by_ids', {
-        p_user_ids: participantUserIds,
-      });
-
-      if (userError) {
-        throw userError;
-      }
-
-      const userRows = (userRowsJson as UserRow[] | null) ?? [];
-      usersById = userRows.reduce<Record<string, UserRow>>((acc, user) => {
-        acc[user.id] = user;
-        return acc;
-      }, {});
+      usersById = await fetchUsersByIds(adminClient, participantUserIds);
     }
 
     // Build participant summaries using unified function for consistent mapping
@@ -137,29 +119,13 @@ export async function POST(
       return buildParticipantSummary(row as ParticipantRow, user, index);
     });
 
-    // Fetch project data via RPC
-    let projectData: ProjectRow | null = null;
-    if (askRow.project_id) {
-      const { data: projectJson, error } = await adminClient.rpc('get_project_by_id', {
-        p_project_id: askRow.project_id,
-      });
-
-      if (!error) {
-        projectData = (projectJson as ProjectRow | null) ?? null;
-      }
-    }
-
-    // Fetch challenge data via RPC
-    let challengeData: ChallengeRow | null = null;
-    if (askRow.challenge_id) {
-      const { data: challengeJson, error } = await adminClient.rpc('get_challenge_by_id', {
-        p_challenge_id: askRow.challenge_id,
-      });
-
-      if (!error) {
-        challengeData = (challengeJson as ChallengeRow | null) ?? null;
-      }
-    }
+    // Fetch project and challenge data via RPC wrappers
+    const projectData = askRow.project_id
+      ? await fetchProjectById(adminClient, askRow.project_id)
+      : null;
+    const challengeData = askRow.challenge_id
+      ? await fetchChallengeById(adminClient, askRow.challenge_id)
+      : null;
 
     // Ensure a conversation plan exists (centralized function handles generation if needed)
     let conversationPlan = null;
@@ -197,11 +163,8 @@ export async function POST(
       messageRows = (threadMessages ?? []) as MessageRow[];
       hasMessages = messageRows.length > 0;
     } else {
-      // Check for messages without thread via RPC
-      const { data: messagesWithoutThreadJson } = await adminClient.rpc('get_messages_without_thread', {
-        p_ask_session_id: askRow.id,
-      });
-      const messagesWithoutThread = (messagesWithoutThreadJson as { id: string }[] | null) ?? [];
+      // Check for messages without thread via RPC wrapper
+      const messagesWithoutThread = await fetchMessagesWithoutThread(adminClient, askRow.id);
       hasMessages = messagesWithoutThread.length > 0;
     }
 
@@ -288,16 +251,17 @@ export async function POST(
             }
           }
 
-          // Insert the initial AI message via RPC
-          const { error: insertError } = await adminClient.rpc('insert_ai_message', {
-            p_ask_session_id: askRow.id,
-            p_conversation_thread_id: conversationThread?.id ?? null,
-            p_content: aiResponse,
-            p_sender_name: 'Agent',
-          });
+          // Insert the initial AI message via RPC wrapper
+          const insertedMessage = await insertAiMessage(
+            adminClient,
+            askRow.id,
+            conversationThread?.id ?? null,
+            aiResponse,
+            'Agent'
+          );
 
-          if (insertError) {
-            console.error('Voice agent init: Failed to insert initial message:', insertError);
+          if (!insertedMessage) {
+            console.error('Voice agent init: Failed to insert initial message');
           }
         }
       } catch (error) {

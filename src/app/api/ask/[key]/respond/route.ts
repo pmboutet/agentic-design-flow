@@ -16,6 +16,7 @@ import {
   buildMessageSenderName,
   buildParticipantSummary,
   fetchElapsedTime,
+  insertAiMessage,
   type AskSessionRow,
   type UserRow,
   type ParticipantRow,
@@ -1752,19 +1753,14 @@ export async function POST(
           }
         }
 
-        // Insert AI message via RPC to bypass RLS
-        const { data: insertedJson, error: insertError } = await supabase.rpc('insert_ai_message', {
-          p_ask_session_id: askRow.id,
-          p_conversation_thread_id: conversationThread?.id ?? null,
-          p_content: messageContent,
-          p_sender_name: 'Agent',
-        });
-
-        if (insertError) {
-          throw insertError;
-        }
-
-        const inserted = insertedJson as MessageRow | null;
+        // Insert AI message via RPC wrapper to bypass RLS
+        const inserted = await insertAiMessage(
+          supabase,
+          askRow.id,
+          conversationThread?.id ?? null,
+          messageContent,
+          'Agent'
+        );
 
         if (inserted) {
           message = {
@@ -1891,19 +1887,14 @@ export async function POST(
           }
         }
 
-        // Insert AI message via RPC to bypass RLS
-        const { data: insertedJson, error: insertError } = await supabase.rpc('insert_ai_message', {
-          p_ask_session_id: askRow.id,
-          p_conversation_thread_id: conversationThread?.id ?? null,
-          p_content: latestAiResponse,
-          p_sender_name: 'Agent',
-        });
-
-        if (insertError) {
-          throw insertError;
-        }
-
-        const inserted = insertedJson as MessageRow | null;
+        // Insert AI message via RPC wrapper to bypass RLS
+        const inserted = await insertAiMessage(
+          supabase,
+          askRow.id,
+          conversationThread?.id ?? null,
+          latestAiResponse,
+          'Agent'
+        );
 
         if (!inserted) {
           throw new Error('Unable to store AI response');
