@@ -148,22 +148,22 @@ export async function createConversationPlan(
   const currentStepId = planData.steps.length > 0 ? planData.steps[0].id : null;
   const totalSteps = planData.steps.length;
 
-  // Use RPC function to bypass RLS (SECURITY DEFINER)
-  const { data: planId, error: planError } = await supabase.rpc('create_conversation_plan', {
+  // Use RPC function to bypass RLS (SECURITY DEFINER) - returns full plan record as JSONB
+  const { data: planRecord, error: planError } = await supabase.rpc('create_conversation_plan', {
     p_conversation_thread_id: conversationThreadId,
     p_plan_data: planData,
     p_current_step_id: currentStepId,
     p_total_steps: totalSteps,
   });
 
-  if (planError || !planId) {
+  if (planError || !planRecord) {
     console.error('❌ [createConversationPlan] Failed to create plan record:', planError?.message, planError?.details, planError?.hint);
     throw new Error(`Failed to create conversation plan: ${planError?.message}`);
   }
 
-  console.log('✅ [createConversationPlan] Plan record created:', planId);
+  console.log('✅ [createConversationPlan] Plan record created:', planRecord.id);
 
-  // Create step records using RPC function
+  // Create step records using RPC function - returns full step records as JSONB array
   const stepRecords = planData.steps.map((step, index) => ({
     step_identifier: step.id,
     step_order: index + 1,
@@ -172,8 +172,8 @@ export async function createConversationPlan(
     status: step.status,
   }));
 
-  const { data: insertedStepIds, error: stepsError } = await supabase.rpc('create_conversation_plan_steps', {
-    p_plan_id: planId,
+  const { data: insertedSteps, error: stepsError } = await supabase.rpc('create_conversation_plan_steps', {
+    p_plan_id: planRecord.id,
     p_steps: stepRecords,
   });
 
@@ -182,34 +182,14 @@ export async function createConversationPlan(
     throw new Error(`Failed to create plan steps: ${stepsError?.message}`);
   }
 
-  console.log('✅ [createConversationPlan] Steps created:', insertedStepIds?.length ?? 0);
+  console.log('✅ [createConversationPlan] Steps created:', insertedSteps?.length ?? 0);
 
-  // Fetch the complete plan with steps
-  const { data: planRecord, error: fetchError } = await supabase
-    .from('ask_conversation_plans')
-    .select('*')
-    .eq('id', planId)
-    .single();
-
-  if (fetchError || !planRecord) {
-    console.error('❌ [createConversationPlan] Failed to fetch created plan:', fetchError?.message);
-    throw new Error(`Failed to fetch created plan: ${fetchError?.message}`);
-  }
-
-  const { data: insertedSteps, error: fetchStepsError } = await supabase
-    .from('ask_conversation_plan_steps')
-    .select('*')
-    .eq('plan_id', planId)
-    .order('step_order');
-
-  if (fetchStepsError) {
-    console.error('❌ [createConversationPlan] Failed to fetch steps:', fetchStepsError?.message);
-    throw new Error(`Failed to fetch plan steps: ${fetchStepsError?.message}`);
-  }
+  // Sort steps by step_order (RPC returns them in insertion order)
+  const sortedSteps = (insertedSteps as ConversationPlanStep[]).sort((a, b) => a.step_order - b.step_order);
 
   return {
     ...planRecord,
-    steps: insertedSteps as ConversationPlanStep[],
+    steps: sortedSteps,
   } as ConversationPlanWithSteps;
 }
 
