@@ -1123,17 +1123,18 @@ export async function POST(
       if (participantId) {
         const admin = await getAdminClient();
 
-        // First, get the participant's ask_session_id to debug
-        const { data: participantData, error: participantFetchError } = await admin
-          .from('ask_participants')
-          .select('id, ask_session_id')
-          .eq('id', participantId)
-          .maybeSingle();
+        // Use RPC to bypass RLS issues in production
+        const { data: participantDataJson, error: participantFetchError } = await admin.rpc(
+          'get_participant_by_id',
+          { p_participant_id: participantId }
+        );
 
         if (participantFetchError) {
           console.error('❌ POST: Error fetching participant data:', participantFetchError);
           return permissionDeniedResponse();
         }
+
+        const participantData = participantDataJson as { id: string; ask_session_id: string } | null;
 
         if (!participantData) {
           console.error('❌ POST: Participant not found:', participantId);

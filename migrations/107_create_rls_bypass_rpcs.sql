@@ -215,6 +215,34 @@ END;
 $$;
 
 -- =====================================================
+-- PARTICIPANT RPCs
+-- =====================================================
+
+-- Get participant by ID
+CREATE OR REPLACE FUNCTION public.get_participant_by_id(
+  p_participant_id uuid
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_participant_record ask_participants;
+BEGIN
+  SELECT * INTO v_participant_record
+  FROM ask_participants
+  WHERE id = p_participant_id;
+
+  IF v_participant_record IS NULL THEN
+    RETURN NULL;
+  END IF;
+
+  RETURN to_jsonb(v_participant_record);
+END;
+$$;
+
+-- =====================================================
 -- GRANTS
 -- =====================================================
 
@@ -225,5 +253,6 @@ GRANT EXECUTE ON FUNCTION public.activate_plan_step TO anon, authenticated, serv
 GRANT EXECUTE ON FUNCTION public.update_plan_current_step TO anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.insert_insight TO anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.update_insight TO anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.get_participant_by_id TO anon, authenticated, service_role;
 
 NOTIFY pgrst, 'reload schema';
