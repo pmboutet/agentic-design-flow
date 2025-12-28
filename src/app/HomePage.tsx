@@ -394,6 +394,8 @@ function MobileLayout({
                 askKey={sessionDataAskKey}
                 isDetectingInsights={isDetectingInsights}
                 onInsightUpdate={onInsightUpdate}
+                isConsultantMode={isConsultantMode}
+                isSpokesperson={isSpokesperson}
               />
             </div>
           </motion.div>
@@ -2699,6 +2701,8 @@ export default function HomePage() {
                             askKey={sessionData.askKey}
                             isDetectingInsights={isDetectingInsights}
                             onInsightUpdate={handleInsightUpdate}
+                            isConsultantMode={isConsultantMode}
+                            isSpokesperson={isSpokesperson}
                           />
                         </motion.div>
                       )}
@@ -2854,6 +2858,8 @@ export default function HomePage() {
                       askKey={sessionData.askKey}
                       isDetectingInsights={isDetectingInsights}
                       onInsightUpdate={handleInsightUpdate}
+                      isConsultantMode={isConsultantMode}
+                      isSpokesperson={isSpokesperson}
                     />
                   </div>
                 </>

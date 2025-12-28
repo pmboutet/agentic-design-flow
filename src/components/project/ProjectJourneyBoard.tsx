@@ -3347,7 +3347,11 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
             </div>
 
             {boardData.projectDescription ? (
-              <p className="mt-4 text-sm text-slate-300">{boardData.projectDescription}</p>
+              <div className="mt-4 max-h-[30vh] overflow-y-auto rounded-lg border border-white/10 bg-slate-900/40 p-4">
+                <ReactMarkdown className="prose prose-sm prose-invert max-w-none space-y-3" components={challengeMarkdownComponents}>
+                  {boardData.projectDescription}
+                </ReactMarkdown>
+              </div>
             ) : null}
           </>
         )}

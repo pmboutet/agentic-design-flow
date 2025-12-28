@@ -28,22 +28,13 @@ interface ClientContactsDialogProps {
   clientName: string | null;
 }
 
-interface ContactWithProfile extends ClientMember {
-  profile?: {
-    email: string;
-    fullName?: string | null;
-    firstName?: string | null;
-    lastName?: string | null;
-  } | null;
-}
-
 export function ClientContactsDialog({
   open,
   onOpenChange,
   clientId,
   clientName
 }: ClientContactsDialogProps) {
-  const [contacts, setContacts] = useState<ContactWithProfile[]>([]);
+  const [contacts, setContacts] = useState<ClientMember[]>([]);
   const [availableUsers, setAvailableUsers] = useState<ManagedUser[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -74,35 +65,8 @@ export function ClientContactsDialog({
         throw new Error(payload.error || "Failed to load contacts");
       }
 
-      const members: ClientMember[] = payload.data || [];
-
-      // Fetch user profiles for each member
-      const contactsWithProfiles: ContactWithProfile[] = await Promise.all(
-        members.map(async (member) => {
-          try {
-            const profileRes = await fetch(`/api/admin/profiles/${member.userId}`, {
-              credentials: "include"
-            });
-            const profilePayload = await profileRes.json();
-            if (profilePayload.success && profilePayload.data) {
-              return {
-                ...member,
-                profile: {
-                  email: profilePayload.data.email,
-                  fullName: profilePayload.data.fullName,
-                  firstName: profilePayload.data.firstName,
-                  lastName: profilePayload.data.lastName
-                }
-              };
-            }
-          } catch {
-            // Ignore profile fetch errors
-          }
-          return member;
-        })
-      );
-
-      setContacts(contactsWithProfiles);
+      // Profile info is now included in the member data
+      setContacts(payload.data || []);
     } catch (err) {
       setError(err instanceof Error ? err.message : "An error occurred");
     } finally {
@@ -192,12 +156,12 @@ export function ClientContactsDialog({
     }
   };
 
-  const getDisplayName = (contact: ContactWithProfile): string => {
-    if (contact.profile?.fullName) return contact.profile.fullName;
-    if (contact.profile?.firstName || contact.profile?.lastName) {
-      return [contact.profile.firstName, contact.profile.lastName].filter(Boolean).join(" ");
+  const getDisplayName = (contact: ClientMember): string => {
+    if (contact.userFullName) return contact.userFullName;
+    if (contact.userFirstName || contact.userLastName) {
+      return [contact.userFirstName, contact.userLastName].filter(Boolean).join(" ");
     }
-    if (contact.profile?.email) return contact.profile.email;
+    if (contact.userEmail) return contact.userEmail;
     return contact.userId;
   };
 
@@ -375,8 +339,8 @@ export function ClientContactsDialog({
                         <p className="text-sm font-medium text-white truncate">
                           {getDisplayName(contact)}
                         </p>
-                        {contact.profile?.email && contact.profile.fullName && (
-                          <p className="text-xs text-slate-400 truncate">{contact.profile.email}</p>
+                        {contact.userEmail && contact.userFullName && (
+                          <p className="text-xs text-slate-400 truncate">{contact.userEmail}</p>
                         )}
                         <div className="flex items-center gap-2 mt-1">
                           <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300">

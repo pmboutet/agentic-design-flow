@@ -12,7 +12,7 @@ const dateSchema = z.string().trim().min(1).refine(value => !Number.isNaN(new Da
 
 const updateSchema = z.object({
   name: z.string().trim().min(1).max(255).optional(),
-  description: z.string().trim().max(1000).optional().or(z.literal("")),
+  description: z.string().trim().max(10000).optional().or(z.literal("")),
   clientId: z.string().uuid().optional(),
   startDate: dateSchema.optional(),
   endDate: dateSchema.optional(),

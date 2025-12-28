@@ -15,6 +15,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { ClientEditDialog } from "@/components/project/ClientEditDialog";
 import { ClientContactsDialog } from "@/components/admin/ClientContactsDialog";
+import { useClientContextOptional } from "@/components/admin/ClientContext";
 import type { ClientRecord } from "@/types";
 
 interface FeedbackState {
@@ -58,6 +59,9 @@ export function ClientsAdminView() {
   const [isBusy, setIsBusy] = useState(false);
   const [feedback, setFeedback] = useState<FeedbackState | null>(null);
 
+  // Get context to refresh global client list (used in menus/dropdowns)
+  const clientContext = useClientContextOptional();
+
   // Dialog states
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editDialogMode, setEditDialogMode] = useState<"create" | "edit">("create");
@@ -92,13 +96,15 @@ export function ClientsAdminView() {
     try {
       const data = await request<ClientRecord[]>("/api/admin/clients");
       setClients(data ?? []);
+      // Also refresh the global context so menus/dropdowns are updated
+      await clientContext?.refreshClients();
     } catch (error) {
       setFeedback({
         type: "error",
         message: error instanceof Error ? error.message : "Unable to refresh clients"
       });
     }
-  }, []);
+  }, [clientContext]);
 
   const openCreateDialog = () => {
     setEditDialogMode("create");

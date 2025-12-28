@@ -16,7 +16,7 @@ const statuses = ["active", "paused", "completed", "archived"] as const;
 
 const formSchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(255),
-  description: z.string().trim().max(1000).optional().or(z.literal("")),
+  description: z.string().trim().max(10000).optional().or(z.literal("")),
   clientId: z.string().uuid("Invalid client"),
   startDate: z.string().trim().min(1, "Start date is required"),
   endDate: z.string().trim().min(1, "End date is required"),

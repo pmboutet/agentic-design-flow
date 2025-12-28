@@ -16,6 +16,9 @@ const payloadSchema = z.object({
 });
 
 function mapClientMember(row: any): ClientMember {
+  // Handle joined profile data (can be object or array depending on query)
+  const profile = row.profiles ? (Array.isArray(row.profiles) ? row.profiles[0] : row.profiles) : null;
+
   return {
     id: row.id,
     clientId: row.client_id,
@@ -23,7 +26,11 @@ function mapClientMember(row: any): ClientMember {
     role: (row.role || 'participant') as ClientRole,
     jobTitle: row.job_title ?? null,
     createdAt: row.created_at,
-    updatedAt: row.updated_at
+    updatedAt: row.updated_at,
+    userEmail: profile?.email ?? null,
+    userFirstName: profile?.first_name ?? null,
+    userLastName: profile?.last_name ?? null,
+    userFullName: profile?.full_name ?? null
   };
 }
 
@@ -78,7 +85,15 @@ export async function GET(
 
     const { data, error } = await supabase
       .from("client_members")
-      .select("*")
+      .select(`
+        *,
+        profiles:user_id (
+          email,
+          first_name,
+          last_name,
+          full_name
+        )
+      `)
       .eq("client_id", clientId)
       .order("created_at", { ascending: false });
 

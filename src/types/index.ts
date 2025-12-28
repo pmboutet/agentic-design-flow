@@ -388,6 +388,10 @@ export interface InsightPanelProps {
   onInsightUpdate?: (insightId: string, newContent: string) => void;
   askKey: string;
   isDetectingInsights?: boolean;
+  /** When true, display logic changes for consultant mode */
+  isConsultantMode?: boolean;
+  /** When true (and isConsultantMode), shows full content instead of summary */
+  isSpokesperson?: boolean;
 }
 
 // Consultant mode - suggested questions
@@ -434,6 +438,11 @@ export interface ClientMember {
   jobTitle?: string | null; // Client-specific job title
   createdAt: string;
   updatedAt: string;
+  // Optional profile info (populated when joined with profiles table)
+  userEmail?: string | null;
+  userFirstName?: string | null;
+  userLastName?: string | null;
+  userFullName?: string | null;
 }
 
 // Extended client membership with client details (for UI display)

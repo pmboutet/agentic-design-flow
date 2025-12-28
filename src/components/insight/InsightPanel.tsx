@@ -64,10 +64,14 @@ function InsightCard({
   insight,
   onLink,
   onUpdate,
+  isConsultantMode = false,
+  isSpokesperson = false,
 }: {
   insight: Insight;
   onLink?: (insightId: string) => void;
   onUpdate?: (insightId: string, newContent: string) => void;
+  isConsultantMode?: boolean;
+  isSpokesperson?: boolean;
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState(insight.content);
@@ -186,37 +190,46 @@ function InsightCard({
             </div>
           ) : (
             <div className="space-y-2">
-              {/* Main content */}
-              {insight.content && insight.content.trim() && (
-                <ReactMarkdown
-                  className="space-y-2"
-                  components={insightMarkdownComponents}
-                >
-                  {insight.content.trim()}
-                </ReactMarkdown>
-              )}
-              {/* Summary - displayed as a separate section if available */}
-              {insight.summary && insight.summary.trim() && insight.summary !== insight.content && (
-                <div className="mt-2 pt-2 border-t border-slate-200">
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 mb-1">
-                    Synthèse
-                  </p>
+              {/*
+                Display logic:
+                - Consultant mode + spokesperson: Show full content (detail)
+                - Non-consultant OR consultant but not spokesperson: Show only summary (synthesis)
+              */}
+              {isConsultantMode && isSpokesperson ? (
+                // Consultant sees full detail/description
+                insight.content && insight.content.trim() ? (
                   <ReactMarkdown
-                    className="space-y-1"
+                    className="space-y-2"
+                    components={insightMarkdownComponents}
+                  >
+                    {insight.content.trim()}
+                  </ReactMarkdown>
+                ) : insight.summary && insight.summary.trim() ? (
+                  <ReactMarkdown
+                    className="space-y-2"
                     components={insightMarkdownComponents}
                   >
                     {insight.summary.trim()}
                   </ReactMarkdown>
-                </div>
-              )}
-              {/* Fallback: if only summary and no content, show summary as main content */}
-              {(!insight.content || !insight.content.trim()) && insight.summary && insight.summary.trim() && (
-                <ReactMarkdown
-                  className="space-y-2"
-                  components={insightMarkdownComponents}
-                >
-                  {insight.summary.trim()}
-                </ReactMarkdown>
+                ) : null
+              ) : (
+                // Non-consultant or other participants: Show only synthesis
+                insight.summary && insight.summary.trim() ? (
+                  <ReactMarkdown
+                    className="space-y-2"
+                    components={insightMarkdownComponents}
+                  >
+                    {insight.summary.trim()}
+                  </ReactMarkdown>
+                ) : insight.content && insight.content.trim() ? (
+                  // Fallback to content if no summary available
+                  <ReactMarkdown
+                    className="space-y-2"
+                    components={insightMarkdownComponents}
+                  >
+                    {insight.content.trim()}
+                  </ReactMarkdown>
+                ) : null
               )}
             </div>
           )}
@@ -273,7 +286,7 @@ function InsightCard({
   );
 }
 
-export function InsightPanel({ insights, askKey, onRequestChallengeLink, onInsightUpdate, isDetectingInsights = false }: InsightPanelProps) {
+export function InsightPanel({ insights, askKey, onRequestChallengeLink, onInsightUpdate, isDetectingInsights = false, isConsultantMode = false, isSpokesperson = false }: InsightPanelProps) {
   const [activeFilter, setActiveFilter] = useState<InsightGroup["value"]>("all");
 
   const filteredInsights = useMemo(() => {
@@ -333,7 +346,7 @@ export function InsightPanel({ insights, askKey, onRequestChallengeLink, onInsig
               </motion.div>
             ) : (
               filteredInsights.map((insight) => (
-                <InsightCard key={insight.id} insight={insight} onLink={onRequestChallengeLink} onUpdate={onInsightUpdate} />
+                <InsightCard key={insight.id} insight={insight} onLink={onRequestChallengeLink} onUpdate={onInsightUpdate} isConsultantMode={isConsultantMode} isSpokesperson={isSpokesperson} />
               ))
             )}
           </AnimatePresence>

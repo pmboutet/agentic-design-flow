@@ -23,7 +23,7 @@ const statuses = ["active", "paused", "completed", "archived"] as const;
 
 const formSchema = z.object({
   name: z.string().trim().min(1, "Le nom est requis").max(255),
-  description: z.string().trim().max(1000).optional().or(z.literal("")),
+  description: z.string().trim().max(10000, "La description ne peut pas dépasser 10 000 caractères").optional().or(z.literal("")),
   clientId: z.string().uuid("Client invalide"),
   startDate: z.string().trim().min(1, "La date de début est requise"),
   endDate: z.string().trim().min(1, "La date de fin est requise"),
@@ -120,7 +120,9 @@ export function ProjectCreateDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
+        <form onSubmit={form.handleSubmit(handleSubmit, (errors) => {
+          console.error("Form validation errors:", errors);
+        })} className="space-y-4">
           {form.formState.errors.root && (
             <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-sm text-red-400">
               {form.formState.errors.root.message}
@@ -149,6 +151,14 @@ export function ProjectCreateDialog({
               {...form.register("description")}
               disabled={isSubmitting}
             />
+            <div className="flex justify-between text-xs">
+              <span className={(form.watch("description")?.length ?? 0) > 10000 ? "text-red-400" : "text-slate-500"}>
+                {form.watch("description")?.length ?? 0} / 10 000 caractères
+              </span>
+              {form.formState.errors.description && (
+                <span className="text-red-400">{form.formState.errors.description.message}</span>
+              )}
+            </div>
           </div>
 
           {clients.length > 1 && (
