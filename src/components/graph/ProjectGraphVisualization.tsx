@@ -149,6 +149,73 @@ interface ForceGraphData {
 // COLOR SCHEME - Based on module-colors.ts
 // ============================================================================
 
+// Pre-computed color cache to avoid regex parsing on every frame
+// Key format: "baseColor:alpha" -> computed RGBA string
+const colorAlphaCache = new Map<string, string>();
+
+function getColorWithAlpha(baseColor: string, alpha: number): string {
+  if (alpha >= 1) return baseColor;
+
+  const cacheKey = `${baseColor}:${alpha.toFixed(2)}`;
+  const cached = colorAlphaCache.get(cacheKey);
+  if (cached) return cached;
+
+  // Parse and apply alpha (only on cache miss)
+  const result = baseColor.replace(/[\d.]+\)$/, `${alpha * 0.6})`);
+  colorAlphaCache.set(cacheKey, result);
+  return result;
+}
+
+// Text measurement cache to avoid expensive ctx.measureText() calls
+// Key format: "label:maxWidth" -> { lines, maxTextWidth }
+interface TextMeasurement {
+  lines: string[];
+  maxTextWidth: number;
+}
+const textMeasureCache = new Map<string, TextMeasurement>();
+
+function measureTextWithCache(
+  ctx: CanvasRenderingContext2D,
+  label: string,
+  maxWidth: number
+): TextMeasurement {
+  // Round maxWidth to reduce cache misses during zoom
+  const roundedMaxWidth = Math.round(maxWidth / 20) * 20;
+  const cacheKey = `${label}:${roundedMaxWidth}`;
+
+  const cached = textMeasureCache.get(cacheKey);
+  if (cached) return cached;
+
+  // Word wrap calculation
+  const words = label.split(" ");
+  const lines: string[] = [];
+  let currentLine = "";
+
+  for (const word of words) {
+    const testLine = currentLine ? `${currentLine} ${word}` : word;
+    if (ctx.measureText(testLine).width > maxWidth && currentLine) {
+      lines.push(currentLine);
+      currentLine = word;
+    } else {
+      currentLine = testLine;
+    }
+  }
+  if (currentLine) lines.push(currentLine);
+
+  const maxTextWidth = Math.max(...lines.map((l) => ctx.measureText(l).width));
+
+  const result = { lines, maxTextWidth };
+
+  // Limit cache size to prevent memory leaks
+  if (textMeasureCache.size > 500) {
+    const firstKey = textMeasureCache.keys().next().value;
+    if (firstKey) textMeasureCache.delete(firstKey);
+  }
+
+  textMeasureCache.set(cacheKey, result);
+  return result;
+}
+
 // Node colors by type (RGBA for transparency support)
 const NODE_COLORS: Record<GraphNodeType | "default", { fill: string; solid: string }> = {
   // Insight: Yellow/Gold (like insight-detection module)
@@ -634,6 +701,12 @@ export function ProjectGraphVisualization({ projectId, clientId, refreshKey }: P
   const filteredGraphData = useMemo(() => {
     if (!graphData) return null;
 
+    // Build node type map for O(1) lookups (instead of O(n) .find() calls)
+    const nodeTypeMap = new Map<string, GraphNodeType>();
+    for (const node of graphData.nodes) {
+      nodeTypeMap.set(node.id, node.type);
+    }
+
     // Filter nodes by type visibility and search
     const visibleNodes = graphData.nodes.filter((node) => {
       if (!visibleTypes[node.type]) return false;
@@ -688,9 +761,9 @@ export function ProjectGraphVisualization({ projectId, clientId, refreshKey }: P
           if (!seenVirtualLinks.has(linkKey)) {
             seenVirtualLinks.add(linkKey);
 
-            // Determine link color based on connected node types
-            const nodeAType = graphData.nodes.find((n) => n.id === nodeA)?.type;
-            const nodeBType = graphData.nodes.find((n) => n.id === nodeB)?.type;
+            // Determine link color based on connected node types (O(1) lookup)
+            const nodeAType = nodeTypeMap.get(nodeA);
+            const nodeBType = nodeTypeMap.get(nodeB);
 
             let color = EDGE_COLORS.default;
             if (nodeAType === "challenge" || nodeBType === "challenge") {
@@ -713,27 +786,28 @@ export function ProjectGraphVisualization({ projectId, clientId, refreshKey }: P
     }
 
     // Filter original links (only between visible nodes)
+    // Build a Set for O(1) duplicate checking instead of O(n) .some() calls
+    const directLinkKeys = new Set<string>();
     const directLinks = graphData.links.filter((link) => {
       const sourceId = typeof link.source === "string" ? link.source : link.source.id;
       const targetId = typeof link.target === "string" ? link.target : link.target.id;
-      return visibleNodeIds.has(sourceId) && visibleNodeIds.has(targetId);
+      if (visibleNodeIds.has(sourceId) && visibleNodeIds.has(targetId)) {
+        // Store both directions for bidirectional lookup
+        directLinkKeys.add(`${sourceId}-${targetId}`);
+        directLinkKeys.add(`${targetId}-${sourceId}`);
+        return true;
+      }
+      return false;
     });
 
-    // Combine direct and virtual links, avoiding duplicates
+    // Combine direct and virtual links, avoiding duplicates with O(1) Set lookup
     const allLinks = [...directLinks];
     for (const vLink of virtualLinks) {
       const sourceId = typeof vLink.source === "string" ? vLink.source : vLink.source.id;
       const targetId = typeof vLink.target === "string" ? vLink.target : vLink.target.id;
 
-      // Check if a direct link already exists
-      const exists = directLinks.some((dLink) => {
-        const dSourceId = typeof dLink.source === "string" ? dLink.source : dLink.source.id;
-        const dTargetId = typeof dLink.target === "string" ? dLink.target : dLink.target.id;
-        return (dSourceId === sourceId && dTargetId === targetId) ||
-               (dSourceId === targetId && dTargetId === sourceId);
-      });
-
-      if (!exists) {
+      // O(1) lookup instead of O(n) .some()
+      if (!directLinkKeys.has(`${sourceId}-${targetId}`)) {
         allLinks.push(vLink);
       }
     }
@@ -866,8 +940,8 @@ export function ProjectGraphVisualization({ projectId, clientId, refreshKey }: P
             const baseRadius = Math.max(estimatedTextWidth / 2, 60) + estimatedLabelHeight + 35;
             return baseRadius * collideRadius;
           })
-          .strength(1.0)
-          .iterations(6)
+          .strength(0.8)
+          .iterations(3)
       );
     }
   }, [filteredGraphData, viewMode]);
@@ -878,6 +952,20 @@ export function ProjectGraphVisualization({ projectId, clientId, refreshKey }: P
 
   const handleNodeClick = useCallback((node: any) => {
     setSelectedNode((prev) => (prev?.id === node.id ? null : (node as ForceGraphNode)));
+  }, []);
+
+  // Fix node position after drag so it stays in place
+  const handleNodeDragEnd = useCallback((node: any) => {
+    // Pin the node to its current position
+    node.fx = node.x;
+    node.fy = node.y;
+  }, []);
+
+  // Double-click to unpin a node
+  const handleNodeRightClick = useCallback((node: any) => {
+    // Unpin the node so it can move freely again
+    node.fx = undefined;
+    node.fy = undefined;
   }, []);
 
   const handleNodeHover = useCallback((node: any) => {
@@ -959,11 +1047,8 @@ export function ProjectGraphVisualization({ projectId, clientId, refreshKey }: P
         ? n.communityColor
         : n.color;
 
-      // Parse color and apply alpha
-      let fillColor = baseColor;
-      if (alpha < 1) {
-        fillColor = baseColor.replace(/[\d.]+\)$/, `${alpha * 0.6})`);
-      }
+      // Get color with alpha from cache (avoids regex on every frame)
+      const fillColor = getColorWithAlpha(baseColor, alpha);
 
       // Draw node circle
       ctx.beginPath();
@@ -1040,26 +1125,11 @@ export function ProjectGraphVisualization({ projectId, clientId, refreshKey }: P
 
       // Word wrap with wider max width (much wider for key nodes)
       const maxWidth = (isKeyNode ? 500 : 280) / globalScale;
-      const words = label.split(" ");
-      const lines: string[] = [];
-      let currentLine = "";
 
-      for (const word of words) {
-        const testLine = currentLine ? `${currentLine} ${word}` : word;
-        if (ctx.measureText(testLine).width > maxWidth && currentLine) {
-          lines.push(currentLine);
-          currentLine = word;
-        } else {
-          currentLine = testLine;
-        }
-      }
-      if (currentLine) lines.push(currentLine);
-
-      // Always show full text without truncation
-      const displayLines = lines;
+      // Use cached text measurement to avoid expensive ctx.measureText() calls
+      const { lines: displayLines, maxTextWidth } = measureTextWithCache(ctx, label, maxWidth);
 
       const lineHeight = fontSize * 1.3;
-      const maxTextWidth = Math.max(...displayLines.map((l) => ctx.measureText(l).width));
       const boxPadding = fontSize * 0.4;
       const boxWidth = maxTextWidth + boxPadding * 2;
       const boxHeight = displayLines.length * lineHeight + boxPadding;
@@ -1545,6 +1615,8 @@ export function ProjectGraphVisualization({ projectId, clientId, refreshKey }: P
                   nodeCanvasObjectMode={() => "replace"}
                   onNodeClick={handleNodeClick}
                   onNodeHover={handleNodeHover}
+                  onNodeDragEnd={handleNodeDragEnd}
+                  onNodeRightClick={handleNodeRightClick}
                   onBackgroundClick={handleBackgroundClick}
                   onZoom={handleZoom}
                   linkColor={linkColor}
@@ -1555,10 +1627,10 @@ export function ProjectGraphVisualization({ projectId, clientId, refreshKey }: P
                   linkDirectionalParticleWidth={1.5}
                   linkDirectionalParticleSpeed={0.003}
                   backgroundColor="transparent"
-                  cooldownTicks={150}
-                  d3AlphaDecay={0.02}
-                  d3VelocityDecay={0.25}
-                  warmupTicks={50}
+                  cooldownTicks={80}
+                  d3AlphaDecay={0.04}
+                  d3VelocityDecay={0.3}
+                  warmupTicks={30}
                   minZoom={0.1}
                   maxZoom={8}
                 />

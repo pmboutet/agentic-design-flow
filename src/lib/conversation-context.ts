@@ -34,8 +34,19 @@ export class RpcDebugError extends Error {
   public readonly timestamp: string;
 
   constructor(rpcName: string, params: Record<string, unknown>, originalError: unknown) {
-    const errorMessage = originalError instanceof Error ? originalError.message : String(originalError);
-    const errorCode = (originalError as any)?.code ?? 'UNKNOWN';
+    // Handle different error types properly
+    let errorMessage: string;
+    if (originalError instanceof Error) {
+      errorMessage = originalError.message;
+    } else if (originalError && typeof originalError === 'object') {
+      // Supabase PostgrestError has message, details, hint properties
+      const errObj = originalError as { message?: string; details?: string; hint?: string };
+      const parts = [errObj.message, errObj.details, errObj.hint].filter(Boolean);
+      errorMessage = parts.length > 0 ? parts.join(' | ') : JSON.stringify(originalError);
+    } else {
+      errorMessage = String(originalError);
+    }
+    const errorCode = (originalError as { code?: string })?.code ?? 'UNKNOWN';
 
     super(`[RPC_ERROR] ${rpcName} failed (${errorCode}): ${errorMessage} | params: ${JSON.stringify(params)}`);
 

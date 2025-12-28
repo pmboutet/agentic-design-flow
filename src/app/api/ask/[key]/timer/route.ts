@@ -431,7 +431,11 @@ export async function PATCH(
     // Note: currentStepId is a step_identifier (e.g. "step_1"), not an UUID
     let stepElapsedSeconds: number | undefined;
     if (body.currentStepId && typeof body.stepElapsedSeconds === 'number') {
-      const admin = await getAdminClient();
+      // IMPORTANT: Clear cache and get fresh admin client to ensure service_role bypasses RLS
+      // The cached client sometimes doesn't have the correct permissions for step updates
+      const { clearAdminClientCache, getAdminSupabaseClient } = await import('@/lib/supabaseAdmin');
+      clearAdminClientCache();
+      const admin = getAdminSupabaseClient();
 
       // Step 1: Find conversation thread for this ASK session
       const { data: threadData } = await admin
@@ -442,25 +446,24 @@ export async function PATCH(
         .maybeSingle();
 
       if (threadData) {
-        // Step 2: Find the plan for this thread
-        const { data: planData } = await admin
-          .from('ask_conversation_plans')
-          .select('id')
-          .eq('conversation_thread_id', threadData.id)
-          .maybeSingle();
+        // Step 2: Find the plan for this thread using RPC (bypasses RLS)
+        const { data: planResult } = await admin
+          .rpc('get_conversation_plan_with_steps', { p_conversation_thread_id: threadData.id });
+
+        const planData = planResult?.plan as { id: string } | null;
 
         if (planData) {
           // Step 3: Update the step by step_identifier within this plan
-          const { error: stepUpdateError } = await admin
+          const { data: updateResult, error: stepUpdateError } = await admin
             .from('ask_conversation_plan_steps')
             .update({ elapsed_active_seconds: Math.floor(body.stepElapsedSeconds) })
             .eq('plan_id', planData.id)
-            .eq('step_identifier', body.currentStepId);
+            .eq('step_identifier', body.currentStepId)
+            .select();
 
           if (stepUpdateError) {
-            // Log but don't fail the request - step update is secondary
-            console.warn('Failed to update step elapsed time:', stepUpdateError);
-          } else {
+            console.warn('Failed to update step elapsed time:', stepUpdateError.message);
+          } else if (updateResult && updateResult.length > 0) {
             stepElapsedSeconds = Math.floor(body.stepElapsedSeconds);
           }
         }

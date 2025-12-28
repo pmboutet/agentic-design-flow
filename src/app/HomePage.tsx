@@ -475,9 +475,11 @@ export default function HomePage() {
   const [isVoiceConfigLoading, setIsVoiceConfigLoading] = useState(false);
 
   // Get current step record ID for timer tracking
-  // We need the actual UUID (step record id), not the step_identifier
+  // Note: In legacy format, s.id IS the step_identifier (e.g., "step_1")
   const currentStepRecordId = useMemo(() => {
-    if (!sessionData.conversationPlan?.current_step_id) return null;
+    if (!sessionData.conversationPlan?.current_step_id) {
+      return null;
+    }
     const steps = sessionData.conversationPlan.plan_data?.steps ?? [];
     const currentStep = steps.find(
       (s) => s.id === sessionData.conversationPlan?.current_step_id
@@ -1901,6 +1903,10 @@ export default function HomePage() {
       messages: [...prev.messages, optimisticMessage],
       isLoading: true,
     }));
+
+    // Sync timer to server BEFORE sending message
+    // This ensures step elapsed time is up-to-date for the agent's response
+    await sessionTimer.syncToServer();
 
     try {
       // First, save the user message

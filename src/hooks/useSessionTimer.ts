@@ -409,7 +409,14 @@ export function useSessionTimer(config: SessionTimerConfig = {}): SessionTimerSt
   }, [stepElapsedSeconds]);
 
   // Track current step ID for sync
+  // IMPORTANT: Always keep this ref in sync with the prop, not just on step changes
   const currentStepIdRef = useRef(currentStepId);
+  useEffect(() => {
+    // Always update the ref when prop changes (for tick interval to access)
+    if (currentStepIdRef.current !== currentStepId) {
+      currentStepIdRef.current = currentStepId;
+    }
+  }, [currentStepId]);
 
   /**
    * Sync to server (includes step time if available)
