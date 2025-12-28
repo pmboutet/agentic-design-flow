@@ -205,6 +205,80 @@ export async function fetchDetailedProjectMemberships(
   return map;
 }
 
+/**
+ * Add a user to a client (upsert - won't fail if already exists)
+ * @returns true if a new membership was created, false if already existed
+ */
+export async function ensureClientMembership(
+  supabase: SupabaseClient,
+  clientId: string,
+  userId: string,
+  role: ClientRole = "participant"
+): Promise<boolean> {
+  // Check if already exists
+  const { data: existing } = await supabase
+    .from("client_members")
+    .select("id")
+    .eq("client_id", clientId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (existing) {
+    return false;
+  }
+
+  const { error } = await supabase
+    .from("client_members")
+    .insert({
+      client_id: clientId,
+      user_id: userId,
+      role,
+    });
+
+  if (error) {
+    console.error("Error adding client member:", error);
+    return false;
+  }
+
+  return true;
+}
+
+/**
+ * Add a user to a project (upsert - won't fail if already exists)
+ * @returns true if a new membership was created, false if already existed
+ */
+export async function ensureProjectMembership(
+  supabase: SupabaseClient,
+  projectId: string,
+  userId: string
+): Promise<boolean> {
+  // Check if already exists
+  const { data: existing } = await supabase
+    .from("project_members")
+    .select("id")
+    .eq("project_id", projectId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (existing) {
+    return false;
+  }
+
+  const { error } = await supabase
+    .from("project_members")
+    .insert({
+      project_id: projectId,
+      user_id: userId,
+    });
+
+  if (error) {
+    console.error("Error adding project member:", error);
+    return false;
+  }
+
+  return true;
+}
+
 export function mapManagedUser(
   row: any,
   membershipMap?: Map<string, string[]>,

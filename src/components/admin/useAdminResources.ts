@@ -56,7 +56,7 @@ export interface FeedbackState {
   message: string;
 }
 
-async function request<T>(url: string, options?: RequestInit): Promise<T> {
+export async function adminRequest<T>(url: string, options?: RequestInit): Promise<T> {
   const response = await fetch(url, {
     cache: "no-store",
     ...options,
@@ -101,11 +101,11 @@ export function useAdminResources() {
     const loadInitial = async () => {
       try {
         const results = await Promise.allSettled([
-          request<ClientRecord[]>("/api/admin/clients"),
-          request<ManagedUser[]>("/api/admin/profiles"),
-          request<ProjectRecord[]>("/api/admin/projects"),
-          request<ChallengeRecord[]>("/api/admin/challenges"),
-          request<AskSessionRecord[]>("/api/admin/asks")
+          adminRequest<ClientRecord[]>("/api/admin/clients"),
+          adminRequest<ManagedUser[]>("/api/admin/profiles"),
+          adminRequest<ProjectRecord[]>("/api/admin/projects"),
+          adminRequest<ChallengeRecord[]>("/api/admin/challenges"),
+          adminRequest<AskSessionRecord[]>("/api/admin/asks")
         ]);
 
         const [clientResult, userResult, projectResult, challengeResult, askResult] = results;
@@ -208,64 +208,64 @@ export function useAdminResources() {
   };
 
   const refreshChallenges = async () => {
-    const data = await request<ChallengeRecord[]>("/api/admin/challenges");
+    const data = await adminRequest<ChallengeRecord[]>("/api/admin/challenges");
     setChallenges(data ?? []);
   };
 
   const refreshAsks = async () => {
-    const data = await request<AskSessionRecord[]>("/api/admin/asks");
+    const data = await adminRequest<AskSessionRecord[]>("/api/admin/asks");
     setAsks(data ?? []);
   };
 
   const refreshProjects = async () => {
-    const data = await request<ProjectRecord[]>("/api/admin/projects");
+    const data = await adminRequest<ProjectRecord[]>("/api/admin/projects");
     setProjects(data ?? []);
   };
 
   const refreshUsers = async () => {
-    const data = await request<ManagedUser[]>("/api/admin/profiles");
+    const data = await adminRequest<ManagedUser[]>("/api/admin/profiles");
     setUsers(data ?? []);
   };
 
   const refreshClients = async () => {
-    const data = await request<ClientRecord[]>("/api/admin/clients");
+    const data = await adminRequest<ClientRecord[]>("/api/admin/clients");
     setClients(data ?? []);
   };
 
   const createClient = (values: ClientFormValues) =>
     handleAction(async () => {
-      await request("/api/admin/clients", { method: "POST", body: JSON.stringify(values) });
-      const data = await request<ClientRecord[]>("/api/admin/clients");
+      await adminRequest("/api/admin/clients", { method: "POST", body: JSON.stringify(values) });
+      const data = await adminRequest<ClientRecord[]>("/api/admin/clients");
       setClients(data ?? []);
     }, "Client created successfully");
 
   const updateClient = (clientId: string, values: ClientFormValues) =>
     handleAction(async () => {
-      await request(`/api/admin/clients/${clientId}`, { method: "PATCH", body: JSON.stringify(values) });
+      await adminRequest(`/api/admin/clients/${clientId}`, { method: "PATCH", body: JSON.stringify(values) });
       await refreshClients();
     }, "Client updated");
 
   const createUser = (values: UserFormValues) =>
     handleAction(async () => {
-      await request("/api/admin/profiles", { method: "POST", body: JSON.stringify(values) });
+      await adminRequest("/api/admin/profiles", { method: "POST", body: JSON.stringify(values) });
       await refreshUsers();
     }, "User created");
 
   const updateUser = (userId: string, values: Partial<UserFormValues>) =>
     handleAction(async () => {
-      await request(`/api/admin/profiles/${userId}`, { method: "PATCH", body: JSON.stringify(values) });
+      await adminRequest(`/api/admin/profiles/${userId}`, { method: "PATCH", body: JSON.stringify(values) });
       await refreshUsers();
     }, "User updated");
 
   const deleteUser = (userId: string) =>
     handleAction(async () => {
-      await request(`/api/admin/profiles/${userId}`, { method: "DELETE" });
+      await adminRequest(`/api/admin/profiles/${userId}`, { method: "DELETE" });
       await refreshUsers();
     }, "User removed");
 
   const findUserByEmail = async (email: string): Promise<ManagedUser | null> => {
     try {
-      const data = await request<ManagedUser | null>(`/api/admin/profiles?email=${encodeURIComponent(email)}`);
+      const data = await adminRequest<ManagedUser | null>(`/api/admin/profiles?email=${encodeURIComponent(email)}`);
       return data;
     } catch (error) {
       // If user not found, return null instead of throwing
@@ -278,7 +278,7 @@ export function useAdminResources() {
 
   const addUserToProject = (userId: string, projectId: string, jobTitle?: string) =>
     handleAction(async () => {
-      await request(`/api/admin/projects/${projectId}/members`, {
+      await adminRequest(`/api/admin/projects/${projectId}/members`, {
         method: "POST",
         body: JSON.stringify({ userId, jobTitle })
       });
@@ -319,7 +319,7 @@ export function useAdminResources() {
       
       console.log("Payload:", payload);
       
-      const newUser = await request<ManagedUser>("/api/admin/profiles", {
+      const newUser = await adminRequest<ManagedUser>("/api/admin/profiles", {
         method: "POST",
         body: JSON.stringify(payload)
       });
@@ -327,7 +327,7 @@ export function useAdminResources() {
       console.log("User created:", newUser);
 
       // Add to project
-      await request(`/api/admin/projects/${projectId}/members`, {
+      await adminRequest(`/api/admin/projects/${projectId}/members`, {
         method: "POST",
         body: JSON.stringify({ userId: newUser.id, jobTitle: jobTitle || "" })
       });
@@ -374,7 +374,7 @@ export function useAdminResources() {
 
   const addUserToClient = (userId: string, clientId: string, jobTitle?: string) =>
     handleAction(async () => {
-      await request(`/api/admin/clients/${clientId}/members`, {
+      await adminRequest(`/api/admin/clients/${clientId}/members`, {
         method: "POST",
         body: JSON.stringify({ userId, jobTitle })
       });
@@ -383,7 +383,7 @@ export function useAdminResources() {
 
   const removeUserFromClient = (userId: string, clientId: string) =>
     handleAction(async () => {
-      await request(`/api/admin/clients/${clientId}/members/${userId}`, {
+      await adminRequest(`/api/admin/clients/${clientId}/members/${userId}`, {
         method: "DELETE"
       });
       await refreshUsers();
@@ -391,7 +391,7 @@ export function useAdminResources() {
 
   const updateClientMemberJob = (userId: string, clientId: string, jobTitle: string) =>
     handleAction(async () => {
-      await request(`/api/admin/clients/${clientId}/members/${userId}`, {
+      await adminRequest(`/api/admin/clients/${clientId}/members/${userId}`, {
         method: "PATCH",
         body: JSON.stringify({ jobTitle })
       });
@@ -400,7 +400,7 @@ export function useAdminResources() {
 
   const removeUserFromProject = (userId: string, projectId: string) =>
     handleAction(async () => {
-      await request(`/api/admin/projects/${projectId}/members/${userId}`, {
+      await adminRequest(`/api/admin/projects/${projectId}/members/${userId}`, {
         method: "DELETE"
       });
       await refreshUsers();
@@ -408,56 +408,56 @@ export function useAdminResources() {
 
   const createProject = (values: ProjectFormValues) =>
     handleAction(async () => {
-      await request("/api/admin/projects", { method: "POST", body: JSON.stringify(values) });
-      const data = await request<ProjectRecord[]>("/api/admin/projects");
+      await adminRequest("/api/admin/projects", { method: "POST", body: JSON.stringify(values) });
+      const data = await adminRequest<ProjectRecord[]>("/api/admin/projects");
       setProjects(data ?? []);
     }, "Project saved");
 
   const updateProject = (projectId: string, values: ProjectFormValues | Partial<ProjectFormValues>) =>
     handleAction(async () => {
-      await request(`/api/admin/projects/${projectId}`, { method: "PATCH", body: JSON.stringify(values) });
+      await adminRequest(`/api/admin/projects/${projectId}`, { method: "PATCH", body: JSON.stringify(values) });
       await refreshProjects();
     }, "Project updated");
 
   const updateChallenge = (challengeId: string, values: ChallengeFormValues) =>
     handleAction(async () => {
-      await request(`/api/admin/challenges/${challengeId}`, { method: "PATCH", body: JSON.stringify(values) });
+      await adminRequest(`/api/admin/challenges/${challengeId}`, { method: "PATCH", body: JSON.stringify(values) });
       await refreshChallenges();
     }, "Challenge updated");
 
   const createAsk = (values: AskCreateFormValues & { projectId: string }) =>
     handleAction(async () => {
-      await request("/api/admin/asks", { method: "POST", body: JSON.stringify(values) });
+      await adminRequest("/api/admin/asks", { method: "POST", body: JSON.stringify(values) });
       await refreshAsks();
     }, "ASK session created");
 
   const updateAsk = (askId: string, values: Omit<AskEditFormValues, "askId">) =>
     handleAction(async () => {
-      await request(`/api/admin/asks/${askId}`, { method: "PATCH", body: JSON.stringify(values) });
+      await adminRequest(`/api/admin/asks/${askId}`, { method: "PATCH", body: JSON.stringify(values) });
       await refreshAsks();
     }, "ASK session updated");
 
   const deleteClient = (clientId: string) =>
     handleAction(async () => {
-      await request(`/api/admin/clients/${clientId}`, { method: "DELETE" });
+      await adminRequest(`/api/admin/clients/${clientId}`, { method: "DELETE" });
       await Promise.all([refreshClients(), refreshProjects(), refreshChallenges(), refreshAsks()]);
     }, "Client removed");
 
   const deleteProject = (projectId: string) =>
     handleAction(async () => {
-      await request(`/api/admin/projects/${projectId}`, { method: "DELETE" });
+      await adminRequest(`/api/admin/projects/${projectId}`, { method: "DELETE" });
       await Promise.all([refreshProjects(), refreshChallenges(), refreshAsks()]);
     }, "Project removed");
 
   const deleteChallenge = (challengeId: string) =>
     handleAction(async () => {
-      await request(`/api/admin/challenges/${challengeId}`, { method: "DELETE" });
+      await adminRequest(`/api/admin/challenges/${challengeId}`, { method: "DELETE" });
       await Promise.all([refreshChallenges(), refreshAsks()]);
     }, "Challenge removed");
 
   const deleteAsk = (askId: string) =>
     handleAction(async () => {
-      await request(`/api/admin/asks/${askId}`, { method: "DELETE" });
+      await adminRequest(`/api/admin/asks/${askId}`, { method: "DELETE" });
       await refreshAsks();
     }, "ASK session removed");
 

@@ -24,11 +24,13 @@ export function ProjectSelector({ collapsed = false }: ProjectSelectorProps) {
   } = useProjectContext();
   const { setSelectedClientId } = useClientContext();
 
-  // Check if we're on a project detail page
+  // Check if we're on a project-related page
   const isOnProjectDetailPage = useMemo(() => {
-    const match = pathname.match(/^\/admin\/projects\/([^/]+)$/);
+    const match = pathname.match(/^\/admin\/projects\/([^/]+)/);
     return match ? match[1] : null;
   }, [pathname]);
+
+  const isOnProjectsListPage = pathname === "/admin/projects";
 
   // Handle project selection change with navigation
   const handleProjectChange = useCallback((newProjectId: string) => {
@@ -42,15 +44,18 @@ export function ProjectSelector({ collapsed = false }: ProjectSelectorProps) {
       }
     }
 
-    // If we're on a project detail page, navigate to the new project or projects list
-    if (isOnProjectDetailPage) {
+    // Navigate only when on projects pages
+    if (isOnProjectsListPage || isOnProjectDetailPage) {
       if (newProjectId === "all") {
+        // Go back to projects list
         router.push("/admin/projects");
       } else if (newProjectId !== isOnProjectDetailPage) {
+        // Navigate to selected project's journey board
         router.push(`/admin/projects/${newProjectId}`);
       }
     }
-  }, [setSelectedProjectId, allProjects, setSelectedClientId, isOnProjectDetailPage, router]);
+    // On other pages (users, clients, etc.), just filter - don't navigate
+  }, [setSelectedProjectId, allProjects, setSelectedClientId, isOnProjectsListPage, isOnProjectDetailPage, router]);
 
   if (isLoading) {
     return (

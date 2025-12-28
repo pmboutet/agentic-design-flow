@@ -61,6 +61,7 @@ import { AiChallengeBuilderModal } from "@/components/project/AiChallengeBuilder
 import { AiChallengeBuilderContent } from "@/components/project/AiChallengeBuilderPanel";
 import { AiAskGeneratorPanel } from "@/components/project/AiAskGeneratorPanel";
 import { AddParticipantsDialog } from "@/components/project/AddParticipantsDialog";
+import { AddAskParticipantDialog } from "@/components/project/AddAskParticipantDialog";
 import { ClientEditDialog } from "@/components/project/ClientEditDialog";
 import { AskPromptTemplateSelector } from "@/components/admin/AskPromptTemplateSelector";
 import { GraphRAGPanel } from "@/components/admin/GraphRAGPanel";
@@ -151,6 +152,7 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
   const [modalActiveTab, setModalActiveTab] = useState<"insights" | "asks" | "ai">("insights");
   const [askParticipantEdits, setAskParticipantEdits] = useState<Record<string, { participantIds: string[]; spokespersonId: string }>>({});
   const [savingAskParticipants, setSavingAskParticipants] = useState<Set<string>>(new Set());
+  const [addParticipantDialogAskId, setAddParticipantDialogAskId] = useState<string | null>(null);
   const [hoveredAskMenu, setHoveredAskMenu] = useState(false);
   const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [editValues, setEditValues] = useState<ProjectEditState>({
@@ -3426,6 +3428,24 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
         />
       )}
 
+      {/* Add ASK Participant Dialog */}
+      {addParticipantDialogAskId && (
+        <AddAskParticipantDialog
+          open={!!addParticipantDialogAskId}
+          onOpenChange={(open) => !open && setAddParticipantDialogAskId(null)}
+          askId={addParticipantDialogAskId}
+          projectId={projectId}
+          currentParticipantUserIds={
+            boardData?.asks
+              .find(a => a.id === addParticipantDialogAskId)
+              ?.participants
+              .map(p => p.userId)
+              .filter((id): id is string => !!id) ?? []
+          }
+          onParticipantAdded={() => loadJourneyData({ silent: true })}
+        />
+      )}
+
       {/* Client Edit Dialog */}
       {boardData && (
         <ClientEditDialog
@@ -4309,6 +4329,19 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
                                       ) : (
                                         <p className="text-sm text-slate-400">No collaborators are available for this project yet.</p>
                                       )}
+
+                                      {/* Add new participant button */}
+                                      <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => setAddParticipantDialogAskId(ask.id)}
+                                        disabled={isSavingThisAsk}
+                                        className="gap-1.5 border-indigo-400/40 bg-indigo-500/10 text-indigo-200 hover:bg-indigo-500/20"
+                                      >
+                                        <UserPlus className="h-4 w-4" />
+                                        Ajouter un participant
+                                      </Button>
 
                                       {/* Spokesperson selector for group_reporter and consultant modes */}
                                       {(askRecord?.conversationMode === "group_reporter" || askRecord?.conversationMode === "consultant") && participantEdits?.participantIds?.length ? (

@@ -21,6 +21,9 @@ import { UserEditModal } from "@/components/admin/UserEditModal";
 import { useClientContext } from "@/components/admin/ClientContext";
 import { useProjectContext } from "@/components/admin/ProjectContext";
 import { useAuth } from "@/components/auth/AuthProvider";
+import { adminRequest, type FeedbackState } from "@/components/admin/useAdminResources";
+import { formatDateTime } from "@/components/admin/dashboard/utils";
+import { gradientButtonClasses } from "@/components/admin/dashboard/constants";
 import type { ClientRecord, ClientRole, ManagedUser, ProjectRecord } from "@/types";
 
 const userRoles = ["full_admin", "client_admin", "facilitator", "manager", "participant"] as const;
@@ -37,13 +40,6 @@ const userFormSchema = z.object({
 
 type UserFormInput = z.infer<typeof userFormSchema>;
 
-interface FeedbackState {
-  type: "success" | "error";
-  message: string;
-}
-
-const gradientButtonClasses = "btn-gradient";
-
 const defaultUserFormValues: UserFormInput = {
   email: "",
   firstName: "",
@@ -53,34 +49,6 @@ const defaultUserFormValues: UserFormInput = {
   isActive: true,
   jobTitle: ""
 };
-
-function formatDateTime(value: string | null | undefined): string {
-  if (!value) return "—";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
-  return new Intl.DateTimeFormat("en", {
-    dateStyle: "medium",
-    timeStyle: "short"
-  }).format(date);
-}
-
-async function request<T>(url: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(url, {
-    cache: "no-store",
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...(options?.headers ?? {})
-    }
-  });
-
-  const payload = await response.json();
-  if (!response.ok || !payload.success) {
-    const errorMessage = payload.error || payload.message || `Request failed with status ${response.status}`;
-    throw new Error(errorMessage);
-  }
-  return payload.data as T;
-}
 
 export function UsersAdminView() {
   // Get current user's role flags from auth context
@@ -130,9 +98,9 @@ export function UsersAdminView() {
     setIsLoading(true);
     try {
       const [usersData, clientsData, projectsData] = await Promise.all([
-        request<ManagedUser[]>("/api/admin/profiles"),
-        request<ClientRecord[]>("/api/admin/clients"),
-        request<ProjectRecord[]>("/api/admin/projects")
+        adminRequest<ManagedUser[]>("/api/admin/profiles"),
+        adminRequest<ClientRecord[]>("/api/admin/clients"),
+        adminRequest<ProjectRecord[]>("/api/admin/projects")
       ]);
       setUsers(usersData ?? []);
       setClients(clientsData ?? []);
@@ -153,7 +121,7 @@ export function UsersAdminView() {
 
   const refreshUsers = useCallback(async () => {
     try {
-      const data = await request<ManagedUser[]>("/api/admin/profiles");
+      const data = await adminRequest<ManagedUser[]>("/api/admin/profiles");
       setUsers(data ?? []);
     } catch (error) {
       setFeedback({
@@ -235,7 +203,7 @@ export function UsersAdminView() {
     setFeedback(null);
     try {
       if (editingUserId) {
-        await request(`/api/admin/profiles/${editingUserId}`, {
+        await adminRequest(`/api/admin/profiles/${editingUserId}`, {
           method: "PATCH",
           body: JSON.stringify(values)
         });
@@ -246,7 +214,7 @@ export function UsersAdminView() {
           return;
         }
         const payload = { ...values, clientId: values.clientId || selectedClientId };
-        await request("/api/admin/profiles", {
+        await adminRequest("/api/admin/profiles", {
           method: "POST",
           body: JSON.stringify(payload)
         });
@@ -290,7 +258,7 @@ export function UsersAdminView() {
     setIsBusy(true);
     setFeedback(null);
     try {
-      await request(`/api/admin/profiles/${userId}`, { method: "DELETE" });
+      await adminRequest(`/api/admin/profiles/${userId}`, { method: "DELETE" });
       await refreshUsers();
       setFeedback({ type: "success", message: "User deleted successfully" });
     } catch (error) {
@@ -308,7 +276,7 @@ export function UsersAdminView() {
     setIsBusy(true);
     setFeedback(null);
     try {
-      await request(`/api/admin/projects/${selectedProjectId}/members`, {
+      await adminRequest(`/api/admin/projects/${selectedProjectId}/members`, {
         method: "POST",
         body: JSON.stringify({ userId })
       });
@@ -329,7 +297,7 @@ export function UsersAdminView() {
     setIsBusy(true);
     setFeedback(null);
     try {
-      await request(`/api/admin/projects/${selectedProjectId}/members/${userId}`, {
+      await adminRequest(`/api/admin/projects/${selectedProjectId}/members/${userId}`, {
         method: "DELETE"
       });
       await refreshUsers();
@@ -360,7 +328,7 @@ export function UsersAdminView() {
     setFeedback(null);
     try {
       const clientId = selectedProject?.clientId ?? selectedClientId ?? undefined;
-      const newUser = await request<ManagedUser>("/api/admin/profiles", {
+      const newUser = await adminRequest<ManagedUser>("/api/admin/profiles", {
         method: "POST",
         body: JSON.stringify({
           email,
@@ -369,7 +337,7 @@ export function UsersAdminView() {
           clientId
         })
       });
-      await request(`/api/admin/projects/${selectedProjectId}/members`, {
+      await adminRequest(`/api/admin/projects/${selectedProjectId}/members`, {
         method: "POST",
         body: JSON.stringify({ userId: newUser.id })
       });
@@ -395,18 +363,19 @@ export function UsersAdminView() {
     setEditModalOpen(true);
   }, []);
 
-  const handleModalSave = useCallback(async (userId: string, data: UserFormInput) => {
+  // DRY: Shared wrapper for modal actions that refresh users and update editing user
+  const withModalAction = useCallback(async (
+    action: () => Promise<unknown>,
+    successMessage: string,
+    userId: string
+  ) => {
     setIsBusy(true);
     setFeedback(null);
     try {
-      await request(`/api/admin/profiles/${userId}`, {
-        method: "PATCH",
-        body: JSON.stringify(data)
-      });
+      await action();
       await refreshUsers();
-      setFeedback({ type: "success", message: "User updated successfully" });
-      // Update the editing user with fresh data
-      const updatedUsers = await request<ManagedUser[]>("/api/admin/profiles");
+      setFeedback({ type: "success", message: successMessage });
+      const updatedUsers = await adminRequest<ManagedUser[]>("/api/admin/profiles");
       const updatedUser = updatedUsers.find(u => u.id === userId);
       if (updatedUser) {
         setEditingUser(updatedUser);
@@ -420,134 +389,54 @@ export function UsersAdminView() {
       setIsBusy(false);
     }
   }, [refreshUsers]);
+
+  const handleModalSave = useCallback(async (userId: string, data: UserFormInput) => {
+    await withModalAction(
+      () => adminRequest(`/api/admin/profiles/${userId}`, { method: "PATCH", body: JSON.stringify(data) }),
+      "User updated successfully",
+      userId
+    );
+  }, [withModalAction]);
 
   const handleAddClientMembership = useCallback(async (userId: string, clientId: string, role: ClientRole) => {
-    setIsBusy(true);
-    setFeedback(null);
-    try {
-      await request(`/api/admin/clients/${clientId}/members`, {
-        method: "POST",
-        body: JSON.stringify({ userId, role })
-      });
-      await refreshUsers();
-      setFeedback({ type: "success", message: "User added to client" });
-      // Update the editing user with fresh data
-      const updatedUsers = await request<ManagedUser[]>("/api/admin/profiles");
-      const updatedUser = updatedUsers.find(u => u.id === userId);
-      if (updatedUser) {
-        setEditingUser(updatedUser);
-      }
-    } catch (error) {
-      setFeedback({
-        type: "error",
-        message: error instanceof Error ? error.message : "An error occurred"
-      });
-    } finally {
-      setIsBusy(false);
-    }
-  }, [refreshUsers]);
+    await withModalAction(
+      () => adminRequest(`/api/admin/clients/${clientId}/members`, { method: "POST", body: JSON.stringify({ userId, role }) }),
+      "User added to client",
+      userId
+    );
+  }, [withModalAction]);
 
   const handleUpdateClientMembership = useCallback(async (userId: string, clientId: string, role: ClientRole) => {
-    setIsBusy(true);
-    setFeedback(null);
-    try {
-      await request(`/api/admin/clients/${clientId}/members`, {
-        method: "POST",
-        body: JSON.stringify({ userId, role })
-      });
-      await refreshUsers();
-      setFeedback({ type: "success", message: "Client role updated" });
-      // Update the editing user with fresh data
-      const updatedUsers = await request<ManagedUser[]>("/api/admin/profiles");
-      const updatedUser = updatedUsers.find(u => u.id === userId);
-      if (updatedUser) {
-        setEditingUser(updatedUser);
-      }
-    } catch (error) {
-      setFeedback({
-        type: "error",
-        message: error instanceof Error ? error.message : "An error occurred"
-      });
-    } finally {
-      setIsBusy(false);
-    }
-  }, [refreshUsers]);
+    await withModalAction(
+      () => adminRequest(`/api/admin/clients/${clientId}/members`, { method: "POST", body: JSON.stringify({ userId, role }) }),
+      "Client role updated",
+      userId
+    );
+  }, [withModalAction]);
 
   const handleRemoveClientMembership = useCallback(async (userId: string, clientId: string) => {
-    setIsBusy(true);
-    setFeedback(null);
-    try {
-      await request(`/api/admin/clients/${clientId}/members/${userId}`, {
-        method: "DELETE"
-      });
-      await refreshUsers();
-      setFeedback({ type: "success", message: "User removed from client" });
-      // Update the editing user with fresh data
-      const updatedUsers = await request<ManagedUser[]>("/api/admin/profiles");
-      const updatedUser = updatedUsers.find(u => u.id === userId);
-      if (updatedUser) {
-        setEditingUser(updatedUser);
-      }
-    } catch (error) {
-      setFeedback({
-        type: "error",
-        message: error instanceof Error ? error.message : "An error occurred"
-      });
-    } finally {
-      setIsBusy(false);
-    }
-  }, [refreshUsers]);
+    await withModalAction(
+      () => adminRequest(`/api/admin/clients/${clientId}/members/${userId}`, { method: "DELETE" }),
+      "User removed from client",
+      userId
+    );
+  }, [withModalAction]);
 
   const handleModalAddProjectMembership = useCallback(async (userId: string, projectId: string) => {
-    setIsBusy(true);
-    setFeedback(null);
-    try {
-      await request(`/api/admin/projects/${projectId}/members`, {
-        method: "POST",
-        body: JSON.stringify({ userId })
-      });
-      await refreshUsers();
-      setFeedback({ type: "success", message: "User added to project" });
-      // Update the editing user with fresh data
-      const updatedUsers = await request<ManagedUser[]>("/api/admin/profiles");
-      const updatedUser = updatedUsers.find(u => u.id === userId);
-      if (updatedUser) {
-        setEditingUser(updatedUser);
-      }
-    } catch (error) {
-      setFeedback({
-        type: "error",
-        message: error instanceof Error ? error.message : "An error occurred"
-      });
-    } finally {
-      setIsBusy(false);
-    }
-  }, [refreshUsers]);
+    await withModalAction(
+      () => adminRequest(`/api/admin/projects/${projectId}/members`, { method: "POST", body: JSON.stringify({ userId }) }),
+      "User added to project",
+      userId
+    );
+  }, [withModalAction]);
 
   const handleModalRemoveProjectMembership = useCallback(async (userId: string, projectId: string) => {
-    setIsBusy(true);
-    setFeedback(null);
-    try {
-      await request(`/api/admin/projects/${projectId}/members/${userId}`, {
-        method: "DELETE"
-      });
-      await refreshUsers();
-      setFeedback({ type: "success", message: "User removed from project" });
-      // Update the editing user with fresh data
-      const updatedUsers = await request<ManagedUser[]>("/api/admin/profiles");
-      const updatedUser = updatedUsers.find(u => u.id === userId);
-      if (updatedUser) {
-        setEditingUser(updatedUser);
-      }
-    } catch (error) {
-      setFeedback({
-        type: "error",
-        message: error instanceof Error ? error.message : "An error occurred"
-      });
-    } finally {
-      setIsBusy(false);
-    }
-  }, [refreshUsers]);
+    await withModalAction(
+      () => adminRequest(`/api/admin/projects/${projectId}/members/${userId}`, { method: "DELETE" }),
+      "User removed from project",
+      userId
+    );
+  }, [withModalAction]);
 
   return (
     <div className="space-y-6">
@@ -612,29 +501,27 @@ export function UsersAdminView() {
             </div>
           )}
 
-          {/* Project Filter - always visible, synced with sidebar context */}
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-            <div className="flex items-center gap-2 mb-3">
-              <FolderKanban className="h-4 w-4 text-purple-300" />
-              <Label className="text-sm font-medium text-white">Filter by Project</Label>
-              {isContextProjectSpecific && (
-                <span className="text-xs text-slate-400">(via sidebar)</span>
-              )}
+          {/* Project Filter - only show when "all" is selected in sidebar */}
+          {!isContextProjectSpecific && (
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <FolderKanban className="h-4 w-4 text-purple-300" />
+                <Label className="text-sm font-medium text-white">Filter by Project</Label>
+              </div>
+              <select
+                className="w-full h-10 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm text-white"
+                value={localProjectFilter ?? ""}
+                onChange={e => setLocalProjectFilter(e.target.value || null)}
+              >
+                <option value="">All projects</option>
+                {projectsForClient.map(project => (
+                  <option key={project.id} value={project.id}>
+                    {project.name}
+                  </option>
+                ))}
+              </select>
             </div>
-            <select
-              className="w-full h-10 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm text-white disabled:opacity-60 disabled:cursor-not-allowed"
-              value={selectedProjectId ?? ""}
-              onChange={e => setLocalProjectFilter(e.target.value || null)}
-              disabled={isContextProjectSpecific}
-            >
-              <option value="">All projects</option>
-              {projectsForClient.map(project => (
-                <option key={project.id} value={project.id}>
-                  {project.name}
-                </option>
-              ))}
-            </select>
-          </div>
+          )}
         </div>
       )}
 

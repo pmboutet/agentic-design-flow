@@ -15,43 +15,12 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { ClientEditDialog } from "@/components/project/ClientEditDialog";
 import { ClientContactsDialog } from "@/components/admin/ClientContactsDialog";
-import { useClientContextOptional } from "@/components/admin/ClientContext";
+import { ClientEditForm } from "@/components/admin/ClientEditForm";
+import { useClientContext } from "@/components/admin/ClientContext";
+import { adminRequest, type FeedbackState } from "@/components/admin/useAdminResources";
+import { formatDateTime } from "@/components/admin/dashboard/utils";
+import { gradientButtonClasses } from "@/components/admin/dashboard/constants";
 import type { ClientRecord } from "@/types";
-
-interface FeedbackState {
-  type: "success" | "error";
-  message: string;
-}
-
-const gradientButtonClasses = "btn-gradient";
-
-function formatDateTime(value: string | null | undefined): string {
-  if (!value) return "—";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
-  return new Intl.DateTimeFormat("en", {
-    dateStyle: "medium",
-    timeStyle: "short"
-  }).format(date);
-}
-
-async function request<T>(url: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(url, {
-    cache: "no-store",
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...(options?.headers ?? {})
-    }
-  });
-
-  const payload = await response.json();
-  if (!response.ok || !payload.success) {
-    const errorMessage = payload.error || payload.message || `Request failed with status ${response.status}`;
-    throw new Error(errorMessage);
-  }
-  return payload.data as T;
-}
 
 export function ClientsAdminView() {
   const [clients, setClients] = useState<ClientRecord[]>([]);
@@ -59,14 +28,14 @@ export function ClientsAdminView() {
   const [isBusy, setIsBusy] = useState(false);
   const [feedback, setFeedback] = useState<FeedbackState | null>(null);
 
-  // Get context to refresh global client list (used in menus/dropdowns)
-  const clientContext = useClientContextOptional();
+  // Get context - includes selected client from sidebar
+  const { selectedClientId, selectedClient, refreshClients: refreshContextClients } = useClientContext();
 
-  // Dialog states
-  const [editDialogOpen, setEditDialogOpen] = useState(false);
-  const [editDialogMode, setEditDialogMode] = useState<"create" | "edit">("create");
-  const [editingClientId, setEditingClientId] = useState<string | null>(null);
-  const [editingClientName, setEditingClientName] = useState<string | null>(null);
+  // Edit mode state - when set, shows full page edit instead of list
+  const [editingClient, setEditingClient] = useState<ClientRecord | null>(null);
+
+  // Create dialog state (still uses dialog)
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
 
   // Contacts dialog state
   const [contactsDialogOpen, setContactsDialogOpen] = useState(false);
@@ -76,7 +45,7 @@ export function ClientsAdminView() {
   const loadData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const clientsData = await request<ClientRecord[]>("/api/admin/clients");
+      const clientsData = await adminRequest<ClientRecord[]>("/api/admin/clients");
       setClients(clientsData ?? []);
     } catch (error) {
       setFeedback({
@@ -94,30 +63,28 @@ export function ClientsAdminView() {
 
   const refreshClients = useCallback(async () => {
     try {
-      const data = await request<ClientRecord[]>("/api/admin/clients");
+      const data = await adminRequest<ClientRecord[]>("/api/admin/clients");
       setClients(data ?? []);
       // Also refresh the global context so menus/dropdowns are updated
-      await clientContext?.refreshClients();
+      await refreshContextClients();
     } catch (error) {
       setFeedback({
         type: "error",
         message: error instanceof Error ? error.message : "Unable to refresh clients"
       });
     }
-  }, [clientContext]);
+  }, [refreshContextClients]);
 
   const openCreateDialog = () => {
-    setEditDialogMode("create");
-    setEditingClientId(null);
-    setEditingClientName(null);
-    setEditDialogOpen(true);
+    setCreateDialogOpen(true);
   };
 
-  const openEditDialog = (client: ClientRecord) => {
-    setEditDialogMode("edit");
-    setEditingClientId(client.id);
-    setEditingClientName(client.name);
-    setEditDialogOpen(true);
+  const openEditFullPage = (client: ClientRecord) => {
+    setEditingClient(client);
+  };
+
+  const closeEditFullPage = () => {
+    setEditingClient(null);
   };
 
   const openContactsDialog = (client: ClientRecord) => {
@@ -126,9 +93,15 @@ export function ClientsAdminView() {
     setContactsDialogOpen(true);
   };
 
-  const handleClientChange = () => {
+  const handleCreateSuccess = () => {
     void refreshClients();
-    setFeedback({ type: "success", message: editDialogMode === "edit" ? "Client updated successfully" : "Client created successfully" });
+    setFeedback({ type: "success", message: "Client created successfully" });
+  };
+
+  const handleEditSuccess = () => {
+    void refreshClients();
+    setFeedback({ type: "success", message: "Client updated successfully" });
+    setEditingClient(null);
   };
 
   const handleDeleteClient = async (clientId: string) => {
@@ -137,7 +110,7 @@ export function ClientsAdminView() {
     setIsBusy(true);
     setFeedback(null);
     try {
-      await request(`/api/admin/clients/${clientId}`, { method: "DELETE" });
+      await adminRequest(`/api/admin/clients/${clientId}`, { method: "DELETE" });
       await refreshClients();
       setFeedback({ type: "success", message: "Client deleted successfully" });
     } catch (error) {
@@ -150,6 +123,38 @@ export function ClientsAdminView() {
     }
   };
 
+  // If a specific client is selected in sidebar, show full page edit form directly
+  if (selectedClientId !== "all" && selectedClient) {
+    return (
+      <ClientEditForm
+        clientId={selectedClient.id}
+        clientName={selectedClient.name}
+        mode="edit"
+        fullPage
+        onSuccess={() => {
+          void refreshClients();
+          setFeedback({ type: "success", message: "Client updated successfully" });
+        }}
+        // No cancel button when controlled by sidebar - user changes via selector
+      />
+    );
+  }
+
+  // If editing a client via button click, show full page edit form
+  if (editingClient) {
+    return (
+      <ClientEditForm
+        clientId={editingClient.id}
+        clientName={editingClient.name}
+        mode="edit"
+        fullPage
+        onSuccess={handleEditSuccess}
+        onCancel={closeEditFullPage}
+      />
+    );
+  }
+
+  // Otherwise show the client list
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -255,7 +260,7 @@ export function ClientsAdminView() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => openEditDialog(client)}
+                      onClick={() => openEditFullPage(client)}
                       className="flex items-center gap-1 text-slate-200 hover:text-white"
                       disabled={isBusy}
                     >
@@ -279,14 +284,14 @@ export function ClientsAdminView() {
         </div>
       </div>
 
-      {/* Edit Client Dialog */}
+      {/* Create Client Dialog (still uses dialog for create) */}
       <ClientEditDialog
-        open={editDialogOpen}
-        onOpenChange={setEditDialogOpen}
-        clientId={editingClientId}
-        clientName={editingClientName}
-        onClientChange={handleClientChange}
-        mode={editDialogMode}
+        open={createDialogOpen}
+        onOpenChange={setCreateDialogOpen}
+        clientId={null}
+        clientName={null}
+        onClientChange={handleCreateSuccess}
+        mode="create"
       />
 
       {/* Contacts Dialog */}

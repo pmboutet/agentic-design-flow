@@ -740,7 +740,7 @@ export function AiChallengeBuilderContent({
             />
           ))}
         </section>
-      ) : !isRunning ? (
+      ) : !isRunning && !hasNewChallenges ? (
         <div className="rounded-lg border border-slate-800 bg-slate-900/70 px-4 py-5 text-sm text-slate-300">
           <div className="space-y-2">
             <p className="font-medium text-slate-200">No challenge updates proposed</p>

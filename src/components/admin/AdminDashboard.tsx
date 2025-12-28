@@ -42,6 +42,8 @@ import { UserSearchCombobox } from "@/components/ui/user-search-combobox";
 import { useAdminSearch, type SearchResultType, type SearchResultItem } from "./AdminSearchContext";
 import { useClientContext } from "./ClientContext";
 import { useProjectContext, type ProjectSelection } from "./ProjectContext";
+import { formatDateTime, toInputDate, formatDisplayValue } from "./dashboard/utils";
+import { gradientButtonClasses, defaultColumnWidths, minColumnWidths, maxColumnWidths, type ColumnWidths } from "./dashboard/constants";
 import type { ApiResponse, ChallengeRecord, ClientRecord, ManagedUser, ProjectRecord } from "@/types";
 
 interface AdminDashboardProps {
@@ -99,14 +101,6 @@ type ProjectFormInput = z.infer<typeof projectFormSchema>;
 type ChallengeFormInput = z.infer<typeof challengeFormSchema>;
 type UserFormInput = z.infer<typeof userFormSchema>;
 
-const gradientButtonClasses = "btn-gradient";
-
-type ColumnWidths = [number, number];
-
-const defaultColumnWidths: ColumnWidths = [400, 560];
-const minColumnWidths: ColumnWidths = [320, 400];
-const maxColumnWidths: ColumnWidths = [600, 800];
-
 const defaultClientFormValues: ClientFormInput = {
   name: "",
   email: "",
@@ -154,45 +148,6 @@ const searchResultTypeConfig: Record<Exclude<SearchResultType, "ask">, { label: 
   challenge: { label: "Challenge", icon: Target },
   user: { label: "User", icon: Users }
 };
-
-function formatDateTime(value: string | null | undefined) {
-  if (!value) {
-    return "";
-  }
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-  return new Intl.DateTimeFormat("en", {
-    year: "numeric",
-    month: "short",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit"
-  }).format(date);
-}
-
-function toInputDate(value: string | null | undefined) {
-  if (!value) {
-    return "";
-  }
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return "";
-  }
-  return date.toISOString();
-}
-
-function formatDisplayValue(value: string | number | null | undefined) {
-  if (value === null || value === undefined) {
-    return "—";
-  }
-  if (typeof value === "number") {
-    return Number.isFinite(value) ? value.toString() : "—";
-  }
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : "—";
-}
 
 interface ChallengeDetailDialogProps {
   challenge: ChallengeRecord | null;
