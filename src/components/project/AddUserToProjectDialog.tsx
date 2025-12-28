@@ -9,25 +9,32 @@ import { Label } from "@/components/ui/label";
 import type { ProjectMember } from "@/types";
 import { cn } from "@/lib/utils";
 
-interface AddAskParticipantDialogProps {
+interface AddUserToProjectDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  askId: string;
   projectId: string;
-  currentParticipantUserIds: string[];
-  onParticipantAdded: () => void;
+  /** Optional ASK ID - if provided, adds to ASK participants instead of just project members */
+  askId?: string;
+  currentMemberUserIds?: string[];
+  onUserAdded: (result: { userId: string; userCreated: boolean }) => void;
 }
 
 type Mode = "search" | "create";
 
-export function AddAskParticipantDialog({
+/**
+ * DRY component for adding users to a project (or ASK).
+ * Supports both searching existing users and creating new ones.
+ * Uses the cascade logic (adds to client, then project).
+ * If askId is provided, also adds to ask_participants.
+ */
+export function AddUserToProjectDialog({
   open,
   onOpenChange,
-  askId,
   projectId,
-  currentParticipantUserIds,
-  onParticipantAdded,
-}: AddAskParticipantDialogProps) {
+  askId,
+  currentMemberUserIds = [],
+  onUserAdded,
+}: AddUserToProjectDialogProps) {
   const [mode, setMode] = useState<Mode>("search");
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<ProjectMember[]>([]);
@@ -74,9 +81,9 @@ export function AddAskParticipantDialog({
       const payload = await response.json();
 
       if (payload.success) {
-        // Filter out users who are already participants
+        // Filter out users who are already members
         const filteredResults = (payload.data ?? []).filter(
-          (user: ProjectMember) => !currentParticipantUserIds.includes(user.id)
+          (user: ProjectMember) => !currentMemberUserIds.includes(user.id)
         );
         setSearchResults(filteredResults);
       } else {
@@ -87,16 +94,21 @@ export function AddAskParticipantDialog({
     } finally {
       setIsSearching(false);
     }
-  }, [projectId, currentParticipantUserIds]);
+  }, [projectId, currentMemberUserIds]);
 
-  // Add existing user as participant
+  // Add existing user
   const handleAddExistingUser = useCallback(async (userId: string) => {
     setIsBusy(true);
     setError(null);
     setSuccess(null);
 
     try {
-      const response = await fetch(`/api/admin/asks/${askId}/add-participant`, {
+      // Use ASK endpoint if askId is provided, otherwise use project endpoint
+      const endpoint = askId
+        ? `/api/admin/asks/${askId}/add-participant`
+        : `/api/admin/projects/${projectId}/members`;
+
+      const response = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -106,22 +118,22 @@ export function AddAskParticipantDialog({
       const payload = await response.json();
 
       if (response.ok && payload.success) {
-        setSuccess("Participant ajouté avec succès");
-        onParticipantAdded();
+        setSuccess(askId ? "Participant ajouté avec succès" : "Utilisateur ajouté avec succès");
+        onUserAdded({ userId, userCreated: false });
         setTimeout(() => {
           onOpenChange(false);
         }, 1000);
       } else {
-        setError(payload.error || "Erreur lors de l'ajout du participant");
+        setError(payload.error || "Erreur lors de l'ajout de l'utilisateur");
       }
     } catch {
       setError("Erreur de connexion");
     } finally {
       setIsBusy(false);
     }
-  }, [askId, onParticipantAdded, onOpenChange]);
+  }, [projectId, askId, onUserAdded, onOpenChange]);
 
-  // Create new user and add as participant
+  // Create new user and add
   const handleCreateAndAdd = useCallback(async () => {
     if (!newUserEmail.trim()) {
       setError("L'email est requis");
@@ -140,7 +152,12 @@ export function AddAskParticipantDialog({
     setSuccess(null);
 
     try {
-      const response = await fetch(`/api/admin/asks/${askId}/add-participant`, {
+      // Use ASK endpoint if askId is provided, otherwise use project endpoint
+      const endpoint = askId
+        ? `/api/admin/asks/${askId}/add-participant`
+        : `/api/admin/projects/${projectId}/members`;
+
+      const response = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -157,10 +174,13 @@ export function AddAskParticipantDialog({
 
       if (response.ok && payload.success) {
         const message = payload.data?.userCreated
-          ? "Utilisateur créé et ajouté comme participant"
-          : "Utilisateur existant ajouté comme participant";
+          ? (askId ? "Utilisateur créé et ajouté comme participant" : "Utilisateur créé et ajouté au projet")
+          : (askId ? "Utilisateur existant ajouté comme participant" : "Utilisateur existant ajouté au projet");
         setSuccess(message);
-        onParticipantAdded();
+        onUserAdded({
+          userId: payload.data?.userId,
+          userCreated: payload.data?.userCreated ?? false,
+        });
         setTimeout(() => {
           onOpenChange(false);
         }, 1500);
@@ -172,7 +192,7 @@ export function AddAskParticipantDialog({
     } finally {
       setIsBusy(false);
     }
-  }, [askId, newUserEmail, newUserFirstName, newUserLastName, onParticipantAdded, onOpenChange]);
+  }, [projectId, askId, newUserEmail, newUserFirstName, newUserLastName, onUserAdded, onOpenChange]);
 
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
@@ -301,7 +321,7 @@ export function AddAskParticipantDialog({
                 {searchQuery.length >= 2 && !isSearching && searchResults.length === 0 && (
                   <div className="rounded-xl border border-white/10 bg-slate-900/40 p-4 text-center">
                     <p className="text-sm text-slate-400">
-                      Aucun utilisateur trouvé pour "{searchQuery}"
+                      Aucun utilisateur trouvé pour &quot;{searchQuery}&quot;
                     </p>
                     <Button
                       type="button"

@@ -492,6 +492,7 @@ export function useAdminResources() {
     addUserToClient,
     removeUserFromClient,
     updateClientMemberJob,
-    refreshAsks
+    refreshAsks,
+    refreshUsers
   };
 }

@@ -5,26 +5,62 @@ import { requireAdmin } from "@/lib/supabaseServer";
 import { canManageProjectMembers } from "@/lib/memberPermissions";
 import { sanitizeOptional } from "@/lib/sanitize";
 import { parseErrorMessage } from "@/lib/utils";
+import {
+  ensureClientMembership,
+  ensureProjectMembership,
+  getOrCreateUser,
+} from "@/app/api/admin/profiles/helpers";
 import { type ApiResponse } from "@/types";
 
-const payloadSchema = z.object({
-  userId: z.string().uuid("Invalid user id"),
+// Schema for adding an existing user
+const addExistingUserSchema = z.object({
+  userId: z.string().uuid(),
+  createUser: z.undefined(),
   role: z.string().trim().max(50).optional(),
-  jobTitle: z.string().trim().max(255).optional().or(z.literal(""))
+  jobTitle: z.string().trim().max(255).optional().or(z.literal("")),
 });
 
+// Schema for creating a new user
+const createUserSchema = z.object({
+  userId: z.undefined(),
+  createUser: z.object({
+    email: z.string().trim().email().max(255),
+    firstName: z.string().trim().max(100).optional().or(z.literal("")),
+    lastName: z.string().trim().max(100).optional().or(z.literal("")),
+    jobTitle: z.string().trim().max(255).optional().or(z.literal("")),
+  }),
+  role: z.string().trim().max(50).optional(),
+});
+
+const payloadSchema = z.union([addExistingUserSchema, createUserSchema]);
+
+export interface AddMemberResult {
+  userId: string;
+  userCreated: boolean;
+  addedToClient: boolean;
+  addedToProject: boolean;
+}
+
+/**
+ * POST /api/admin/projects/[id]/members
+ *
+ * Adds a member to a project with cascade logic:
+ * 1. Creates user if needed (createUser mode)
+ * 2. Adds user to client_members if not already member
+ * 3. Adds user to project_members if not already member
+ */
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    // Verify user is admin
+    // 1. Auth check
     const { profile } = await requireAdmin();
 
     const resolvedParams = await params;
     const projectId = z.string().uuid("Invalid project id").parse(resolvedParams.id);
 
-    // Check if user can manage members of this project
+    // 2. Permission check - also returns projectClientId
     const permission = await canManageProjectMembers(profile, projectId);
     if (!permission.allowed) {
       return NextResponse.json<ApiResponse>({
@@ -33,33 +69,94 @@ export async function POST(
       }, { status: 403 });
     }
 
+    // 3. Parse payload
     const body = await request.json();
     const payload = payloadSchema.parse(body);
 
     const supabase = getAdminSupabaseClient();
-    const jobTitle = payload.jobTitle ? sanitizeOptional(payload.jobTitle || null) : undefined;
-    
-    const upsertData: Record<string, unknown> = {
-      project_id: projectId,
-      user_id: payload.userId,
-      role: payload.role ?? "member"
+
+    // 4. Get project's clientId
+    const { data: project, error: projectError } = await supabase
+      .from("projects")
+      .select("client_id")
+      .eq("id", projectId)
+      .single();
+
+    if (projectError || !project?.client_id) {
+      return NextResponse.json<ApiResponse>({
+        success: false,
+        error: "Project not found or has no client"
+      }, { status: 404 });
+    }
+
+    const clientId = project.client_id;
+
+    // 5. Get or create user using shared helper
+    let userId: string;
+    let userCreated: boolean;
+
+    try {
+      const userResult = await getOrCreateUser(
+        supabase,
+        payload.userId,
+        payload.createUser ? {
+          email: payload.createUser.email,
+          firstName: payload.createUser.firstName || undefined,
+          lastName: payload.createUser.lastName || undefined,
+          jobTitle: payload.createUser.jobTitle || undefined,
+        } : undefined
+      );
+      userId = userResult.userId;
+      userCreated = userResult.userCreated;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "User operation failed";
+      const status = message === "User not found" ? 404 : 400;
+      return NextResponse.json<ApiResponse>({
+        success: false,
+        error: message
+      }, { status });
+    }
+
+    // 6. Cascade: Ensure user is a client member
+    const addedToClient = await ensureClientMembership(supabase, clientId, userId);
+
+    // 7. Cascade: Ensure user is a project member
+    const addedToProject = await ensureProjectMembership(supabase, projectId, userId);
+
+    // 8. Update job_title if provided (for existing project members)
+    const jobTitle = payload.role !== undefined || ('jobTitle' in payload && payload.jobTitle)
+      ? sanitizeOptional(('jobTitle' in payload ? payload.jobTitle : null) || null)
+      : undefined;
+
+    if (!addedToProject && (payload.role || jobTitle !== undefined)) {
+      // User was already a member, update their role/job_title if provided
+      const updateData: Record<string, unknown> = {};
+      if (payload.role) {
+        updateData.role = payload.role;
+      }
+      if (jobTitle !== undefined) {
+        updateData.job_title = jobTitle;
+      }
+
+      if (Object.keys(updateData).length > 0) {
+        await supabase
+          .from("project_members")
+          .update(updateData)
+          .eq("project_id", projectId)
+          .eq("user_id", userId);
+      }
+    }
+
+    const result: AddMemberResult = {
+      userId,
+      userCreated,
+      addedToClient,
+      addedToProject,
     };
-    
-    if (jobTitle !== undefined) {
-      upsertData.job_title = jobTitle;
-    }
 
-    const { error } = await supabase
-      .from("project_members")
-      .upsert(upsertData, { onConflict: "project_id,user_id" });
-
-    if (error) {
-      throw error;
-    }
-
-    return NextResponse.json<ApiResponse<null>>({
+    return NextResponse.json<ApiResponse<AddMemberResult>>({
       success: true,
-      data: null
+      data: result
     }, { status: 201 });
   } catch (error) {
     let status = 500;
@@ -70,7 +167,9 @@ export async function POST(
     }
     return NextResponse.json<ApiResponse>({
       success: false,
-      error: error instanceof z.ZodError ? error.errors[0]?.message || "Invalid payload" : parseErrorMessage(error)
+      error: error instanceof z.ZodError
+        ? error.errors[0]?.message || "Invalid payload"
+        : parseErrorMessage(error)
     }, { status });
   }
 }

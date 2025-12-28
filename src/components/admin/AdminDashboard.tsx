@@ -32,6 +32,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { DateTimePicker } from "@/components/ui/date-time-picker";
 import { ProjectJourneyBoard } from "@/components/project/ProjectJourneyBoard";
+import { AddUserToProjectDialog } from "@/components/project/AddUserToProjectDialog";
 import { FormDateTimeField } from "./FormDateTimeField";
 import { GraphRAGPanel } from "./GraphRAGPanel";
 import { ProjectGraphVisualization } from "@/components/graph/ProjectGraphVisualization";
@@ -221,158 +222,7 @@ function ChallengeDetailDialog({ challenge, projectName, onClose }: ChallengeDet
 }
 
 
-interface AddParticipantsDialogProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  project: ProjectRecord | null;
-  users: ManagedUser[];
-  availableUsersForSearch: ManagedUser[];
-  selectedUserForProject: ManagedUser | null;
-  onUserSelect: (user: ManagedUser | null) => Promise<void>;
-  onCreateNewUser: (email: string) => Promise<void>;
-  onAddToProject: (userId: string) => Promise<void>;
-  onRemoveFromProject: (userId: string) => Promise<void>;
-  isBusy: boolean;
-  isLoading: boolean;
-}
-
-function AddParticipantsDialog({
-  open,
-  onOpenChange,
-  project,
-  users,
-  availableUsersForSearch,
-  selectedUserForProject,
-  onUserSelect,
-  onCreateNewUser,
-  onAddToProject,
-  onRemoveFromProject,
-  isBusy,
-  isLoading
-}: AddParticipantsDialogProps) {
-  // Get users that are members of the project
-  const projectMembers = useMemo(() => {
-    if (!project) return [];
-    return users.filter(user => {
-      const userProjectIds = user.projectIds ?? [];
-      return userProjectIds.includes(project.id);
-    }).sort((a, b) => {
-      const aLabel = (a.fullName || a.email || "").toLowerCase();
-      const bLabel = (b.fullName || b.email || "").toLowerCase();
-      return aLabel.localeCompare(bLabel);
-    });
-  }, [users, project]);
-
-  return (
-    <Dialog.Root open={open} onOpenChange={onOpenChange}>
-      <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm transition-opacity data-[state=closed]:opacity-0 data-[state=open]:opacity-100" />
-        <Dialog.Content className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto">
-          <div className="w-full max-w-2xl rounded-3xl border border-white/10 bg-slate-950/90 p-6 shadow-2xl my-4">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <Dialog.Title className="text-lg font-semibold text-white">
-                  Ajouter des participants
-                </Dialog.Title>
-                <Dialog.Description className="text-sm text-slate-300">
-                  Gérer les participants du projet {project?.name ?? ""}
-                </Dialog.Description>
-              </div>
-              <Dialog.Close asChild>
-                <button
-                  type="button"
-                  className="rounded-full border border-white/10 bg-white/10 p-1.5 text-slate-200 transition hover:bg-white/20"
-                  aria-label="Fermer"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </Dialog.Close>
-            </div>
-
-            {/* Search and add user */}
-            <div className="mt-6 space-y-3 rounded-2xl border border-white/10 bg-slate-900/40 p-4">
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="add-participant-search">Rechercher un utilisateur à ajouter</Label>
-                <UserSearchCombobox
-                  users={availableUsersForSearch}
-                  selectedUserId={selectedUserForProject?.id ?? null}
-                  onSelect={onUserSelect}
-                  onCreateNew={onCreateNewUser}
-                  placeholder="Rechercher par nom, email ou job title..."
-                  disabled={isBusy}
-                />
-              </div>
-              {availableUsersForSearch.length === 0 && project?.clientId && (
-                <p className="text-xs text-slate-400">
-                  Tous les utilisateurs de ce client sont déjà dans le projet. Vous pouvez créer un nouvel utilisateur ci-dessus.
-                </p>
-              )}
-              {availableUsersForSearch.length === 0 && !project?.clientId && (
-                <p className="text-xs text-slate-400">
-                  Sélectionnez un client pour voir ses utilisateurs.
-                </p>
-              )}
-            </div>
-
-            {/* List of current project members */}
-            <div className="mt-6">
-              <div className="flex items-center gap-2 mb-3">
-                <Users className="h-4 w-4 text-indigo-300" />
-                <h3 className="text-sm font-medium text-white">
-                  Participants actuels ({projectMembers.length})
-                </h3>
-              </div>
-              <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2">
-                {isLoading && projectMembers.length === 0 ? (
-                  <div className="flex items-center gap-2 text-slate-300 py-4 justify-center">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Chargement...
-                  </div>
-                ) : projectMembers.length === 0 ? (
-                  <p className="text-sm text-slate-400 py-4 text-center">
-                    Aucun participant dans ce projet.
-                  </p>
-                ) : (
-                  projectMembers.map(user => (
-                    <article
-                      key={user.id}
-                      className="flex items-center justify-between rounded-xl border border-white/10 bg-slate-900/40 px-4 py-3"
-                    >
-                      <div className="text-left">
-                        <h4 className="text-sm font-semibold text-white">
-                          {user.fullName || user.email}
-                        </h4>
-                        <p className="text-xs text-slate-400">{user.email}</p>
-                        {user.jobTitle && (
-                          <p className="text-xs text-slate-500 italic">{user.jobTitle}</p>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="rounded-full bg-white/10 px-2 py-1 text-[10px] uppercase tracking-wide text-slate-200">
-                          {user.role}
-                        </span>
-                        <Button
-                          type="button"
-                          variant="glassDark"
-                          size="sm"
-                          className="h-7 px-3 text-[11px]"
-                          onClick={() => onRemoveFromProject(user.id)}
-                          disabled={isBusy}
-                        >
-                          Retirer
-                        </Button>
-                      </div>
-                    </article>
-                  ))
-                )}
-              </div>
-            </div>
-          </div>
-        </Dialog.Content>
-      </Dialog.Portal>
-    </Dialog.Root>
-  );
-}
+// AddParticipantsDialog removed - now using shared AddUserToProjectDialog component
 
 export function AdminDashboard({ initialProjectId = null, mode = "default" }: AdminDashboardProps = {}) {
   const router = useRouter();
@@ -401,7 +251,8 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
     addUserToProject,
     removeUserFromProject,
     findUserByEmail,
-    createUserAndAddToProject
+    createUserAndAddToProject,
+    refreshUsers
   } = useAdminResources();
 
   // Get client selection from context (managed in sidebar)
@@ -1830,38 +1681,17 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
         projectName={challengeDetailProjectName}
         onClose={() => setChallengeDetailId(null)}
       />
-      <AddParticipantsDialog
-        open={showAddParticipantsDialog}
-        onOpenChange={setShowAddParticipantsDialog}
-        project={selectedProject ?? null}
-        users={users}
-        availableUsersForSearch={availableUsersForSearch}
-        selectedUserForProject={selectedUserForProject}
-        onUserSelect={async (user) => {
-          if (user && selectedProjectId) {
-            await addUserToProject(user.id, selectedProjectId);
-            setSelectedUserForProject(null);
-          }
-        }}
-        onCreateNewUser={async (email) => {
-          if (selectedProjectId) {
-            const clientId = selectedProject?.clientId ?? (selectedClientId === "all" ? undefined : selectedClientId) ?? undefined;
-            await createUserAndAddToProject(email, selectedProjectId, clientId);
-          }
-        }}
-        onAddToProject={async (userId) => {
-          if (selectedProjectId) {
-            await addUserToProject(userId, selectedProjectId);
-          }
-        }}
-        onRemoveFromProject={async (userId) => {
-          if (selectedProjectId) {
-            await removeUserFromProject(userId, selectedProjectId);
-          }
-        }}
-        isBusy={isBusy}
-        isLoading={isLoading}
-      />
+      {selectedProjectId && (
+        <AddUserToProjectDialog
+          open={showAddParticipantsDialog}
+          onOpenChange={setShowAddParticipantsDialog}
+          projectId={selectedProjectId}
+          currentMemberUserIds={users
+            .filter(u => u.projectIds?.includes(selectedProjectId))
+            .map(u => u.id)}
+          onUserAdded={() => refreshUsers()}
+        />
+      )}
       <div className="h-screen bg-slate-950 text-slate-100">
       <div className="flex h-full">
         <div className="flex flex-1 flex-col">

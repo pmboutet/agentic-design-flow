@@ -264,7 +264,13 @@ function saveStepToLocalStorage(askKey: string, stepId: string, elapsedSeconds: 
 /**
  * Fetch elapsed seconds from server
  */
-async function fetchFromServer(askKey: string, inviteToken?: string | null): Promise<number | null> {
+interface ServerTimerData {
+  elapsedActiveSeconds: number;
+  stepElapsedSeconds?: number;
+  currentStepId?: string;
+}
+
+async function fetchFromServer(askKey: string, inviteToken?: string | null): Promise<ServerTimerData | null> {
   try {
     const headers: Record<string, string> = {};
     if (inviteToken) {
@@ -279,7 +285,11 @@ async function fetchFromServer(askKey: string, inviteToken?: string | null): Pro
 
     const result = await response.json();
     if (result.success && typeof result.data?.elapsedActiveSeconds === 'number') {
-      return result.data.elapsedActiveSeconds;
+      return {
+        elapsedActiveSeconds: result.data.elapsedActiveSeconds,
+        stepElapsedSeconds: result.data.stepElapsedSeconds,
+        currentStepId: result.data.currentStepId,
+      };
     }
   } catch (error) {
     console.warn('Failed to fetch timer from server:', error);
@@ -570,14 +580,29 @@ export function useSessionTimer(config: SessionTimerConfig = {}): SessionTimerSt
     let mounted = true;
 
     const loadServerValue = async () => {
-      const serverValue = await fetchFromServer(askKey, inviteToken);
-      if (mounted && serverValue !== null) {
+      const serverData = await fetchFromServer(askKey, inviteToken);
+      if (mounted && serverData !== null) {
+        // Update total elapsed time
         setElapsedSeconds(prev => {
-          const maxValue = Math.max(prev, serverValue);
+          const maxValue = Math.max(prev, serverData.elapsedActiveSeconds);
           // Update localStorage with the max value
           saveToLocalStorage(askKey, maxValue);
           return maxValue;
         });
+
+        // Update step elapsed time if server returned it and matches current step
+        if (
+          typeof serverData.stepElapsedSeconds === 'number' &&
+          serverData.currentStepId &&
+          serverData.currentStepId === currentStepIdRef.current
+        ) {
+          setStepElapsedSeconds(prev => {
+            const maxValue = Math.max(prev, serverData.stepElapsedSeconds!);
+            // Update localStorage with the max value
+            saveStepToLocalStorage(askKey, serverData.currentStepId!, maxValue);
+            return maxValue;
+          });
+        }
       }
     };
 
@@ -673,7 +698,7 @@ export function useSessionTimer(config: SessionTimerConfig = {}): SessionTimerSt
     };
   }, [timerState]);
 
-  // Handle step change - reset step timer and load from localStorage
+  // Handle step change - reset step timer and load from localStorage/server
   useEffect(() => {
     if (currentStepId !== previousStepIdRef.current) {
       // Step changed - sync old step time first, then reset
@@ -685,15 +710,35 @@ export function useSessionTimer(config: SessionTimerConfig = {}): SessionTimerSt
       previousStepIdRef.current = currentStepId;
       currentStepIdRef.current = currentStepId;
 
-      // Load step time from localStorage or reset to 0
+      // Load step time from localStorage first
       if (askKey && currentStepId) {
         const storedStepTime = loadStepFromLocalStorage(askKey, currentStepId);
-        setStepElapsedSeconds(storedStepTime);
+
+        // If localStorage has value, use it
+        if (storedStepTime > 0) {
+          setStepElapsedSeconds(storedStepTime);
+        } else {
+          // No localStorage value - try to load from server
+          // This handles the case where user accesses from a different browser/session
+          setStepElapsedSeconds(0); // Set to 0 immediately while we fetch
+
+          fetchFromServer(askKey, inviteToken).then(serverData => {
+            if (
+              serverData &&
+              typeof serverData.stepElapsedSeconds === 'number' &&
+              serverData.currentStepId === currentStepId &&
+              serverData.stepElapsedSeconds > 0
+            ) {
+              setStepElapsedSeconds(serverData.stepElapsedSeconds);
+              saveStepToLocalStorage(askKey, currentStepId, serverData.stepElapsedSeconds);
+            }
+          });
+        }
       } else {
         setStepElapsedSeconds(0);
       }
     }
-  }, [currentStepId, askKey, syncToServer]);
+  }, [currentStepId, askKey, inviteToken, syncToServer]);
 
   // Save step elapsed seconds to localStorage on every change
   useEffect(() => {

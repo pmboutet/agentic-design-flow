@@ -60,8 +60,7 @@ import {
 import { AiChallengeBuilderModal } from "@/components/project/AiChallengeBuilderModal";
 import { AiChallengeBuilderContent } from "@/components/project/AiChallengeBuilderPanel";
 import { AiAskGeneratorPanel } from "@/components/project/AiAskGeneratorPanel";
-import { AddParticipantsDialog } from "@/components/project/AddParticipantsDialog";
-import { AddAskParticipantDialog } from "@/components/project/AddAskParticipantDialog";
+import { AddUserToProjectDialog } from "@/components/project/AddUserToProjectDialog";
 import { ClientEditDialog } from "@/components/project/ClientEditDialog";
 import { AskPromptTemplateSelector } from "@/components/admin/AskPromptTemplateSelector";
 import { GraphRAGPanel } from "@/components/admin/GraphRAGPanel";
@@ -3416,33 +3415,32 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
       </header>
       ) : null}
 
-      {/* Add Participants Dialog */}
+      {/* Add Participants to Project Dialog */}
       {boardData && (
-        <AddParticipantsDialog
+        <AddUserToProjectDialog
           open={showAddParticipantsDialog}
           onOpenChange={setShowAddParticipantsDialog}
           projectId={projectId}
-          projectName={boardData.projectName}
-          projectMembers={boardData.projectMembers}
-          onMembersChange={() => loadJourneyData({ silent: true })}
+          currentMemberUserIds={boardData.projectMembers.map(m => m.id)}
+          onUserAdded={() => loadJourneyData({ silent: true })}
         />
       )}
 
-      {/* Add ASK Participant Dialog */}
+      {/* Add Participant to ASK Dialog */}
       {addParticipantDialogAskId && (
-        <AddAskParticipantDialog
+        <AddUserToProjectDialog
           open={!!addParticipantDialogAskId}
           onOpenChange={(open) => !open && setAddParticipantDialogAskId(null)}
-          askId={addParticipantDialogAskId}
           projectId={projectId}
-          currentParticipantUserIds={
+          askId={addParticipantDialogAskId}
+          currentMemberUserIds={
             boardData?.asks
               .find(a => a.id === addParticipantDialogAskId)
               ?.participants
               .map(p => p.userId)
               .filter((id): id is string => !!id) ?? []
           }
-          onParticipantAdded={() => loadJourneyData({ silent: true })}
+          onUserAdded={() => loadJourneyData({ silent: true })}
         />
       )}
 

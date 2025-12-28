@@ -42,6 +42,56 @@ function permissionDeniedResponse(): NextResponse<ApiResponse> {
   }, { status: 403 });
 }
 
+interface StepTimerData {
+  stepElapsedSeconds?: number;
+  currentStepId?: string;
+}
+
+/**
+ * Fetch step elapsed time from the conversation plan
+ * Reusable helper for both token and connected modes
+ */
+async function fetchStepElapsedTime(
+  adminClient: SupabaseClient,
+  askSessionId: string
+): Promise<StepTimerData> {
+  // Find conversation thread for this ASK session
+  const { data: threadData } = await adminClient
+    .from('conversation_threads')
+    .select('id')
+    .eq('ask_session_id', askSessionId)
+    .limit(1)
+    .maybeSingle();
+
+  if (!threadData) {
+    return {};
+  }
+
+  // Find the plan for this thread
+  const { data: planData } = await adminClient
+    .from('ask_conversation_plans')
+    .select('id, current_step_id')
+    .eq('conversation_thread_id', threadData.id)
+    .maybeSingle();
+
+  if (!planData?.current_step_id) {
+    return {};
+  }
+
+  // Get the step elapsed time
+  const { data: stepData } = await adminClient
+    .from('ask_conversation_plan_steps')
+    .select('elapsed_active_seconds')
+    .eq('plan_id', planData.id)
+    .eq('step_identifier', planData.current_step_id)
+    .maybeSingle();
+
+  return {
+    currentStepId: planData.current_step_id,
+    stepElapsedSeconds: stepData?.elapsed_active_seconds ?? 0,
+  };
+}
+
 /**
  * GET /api/ask/[key]/timer
  * Get the current elapsed time for the participant
@@ -90,11 +140,16 @@ export async function GET(
       const askData = askResult.data;
 
       if (!participantResult.error && participant && !askResult.error && askData && askData.ask_key === key) {
+        // Fetch step elapsed time from the conversation plan
+        const admin = await getAdminClient();
+        const stepTimerData = await fetchStepElapsedTime(admin, askData.ask_session_id);
+
         return NextResponse.json<ApiResponse<TimerResponse>>({
           success: true,
           data: {
             elapsedActiveSeconds: participant.elapsed_active_seconds ?? 0,
             participantId: participant.participant_id,
+            ...stepTimerData,
           }
         });
       }
@@ -181,11 +236,16 @@ export async function GET(
       });
     }
 
+    // Fetch step elapsed time from the conversation plan
+    const admin = await getAdminClient();
+    const stepTimerData = await fetchStepElapsedTime(admin, askRow.id);
+
     return NextResponse.json<ApiResponse<TimerResponse>>({
       success: true,
       data: {
         elapsedActiveSeconds: participant.elapsed_active_seconds ?? 0,
         participantId: participant.id,
+        ...stepTimerData,
       }
     });
   } catch (error) {

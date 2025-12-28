@@ -3,9 +3,12 @@ import { z } from "zod";
 import { getAdminSupabaseClient } from "@/lib/supabaseAdmin";
 import { requireAdmin } from "@/lib/supabaseServer";
 import { canManageAskParticipants } from "@/lib/memberPermissions";
-import { sanitizeOptional, sanitizeText } from "@/lib/sanitize";
 import { parseErrorMessage } from "@/lib/utils";
-import { ensureClientMembership, ensureProjectMembership } from "@/app/api/admin/profiles/helpers";
+import {
+  ensureClientMembership,
+  ensureProjectMembership,
+  getOrCreateUser,
+} from "@/app/api/admin/profiles/helpers";
 import type { ApiResponse } from "@/types";
 import { randomBytes } from "crypto";
 
@@ -96,83 +99,30 @@ export async function POST(
       }, { status: 400 });
     }
 
-    // 5. Get or create user
+    // 5. Get or create user using shared helper
     let userId: string;
-    let userCreated = false;
+    let userCreated: boolean;
 
-    if (payload.userId) {
-      // Existing user mode
-      userId = payload.userId;
-
-      // Verify user exists
-      const { data: existingUser, error: userError } = await supabase
-        .from("profiles")
-        .select("id")
-        .eq("id", userId)
-        .single();
-
-      if (userError || !existingUser) {
-        return NextResponse.json<ApiResponse>({
-          success: false,
-          error: "User not found",
-        }, { status: 404 });
-      }
-    } else if (payload.createUser) {
-      // Create new user mode
-      const { email, firstName, lastName, jobTitle } = payload.createUser;
-
-      // Check if email already exists
-      const { data: existingByEmail } = await supabase
-        .from("profiles")
-        .select("id")
-        .eq("email", email.toLowerCase())
-        .maybeSingle();
-
-      if (existingByEmail) {
-        // User already exists with this email, use them instead
-        userId = existingByEmail.id;
-      } else {
-        // Create new profile
-        const insertData: Record<string, unknown> = {
-          email: sanitizeText(email.toLowerCase()),
-          role: "participant",
-          is_active: true,
-        };
-
-        if (firstName) {
-          insertData.first_name = sanitizeOptional(firstName);
-        }
-        if (lastName) {
-          insertData.last_name = sanitizeOptional(lastName);
-        }
-        if (firstName || lastName) {
-          const fullName = [firstName, lastName].filter(Boolean).join(" ");
-          if (fullName) {
-            insertData.full_name = sanitizeOptional(fullName);
-          }
-        }
-        if (jobTitle) {
-          insertData.job_title = sanitizeOptional(jobTitle);
-        }
-
-        const { data: newProfile, error: createError } = await supabase
-          .from("profiles")
-          .insert(insertData)
-          .select("id")
-          .single();
-
-        if (createError) {
-          throw createError;
-        }
-
-        userId = newProfile.id;
-        userCreated = true;
-      }
-    } else {
+    try {
+      const userResult = await getOrCreateUser(
+        supabase,
+        payload.userId,
+        payload.createUser ? {
+          email: payload.createUser.email,
+          firstName: payload.createUser.firstName || undefined,
+          lastName: payload.createUser.lastName || undefined,
+          jobTitle: payload.createUser.jobTitle || undefined,
+        } : undefined
+      );
+      userId = userResult.userId;
+      userCreated = userResult.userCreated;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "User operation failed";
+      const status = message === "User not found" ? 404 : 400;
       return NextResponse.json<ApiResponse>({
         success: false,
-        error: "Either userId or createUser must be provided",
-      }, { status: 400 });
+        error: message,
+      }, { status });
     }
 
     // 6. Check if user is already a participant of this ASK

@@ -279,6 +279,105 @@ export async function ensureProjectMembership(
   return true;
 }
 
+export interface CreateUserData {
+  email: string;
+  firstName?: string;
+  lastName?: string;
+  jobTitle?: string;
+}
+
+export interface GetOrCreateUserResult {
+  userId: string;
+  userCreated: boolean;
+}
+
+/**
+ * Get an existing user by ID or create a new user from the provided data.
+ * If createUser.email already exists, returns that existing user instead of creating a duplicate.
+ *
+ * @param supabase - Supabase client
+ * @param userId - Optional existing user ID to find
+ * @param createUser - Optional data to create a new user
+ * @returns The user ID and whether a new user was created
+ * @throws Error if neither userId nor createUser is provided, or if user is not found
+ */
+export async function getOrCreateUser(
+  supabase: SupabaseClient,
+  userId?: string,
+  createUser?: CreateUserData
+): Promise<GetOrCreateUserResult> {
+  // Import sanitize functions inline to avoid circular dependencies
+  const { sanitizeOptional, sanitizeText } = await import("@/lib/sanitize");
+
+  if (userId) {
+    // Existing user mode - verify user exists
+    const { data: existingUser, error: userError } = await supabase
+      .from("profiles")
+      .select("id")
+      .eq("id", userId)
+      .single();
+
+    if (userError || !existingUser) {
+      throw new Error("User not found");
+    }
+
+    return { userId, userCreated: false };
+  }
+
+  if (createUser) {
+    const { email, firstName, lastName, jobTitle } = createUser;
+
+    // Check if email already exists
+    const { data: existingByEmail } = await supabase
+      .from("profiles")
+      .select("id")
+      .eq("email", email.toLowerCase())
+      .maybeSingle();
+
+    if (existingByEmail) {
+      // User already exists with this email, use them instead
+      return { userId: existingByEmail.id, userCreated: false };
+    }
+
+    // Create new profile
+    const insertData: Record<string, unknown> = {
+      email: sanitizeText(email.toLowerCase()),
+      role: "participant",
+      is_active: true,
+    };
+
+    if (firstName) {
+      insertData.first_name = sanitizeOptional(firstName);
+    }
+    if (lastName) {
+      insertData.last_name = sanitizeOptional(lastName);
+    }
+    if (firstName || lastName) {
+      const fullName = [firstName, lastName].filter(Boolean).join(" ");
+      if (fullName) {
+        insertData.full_name = sanitizeOptional(fullName);
+      }
+    }
+    if (jobTitle) {
+      insertData.job_title = sanitizeOptional(jobTitle);
+    }
+
+    const { data: newProfile, error: createError } = await supabase
+      .from("profiles")
+      .insert(insertData)
+      .select("id")
+      .single();
+
+    if (createError) {
+      throw createError;
+    }
+
+    return { userId: newProfile.id, userCreated: true };
+  }
+
+  throw new Error("Either userId or createUser must be provided");
+}
+
 export function mapManagedUser(
   row: any,
   membershipMap?: Map<string, string[]>,
