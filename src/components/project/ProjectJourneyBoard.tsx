@@ -183,20 +183,11 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
   const [purgeConfirmationWord, setPurgeConfirmationWord] = useState("");
   const [isPurging, setIsPurging] = useState(false);
   const [purgeFeedback, setPurgeFeedback] = useState<FeedbackState | null>(null);
-  const { profile } = useAuth();
+  const { profile, isFullAdmin, isAdmin } = useAuth();
   const currentProfileId = profile?.id ?? null;
 
-  // Check if user can manage clients (client_admin or higher)
-  const canManageClients = useMemo(() => {
-    const role = profile?.role?.toLowerCase() ?? "";
-    return role === "full_admin" || role === "client_admin";
-  }, [profile?.role]);
-
-  // Check if user is full_admin (required for dangerous operations like purge)
-  const isFullAdmin = useMemo(() => {
-    const role = profile?.role?.toLowerCase() ?? "";
-    return role === "full_admin";
-  }, [profile?.role]);
+  // isAdmin means user can manage clients (client_admin or higher)
+  const canManageClients = isAdmin;
 
   const isProdEnvironment = useMemo(() => {
     const devFlag = (process.env.NEXT_PUBLIC_IS_DEV ?? "").toString().toLowerCase();
@@ -267,7 +258,7 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
           if (hasResults) {
             setAiBuilderFeedback({
               type: "success",
-              message: "Analyse IA terminée. Cliquez sur l'onglet AI Suggestions pour voir les résultats.",
+              message: "Analyse IA terminée. Cliquez sur l'onglet Sub-challenges IA pour voir les résultats.",
             });
           } else if (hasErrors) {
             setAiBuilderFeedback({
@@ -735,6 +726,18 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
       setIsAskAiRunning(false);
     }
   }, [activeChallengeId, isAskAiRunning]);
+
+  // Handler to open ASK suggestions panel - uses pre-loaded or triggers generation
+  const handleOpenAskSuggestionsPanel = useCallback(() => {
+    // If we have pre-loaded suggestions, just open the panel
+    if (askAiSuggestions.length > 0) {
+      setIsAskAiPanelOpen(true);
+      return;
+    }
+
+    // Otherwise trigger generation
+    handleLaunchAskAiGenerator();
+  }, [askAiSuggestions.length, handleLaunchAskAiGenerator]);
 
   const handleDismissChallengeSuggestion = useCallback((challengeId: string) => {
     setAiSuggestions(current => current.filter(item => item.challengeId !== challengeId));
@@ -1467,6 +1470,51 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
       setExpandedAsks(new Set());
     }
   }, [activeChallengeId]);
+
+  // Load pre-generated AI ASK suggestions when active challenge changes
+  useEffect(() => {
+    if (!activeChallenge) {
+      return;
+    }
+
+    const persistedSuggestions = activeChallenge.aiAskSuggestions;
+
+    // If status is "generating", show the running state
+    if (persistedSuggestions?.status === "generating") {
+      setIsAskAiRunning(true);
+      setAskAiSuggestions([]);
+      setAskAiFeedback({ type: "success", message: "Génération des ASKs en cours..." });
+      return;
+    }
+
+    // If status is "completed" with suggestions, pre-load them
+    if (persistedSuggestions?.status === "completed" && persistedSuggestions.suggestions.length > 0) {
+      setAskAiSuggestions(persistedSuggestions.suggestions);
+      setIsAskAiRunning(false);
+      setAskAiFeedback({
+        type: "success",
+        message: `${persistedSuggestions.suggestions.length} ASK(s) suggérée(s) disponible(s).`,
+      });
+      return;
+    }
+
+    // If status is "error", show the error
+    if (persistedSuggestions?.status === "error") {
+      setIsAskAiRunning(false);
+      setAskAiSuggestions([]);
+      setAskAiFeedback({
+        type: "error",
+        message: persistedSuggestions.error ?? "Erreur lors de la génération des ASKs.",
+      });
+      return;
+    }
+
+    // No persisted suggestions, reset state
+    setIsAskAiRunning(false);
+    setAskAiSuggestions([]);
+    setAskAiFeedback(null);
+    setAskAiErrors(null);
+  }, [activeChallenge]);
 
   const handleApplyAiAskSuggestion = useCallback(
     (suggestion: AiAskSuggestion) => {
@@ -3180,6 +3228,7 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
           projectId={projectId}
           projectName={boardData.projectName}
           boardData={boardData}
+          onChallengeCreated={() => loadJourneyData({ silent: true })}
         />
       ) : null}
 
@@ -3867,7 +3916,7 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
                       "h-4 w-4 transition-colors",
                       modalActiveTab === "ai" ? "text-indigo-400" : "text-slate-500 group-hover:text-slate-400"
                     )} />
-                    AI Suggestions
+                    Sub-challenges IA
                     {(() => {
                       // Count suggestions for active challenge and all its descendants
                       const getDescendantIds = (node: ProjectChallengeNode): string[] => {
@@ -4016,9 +4065,12 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
                           </Button>
                           <Button
                             size="sm"
-                            variant="glassDark"
-                            className="gap-1.5 h-8 text-xs"
-                            onClick={handleLaunchAskAiGenerator}
+                            variant={askAiSuggestions.length > 0 ? "default" : "glassDark"}
+                            className={cn(
+                              "gap-1.5 h-8 text-xs",
+                              askAiSuggestions.length > 0 && "bg-purple-600 hover:bg-purple-700"
+                            )}
+                            onClick={handleOpenAskSuggestionsPanel}
                             disabled={isAskAiRunning || !activeChallenge}
                           >
                             {isAskAiRunning ? (
@@ -4026,7 +4078,11 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
                             ) : (
                               <Sparkles className="h-3.5 w-3.5" />
                             )}
-                            {isAskAiRunning ? "Génération..." : "Générer avec IA"}
+                            {isAskAiRunning
+                              ? "Génération..."
+                              : askAiSuggestions.length > 0
+                                ? `Voir ${askAiSuggestions.length} suggestion${askAiSuggestions.length > 1 ? "s" : ""}`
+                                : "Générer avec IA"}
                           </Button>
                         </div>
                       </div>

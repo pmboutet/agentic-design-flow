@@ -521,6 +521,17 @@ export interface ProjectRecord {
   } | null;
 }
 
+/** Status of AI ASK suggestions generation */
+export type AiAskSuggestionsStatus = "pending" | "generating" | "completed" | "error";
+
+/** Persisted AI ASK suggestions stored on a challenge */
+export interface PersistedAskSuggestions {
+  suggestions: AiAskSuggestion[];
+  status: AiAskSuggestionsStatus;
+  lastRunAt: string;
+  error?: string | null;
+}
+
 export interface ChallengeRecord {
   id: string;
   name: string;
@@ -535,6 +546,8 @@ export interface ChallengeRecord {
   dueDate?: string | null;
   updatedAt: string;
   systemPrompt?: string | null;
+  /** AI-generated ASK suggestions for this challenge */
+  aiAskSuggestions?: PersistedAskSuggestions | null;
 }
 
 export interface AskSessionRecord {
@@ -672,6 +685,8 @@ export interface ProjectChallengeNode {
   owners?: ProjectParticipantSummary[];
   relatedInsightIds: string[];
   children?: ProjectChallengeNode[];
+  /** AI-generated ASK suggestions for this challenge */
+  aiAskSuggestions?: PersistedAskSuggestions | null;
 }
 
 export interface ProjectMember {

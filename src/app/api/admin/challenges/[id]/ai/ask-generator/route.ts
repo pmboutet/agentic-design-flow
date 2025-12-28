@@ -10,6 +10,7 @@ import {
   type AiAskParticipantSuggestion,
   type AiAskSuggestion,
   type ApiResponse,
+  type PersistedAskSuggestions,
   type ProjectChallengeNode,
   type ProjectJourneyBoardData,
 } from "@/types";
@@ -459,12 +460,13 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  let challengeId: string | null = null;
+  const supabase = getAdminSupabaseClient();
+
   try {
     const resolvedParams = await params;
-    const challengeId = z.string().uuid().parse(resolvedParams.id);
+    challengeId = z.string().uuid().parse(resolvedParams.id);
     const options = requestSchema?.parse(await request.json().catch(() => ({}))) ?? {};
-
-    const supabase = getAdminSupabaseClient();
 
     const { data: challengeRow, error: challengeError } = await supabase
       .from("challenges")
@@ -484,6 +486,18 @@ export async function POST(
     }
 
     const projectId: string = challengeRow.project_id;
+
+    // Set status to "generating" before running the agent
+    const generatingPayload: PersistedAskSuggestions = {
+      suggestions: [],
+      status: "generating",
+      lastRunAt: new Date().toISOString(),
+      error: null,
+    };
+    await supabase
+      .from("challenges")
+      .update({ ai_ask_suggestions: generatingPayload })
+      .eq("id", challengeId);
 
     const context = await fetchProjectJourneyContext(supabase, projectId);
     const { boardData } = context;
@@ -550,6 +564,18 @@ export async function POST(
     const parsedSuggestions = parseAskSuggestions(aiResult.content);
     const suggestions = parsedSuggestions.map(mapSuggestionToResponse);
 
+    // Persist completed suggestions to database
+    const completedPayload: PersistedAskSuggestions = {
+      suggestions,
+      status: "completed",
+      lastRunAt: new Date().toISOString(),
+      error: null,
+    };
+    await supabase
+      .from("challenges")
+      .update({ ai_ask_suggestions: completedPayload })
+      .eq("id", challengeId);
+
     const payload: AiAskGeneratorResponse = {
       suggestions,
       errors: suggestions.length === 0 ? ["L'agent n'a proposé aucune nouvelle ASK pour ce challenge."] : undefined,
@@ -561,10 +587,32 @@ export async function POST(
       data: payload,
     });
   } catch (error) {
+    const errorMessage = error instanceof z.ZodError
+      ? error.errors[0]?.message ?? "Invalid request"
+      : parseErrorMessage(error);
+
+    // Persist error status to database if we have a valid challengeId
+    if (challengeId) {
+      const errorPayload: PersistedAskSuggestions = {
+        suggestions: [],
+        status: "error",
+        lastRunAt: new Date().toISOString(),
+        error: errorMessage,
+      };
+      try {
+        await supabase
+          .from("challenges")
+          .update({ ai_ask_suggestions: errorPayload })
+          .eq("id", challengeId);
+      } catch {
+        // Silently ignore persistence errors to not mask the original error
+      }
+    }
+
     const status = error instanceof z.ZodError ? 400 : 500;
     return NextResponse.json<ApiResponse>({
       success: false,
-      error: error instanceof z.ZodError ? error.errors[0]?.message ?? "Invalid request" : parseErrorMessage(error),
+      error: errorMessage,
     }, { status });
   }
 }

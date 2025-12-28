@@ -19,7 +19,21 @@ const createSchema = z.object({
   parentChallengeId: z.string().uuid().optional().or(z.literal("")),
   systemPrompt: z.string().trim().max(8000).optional().or(z.literal("")),
   dueDate: z.string().trim().min(1).optional(),
+  /** If true (default), triggers AI ASK suggestion generation after creation */
+  autoGenerateAsks: z.boolean().default(true),
 });
+
+/** Convert null values to empty strings for optional fields */
+function normalizeNullToEmpty<T extends Record<string, unknown>>(body: T): T {
+  const optionalFields = ["description", "category", "assignedTo", "parentChallengeId", "systemPrompt"];
+  const result = { ...body };
+  for (const field of optionalFields) {
+    if (result[field] === null) {
+      (result as Record<string, unknown>)[field] = "";
+    }
+  }
+  return result;
+}
 
 function mapChallenge(row: any): ChallengeRecord {
   return {
@@ -87,9 +101,9 @@ export async function POST(request: NextRequest) {
     // Verify user is admin and get authenticated client
     await requireAdmin();
     const supabase = await createServerSupabaseClient();
-    
+
     const body = await request.json();
-    const payload = createSchema.parse(body);
+    const payload = createSchema.parse(normalizeNullToEmpty(body));
 
     const insertData: Record<string, any> = {
       name: sanitizeText(payload.name),
@@ -130,6 +144,18 @@ export async function POST(request: NextRequest) {
 
     if (error) {
       throw error;
+    }
+
+    // Fire-and-forget: trigger AI ASK suggestion generation if enabled
+    if (payload.autoGenerateAsks && data?.id) {
+      const baseUrl = request.headers.get("host") ?? "localhost:3000";
+      const protocol = baseUrl.includes("localhost") ? "http" : "https";
+
+      fetch(`${protocol}://${baseUrl}/api/admin/challenges/${data.id}/ai/ask-generator`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      }).catch(console.error);
     }
 
     return NextResponse.json<ApiResponse<ChallengeRecord>>({

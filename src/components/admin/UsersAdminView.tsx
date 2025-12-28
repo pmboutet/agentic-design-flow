@@ -20,6 +20,7 @@ import { UserSearchCombobox } from "@/components/ui/user-search-combobox";
 import { UserEditModal } from "@/components/admin/UserEditModal";
 import { useClientContext } from "@/components/admin/ClientContext";
 import { useProjectContext } from "@/components/admin/ProjectContext";
+import { useAuth } from "@/components/auth/AuthProvider";
 import type { ClientRecord, ClientRole, ManagedUser, ProjectRecord } from "@/types";
 
 const userRoles = ["full_admin", "client_admin", "facilitator", "manager", "participant"] as const;
@@ -82,6 +83,9 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
 }
 
 export function UsersAdminView() {
+  // Get current user's role flags from auth context
+  const { isFullAdmin } = useAuth();
+
   // Get global client selection from context
   const { selectedClientId: contextClientId, clients: contextClients } = useClientContext();
   // Get global project selection from context
@@ -196,16 +200,23 @@ export function UsersAdminView() {
 
   const availableUsersForSearch = useMemo(() => {
     if (!selectedProjectId) return [];
-    // Users from the same client who are not yet in the project
-    // Check client_members relationship
-    const viewingClientId = selectedProject?.clientId ?? selectedClientId;
-    return users.filter(u => {
-      const hasClientMembership = u.clientMemberships?.some(cm => cm.clientId === viewingClientId);
-      const isSameClient = hasClientMembership;
-      const notInProject = !u.projectIds?.includes(selectedProjectId);
-      return isSameClient && notInProject;
+
+    // Users who are not yet in the project
+    const notInProjectUsers = users.filter(u => !u.projectIds?.includes(selectedProjectId));
+
+    // Full admin can add any user not already in the project
+    if (isFullAdmin) {
+      return notInProjectUsers;
+    }
+
+    // Client admin can add users from any of their authorized clients
+    // contextClients contains only clients the current admin has access to
+    const authorizedClientIds = contextClients.map(c => c.id);
+    return notInProjectUsers.filter(u => {
+      // Check if user has membership in any of the admin's authorized clients
+      return u.clientMemberships?.some(cm => authorizedClientIds.includes(cm.clientId));
     });
-  }, [users, selectedProjectId, selectedProject, selectedClientId]);
+  }, [users, selectedProjectId, isFullAdmin, contextClients]);
 
   const resetUserForm = useCallback(() => {
     userForm.reset({ ...defaultUserFormValues, clientId: selectedClientId ?? "" });
@@ -601,27 +612,29 @@ export function UsersAdminView() {
             </div>
           )}
 
-          {/* Project Filter - only show when "all" is selected in sidebar */}
-          {!isContextProjectSpecific && (
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-              <div className="flex items-center gap-2 mb-3">
-                <FolderKanban className="h-4 w-4 text-purple-300" />
-                <Label className="text-sm font-medium text-white">Filter by Project</Label>
-              </div>
-              <select
-                className="w-full h-10 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm text-white"
-                value={localProjectFilter ?? ""}
-                onChange={e => setLocalProjectFilter(e.target.value || null)}
-              >
-                <option value="">All projects</option>
-                {projectsForClient.map(project => (
-                  <option key={project.id} value={project.id}>
-                    {project.name}
-                  </option>
-                ))}
-              </select>
+          {/* Project Filter - always visible, synced with sidebar context */}
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <FolderKanban className="h-4 w-4 text-purple-300" />
+              <Label className="text-sm font-medium text-white">Filter by Project</Label>
+              {isContextProjectSpecific && (
+                <span className="text-xs text-slate-400">(via sidebar)</span>
+              )}
             </div>
-          )}
+            <select
+              className="w-full h-10 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm text-white disabled:opacity-60 disabled:cursor-not-allowed"
+              value={selectedProjectId ?? ""}
+              onChange={e => setLocalProjectFilter(e.target.value || null)}
+              disabled={isContextProjectSpecific}
+            >
+              <option value="">All projects</option>
+              {projectsForClient.map(project => (
+                <option key={project.id} value={project.id}>
+                  {project.name}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
       )}
 

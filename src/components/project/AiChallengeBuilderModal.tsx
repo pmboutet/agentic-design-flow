@@ -31,6 +31,7 @@ interface AiChallengeBuilderModalProps {
   projectId: string;
   projectName: string;
   boardData: ProjectJourneyBoardData | null;
+  onChallengeCreated?: () => void;
 }
 
 export function AiChallengeBuilderModal({
@@ -39,6 +40,7 @@ export function AiChallengeBuilderModal({
   projectId,
   projectName,
   boardData,
+  onChallengeCreated,
 }: AiChallengeBuilderModalProps) {
   const [isRunning, setIsRunning] = useState(false);
   const [suggestions, setSuggestions] = useState<AiChallengeUpdateSuggestion[]>([]);
@@ -336,7 +338,7 @@ export function AiChallengeBuilderModal({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             name: suggestion.title,
-            description: suggestion.description || null,
+            description: suggestion.description || "",
             status: suggestion.status || "open",
             priority: suggestion.impact || "medium",
             projectId: projectId,
@@ -359,6 +361,9 @@ export function AiChallengeBuilderModal({
             return { ...s, newSubChallenges: remaining.length ? remaining : undefined };
           }),
         );
+
+        // Notify parent to refresh board
+        onChallengeCreated?.();
       } catch (error) {
         console.error("Failed to apply new sub-challenge:", error);
       } finally {
@@ -369,7 +374,7 @@ export function AiChallengeBuilderModal({
         });
       }
     },
-    [boardData, projectId, loadResults],
+    [boardData, projectId, loadResults, onChallengeCreated],
   );
 
   // Dismiss suggested new sub-challenge
@@ -403,11 +408,11 @@ export function AiChallengeBuilderModal({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             name: suggestion.title,
-            description: suggestion.description || null,
+            description: suggestion.description || "",
             status: suggestion.status || "open",
             priority: suggestion.impact || "medium",
             projectId: projectId,
-            parentChallengeId: suggestion.parentId || null,
+            parentChallengeId: suggestion.parentId || "",
           }),
         });
 
@@ -420,6 +425,9 @@ export function AiChallengeBuilderModal({
 
         // Remove from new challenges
         setNewChallenges((current) => current.filter((_, i) => i !== index));
+
+        // Notify parent to refresh board
+        onChallengeCreated?.();
       } catch (error) {
         console.error("Failed to apply new challenge:", error);
       } finally {
@@ -430,7 +438,7 @@ export function AiChallengeBuilderModal({
         });
       }
     },
-    [boardData, projectId, loadResults],
+    [boardData, projectId, loadResults, onChallengeCreated],
   );
 
   // Dismiss new challenge

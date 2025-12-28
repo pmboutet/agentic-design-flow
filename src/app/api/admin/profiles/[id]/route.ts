@@ -20,7 +20,7 @@ export async function GET(
 
     const { data, error } = await supabase
       .from("profiles")
-      .select("*, clients(name)")
+      .select("*")
       .eq("id", userId)
       .is("deleted_at", null)
       .single();
@@ -161,7 +161,7 @@ export async function PATCH(
       .from("profiles")
       .update(updateData)
       .eq("id", userId)
-      .select("*, clients(name)")
+      .select("*")
       .single();
 
     if (error) {

@@ -22,6 +22,10 @@ type AuthContextValue = {
   session: Session | null;
   profile: Profile | null;
   isProcessing: boolean;
+  /** User has full_admin role */
+  isFullAdmin: boolean;
+  /** User has full_admin or client_admin role */
+  isAdmin: boolean;
   signIn: (email: string, password: string) => Promise<{ error?: string }>;
   signUp: (email: string, password: string, metadata?: { fullName?: string; firstName?: string; lastName?: string }) => Promise<{ error?: string }>;
   signInWithGoogle: (redirectTo?: string) => Promise<{ error?: string }>;
@@ -624,19 +628,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [fetchProfile, isDevBypass, session, user]);
 
+  // Compute role-based flags
+  const role = profile?.role?.toLowerCase() ?? "";
+  const isFullAdmin = role === "full_admin";
+  const isAdmin = role === "full_admin" || role === "client_admin";
+
   const value = useMemo<AuthContextValue>(() => ({
     status,
     user,
     session,
     profile,
     isProcessing,
+    isFullAdmin,
+    isAdmin,
     signIn,
     signUp,
     signInWithGoogle,
     signOut,
     refreshProfile,
     setDevUser: isDevBypass ? setDevUser : undefined,
-  }), [status, user, session, profile, isProcessing, signIn, signUp, signInWithGoogle, signOut, refreshProfile, isDevBypass, setDevUser]);
+  }), [status, user, session, profile, isProcessing, isFullAdmin, isAdmin, signIn, signUp, signInWithGoogle, signOut, refreshProfile, isDevBypass, setDevUser]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

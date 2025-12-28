@@ -138,6 +138,7 @@ function buildChallengeTree(
       owners,
       relatedInsightIds: relatedInsightMap.get(row.id) ?? [],
       children: [],
+      aiAskSuggestions: row.ai_ask_suggestions ?? null,
     };
 
     nodeMap.set(node.id, node);
@@ -295,7 +296,7 @@ export async function fetchProjectJourneyContext(
     supabase
       .from("challenges")
       .select(
-        "id, name, description, status, priority, category, project_id, parent_challenge_id, assigned_to, due_date, system_prompt",
+        "id, name, description, status, priority, category, project_id, parent_challenge_id, assigned_to, due_date, system_prompt, ai_ask_suggestions",
       )
       .eq("project_id", projectId),
     supabase
