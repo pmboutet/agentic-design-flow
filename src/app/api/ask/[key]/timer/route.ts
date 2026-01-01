@@ -487,3 +487,9 @@ export async function PATCH(
     }, { status: 500 });
   }
 }
+
+/**
+ * POST /api/ask/[key]/timer
+ * Same as PATCH - needed for sendBeacon which only supports POST
+ */
+export const POST = PATCH;

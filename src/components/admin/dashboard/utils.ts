@@ -24,18 +24,6 @@ export function formatDateTime(value: string | null | undefined): string {
 }
 
 /**
- * Generate a URL-friendly key from a base string
- */
-export function generateAskKey(base: string): string {
-  const slug = base
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/(^-|-$)+/g, "");
-  const randomSuffix = Math.random().toString(36).slice(2, 6);
-  return `${slug || "ask"}-${randomSuffix}`;
-}
-
-/**
  * Convert a date string to ISO format for input fields
  */
 export function toInputDate(value: string | null | undefined): string {

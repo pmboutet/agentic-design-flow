@@ -2,10 +2,11 @@
 
 import { useCallback, useEffect, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { Loader2, UserPlus, X, Search, Mail, User } from "lucide-react";
+import { Loader2, UserPlus, X, Search, Mail, User, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import type { ProjectMember } from "@/types";
 import { cn } from "@/lib/utils";
 
@@ -47,6 +48,7 @@ export function AddUserToProjectDialog({
   const [newUserEmail, setNewUserEmail] = useState("");
   const [newUserFirstName, setNewUserFirstName] = useState("");
   const [newUserLastName, setNewUserLastName] = useState("");
+  const [newUserDescription, setNewUserDescription] = useState("");
 
   // Reset state when dialog opens/closes
   useEffect(() => {
@@ -57,6 +59,7 @@ export function AddUserToProjectDialog({
       setNewUserEmail("");
       setNewUserFirstName("");
       setNewUserLastName("");
+      setNewUserDescription("");
       setError(null);
       setSuccess(null);
     }
@@ -167,6 +170,7 @@ export function AddUserToProjectDialog({
             firstName: newUserFirstName.trim() || undefined,
             lastName: newUserLastName.trim() || undefined,
           },
+          description: newUserDescription.trim() || undefined,
         }),
       });
 
@@ -192,7 +196,7 @@ export function AddUserToProjectDialog({
     } finally {
       setIsBusy(false);
     }
-  }, [projectId, askId, newUserEmail, newUserFirstName, newUserLastName, onUserAdded, onOpenChange]);
+  }, [projectId, askId, newUserEmail, newUserFirstName, newUserLastName, newUserDescription, onUserAdded, onOpenChange]);
 
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
@@ -395,6 +399,25 @@ export function AddUserToProjectDialog({
                       disabled={isBusy}
                     />
                   </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="new-user-description" className="flex items-center gap-2">
+                    <FileText className="h-4 w-4 text-slate-400" />
+                    Description (projet)
+                  </Label>
+                  <Textarea
+                    id="new-user-description"
+                    value={newUserDescription}
+                    onChange={e => setNewUserDescription(e.target.value)}
+                    placeholder="Rôle et contexte du participant pour ce projet..."
+                    disabled={isBusy}
+                    rows={3}
+                    className="resize-none"
+                  />
+                  <p className="text-xs text-slate-500">
+                    Cette description sera utilisée par l&apos;IA pour personnaliser les échanges.
+                  </p>
                 </div>
 
                 <div className="flex justify-end gap-2 pt-2">

@@ -298,7 +298,7 @@ describe('conversation-context', () => {
   });
 
   describe('buildParticipantSummary', () => {
-    it('should build participant summary with all fields', () => {
+    it('should build participant summary with all fields from user (no project member)', () => {
       const participant: ParticipantRow = {
         id: '1',
         participant_name: 'John Doe',
@@ -311,7 +311,7 @@ describe('conversation-context', () => {
         job_title: 'Software Engineer',
       };
 
-      const result = buildParticipantSummary(participant, user, 0);
+      const result = buildParticipantSummary(participant, user, null, 0);
 
       expect(result).toEqual({
         name: 'John Doe',
@@ -321,13 +321,61 @@ describe('conversation-context', () => {
       });
     });
 
+    it('should prioritize project member description over user description', () => {
+      const participant: ParticipantRow = {
+        id: '1',
+        participant_name: 'John Doe',
+        role: 'Developer',
+        user_id: 'user-1',
+      };
+      const user: UserRow = {
+        id: 'user-1',
+        description: 'Global profile description',
+        job_title: 'Global Job Title',
+      };
+      const projectMember = {
+        user_id: 'user-1',
+        description: 'Project-specific description',
+        job_title: 'Project-specific Job Title',
+      };
+
+      const result = buildParticipantSummary(participant, user, projectMember, 0);
+
+      expect(result.description).toBe('Project-specific description');
+      expect(result.jobTitle).toBe('Project-specific Job Title');
+    });
+
+    it('should fall back to user description when project member has no description', () => {
+      const participant: ParticipantRow = {
+        id: '1',
+        participant_name: 'John Doe',
+        role: 'Developer',
+        user_id: 'user-1',
+      };
+      const user: UserRow = {
+        id: 'user-1',
+        description: 'Global profile description',
+        job_title: 'Global Job Title',
+      };
+      const projectMember = {
+        user_id: 'user-1',
+        description: null,
+        job_title: null,
+      };
+
+      const result = buildParticipantSummary(participant, user, projectMember, 0);
+
+      expect(result.description).toBe('Global profile description');
+      expect(result.jobTitle).toBe('Global Job Title');
+    });
+
     it('should return null for missing role', () => {
       const participant: ParticipantRow = {
         id: '1',
         participant_name: 'Jane Doe',
       };
 
-      const result = buildParticipantSummary(participant, null, 0);
+      const result = buildParticipantSummary(participant, null, null, 0);
 
       expect(result.role).toBeNull();
       expect(result.jobTitle).toBeNull();
@@ -343,7 +391,7 @@ describe('conversation-context', () => {
         // No description or job_title
       };
 
-      const result = buildParticipantSummary(participant, user, 0);
+      const result = buildParticipantSummary(participant, user, null, 0);
 
       expect(result.description).toBeNull();
       expect(result.jobTitle).toBeNull();
@@ -359,7 +407,7 @@ describe('conversation-context', () => {
         full_name: 'Derived Name',
       };
 
-      const result = buildParticipantSummary(participant, user, 0);
+      const result = buildParticipantSummary(participant, user, null, 0);
 
       expect(result.name).toBe('Derived Name');
     });

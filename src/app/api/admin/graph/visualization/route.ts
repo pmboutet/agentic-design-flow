@@ -8,7 +8,7 @@ import {
 } from "@/lib/graphRAG/graphAnalysis";
 import type { ApiResponse } from "@/types";
 
-type GraphNodeType = "insight" | "entity" | "challenge" | "synthesis" | string;
+type GraphNodeType = "insight" | "entity" | "challenge" | "synthesis" | "claim" | string;
 
 // Semantic similarity threshold for entity deduplication
 // 0.80 threshold captures variants like "google slide" ↔ "generation automatique google slide" (0.811)
@@ -122,6 +122,7 @@ interface GraphVisualizationResponse {
     entities: number;
     challenges: number;
     syntheses: number;
+    claims: number;
     insightTypes: number;
     edges: number;
   };
@@ -146,6 +147,15 @@ function relationshipLabel(type: string): string {
       return "Contient";
     case "HAS_TYPE":
       return "Type";
+    // Claim-related relationships
+    case "SUPPORTS":
+      return "Soutient";
+    case "CONTRADICTS":
+      return "Contredit";
+    case "ADDRESSES":
+      return "Adresse";
+    case "EVIDENCE_FOR":
+      return "Preuve";
     default:
       return type;
   }
@@ -251,7 +261,7 @@ async function handleConceptsMode(
   if (askSessionIds.length === 0 && (projectId || clientId)) {
     return NextResponse.json<ApiResponse<GraphVisualizationResponse>>({
       success: true,
-      data: { nodes: [], edges: [], stats: { insights: 0, entities: 0, challenges: 0, syntheses: 0, insightTypes: 0, edges: 0 } },
+      data: { nodes: [], edges: [], stats: { insights: 0, entities: 0, challenges: 0, syntheses: 0, claims: 0, insightTypes: 0, edges: 0 } },
       message: "Aucun ASK trouvé",
     });
   }
@@ -271,7 +281,7 @@ async function handleConceptsMode(
   if (insightIds.length === 0) {
     return NextResponse.json<ApiResponse<GraphVisualizationResponse>>({
       success: true,
-      data: { nodes: [], edges: [], stats: { insights: 0, entities: 0, challenges: 0, syntheses: 0, insightTypes: 0, edges: 0 } },
+      data: { nodes: [], edges: [], stats: { insights: 0, entities: 0, challenges: 0, syntheses: 0, claims: 0, insightTypes: 0, edges: 0 } },
       message: "Aucun insight trouvé",
     });
   }
@@ -285,7 +295,7 @@ async function handleConceptsMode(
   if (!insightKeywords || insightKeywords.length === 0) {
     return NextResponse.json<ApiResponse<GraphVisualizationResponse>>({
       success: true,
-      data: { nodes: [], edges: [], stats: { insights: insightIds.length, entities: 0, challenges: 0, syntheses: 0, insightTypes: 0, edges: 0 } },
+      data: { nodes: [], edges: [], stats: { insights: insightIds.length, entities: 0, challenges: 0, syntheses: 0, claims: 0, insightTypes: 0, edges: 0 } },
       message: "Aucune entité extraite",
     });
   }
@@ -302,7 +312,7 @@ async function handleConceptsMode(
   if (!entitiesRaw || entitiesRaw.length === 0) {
     return NextResponse.json<ApiResponse<GraphVisualizationResponse>>({
       success: true,
-      data: { nodes: [], edges: [], stats: { insights: insightIds.length, entities: 0, challenges: 0, syntheses: 0, insightTypes: 0, edges: 0 } },
+      data: { nodes: [], edges: [], stats: { insights: insightIds.length, entities: 0, challenges: 0, syntheses: 0, claims: 0, insightTypes: 0, edges: 0 } },
     });
   }
 
@@ -559,6 +569,7 @@ async function handleConceptsMode(
         entities: nodes.length,
         challenges: 0,
         syntheses: 0,
+        claims: 0,
         insightTypes: 0,
         edges: edges.length,
       },
@@ -615,7 +626,7 @@ export async function GET(request: NextRequest) {
       if (!askSessions || askSessions.length === 0) {
         return NextResponse.json<ApiResponse<GraphVisualizationResponse>>({
           success: true,
-          data: { nodes: [], edges: [], stats: { insights: 0, entities: 0, challenges: 0, syntheses: 0, insightTypes: 0, edges: 0 } },
+          data: { nodes: [], edges: [], stats: { insights: 0, entities: 0, challenges: 0, syntheses: 0, claims: 0, insightTypes: 0, edges: 0 } },
           message: "Aucun ASK trouvé pour ce projet",
         });
       }
@@ -635,7 +646,7 @@ export async function GET(request: NextRequest) {
       if (!projects || projects.length === 0) {
         return NextResponse.json<ApiResponse<GraphVisualizationResponse>>({
           success: true,
-          data: { nodes: [], edges: [], stats: { insights: 0, entities: 0, challenges: 0, syntheses: 0, insightTypes: 0, edges: 0 } },
+          data: { nodes: [], edges: [], stats: { insights: 0, entities: 0, challenges: 0, syntheses: 0, claims: 0, insightTypes: 0, edges: 0 } },
           message: "Aucun projet trouvé pour ce client",
         });
       }
@@ -737,7 +748,7 @@ export async function GET(request: NextRequest) {
         data: {
           nodes: Array.from(nodes.values()),
           edges: [],
-          stats: { insights: 0, entities: 0, challenges: 0, syntheses: 0, insightTypes: 0, edges: 0 },
+          stats: { insights: 0, entities: 0, challenges: 0, syntheses: 0, claims: 0, insightTypes: 0, edges: 0 },
         },
       });
     }
@@ -779,6 +790,7 @@ export async function GET(request: NextRequest) {
     const entityIds = new Set<string>();
     const challengeIds = new Set<string>();
     const synthesisIds = new Set<string>();
+    const claimIds = new Set<string>();
 
     for (const [index, edge] of (edgeData ?? []).entries()) {
       const edgeId = `edge-${index}-${edge.source_id}-${edge.target_id}-${edge.relationship_type}`;
@@ -801,6 +813,8 @@ export async function GET(request: NextRequest) {
         challengeIds.add(edge.source_id);
       } else if (edge.source_type === "synthesis") {
         synthesisIds.add(edge.source_id);
+      } else if (edge.source_type === "claim") {
+        claimIds.add(edge.source_id);
       }
 
       if (edge.target_type === "entity") {
@@ -809,6 +823,8 @@ export async function GET(request: NextRequest) {
         challengeIds.add(edge.target_id);
       } else if (edge.target_type === "synthesis") {
         synthesisIds.add(edge.target_id);
+      } else if (edge.target_type === "claim") {
+        claimIds.add(edge.target_id);
       }
     }
 
@@ -934,6 +950,41 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // Claims
+    if (claimIds.size > 0) {
+      const { data: claims, error: claimError } = await supabase
+        .from("claims")
+        .select("id, statement, claim_type, evidence_strength")
+        .in("id", Array.from(claimIds));
+
+      if (claimError) {
+        throw claimError;
+      }
+
+      // Claim type labels in French
+      const CLAIM_TYPE_LABELS: Record<string, string> = {
+        finding: "Constat",
+        hypothesis: "Hypothèse",
+        recommendation: "Recommandation",
+        observation: "Observation",
+      };
+
+      for (const claim of claims ?? []) {
+        const label = claim.statement?.trim() || "Claim";
+        nodes.set(claim.id, {
+          id: claim.id,
+          type: "claim",
+          label: label.length > 120 ? `${label.slice(0, 117)}...` : label,
+          subtitle: CLAIM_TYPE_LABELS[claim.claim_type] || claim.claim_type,
+          meta: {
+            claimType: claim.claim_type,
+            evidenceStrength: claim.evidence_strength,
+          },
+        });
+        nodeTypes.set(claim.id, "claim");
+      }
+    }
+
     // Ensure every node touched by a deduplicated edge exists
     for (const edge of deduplicatedEdges) {
       if (!nodes.has(edge.source)) {
@@ -1005,6 +1056,7 @@ export async function GET(request: NextRequest) {
           entities: uniqueEntityIds.size,
           challenges: Array.from(challengeIds).length,
           syntheses: Array.from(synthesisIds).length,
+          claims: claimIds.size,
           insightTypes: insightTypesUsed.size,
           edges: allEdges.length,
         },

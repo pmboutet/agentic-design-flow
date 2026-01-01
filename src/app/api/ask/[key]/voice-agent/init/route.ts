@@ -9,34 +9,22 @@ import { parseErrorMessage } from '@/lib/utils';
 import type { ApiResponse } from '@/types';
 import { buildConversationAgentVariables } from '@/lib/ai/conversation-agent';
 import {
-  buildParticipantDisplayName,
   buildMessageSummary,
-  buildParticipantSummary,
-  fetchUsersByIds,
   fetchElapsedTime,
-  fetchParticipantsBySession,
+  fetchParticipantsWithUsers,
   fetchProfileByAuthId,
   fetchProjectById,
   fetchChallengeById,
   fetchMessagesWithoutThread,
+  fetchUsersByIds,
   insertAiMessage,
   type AskSessionRow,
   type UserRow,
-  type ParticipantRow,
-  type ProjectRow,
-  type ChallengeRow,
   type MessageRow,
 } from '@/lib/conversation-context';
 
 const CHAT_AGENT_SLUG = DEFAULT_CHAT_AGENT_SLUG;
 const CHAT_INTERACTION_TYPE = 'ask.chat.response.voice';
-
-// Types imported from @/lib/conversation-context:
-// - AskSessionRow, UserRow, ParticipantRow, ProjectRow, ChallengeRow, MessageRow
-// - buildParticipantDisplayName (unified function)
-// - buildMessageSummary (unified function)
-// - buildParticipantSummary (unified function)
-// - fetchUsersByIds (utility function)
 
 export async function POST(
   request: NextRequest,
@@ -60,9 +48,16 @@ export async function POST(
       }, { status: 404 });
     }
 
-    // Fetch participants FIRST via RPC wrapper (needed for thread resolution and voice agent)
+    // Fetch participants and users via centralized helper (DRY)
     const adminClient = getAdminSupabaseClient();
-    const participantRows = await fetchParticipantsBySession(adminClient, askRow.id);
+    const {
+      participantRows,
+      usersById: fetchedUsersById,
+      projectMembersById,
+      participants: participantSummaries,
+    } = await fetchParticipantsWithUsers(adminClient, askRow.id, askRow.project_id);
+
+    let usersById = fetchedUsersById;
 
     // Try to get current user for thread determination via RPC wrapper
     const isDevBypass = process.env.IS_DEV === 'true';
@@ -103,21 +98,6 @@ export async function POST(
       threadProfileId,
       askConfig
     );
-
-    const participantUserIds = participantRows
-      .map(row => row.user_id)
-      .filter((value): value is string => Boolean(value));
-
-    let usersById: Record<string, UserRow> = {};
-    if (participantUserIds.length > 0) {
-      usersById = await fetchUsersByIds(adminClient, participantUserIds);
-    }
-
-    // Build participant summaries using unified function for consistent mapping
-    const participantSummaries = (participantRows ?? []).map((row, index) => {
-      const user = row.user_id ? usersById[row.user_id] ?? null : null;
-      return buildParticipantSummary(row as ParticipantRow, user, index);
-    });
 
     // Fetch project and challenge data via RPC wrappers
     const projectData = askRow.project_id

@@ -59,7 +59,7 @@ const ForceGraph2D = dynamic(
 // TYPES
 // ============================================================================
 
-type GraphNodeType = "insight" | "entity" | "challenge" | "synthesis" | "insight_type";
+type GraphNodeType = "insight" | "entity" | "challenge" | "synthesis" | "insight_type" | "claim";
 
 interface GraphNodeResponse {
   id: string;
@@ -89,6 +89,7 @@ interface GraphStats {
   entities: number;
   challenges: number;
   syntheses: number;
+  claims: number;
   insightTypes: number;
   edges: number;
 }
@@ -243,6 +244,11 @@ const NODE_COLORS: Record<GraphNodeType | "default", { fill: string; solid: stri
     fill: "rgba(244, 63, 94, 0.9)",    // rose-500
     solid: "#F43F5E",
   },
+  // Claim: Emerald/Green (actionable findings and hypotheses)
+  claim: {
+    fill: "rgba(16, 185, 129, 0.9)",   // emerald-500
+    solid: "#10B981",
+  },
   default: {
     fill: "rgba(148, 163, 184, 0.9)",  // slate-400
     solid: "#94A3B8",
@@ -259,6 +265,11 @@ const EDGE_COLORS: Record<string, string> = {
   HAS_TYPE: "rgba(244, 63, 94, 0.5)",      // rose - insight type classification
   INDIRECT: "rgba(148, 163, 184, 0.35)",   // slate - virtual/indirect links (dashed visually)
   CO_OCCURS: "rgba(14, 165, 233, 0.8)",    // cyan - entity co-occurrence in concepts mode (more visible)
+  // Claim-related edges
+  SUPPORTS: "rgba(16, 185, 129, 0.6)",     // emerald - claim supports claim
+  CONTRADICTS: "rgba(239, 68, 68, 0.6)",   // red - claim contradicts claim
+  ADDRESSES: "rgba(245, 158, 11, 0.6)",    // amber - claim addresses challenge
+  EVIDENCE_FOR: "rgba(99, 102, 241, 0.5)", // indigo - insight proves claim
   default: "rgba(148, 163, 184, 0.4)",     // slate default
 };
 
@@ -269,6 +280,7 @@ const NODE_LABELS: Record<GraphNodeType, string> = {
   challenge: "Challenges",
   synthesis: "Synthèses",
   insight_type: "Types d'insight",
+  claim: "Claims",
 };
 
 // Edge type labels in French
@@ -281,6 +293,11 @@ const EDGE_LABELS: Record<string, string> = {
   HAS_TYPE: "type",
   INDIRECT: "indirect",
   CO_OCCURS: "co-occurrence",
+  // Claim-related labels
+  SUPPORTS: "soutient",
+  CONTRADICTS: "contredit",
+  ADDRESSES: "adresse",
+  EVIDENCE_FOR: "preuve",
 };
 
 // Base node sizes by type
@@ -290,6 +307,7 @@ const NODE_SIZES: Record<GraphNodeType | "default", number> = {
   synthesis: 6,
   entity: 4,
   insight_type: 8,  // Larger for category nodes
+  claim: 6,         // Medium size for claims
   default: 4,
 };
 
@@ -481,6 +499,7 @@ export function ProjectGraphVisualization({ projectId, clientId, refreshKey }: P
     challenge: true,
     synthesis: true,
     insight_type: true,
+    claim: true,
   });
   const [filters, setFilters] = useState<FiltersPayload | null>(null);
   const [selectedClientId, setSelectedClientId] = useState<string | null>(

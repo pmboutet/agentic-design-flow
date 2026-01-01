@@ -73,13 +73,14 @@ export async function GET(
     // Build user query
     let usersQuery = supabase
       .from("profiles")
-      .select("id, full_name, email, role, job_title, is_active")
+      .select("id, full_name, email, role, job_title, description, is_active")
       .eq("is_active", true);
 
     // Filter by users in the client OR admins/owners (who can access any project)
     if (clientId && userIds.length > 0) {
       // Include users who are members of the client OR have admin/owner roles
-      usersQuery = usersQuery.or(`id.in.(${userIds.join(",")}),role.ilike.%admin%,role.ilike.%owner%`);
+      // Note: role is an enum, so we use .in() instead of .ilike()
+      usersQuery = usersQuery.or(`id.in.(${userIds.join(",")}),role.in.(full_admin,admin,client_admin)`);
     }
 
     // Apply search filter if query provided
@@ -102,6 +103,7 @@ export async function GET(
         email: user.email ?? null,
         role: user.role ?? null,
         jobTitle: user.job_title ?? null,
+        description: user.description ?? null,
       }))
       .sort((a, b) => {
         const nameA = (a.fullName || a.email || "").toLowerCase();

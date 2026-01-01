@@ -120,6 +120,91 @@ export async function POST(
 }
 
 /**
+ * PATCH /api/admin/challenges/[id]/ai/ask-suggestions
+ * Removes a specific suggestion by askKey from the persisted suggestions
+ */
+export async function PATCH(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  try {
+    const resolvedParams = await params;
+    const challengeId = z.string().uuid().parse(resolvedParams.id);
+
+    const body = await request.json();
+    const { askKey } = z.object({ askKey: z.string().min(1) }).parse(body);
+
+    const supabase = getAdminSupabaseClient();
+
+    // Get current suggestions
+    const { data, error: fetchError } = await supabase
+      .from("challenges")
+      .select("ai_ask_suggestions")
+      .eq("id", challengeId)
+      .maybeSingle();
+
+    if (fetchError) {
+      throw fetchError;
+    }
+
+    if (!data) {
+      return NextResponse.json<ApiResponse>({
+        success: false,
+        error: "Challenge not found",
+      }, { status: 404 });
+    }
+
+    const currentSuggestions = data.ai_ask_suggestions as PersistedAskSuggestions | null;
+    if (!currentSuggestions?.suggestions?.length) {
+      return NextResponse.json<ApiResponse<{ message: string }>>({
+        success: true,
+        data: { message: "No suggestions to update" },
+      });
+    }
+
+    // Filter out the suggestion with matching askKey
+    const updatedSuggestions = currentSuggestions.suggestions.filter(
+      suggestion => {
+        const suggestionKey = suggestion.askKey?.trim();
+        if (!suggestionKey) return true;
+        // Remove if askKey matches or if the provided key starts with suggestion key
+        // (handles cases where backend added a suffix to avoid duplicates)
+        return !askKey.startsWith(suggestionKey);
+      }
+    );
+
+    // Update the database
+    const updatedPayload: PersistedAskSuggestions = {
+      ...currentSuggestions,
+      suggestions: updatedSuggestions,
+    };
+
+    const { error: updateError } = await supabase
+      .from("challenges")
+      .update({ ai_ask_suggestions: updatedPayload })
+      .eq("id", challengeId);
+
+    if (updateError) {
+      throw updateError;
+    }
+
+    return NextResponse.json<ApiResponse<{ message: string; remainingCount: number }>>({
+      success: true,
+      data: {
+        message: "Suggestion removed",
+        remainingCount: updatedSuggestions.length,
+      },
+    });
+  } catch (error) {
+    const status = error instanceof z.ZodError ? 400 : 500;
+    return NextResponse.json<ApiResponse>({
+      success: false,
+      error: error instanceof z.ZodError ? error.errors[0]?.message ?? "Invalid request" : parseErrorMessage(error),
+    }, { status });
+  }
+}
+
+/**
  * DELETE /api/admin/challenges/[id]/ai/ask-suggestions
  * Clears the persisted AI ASK suggestions for a challenge
  */

@@ -93,6 +93,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   }, [allProjects, isInitialized]);
 
   // Reset to "all" when client changes if the currently selected project doesn't belong to the new client
+  // Auto-select if only one project is available after filtering
   useEffect(() => {
     if (!isInitialized) return;
 
@@ -103,8 +104,12 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
         setSelectedProjectIdState("all");
         localStorage.setItem(STORAGE_KEY, "all");
       }
+    } else if (projects.length === 1) {
+      // Auto-select the only available project
+      setSelectedProjectIdState(projects[0].id);
+      localStorage.setItem(STORAGE_KEY, projects[0].id);
     }
-  }, [selectedClientId, selectedProjectId, allProjects, isInitialized]);
+  }, [selectedClientId, selectedProjectId, allProjects, projects, isInitialized]);
 
   // Save selection to localStorage when it changes
   const setSelectedProjectId = useCallback((projectId: ProjectSelection) => {

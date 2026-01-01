@@ -14,7 +14,6 @@ import { buildConversationAgentVariables } from '@/lib/ai/conversation-agent';
 import {
   buildParticipantDisplayName,
   buildMessageSenderName,
-  buildParticipantSummary,
   fetchElapsedTime,
   insertAiMessage,
   type AskSessionRow,

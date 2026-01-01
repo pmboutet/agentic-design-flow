@@ -11,13 +11,11 @@ import { fetchInsightTypesForPrompt, fetchInsightsForSession } from '@/lib/insig
 import { mapInsightRowToInsight } from '@/lib/insights';
 import { buildEntityExtractionVariables } from '@/lib/graphRAG/extractEntities';
 import {
-  buildParticipantDisplayName,
   buildMessageSummary,
-  buildParticipantSummary,
-  fetchUsersByIds,
   fetchElapsedTime,
+  fetchParticipantsWithUsers,
+  fetchUsersByIds,
   type UserRow,
-  type ParticipantRow,
   type MessageRow,
 } from '@/lib/conversation-context';
 
@@ -78,36 +76,14 @@ export async function POST(
         throw new Error('ASK session not found');
       }
 
-      // Fetch participants
-      const { data: participantRows } = await supabase
-        .from('ask_participants')
-        .select('id, user_id, participant_name, participant_email, role, is_spokesperson')
-        .eq('ask_session_id', askRow.id)
-        .order('joined_at', { ascending: true });
+      // Fetch participants and users via centralized helper (DRY)
+      const {
+        participantRows,
+        usersById: fetchedUsersById,
+        participants,
+      } = await fetchParticipantsWithUsers(supabase, askRow.id, askRow.project_id);
 
-      const participantUserIds = (participantRows ?? [])
-        .map(row => row.user_id)
-        .filter((value): value is string => Boolean(value));
-
-      let usersById: Record<string, any> = {};
-
-      if (participantUserIds.length > 0) {
-        const { data: userRows } = await supabase
-          .from('profiles')
-          .select('id, email, full_name, first_name, last_name')
-          .in('id', participantUserIds);
-
-        usersById = (userRows ?? []).reduce<Record<string, any>>((acc, user) => {
-          acc[user.id] = user;
-          return acc;
-        }, {});
-      }
-
-      // Use unified buildParticipantSummary function for consistent participant mapping
-      const participants = (participantRows ?? []).map((row, index) => {
-        const user = row.user_id ? usersById[row.user_id] ?? null : null;
-        return buildParticipantSummary(row as ParticipantRow, user, index);
-      });
+      let usersById: Record<string, UserRow> = fetchedUsersById;
 
       // Get or create conversation thread
       const askConfig = {

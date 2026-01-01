@@ -9,7 +9,6 @@ import { getAdminSupabaseClient } from '@/lib/supabaseAdmin';
 import {
   buildParticipantDisplayName,
   buildMessageSummary,
-  buildParticipantSummary,
   fetchElapsedTime,
   type AskSessionRow,
   type UserRow,

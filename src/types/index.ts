@@ -461,6 +461,7 @@ export interface ProjectMembership {
   clientName?: string;
   role: string;
   jobTitle?: string | null;
+  description?: string | null; // Project-specific description for AI context
   createdAt: string;
 }
 
@@ -626,6 +627,7 @@ export interface ProjectParticipantSummary {
   name: string;
   role?: string;
   jobTitle?: string | null; // Global, client-specific, or project-specific job title
+  description?: string | null; // Project-specific description for AI context
 }
 
 export interface ProjectParticipantInsight {
@@ -695,6 +697,7 @@ export interface ProjectMember {
   email: string | null;
   role: string | null;
   jobTitle: string | null;
+  description: string | null; // Project-specific description for AI context
 }
 
 export interface ProjectJourneyBoardData {
@@ -869,3 +872,65 @@ export interface TimeTrackingStats {
   stepIsOvertime: boolean;
   stepOvertimeMinutes: number;
 }
+
+// ============================================================================
+// Claims System Types (Graph RAG)
+// ============================================================================
+
+export type ClaimType = 'finding' | 'hypothesis' | 'recommendation' | 'observation';
+
+export interface Claim {
+  id: string;
+  projectId: string;
+  challengeId: string | null;
+  statement: string;
+  claimType: ClaimType;
+  evidenceStrength: number | null;
+  confidence: number | null;
+  sourceInsightIds: string[];
+  embedding?: number[] | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ClaimEntity {
+  id: string;
+  claimId: string;
+  entityId: string;
+  relevanceScore: number;
+  createdAt: string;
+}
+
+// Types for claim extraction from insights
+export interface ExtractedClaim {
+  statement: string;
+  type: ClaimType;
+  evidenceStrength: number;
+  addressesObjective?: string;
+  keyEntities: string[];
+}
+
+export interface ClaimRelation {
+  fromClaimIndex: number;
+  toClaimIndex: number;
+  relation: 'supports' | 'contradicts' | 'refines';
+}
+
+export interface ClaimExtractionResult {
+  claims: ExtractedClaim[];
+  relations: ClaimRelation[];
+}
+
+// Graph edge types including new claim-related types
+export type GraphRelationshipType =
+  | 'SIMILAR_TO'
+  | 'RELATED_TO'
+  | 'CONTAINS'
+  | 'SYNTHESIZES'
+  | 'MENTIONS'
+  | 'HAS_TYPE'
+  | 'CO_OCCURS'
+  | 'SUPPORTS'
+  | 'CONTRADICTS'
+  | 'ADDRESSES'
+  | 'EVIDENCE_FOR';

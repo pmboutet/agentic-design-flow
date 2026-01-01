@@ -973,6 +973,13 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
       }
 
       const key = `${parentChallengeId}:${newChallenge.referenceId ?? index}`;
+
+      // Prevent double submission (race condition protection)
+      if (applyingNewSubChallengeKeys.has(key)) {
+        console.log('⚠️ Ignoring duplicate new sub-challenge suggestion submission for key:', key);
+        return;
+      }
+
       setApplyingNewSubChallengeKeys(current => {
         const next = new Set(current);
         next.add(key);
@@ -1029,6 +1036,7 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
 
         await loadJourneyData({ silent: true });
 
+        // Remove from local state
         setAiSuggestions(current =>
           current
             .map(suggestion => {
@@ -1046,6 +1054,17 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
             })
             .filter((value): value is AiChallengeUpdateSuggestion => Boolean(value)),
         );
+
+        // Persist removal to database (fire-and-forget)
+        fetch(`/api/admin/projects/${boardData.projectId}/ai/challenge-builder/results`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            type: "newSubChallenge",
+            parentChallengeId,
+            title: newChallenge.title,
+          }),
+        }).catch(err => console.error("Failed to persist sub-challenge suggestion removal:", err));
 
         setAiBuilderFeedback({
           type: "success",
@@ -1086,12 +1105,18 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
           .filter((value): value is AiChallengeUpdateSuggestion => Boolean(value)),
       );
     },
-    [pruneAiSuggestionNodes],
+    [applyingNewSubChallengeKeys, boardData, challengeById, pruneAiSuggestionNodes, resolveOwnerId],
   );
 
   const handleApplyNewChallengeSuggestion = useCallback(
     async (suggestion: AiNewChallengeSuggestion, index: number) => {
       if (!boardData) {
+        return;
+      }
+
+      // Prevent double submission (race condition protection)
+      if (applyingNewChallengeIndices.has(index)) {
+        console.log('⚠️ Ignoring duplicate new challenge suggestion submission for index:', index);
         return;
       }
 
@@ -1180,8 +1205,16 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
         // de continuer à voir et appliquer les autres suggestions AI dans la même vue.
         // L'utilisateur peut cliquer sur le nouveau challenge manuellement s'il le souhaite.
 
+        // Remove from local state
         setAiNewChallenges(current => current.filter((_, candidateIndex) => candidateIndex !== index));
-        
+
+        // Persist removal to database (fire-and-forget)
+        fetch(`/api/admin/projects/${boardData.projectId}/ai/challenge-builder/results`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type: "newChallenge", title: suggestion.title }),
+        }).catch(err => console.error("Failed to persist challenge suggestion removal:", err));
+
         const insightCount = suggestion.foundationInsights?.length || 0;
         const insightMessage = insightCount > 0 ? ` avec ${insightCount} foundation insight${insightCount > 1 ? 's' : ''}` : '';
         
@@ -1202,7 +1235,7 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
         });
       }
     },
-    [boardData, challengeById, loadJourneyData, resolveOwnerId],
+    [applyingNewChallengeIndices, boardData, challengeById, loadJourneyData, resolveOwnerId],
   );
 
   useEffect(() => {
@@ -2706,6 +2739,13 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
 
   const handleAskFormSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+
+    // Prevent double submission (race condition protection)
+    if (isSavingAsk) {
+      console.log('⚠️ Ignoring duplicate ASK form submission');
+      return;
+    }
+
     if (!boardData) {
       return;
     }
@@ -2880,10 +2920,32 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
         
         const record = result.data as AskSessionRecord;
         console.log('✅ Frontend: ASK created successfully:', record);
-        
+
         setAskDetails(current => ({ ...current, [record.id]: record }));
         setAskFeedback({ type: "success", message: "ASK created successfully." });
         setFeedback({ type: "success", message: "ASK created successfully." });
+
+        // Remove the used suggestion from local state and persist to database
+        const createdAskKey = record.askKey;
+        const challengeIdForSuggestion = askFormValues.challengeId;
+
+        // Update local state
+        setAskAiSuggestions(current =>
+          current.filter(suggestion => {
+            const suggestionKey = suggestion.askKey?.trim();
+            if (!suggestionKey) return true;
+            return !createdAskKey.startsWith(suggestionKey);
+          })
+        );
+
+        // Persist removal to database (fire-and-forget)
+        if (challengeIdForSuggestion) {
+          fetch(`/api/admin/challenges/${challengeIdForSuggestion}/ai/ask-suggestions`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ askKey: createdAskKey }),
+          }).catch(err => console.error("Failed to persist suggestion removal:", err));
+        }
 
         console.log('✅ Frontend: ASK created, reloading data...');
         await loadJourneyData({ silent: true });

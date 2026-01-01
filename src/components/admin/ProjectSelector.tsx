@@ -42,19 +42,12 @@ export function ProjectSelector({ collapsed = false }: ProjectSelectorProps) {
       if (project?.clientId) {
         setSelectedClientId(project.clientId);
       }
+      // Navigate to journey board when a specific project is selected
+      router.push(`/admin/projects/${newProjectId}`);
+    } else if (isOnProjectsListPage || isOnProjectDetailPage) {
+      // Go back to projects list only when "all" is selected and on projects pages
+      router.push("/admin/projects");
     }
-
-    // Navigate only when on projects pages
-    if (isOnProjectsListPage || isOnProjectDetailPage) {
-      if (newProjectId === "all") {
-        // Go back to projects list
-        router.push("/admin/projects");
-      } else if (newProjectId !== isOnProjectDetailPage) {
-        // Navigate to selected project's journey board
-        router.push(`/admin/projects/${newProjectId}`);
-      }
-    }
-    // On other pages (users, clients, etc.), just filter - don't navigate
   }, [setSelectedProjectId, allProjects, setSelectedClientId, isOnProjectsListPage, isOnProjectDetailPage, router]);
 
   if (isLoading) {

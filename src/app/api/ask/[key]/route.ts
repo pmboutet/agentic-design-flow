@@ -11,15 +11,16 @@ import { buildConversationAgentVariables } from '@/lib/ai/conversation-agent';
 import { getConversationPlanWithSteps, getActiveStep, ensureConversationPlanExists, type ConversationPlan } from '@/lib/ai/conversation-plan';
 import {
   buildParticipantDisplayName,
-  buildParticipantSummary,
   buildMessageSenderName,
   fetchElapsedTime,
+  fetchParticipantsWithUsers,
   insertAiMessage,
   type UserRow,
   type ProjectRow,
   type ChallengeRow,
   type MessageRow,
   type ParticipantRow,
+  type ProjectMemberRow,
 } from '@/lib/conversation-context';
 import { normaliseMessageMetadata } from '@/lib/messages';
 import { loadFullAuthContext, buildParticipantName, type AskViewer } from '@/lib/ask-session-loader';
@@ -265,62 +266,28 @@ export async function GET(
 
     const askSessionId = askRow.id;
 
-    const { data: participantRows, error: participantError } = await dataClient
-      .from('ask_participants')
-      .select('*')
-      .eq('ask_session_id', askSessionId)
-      .order('joined_at', { ascending: true });
+    // Fetch participants and users via centralized helper (DRY)
+    const {
+      participantRows,
+      usersById: fetchedUsersById,
+      projectMembersById,
+      participants: participantSummaries,
+    } = await fetchParticipantsWithUsers(dataClient, askSessionId, askRow.project_id);
 
-    if (participantError) {
-      if (isPermissionDenied(participantError)) {
-        return permissionDeniedResponse();
-      }
-      throw participantError;
-    }
+    let usersById = fetchedUsersById;
 
-    const participantUserIds = (participantRows ?? [])
-      .map(row => row.user_id)
-      .filter((value): value is string => Boolean(value));
-
-    let usersById: Record<string, UserRow> = {};
-
-    if (participantUserIds.length > 0) {
-      const { data: userRows, error: userError } = await dataClient
-        .from('profiles')
-        .select('id, email, full_name, first_name, last_name, description, job_title')
-        .in('id', participantUserIds);
-
-      if (userError) {
-        if (isPermissionDenied(userError)) {
-          return permissionDeniedResponse();
-        }
-        throw userError;
-      }
-
-      usersById = (userRows ?? []).reduce<Record<string, UserRow>>((acc, user) => {
-        acc[user.id] = user;
-        return acc;
-      }, {});
-    }
-
+    // Build AskParticipant array for API response (includes more fields than participantSummaries)
     const participants: AskParticipant[] = (participantRows ?? []).map((row, index) => {
       const user = row.user_id ? usersById[row.user_id] ?? null : null;
       return {
         id: row.id,
         userId: row.user_id ?? null, // Profile ID for message alignment in consultant mode
-        name: buildParticipantDisplayName(row, user, index),
+        name: buildParticipantDisplayName(row as ParticipantRow, user, index),
         email: row.participant_email ?? user?.email ?? null,
         role: row.role ?? null,
         isSpokesperson: Boolean(row.is_spokesperson),
         isActive: true,
       };
-    });
-
-    // Build participant summaries with full details (name, role, description, jobTitle)
-    // Uses centralized buildParticipantSummary for DRY
-    const participantSummaries = (participantRows ?? []).map((row, index) => {
-      const user = row.user_id ? usersById[row.user_id] ?? null : null;
-      return buildParticipantSummary(row as ParticipantRow, user, index);
     });
 
     // Get or create conversation thread for this user/ASK
@@ -329,10 +296,15 @@ export async function GET(
     };
 
     // Use resolveThreadUserId for consistent thread assignment across all routes
+    // Map participantRows to ensure they conform to Participant interface
+    const participantsForThread = participantRows.map(p => ({
+      ...p,
+      user_id: p.user_id ?? null,
+    }));
     const threadProfileId = resolveThreadUserId(
       authContext.profileId,
       askRow.conversation_mode,
-      participantRows ?? [],
+      participantsForThread,
       isDevBypass
     );
 

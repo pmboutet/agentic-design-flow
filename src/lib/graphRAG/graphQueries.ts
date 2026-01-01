@@ -4,6 +4,7 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Claim, ClaimType } from "@/types";
 import { getAdminSupabaseClient } from "@/lib/supabaseAdmin";
 
 export interface RelatedInsight {
@@ -338,5 +339,279 @@ export async function getSynthesisForInsight(
     id: s.id,
     synthesizedText: s.synthesized_text,
   }));
+}
+
+// ============================================================================
+// Claim-related queries
+// ============================================================================
+
+export interface ClaimWithRelations {
+  claim: Claim;
+  supportingInsights: Array<{ id: string; content: string }>;
+  relatedClaims: Array<{ claim: Claim; relation: 'supports' | 'contradicts' | 'refines' }>;
+}
+
+/**
+ * Map database row to Claim type
+ */
+function mapRowToClaim(row: Record<string, unknown>): Claim {
+  return {
+    id: row.id as string,
+    projectId: row.project_id as string,
+    challengeId: row.challenge_id as string | null,
+    statement: row.statement as string,
+    claimType: row.claim_type as ClaimType,
+    evidenceStrength: row.evidence_strength as number | null,
+    confidence: row.confidence as number | null,
+    sourceInsightIds: (row.source_insight_ids as string[]) || [],
+    embedding: row.embedding as number[] | null,
+    createdAt: row.created_at as string,
+    updatedAt: row.updated_at as string,
+  };
+}
+
+/**
+ * Find claims for a specific challenge (objective)
+ */
+export async function findClaimsByChallenge(
+  supabase: SupabaseClient,
+  challengeId: string
+): Promise<Claim[]> {
+  const { data, error } = await supabase
+    .from("claims")
+    .select("*")
+    .eq("challenge_id", challengeId)
+    .order("evidence_strength", { ascending: false });
+
+  if (error) {
+    console.error("[Graph RAG] Error finding claims by challenge:", error);
+    return [];
+  }
+
+  return (data || []).map(mapRowToClaim);
+}
+
+/**
+ * Find claims for a project, optionally filtered by type
+ */
+export async function findClaimsByProject(
+  supabase: SupabaseClient,
+  projectId: string,
+  claimType?: ClaimType
+): Promise<Claim[]> {
+  let query = supabase
+    .from("claims")
+    .select("*")
+    .eq("project_id", projectId)
+    .order("created_at", { ascending: false });
+
+  if (claimType) {
+    query = query.eq("claim_type", claimType);
+  }
+
+  const { data, error } = await query;
+
+  if (error) {
+    console.error("[Graph RAG] Error finding claims by project:", error);
+    return [];
+  }
+
+  return (data || []).map(mapRowToClaim);
+}
+
+/**
+ * Get a claim with its supporting insights and related claims
+ */
+export async function getClaimNetwork(
+  supabase: SupabaseClient,
+  claimId: string
+): Promise<ClaimWithRelations | null> {
+  // Get the claim
+  const { data: claimData, error: claimError } = await supabase
+    .from("claims")
+    .select("*")
+    .eq("id", claimId)
+    .maybeSingle();
+
+  if (claimError || !claimData) {
+    console.error("[Graph RAG] Error fetching claim:", claimError);
+    return null;
+  }
+
+  const claim = mapRowToClaim(claimData);
+
+  // Get supporting insights (via EVIDENCE_FOR edges)
+  const { data: insightEdges } = await supabase
+    .from("knowledge_graph_edges")
+    .select("source_id")
+    .eq("target_id", claimId)
+    .eq("target_type", "claim")
+    .eq("source_type", "insight")
+    .eq("relationship_type", "EVIDENCE_FOR");
+
+  const supportingInsights: Array<{ id: string; content: string }> = [];
+
+  if (insightEdges && insightEdges.length > 0) {
+    const insightIds = insightEdges.map(e => e.source_id);
+    const { data: insights } = await supabase
+      .from("insights")
+      .select("id, content")
+      .in("id", insightIds);
+
+    if (insights) {
+      supportingInsights.push(...insights.map(i => ({ id: i.id, content: i.content })));
+    }
+  }
+
+  // Get related claims (SUPPORTS/CONTRADICTS edges)
+  const relatedClaims: Array<{ claim: Claim; relation: 'supports' | 'contradicts' | 'refines' }> = [];
+
+  // Claims that this claim supports or contradicts
+  const { data: outgoingEdges } = await supabase
+    .from("knowledge_graph_edges")
+    .select("target_id, relationship_type")
+    .eq("source_id", claimId)
+    .eq("source_type", "claim")
+    .eq("target_type", "claim")
+    .in("relationship_type", ["SUPPORTS", "CONTRADICTS"]);
+
+  // Claims that support or contradict this claim
+  const { data: incomingEdges } = await supabase
+    .from("knowledge_graph_edges")
+    .select("source_id, relationship_type")
+    .eq("target_id", claimId)
+    .eq("target_type", "claim")
+    .eq("source_type", "claim")
+    .in("relationship_type", ["SUPPORTS", "CONTRADICTS"]);
+
+  const relatedClaimIds = new Set<string>();
+  const claimRelationMap = new Map<string, 'supports' | 'contradicts' | 'refines'>();
+
+  if (outgoingEdges) {
+    for (const edge of outgoingEdges) {
+      relatedClaimIds.add(edge.target_id);
+      claimRelationMap.set(
+        edge.target_id,
+        edge.relationship_type === "SUPPORTS" ? "supports" : "contradicts"
+      );
+    }
+  }
+
+  if (incomingEdges) {
+    for (const edge of incomingEdges) {
+      relatedClaimIds.add(edge.source_id);
+      // For incoming edges, the relation is reversed in semantics
+      claimRelationMap.set(
+        edge.source_id,
+        edge.relationship_type === "SUPPORTS" ? "supports" : "contradicts"
+      );
+    }
+  }
+
+  if (relatedClaimIds.size > 0) {
+    const { data: claims } = await supabase
+      .from("claims")
+      .select("*")
+      .in("id", Array.from(relatedClaimIds));
+
+    if (claims) {
+      for (const c of claims) {
+        const mappedClaim = mapRowToClaim(c);
+        relatedClaims.push({
+          claim: mappedClaim,
+          relation: claimRelationMap.get(c.id) || "refines",
+        });
+      }
+    }
+  }
+
+  return {
+    claim,
+    supportingInsights,
+    relatedClaims,
+  };
+}
+
+/**
+ * Find claims that address a specific objective text (semantic search)
+ */
+export async function findClaimsByObjective(
+  supabase: SupabaseClient,
+  objectiveText: string,
+  projectId: string,
+  threshold: number = 0.75,
+  limit: number = 10
+): Promise<Claim[]> {
+  // Generate embedding for the objective
+  const { generateEmbedding } = await import("@/lib/ai/embeddings");
+  const embedding = await generateEmbedding(objectiveText);
+
+  // Use the find_similar_claims RPC function
+  const { data, error } = await supabase.rpc("find_similar_claims", {
+    p_embedding: embedding,
+    p_project_id: projectId,
+    p_threshold: threshold,
+    p_limit: limit,
+  });
+
+  if (error) {
+    console.error("[Graph RAG] Error finding claims by objective:", error);
+    return [];
+  }
+
+  // Get full claim data
+  if (!data || data.length === 0) {
+    return [];
+  }
+
+  const claimIds = data.map((d: { id: string }) => d.id);
+
+  const { data: claims } = await supabase
+    .from("claims")
+    .select("*")
+    .in("id", claimIds);
+
+  return (claims || []).map(mapRowToClaim);
+}
+
+/**
+ * Get all claims that support or contradict each other in a project
+ */
+export async function getClaimConflicts(
+  supabase: SupabaseClient,
+  projectId: string
+): Promise<Array<{ claim1: Claim; claim2: Claim; relation: 'supports' | 'contradicts' }>> {
+  // Get all claims for the project
+  const { data: claims } = await supabase
+    .from("claims")
+    .select("*")
+    .eq("project_id", projectId);
+
+  if (!claims || claims.length === 0) {
+    return [];
+  }
+
+  const claimIds = claims.map(c => c.id);
+  const claimMap = new Map(claims.map(c => [c.id, mapRowToClaim(c)]));
+
+  // Get all CONTRADICTS and SUPPORTS edges between claims
+  const { data: edges } = await supabase
+    .from("knowledge_graph_edges")
+    .select("source_id, target_id, relationship_type")
+    .in("source_id", claimIds)
+    .in("target_id", claimIds)
+    .eq("source_type", "claim")
+    .eq("target_type", "claim")
+    .in("relationship_type", ["SUPPORTS", "CONTRADICTS"]);
+
+  if (!edges) {
+    return [];
+  }
+
+  return edges.map(edge => ({
+    claim1: claimMap.get(edge.source_id)!,
+    claim2: claimMap.get(edge.target_id)!,
+    relation: edge.relationship_type === "SUPPORTS" ? "supports" as const : "contradicts" as const,
+  })).filter(r => r.claim1 && r.claim2);
 }
 

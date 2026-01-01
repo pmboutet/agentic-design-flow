@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { SupabaseClient } from "@supabase/supabase-js";
 import { createServerSupabaseClient, requireAdmin } from "@/lib/supabaseServer";
 import { sanitizeOptional, sanitizeText } from "@/lib/sanitize";
 import { parseErrorMessage } from "@/lib/utils";
@@ -7,6 +8,61 @@ import { type ApiResponse, type AskSessionRecord } from "@/types";
 import { ensureProfileExists } from "@/lib/profiles";
 import { sendMagicLink } from "@/lib/auth/magicLink";
 import { buildParticipantDisplayName, type ParticipantRow, type UserRow } from "@/lib/conversation-context";
+
+/**
+ * Generate a random suffix for ask_key uniqueness
+ */
+function generateRandomSuffix(length: number = 4): string {
+  return Math.random().toString(36).slice(2, 2 + length);
+}
+
+/**
+ * Insert an ASK session with retry logic for duplicate key conflicts.
+ * If the ask_key already exists, appends a random suffix and retries.
+ */
+async function insertAskSessionWithRetry(
+  supabase: SupabaseClient,
+  insertData: Record<string, unknown>,
+  selectQuery: string,
+  maxRetries: number = 3
+): Promise<{ data: any; error: any }> {
+  let attempt = 0;
+  let currentAskKey = insertData.ask_key as string;
+
+  while (attempt < maxRetries) {
+    const dataToInsert = { ...insertData, ask_key: currentAskKey };
+    const { data, error } = await supabase
+      .from("ask_sessions")
+      .insert(dataToInsert)
+      .select(selectQuery)
+      .single();
+
+    if (!error) {
+      return { data, error: null };
+    }
+
+    // Check if it's a duplicate key error (PostgreSQL error code 23505)
+    const isDuplicateKey = error.code === "23505" &&
+      error.message?.includes("ask_sessions_ask_key_key");
+
+    if (!isDuplicateKey) {
+      return { data: null, error };
+    }
+
+    // Generate a new key with random suffix and retry
+    attempt++;
+    currentAskKey = `${insertData.ask_key}-${generateRandomSuffix()}`;
+    console.log(`🔄 Duplicate key detected, retrying with: ${currentAskKey} (attempt ${attempt}/${maxRetries})`);
+  }
+
+  return {
+    data: null,
+    error: {
+      message: `Failed to create unique ask_key after ${maxRetries} attempts`,
+      code: "DUPLICATE_KEY_EXHAUSTED"
+    }
+  };
+}
 
 const statusValues = ["active", "inactive", "draft", "closed"] as const;
 const deliveryModes = ["physical", "digital"] as const;
@@ -175,11 +231,12 @@ export async function POST(request: NextRequest) {
 
     console.log('📝 ASK insert data to be sent to DB:', insertData);
 
-    const { data, error } = await supabase
-      .from("ask_sessions")
-      .insert(insertData)
-      .select(askSelect)
-      .single();
+    // Use retry logic to handle duplicate key conflicts
+    const { data, error } = await insertAskSessionWithRetry(
+      supabase,
+      insertData,
+      askSelect
+    );
 
     if (error) {
       console.error('❌ ASK creation database error:', error);

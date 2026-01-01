@@ -18,6 +18,7 @@ const addExistingUserSchema = z.object({
   createUser: z.undefined(),
   role: z.string().trim().max(50).optional(),
   jobTitle: z.string().trim().max(255).optional().or(z.literal("")),
+  description: z.string().trim().max(2000).optional().or(z.literal("")),
 });
 
 // Schema for creating a new user
@@ -30,6 +31,7 @@ const createUserSchema = z.object({
     jobTitle: z.string().trim().max(255).optional().or(z.literal("")),
   }),
   role: z.string().trim().max(50).optional(),
+  description: z.string().trim().max(2000).optional().or(z.literal("")),
 });
 
 const payloadSchema = z.union([addExistingUserSchema, createUserSchema]);
@@ -123,28 +125,33 @@ export async function POST(
     // 7. Cascade: Ensure user is a project member
     const addedToProject = await ensureProjectMembership(supabase, projectId, userId);
 
-    // 8. Update job_title if provided (for existing project members)
-    const jobTitle = payload.role !== undefined || ('jobTitle' in payload && payload.jobTitle)
-      ? sanitizeOptional(('jobTitle' in payload ? payload.jobTitle : null) || null)
+    // 8. Update job_title/description if provided (for existing project members)
+    const jobTitle = 'jobTitle' in payload && payload.jobTitle
+      ? sanitizeOptional(payload.jobTitle)
+      : undefined;
+    const description = 'description' in payload && payload.description !== undefined
+      ? sanitizeOptional(payload.description)
       : undefined;
 
-    if (!addedToProject && (payload.role || jobTitle !== undefined)) {
-      // User was already a member, update their role/job_title if provided
-      const updateData: Record<string, unknown> = {};
-      if (payload.role) {
-        updateData.role = payload.role;
-      }
-      if (jobTitle !== undefined) {
-        updateData.job_title = jobTitle;
-      }
+    // Build update data for project member
+    const updateData: Record<string, unknown> = {};
+    if (payload.role) {
+      updateData.role = payload.role;
+    }
+    if (jobTitle !== undefined) {
+      updateData.job_title = jobTitle;
+    }
+    if (description !== undefined) {
+      updateData.description = description;
+    }
 
-      if (Object.keys(updateData).length > 0) {
-        await supabase
-          .from("project_members")
-          .update(updateData)
-          .eq("project_id", projectId)
-          .eq("user_id", userId);
-      }
+    if (Object.keys(updateData).length > 0) {
+      // Update project member data (works for both new and existing members)
+      await supabase
+        .from("project_members")
+        .update(updateData)
+        .eq("project_id", projectId)
+        .eq("user_id", userId);
     }
 
     const result: AddMemberResult = {

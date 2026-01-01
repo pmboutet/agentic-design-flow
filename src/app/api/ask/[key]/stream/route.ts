@@ -14,13 +14,12 @@ import { detectStepCompletion, completeStep, getConversationPlanWithSteps, getAc
 import {
   buildParticipantDisplayName,
   buildDetailedMessage,
-  buildParticipantSummary,
   fetchElapsedTime,
-  fetchUsersByIds,
-  fetchParticipantsBySession,
+  fetchParticipantsWithUsers,
   fetchParticipantByToken,
   fetchProfileByAuthId,
   fetchUserParticipation,
+  fetchUsersByIds,
   addAnonymousParticipant,
   fetchThreadById,
   fetchMessagesWithoutThread,
@@ -183,28 +182,28 @@ export async function POST(
       }
     }
 
-    // Fetch participants and users via RPC wrappers
+    // Fetch participants and users via centralized helper (DRY)
     const adminParticipants = await getAdminClient();
-    const participantRows = await fetchParticipantsBySession(adminParticipants, askRow.id);
+    const {
+      participantRows,
+      usersById: fetchedUsersById,
+      projectMembersById,
+      participants: participantSummaries,
+    } = await fetchParticipantsWithUsers(adminParticipants, askRow.id, askRow.project_id);
 
-    const participantUserIds = participantRows
-      .map(row => row.user_id)
-      .filter((value): value is string => Boolean(value));
+    let usersById = fetchedUsersById;
 
-    let usersById: Record<string, UserRow> = {};
-
-    if (participantUserIds.length > 0) {
-      usersById = await fetchUsersByIds(adminParticipants, participantUserIds);
-    }
-
+    // Build participants with extra fields needed by this route
     const participants = (participantRows ?? []).map((row, index) => {
       const user = row.user_id ? usersById[row.user_id] ?? null : null;
+      const projectMember = row.user_id ? projectMembersById[row.user_id] ?? null : null;
       return {
         id: row.id,
         name: buildParticipantDisplayName(row, user, index),
         email: row.participant_email ?? user?.email ?? null,
         role: row.role ?? null,
-        description: user?.description ?? null,
+        // Priority: project-specific description > profile description
+        description: projectMember?.description ?? user?.description ?? null,
         isSpokesperson: Boolean(row.is_spokesperson),
         isActive: true,
       };
@@ -320,12 +319,6 @@ export async function POST(
     const challengeData = askRow.challenge_id
       ? await fetchChallengeById(contextAdmin, askRow.challenge_id)
       : null;
-
-    // Build participant summaries using centralized function (DRY)
-    const participantSummaries = (participantRows ?? []).map((row, index) => {
-      const user = row.user_id ? usersById[row.user_id] ?? null : null;
-      return buildParticipantSummary(row as ParticipantRow, user, index);
-    });
 
     // Load conversation plan if thread exists
     // Use admin client to bypass RLS and ensure we always get the plan data

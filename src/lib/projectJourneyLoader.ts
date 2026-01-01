@@ -189,7 +189,7 @@ function buildChallengeTree(
 
 function getProfileFromRow(
   row: any,
-): { id?: string | null; full_name?: string | null; email?: string | null; role?: string | null; job_title?: string | null } | null {
+): { id?: string | null; full_name?: string | null; email?: string | null; role?: string | null; job_title?: string | null; description?: string | null } | null {
   if (row.profiles && typeof row.profiles === "object") {
     return row.profiles;
   }
@@ -372,7 +372,7 @@ export async function fetchProjectJourneyContext(
       : Promise.resolve({ data: [], error: null }),
     supabase
       .from("project_members")
-      .select("user_id, role, job_title, profiles(id, full_name, email, role, job_title)")
+      .select("user_id, role, job_title, description, profiles(id, full_name, email, role, job_title, description)")
       .eq("project_id", projectId),
   ]);
   
@@ -811,6 +811,8 @@ export async function fetchProjectJourneyContext(
       email: profile?.email ?? null,
       role: row.role ?? profile?.role ?? null,
       jobTitle: row.job_title ?? profile?.job_title ?? null,
+      // Priority: project-specific description > global profile description
+      description: row.description ?? profile?.description ?? null,
     };
   }).filter(member => member.id !== "").sort((a, b) => {
     const nameA = (a.fullName || a.email || "").toLowerCase();

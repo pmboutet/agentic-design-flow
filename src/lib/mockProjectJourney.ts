@@ -21,10 +21,10 @@ export function getMockProjectJourneyData(projectId: string): ProjectJourneyBoar
       "You are the lead AI facilitator for the Nova Retail Transformation program. Your role is to help the core team surface insights, synthesise challenges and design interventions that improve the unified customer promise across online and in-store touchpoints.",
     timeframe: "Apr 2024 – Jul 2024",
     projectMembers: [
-      { id: "user-alice", fullName: "Alice Martin", email: "alice@novaretail.com", role: "Store Manager", jobTitle: "Regional Store Manager" },
-      { id: "user-leo", fullName: "Leo Dupont", email: "leo@novaretail.com", role: "Digital Product Owner", jobTitle: "Senior Product Owner" },
-      { id: "user-fatou", fullName: "Fatou Ndiaye", email: "fatou@novaretail.com", role: "Experience Designer", jobTitle: "UX Designer" },
-      { id: "user-marc", fullName: "Marc Petit", email: "marc@novaretail.com", role: "Logistics Lead", jobTitle: "Logistics Manager" },
+      { id: "user-alice", fullName: "Alice Martin", email: "alice@novaretail.com", role: "Store Manager", jobTitle: "Regional Store Manager", description: null },
+      { id: "user-leo", fullName: "Leo Dupont", email: "leo@novaretail.com", role: "Digital Product Owner", jobTitle: "Senior Product Owner", description: null },
+      { id: "user-fatou", fullName: "Fatou Ndiaye", email: "fatou@novaretail.com", role: "Experience Designer", jobTitle: "UX Designer", description: null },
+      { id: "user-marc", fullName: "Marc Petit", email: "marc@novaretail.com", role: "Logistics Lead", jobTitle: "Logistics Manager", description: null },
     ],
     availableUsers: [
       { id: "user-alice", name: "Alice Martin", role: "Store Manager", avatarInitials: "AM", avatarColor: "bg-emerald-500" },

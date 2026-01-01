@@ -123,6 +123,13 @@ export interface UserRow {
   job_title?: string | null;
 }
 
+export interface ProjectMemberRow {
+  user_id: string;
+  description?: string | null;
+  job_title?: string | null;
+  role?: string | null;
+}
+
 export interface MessageRow {
   id: string;
   ask_session_id: string;
@@ -376,19 +383,25 @@ export function buildDetailedMessage(
  *
  * @param participantRow - Raw participant row from database
  * @param user - User row (if available)
+ * @param projectMember - Project member row (if available, for project-specific description)
  * @param index - Participant index (for fallback naming)
  * @returns ConversationParticipantSummary with name, role, and description
+ *
+ * Priority for description: project_members.description > profiles.description
+ * Priority for jobTitle: project_members.job_title > profiles.job_title
  */
 export function buildParticipantSummary(
   participantRow: ParticipantRow,
   user: UserRow | null,
+  projectMember: ProjectMemberRow | null,
   index: number
 ): ConversationParticipantSummary {
   return {
     name: buildParticipantDisplayName(participantRow, user, index),
     role: participantRow.role ?? null,
-    description: user?.description ?? null,
-    jobTitle: user?.job_title ?? null,
+    // Priority: project-specific > global profile
+    description: projectMember?.description ?? user?.description ?? null,
+    jobTitle: projectMember?.job_title ?? user?.job_title ?? null,
   };
 }
 
@@ -424,13 +437,57 @@ export async function fetchUsersByIds(
 }
 
 /**
+ * Fetch project members for a project and return a lookup map by user_id.
+ * Used to get project-specific descriptions/job titles that override profile defaults.
+ */
+export async function fetchProjectMembersByProject(
+  supabase: SupabaseClient,
+  projectId: string
+): Promise<Record<string, ProjectMemberRow>> {
+  const { data: memberRows, error } = await supabase
+    .from('project_members')
+    .select('user_id, description, job_title, role')
+    .eq('project_id', projectId);
+
+  if (error) {
+    console.warn(`Failed to fetch project_members for project ${projectId}:`, error);
+    return {};
+  }
+
+  return (memberRows ?? []).reduce<Record<string, ProjectMemberRow>>((acc, row) => {
+    acc[row.user_id] = row as ProjectMemberRow;
+    return acc;
+  }, {});
+}
+
+/**
+ * Result type for fetchParticipantsWithUsers.
+ * Includes all data needed by routes to build various participant structures.
+ */
+export interface FetchParticipantsResult {
+  /** Built participant summaries (ConversationParticipantSummary) */
+  participants: ConversationParticipantSummary[];
+  /** User data by user ID */
+  usersById: Record<string, UserRow>;
+  /** Raw participant rows from database */
+  participantRows: ParticipantRow[];
+  /** Project member data by user ID (for project-specific descriptions) */
+  projectMembersById: Record<string, ProjectMemberRow>;
+}
+
+/**
  * Fetch participants for an ASK session with their user data.
  * Returns raw participantRows for use with fetchElapsedTime.
+ *
+ * @param supabase - Supabase client
+ * @param askSessionId - ASK session ID
+ * @param projectId - Optional project ID for fetching project-specific descriptions
  */
 export async function fetchParticipantsWithUsers(
   supabase: SupabaseClient,
-  askSessionId: string
-): Promise<{ participants: ConversationParticipantSummary[]; usersById: Record<string, UserRow>; participantRows: ParticipantRow[] }> {
+  askSessionId: string,
+  projectId?: string | null
+): Promise<FetchParticipantsResult> {
   // Fetch participants (include elapsed_active_seconds for timer)
   const { data: participantRows, error: participantError } = await supabase
     .from('ask_participants')
@@ -439,7 +496,12 @@ export async function fetchParticipantsWithUsers(
     .order('joined_at', { ascending: true });
 
   if (participantError) {
-    return handleDbQueryError('ask_participants', `askSessionId=${askSessionId}`, participantError, { participants: [], usersById: {}, participantRows: [] });
+    return handleDbQueryError('ask_participants', `askSessionId=${askSessionId}`, participantError, {
+      participants: [],
+      usersById: {},
+      participantRows: [],
+      projectMembersById: {},
+    });
   }
 
   const typedParticipantRows = (participantRows ?? []) as ParticipantRow[];
@@ -449,16 +511,20 @@ export async function fetchParticipantsWithUsers(
     .map(row => row.user_id)
     .filter((value): value is string => Boolean(value));
 
-  // Fetch user data
-  const usersById = await fetchUsersByIds(supabase, participantUserIds);
+  // Fetch user data and project member data in parallel
+  const [usersById, projectMembersById] = await Promise.all([
+    fetchUsersByIds(supabase, participantUserIds),
+    projectId ? fetchProjectMembersByProject(supabase, projectId) : Promise.resolve({} as Record<string, ProjectMemberRow>),
+  ]);
 
-  // Build participant summaries
+  // Build participant summaries with project-specific data priority
   const participants = typedParticipantRows.map((row, index) => {
     const user = row.user_id ? usersById[row.user_id] ?? null : null;
-    return buildParticipantSummary(row, user, index);
+    const projectMember = row.user_id ? projectMembersById[row.user_id] ?? null : null;
+    return buildParticipantSummary(row, user, projectMember, index);
   });
 
-  return { participants, usersById, participantRows: typedParticipantRows };
+  return { participants, usersById, participantRows: typedParticipantRows, projectMembersById };
 }
 
 /**
@@ -619,9 +685,11 @@ export async function fetchConversationContext(
   const planClient = adminClient ?? supabase;
 
   // 1. Fetch participants with user data (includes participantRows for elapsed time)
+  // Pass project_id to fetch project-specific descriptions (priority over profile descriptions)
   const { participants, usersById: participantUsersById, participantRows } = await fetchParticipantsWithUsers(
     supabase,
-    askSession.id
+    askSession.id,
+    askSession.project_id
   );
 
   // 2. Get or create conversation thread
@@ -740,18 +808,23 @@ export async function fetchElapsedTime(options: FetchElapsedTimeOptions): Promis
 
   if (conversationPlan?.current_step_id) {
     // Handle normalized format (steps array with step_identifier)
-    if ('steps' in conversationPlan && Array.isArray(conversationPlan.steps)) {
+    const hasStepsArray = 'steps' in conversationPlan && Array.isArray(conversationPlan.steps);
+    console.log('[fetchElapsedTime] current_step_id:', conversationPlan.current_step_id, '| hasStepsArray:', hasStepsArray, '| stepsCount:', hasStepsArray ? conversationPlan.steps.length : 0);
+
+    if (hasStepsArray) {
       const currentStep = conversationPlan.steps.find(
         (s: { step_identifier: string }) => s.step_identifier === conversationPlan.current_step_id
       );
+      console.log('[fetchElapsedTime] Found step:', !!currentStep, '| step.id:', currentStep && 'id' in currentStep ? (currentStep as { id: string }).id : 'N/A');
       if (currentStep && 'id' in currentStep) {
         const dataClient = adminClient ?? supabase;
-        const { data: stepTimer } = await dataClient
+        const { data: stepTimer, error: stepError } = await dataClient
           .from('ask_conversation_plan_steps')
           .select('elapsed_active_seconds')
           .eq('id', (currentStep as { id: string }).id)
           .maybeSingle();
 
+        console.log('[fetchElapsedTime] DB result:', stepTimer, '| error:', stepError?.message);
         stepElapsedActiveSeconds = stepTimer?.elapsed_active_seconds ?? 0;
       }
     } else {

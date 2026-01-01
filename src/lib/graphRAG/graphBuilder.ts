@@ -4,6 +4,7 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { ClaimRelation } from "@/types";
 import { getAdminSupabaseClient } from "@/lib/supabaseAdmin";
 import { generateEmbedding } from "@/lib/ai/embeddings";
 
@@ -13,7 +14,12 @@ export type RelationshipType =
   | "CONTAINS"
   | "SYNTHESIZES"
   | "MENTIONS"
-  | "HAS_TYPE";
+  | "HAS_TYPE"
+  // Claim-related types
+  | "SUPPORTS"
+  | "CONTRADICTS"
+  | "ADDRESSES"
+  | "EVIDENCE_FOR";
 
 interface GraphEdge {
   sourceId: string;
@@ -292,6 +298,82 @@ export async function buildChallengeEdges(
 }
 
 /**
+ * Build edges for claims extracted from an insight
+ * Creates: EVIDENCE_FOR (insight -> claim), SUPPORTS/CONTRADICTS (claim <-> claim), ADDRESSES (claim -> challenge)
+ */
+export async function buildClaimEdges(
+  supabase: SupabaseClient,
+  insightId: string,
+  claimIds: string[],
+  relations: ClaimRelation[],
+  challengeId?: string | null
+): Promise<void> {
+  console.log(`[Graph RAG] Building claim edges for insight ${insightId} with ${claimIds.length} claims...`);
+
+  if (claimIds.length === 0) {
+    return;
+  }
+
+  const edges: GraphEdge[] = [];
+
+  // Create EVIDENCE_FOR edges (insight -> claim)
+  for (const claimId of claimIds) {
+    edges.push({
+      sourceId: insightId,
+      sourceType: "insight",
+      targetId: claimId,
+      targetType: "claim",
+      relationshipType: "EVIDENCE_FOR",
+      confidence: 0.9,
+    });
+  }
+
+  // Create ADDRESSES edges (claim -> challenge) if challenge is specified
+  if (challengeId) {
+    for (const claimId of claimIds) {
+      edges.push({
+        sourceId: claimId,
+        sourceType: "claim",
+        targetId: challengeId,
+        targetType: "challenge",
+        relationshipType: "ADDRESSES",
+        confidence: 0.8,
+      });
+    }
+  }
+
+  // Create inter-claim relationship edges (SUPPORTS, CONTRADICTS)
+  for (const relation of relations) {
+    if (relation.fromClaimIndex < claimIds.length && relation.toClaimIndex < claimIds.length) {
+      const relationshipType: RelationshipType =
+        relation.relation === "supports" ? "SUPPORTS" :
+        relation.relation === "contradicts" ? "CONTRADICTS" :
+        "RELATED_TO"; // fallback for 'refines'
+
+      edges.push({
+        sourceId: claimIds[relation.fromClaimIndex],
+        sourceType: "claim",
+        targetId: claimIds[relation.toClaimIndex],
+        targetType: "claim",
+        relationshipType,
+        confidence: 0.7,
+      });
+    }
+  }
+
+  // Upsert all edges
+  for (const edge of edges) {
+    try {
+      await upsertGraphEdge(supabase, edge);
+    } catch (error) {
+      console.error(`[Graph RAG] Error creating claim edge:`, error);
+    }
+  }
+
+  console.log(`[Graph RAG] Created ${edges.length} claim edges for insight ${insightId}`);
+}
+
+/**
  * Build all graph edges for an insight
  */
 export async function buildAllEdgesForInsight(
@@ -320,7 +402,7 @@ export async function buildAllEdgesForInsight(
 
 /**
  * Delete all graph edges related to an insight (as source or target)
- * Also cleans up insight_keywords relationships
+ * Also cleans up insight_keywords relationships and claims
  */
 export async function deleteEdgesForInsight(
   insightId: string,
@@ -363,7 +445,11 @@ export async function deleteEdgesForInsight(
       console.error(`[Graph RAG] Error deleting keywords for ${insightId}:`, keywordsError);
     }
 
-    console.log(`[Graph RAG] Successfully deleted all edges and keywords for insight ${insightId}`);
+    // Delete claims associated with this insight
+    const { deleteClaimsForInsight } = await import("@/lib/graphRAG/extractClaims");
+    await deleteClaimsForInsight(insightId, client);
+
+    console.log(`[Graph RAG] Successfully deleted all edges, keywords, and claims for insight ${insightId}`);
   } catch (error) {
     console.error(`[Graph RAG] Error in deleteEdgesForInsight for ${insightId}:`, error);
     throw error;
@@ -371,7 +457,7 @@ export async function deleteEdgesForInsight(
 }
 
 /**
- * Rebuild all graph data for an insight: delete old edges, regenerate embeddings, extract entities, rebuild edges
+ * Rebuild all graph data for an insight: delete old edges, regenerate embeddings, extract claims, rebuild edges
  * Used when insight content is manually modified
  */
 export async function rebuildGraphForInsight(
@@ -384,7 +470,7 @@ export async function rebuildGraphForInsight(
   console.log(`[Graph RAG] Rebuilding graph for insight ${insightId}...`);
 
   try {
-    // Step 1: Delete existing edges and keywords
+    // Step 1: Delete existing edges, keywords, and claims
     await deleteEdgesForInsight(insightId, client);
 
     // Step 2: Generate new content embedding
@@ -409,9 +495,10 @@ export async function rebuildGraphForInsight(
       }
     }
 
-    // Step 4: Extract new entities using AI
-    const { extractEntitiesFromInsight, storeInsightKeywords, generateEntityEmbeddings } =
-      await import("@/lib/graphRAG/extractEntities");
+    // Step 4: Extract claims and entities using AI
+    const { extractClaimsFromInsight, generateClaimEmbeddings } =
+      await import("@/lib/graphRAG/extractClaims");
+    const { generateEntityEmbeddings } = await import("@/lib/graphRAG/extractEntities");
     const { mapInsightRowToInsight } = await import("@/lib/insights");
 
     // Fetch the updated insight row
@@ -433,12 +520,12 @@ export async function rebuildGraphForInsight(
 
     const insight = mapInsightRowToInsight(insightRow);
 
-    // Extract entities
-    const { entityIds, keywords } = await extractEntitiesFromInsight(insight);
+    // Extract claims (which also extracts key entities)
+    const { claimIds, entityIds, relations } = await extractClaimsFromInsight(insight);
 
-    // Store insight-keyword relationships
-    if (keywords.length > 0) {
-      await storeInsightKeywords(client, insightId, keywords);
+    // Generate embeddings for new claims
+    if (claimIds.length > 0) {
+      await generateClaimEmbeddings(client, claimIds);
     }
 
     // Generate embeddings for new entities
@@ -446,8 +533,11 @@ export async function rebuildGraphForInsight(
       await generateEntityEmbeddings(client, entityIds);
     }
 
-    // Step 5: Rebuild all edges
+    // Step 5: Rebuild all edges (including claim edges)
     await buildAllEdgesForInsight(insightId, contentEmbedding || undefined, client);
+
+    // Step 6: Build claim-specific edges
+    await buildClaimEdges(client, insightId, claimIds, relations, insight.challengeId);
 
     console.log(`[Graph RAG] Successfully rebuilt graph for insight ${insightId}`);
   } catch (error) {
