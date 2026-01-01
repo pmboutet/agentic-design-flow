@@ -14,7 +14,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { normaliseMessageMetadata } from './messages';
 import { getOrCreateConversationThread, getMessagesForThread, type AskSessionConfig } from './asks';
-import { getConversationPlanWithSteps, type ConversationPlan } from './ai/conversation-plan';
+import { getConversationPlanWithSteps, type ConversationPlan, type ConversationPlanWithSteps } from './ai/conversation-plan';
 import type { ConversationMessageSummary, ConversationParticipantSummary, ConversationAgentContext } from './ai/conversation-agent';
 
 // ============================================================================
@@ -809,19 +809,20 @@ export async function fetchElapsedTime(options: FetchElapsedTimeOptions): Promis
   if (conversationPlan?.current_step_id) {
     // Handle normalized format (steps array with step_identifier)
     const hasStepsArray = 'steps' in conversationPlan && Array.isArray(conversationPlan.steps);
-    console.log('[fetchElapsedTime] current_step_id:', conversationPlan.current_step_id, '| hasStepsArray:', hasStepsArray, '| stepsCount:', hasStepsArray ? conversationPlan.steps.length : 0);
+    console.log('[fetchElapsedTime] current_step_id:', conversationPlan.current_step_id, '| hasStepsArray:', hasStepsArray, '| stepsCount:', hasStepsArray ? (conversationPlan as ConversationPlanWithSteps).steps.length : 0);
 
     if (hasStepsArray) {
-      const currentStep = conversationPlan.steps.find(
-        (s: { step_identifier: string }) => s.step_identifier === conversationPlan.current_step_id
+      const planWithSteps = conversationPlan as ConversationPlanWithSteps;
+      const currentStep = planWithSteps.steps.find(
+        (s) => s.step_identifier === conversationPlan.current_step_id
       );
-      console.log('[fetchElapsedTime] Found step:', !!currentStep, '| step.id:', currentStep && 'id' in currentStep ? (currentStep as { id: string }).id : 'N/A');
-      if (currentStep && 'id' in currentStep) {
+      console.log('[fetchElapsedTime] Found step:', !!currentStep, '| step.id:', currentStep?.id ?? 'N/A');
+      if (currentStep?.id) {
         const dataClient = adminClient ?? supabase;
         const { data: stepTimer, error: stepError } = await dataClient
           .from('ask_conversation_plan_steps')
           .select('elapsed_active_seconds')
-          .eq('id', (currentStep as { id: string }).id)
+          .eq('id', currentStep.id)
           .maybeSingle();
 
         console.log('[fetchElapsedTime] DB result:', stepTimer, '| error:', stepError?.message);
