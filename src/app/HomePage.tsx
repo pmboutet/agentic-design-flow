@@ -2221,30 +2221,30 @@ export default function HomePage() {
           initial={{ opacity: 0, scale: 0.9 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ duration: 0.5 }}
-          className="w-full max-w-md"
+          className="w-full max-w-lg"
         >
           <div className="text-center space-y-8">
             {/* Animated loading spinner */}
             <motion.div
               animate={{ rotate: 360 }}
               transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-              className="mx-auto w-20 h-20 bg-gradient-to-br from-pink-500 to-rose-400 rounded-full flex items-center justify-center shadow-lg"
+              className="mx-auto w-16 h-16 bg-gradient-to-br from-pink-500 to-rose-400 rounded-full flex items-center justify-center shadow-lg"
             >
-              <Sparkles className="h-10 w-10 text-white" />
+              <Sparkles className="h-8 w-8 text-white" />
             </motion.div>
 
             <div className="space-y-4">
               <motion.h2
                 animate={{ opacity: [0.7, 1, 0.7] }}
                 transition={{ duration: 2, repeat: Infinity }}
-                className="text-2xl font-bold text-white"
+                className="text-xl font-semibold text-white"
               >
                 {isTestMode ? 'Chargement du test...' : 'Préparation de votre entretien...'}
               </motion.h2>
 
               {/* Progress bar */}
               <div className="max-w-xs mx-auto">
-                <div className="h-2 bg-white/20 rounded-full overflow-hidden">
+                <div className="h-1.5 bg-white/20 rounded-full overflow-hidden">
                   <motion.div
                     initial={{ x: '-100%' }}
                     animate={{ x: '200%' }}
@@ -2253,11 +2253,29 @@ export default function HomePage() {
                   />
                 </div>
               </div>
-
-              <p className="text-slate-300 text-sm">
-                Configuration de votre session personnalisée...
-              </p>
             </div>
+
+            {/* Question preview card */}
+            {sessionData.ask && (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.3, duration: 0.5 }}
+                className="mt-8 bg-white/10 backdrop-blur-sm rounded-2xl p-6 border border-white/10"
+              >
+                <p className="text-slate-400 text-xs uppercase tracking-wider mb-3">
+                  Question de l&apos;entretien
+                </p>
+                <h3 className="text-lg font-medium text-white leading-relaxed">
+                  {sessionData.ask.question}
+                </h3>
+                {sessionData.ask.description && (
+                  <p className="mt-4 text-slate-300 text-sm leading-relaxed">
+                    {sessionData.ask.description}
+                  </p>
+                )}
+              </motion.div>
+            )}
           </div>
         </motion.div>
       </div>
@@ -2276,50 +2294,58 @@ export default function HomePage() {
     const userName = currentParticipantName?.split(' ')[0] || currentParticipantName || 'vous';
 
     return (
-      <div className="min-h-[100dvh] bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-900 flex items-center justify-center p-4">
+      <div className="min-h-[100dvh] bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-900 flex items-center justify-center p-4 py-8">
         <motion.div
           initial={{ opacity: 0, scale: 0.9 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ duration: 0.5, ease: "easeOut" }}
-          className="w-full max-w-md"
+          className="w-full max-w-lg"
         >
           {/* Welcome message */}
           <motion.div
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.2 }}
-            className="text-center mb-8"
+            className="text-center mb-6"
           >
-            <h1 className="text-2xl sm:text-3xl font-bold text-white mb-4">
+            <h1 className="text-2xl sm:text-3xl font-bold text-white">
               Bienvenue {userName} !
             </h1>
-            <p className="text-lg text-slate-300">
-              Avant de commencer notre entretien, comment voulez-vous répondre ?
-            </p>
           </motion.div>
 
-          {/* Mode selection buttons */}
-          <div className="space-y-4">
-            {/* Voice mode button */}
-            <motion.button
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.4 }}
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-              onClick={() => {
-                setSelectedInputMode('voice');
-                setIsVoiceModeActive(true);
-              }}
-              className="w-full bg-white hover:bg-gray-50 rounded-2xl p-6 flex items-center gap-4 shadow-lg hover:shadow-xl transition-all duration-200 group"
-            >
-              <div className="w-14 h-14 bg-gradient-to-br from-pink-100 to-rose-100 rounded-xl flex items-center justify-center group-hover:from-pink-200 group-hover:to-rose-200 transition-colors">
-                <Mic className="h-7 w-7 text-pink-600" />
-              </div>
-              <span className="text-xl font-semibold text-slate-700">Voix</span>
-            </motion.button>
+          {/* Question preview card */}
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.3, duration: 0.5 }}
+            className="bg-white/10 backdrop-blur-sm rounded-2xl p-6 border border-white/10 mb-8"
+          >
+            <p className="text-slate-400 text-xs uppercase tracking-wider mb-3">
+              Question de l&apos;entretien
+            </p>
+            <h3 className="text-lg font-medium text-white leading-relaxed">
+              {sessionData.ask.question}
+            </h3>
+            {sessionData.ask.description && (
+              <p className="mt-4 text-slate-300 text-sm leading-relaxed">
+                {sessionData.ask.description}
+              </p>
+            )}
+          </motion.div>
 
-            {/* Text mode button */}
+          {/* Mode selection prompt */}
+          <motion.p
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.4 }}
+            className="text-center text-slate-300 mb-4"
+          >
+            Comment voulez-vous répondre ?
+          </motion.p>
+
+          {/* Mode selection buttons */}
+          <div className="space-y-3">
+            {/* Voice mode button */}
             <motion.button
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -2327,14 +2353,33 @@ export default function HomePage() {
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
               onClick={() => {
+                setSelectedInputMode('voice');
+                setIsVoiceModeActive(true);
+              }}
+              className="w-full bg-white hover:bg-gray-50 rounded-2xl p-5 flex items-center gap-4 shadow-lg hover:shadow-xl transition-all duration-200 group"
+            >
+              <div className="w-12 h-12 bg-gradient-to-br from-pink-100 to-rose-100 rounded-xl flex items-center justify-center group-hover:from-pink-200 group-hover:to-rose-200 transition-colors">
+                <Mic className="h-6 w-6 text-pink-600" />
+              </div>
+              <span className="text-lg font-semibold text-slate-700">Voix</span>
+            </motion.button>
+
+            {/* Text mode button */}
+            <motion.button
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.6 }}
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={() => {
                 setSelectedInputMode('text');
               }}
-              className="w-full bg-white hover:bg-gray-50 rounded-2xl p-6 flex items-center gap-4 shadow-lg hover:shadow-xl transition-all duration-200 group"
+              className="w-full bg-white hover:bg-gray-50 rounded-2xl p-5 flex items-center gap-4 shadow-lg hover:shadow-xl transition-all duration-200 group"
             >
-              <div className="w-14 h-14 bg-gradient-to-br from-pink-100 to-rose-100 rounded-xl flex items-center justify-center group-hover:from-pink-200 group-hover:to-rose-200 transition-colors">
-                <MessageSquareText className="h-7 w-7 text-pink-600" />
+              <div className="w-12 h-12 bg-gradient-to-br from-pink-100 to-rose-100 rounded-xl flex items-center justify-center group-hover:from-pink-200 group-hover:to-rose-200 transition-colors">
+                <MessageSquareText className="h-6 w-6 text-pink-600" />
               </div>
-              <span className="text-xl font-semibold text-slate-700">Texte</span>
+              <span className="text-lg font-semibold text-slate-700">Texte</span>
             </motion.button>
           </div>
         </motion.div>
