@@ -147,7 +147,14 @@ function MobileLayout({
   currentUserId,
 }: MobileLayoutProps) {
   const [panelWidth, setPanelWidth] = useState(0);
+  const [isHeaderHidden, setIsHeaderHidden] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const chatScrollRef = useRef<HTMLDivElement>(null);
+  const lastScrollTop = useRef(0);
+  const scrollUpAccumulator = useRef(0);
+
+  // Threshold for showing header after scrolling up (in pixels)
+  const SCROLL_UP_THRESHOLD = 100;
 
   useEffect(() => {
     const updateWidth = () => {
@@ -160,15 +167,48 @@ function MobileLayout({
     return () => window.removeEventListener('resize', updateWidth);
   }, []);
 
+  // Handle scroll to hide/show header
+  const handleScroll = useCallback(() => {
+    const scrollElement = chatScrollRef.current;
+    if (!scrollElement) return;
+
+    const currentScrollTop = scrollElement.scrollTop;
+    const scrollDelta = currentScrollTop - lastScrollTop.current;
+
+    if (scrollDelta > 0) {
+      // Scrolling down - hide header immediately
+      setIsHeaderHidden(true);
+      scrollUpAccumulator.current = 0;
+    } else if (scrollDelta < 0) {
+      // Scrolling up - accumulate scroll distance
+      scrollUpAccumulator.current += Math.abs(scrollDelta);
+
+      // Show header only after scrolling up significantly
+      if (scrollUpAccumulator.current >= SCROLL_UP_THRESHOLD) {
+        setIsHeaderHidden(false);
+      }
+    }
+
+    // If at the very top, always show header
+    if (currentScrollTop <= 10) {
+      setIsHeaderHidden(false);
+      scrollUpAccumulator.current = 0;
+    }
+
+    lastScrollTop.current = currentScrollTop;
+  }, []);
+
   return (
     <div className="flex flex-col h-[calc(100dvh-44px)] overflow-hidden min-w-0 w-full max-w-full overflow-x-hidden touch-pan-y">
-      {/* Collapsible Header - Compact */}
+      {/* Collapsible Header - Compact - hides on scroll down */}
       {askDetails && (
         <motion.div
           initial={false}
           animate={{
-            height: isMobileHeaderExpanded ? 'auto' : '48px',
+            height: isHeaderHidden ? 0 : (isMobileHeaderExpanded ? 'auto' : '48px'),
+            opacity: isHeaderHidden ? 0 : 1,
           }}
+          transition={{ duration: 0.2 }}
           className="overflow-hidden border-b border-white/50 bg-white/80 backdrop-blur flex-shrink-0"
         >
           <div className="px-3 py-2">
@@ -291,8 +331,17 @@ function MobileLayout({
             transition={{ duration: 0.2 }}
           >
             <div className="h-full flex flex-col min-w-0 max-w-full">
+              {/* Conversation plan - hides on scroll down */}
               {sessionData.conversationPlan && (
-                <div className="flex-shrink-0">
+                <motion.div
+                  initial={false}
+                  animate={{
+                    height: isHeaderHidden ? 0 : 'auto',
+                    opacity: isHeaderHidden ? 0 : 1,
+                  }}
+                  transition={{ duration: 0.2 }}
+                  className="flex-shrink-0 overflow-hidden"
+                >
                   <ConversationProgressBar
                     steps={sessionData.conversationPlan.plan_data.steps}
                     currentStepId={sessionData.conversationPlan.current_step_id}
@@ -300,9 +349,13 @@ function MobileLayout({
                     isTimerPaused={isSessionTimerPaused}
                     onTogglePause={onToggleTimerPause}
                   />
-                </div>
+                </motion.div>
               )}
-              <div className="flex-1 p-1.5 overflow-y-auto min-w-0 max-w-full overflow-x-hidden">
+              <div
+                ref={chatScrollRef}
+                onScroll={handleScroll}
+                className="flex-1 p-1.5 overflow-y-auto min-w-0 max-w-full overflow-x-hidden"
+              >
                 <ChatComponent
                   key={`chat-${sessionDataAskKey}`}
                   askKey={sessionDataAskKey}

@@ -251,16 +251,28 @@ export async function GET(
 
       // Auto-add participant for anonymous sessions
       if (isAnonymous && hasValidAuth && !authContext.participantId) {
-        await sessionClient
-          .from('ask_participants')
-          .insert({
-            ask_session_id: askRow.id,
-            user_id: authContext.profileId,
-            role: 'participant',
-          })
-          .then(({ error }) => {
-            if (error) console.warn('Failed to auto-add participant:', error);
-          });
+        try {
+          // Use RPC to bypass RLS for participant creation
+          const { data: newParticipant, error: joinError } = await adminClient
+            .rpc('join_anonymous_session', {
+              p_ask_session_id: askRow.id,
+              p_user_id: authContext.profileId,
+              p_role: 'participant',
+            });
+
+          if (joinError) {
+            console.error('❌ GET /api/ask/[key]: Failed to auto-add participant:', joinError);
+          } else if (newParticipant) {
+            console.log('✅ GET /api/ask/[key]: Auto-added participant:', newParticipant.id);
+            // Update authContext with the new participant
+            authContext = {
+              ...authContext,
+              participantId: newParticipant.id,
+            };
+          }
+        } catch (error) {
+          console.error('❌ GET /api/ask/[key]: Failed to join anonymous session:', error);
+        }
       }
     }
 
