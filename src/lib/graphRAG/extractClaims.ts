@@ -21,6 +21,9 @@ export interface ClaimExtractionVariables {
   // ASK context
   ask_question: string;
   ask_description: string;
+  // Project context
+  project_name: string;
+  project_description: string;
   // Challenge context
   challenge_name: string;
   challenge_description: string;
@@ -40,22 +43,34 @@ export async function buildClaimExtractionVariables(
     challengeId?: string | null;
   }
 ): Promise<ClaimExtractionVariables> {
-  // Fetch ASK session context
+  // Fetch ASK session context with project_id
   const { data: askSession } = await supabase
     .from("ask_sessions")
-    .select("question, description")
+    .select("question, description, project_id")
     .eq("id", insight.askSessionId)
     .maybeSingle();
 
-  // Fetch challenge context if available
-  let challengeData: { name: string; description: string } | null = null;
+  // Fetch challenge context if available (includes project_id as fallback)
+  let challengeData: { name: string; description: string; project_id?: string | null } | null = null;
   if (insight.challengeId) {
     const { data: challenge } = await supabase
       .from("challenges")
-      .select("name, description")
+      .select("name, description, project_id")
       .eq("id", insight.challengeId)
       .maybeSingle();
     challengeData = challenge;
+  }
+
+  // Fetch project context (from ASK session or challenge)
+  let projectData: { name: string; description: string } | null = null;
+  const projectId = askSession?.project_id || challengeData?.project_id;
+  if (projectId) {
+    const { data: project } = await supabase
+      .from("projects")
+      .select("name, description")
+      .eq("id", projectId)
+      .maybeSingle();
+    projectData = project;
   }
 
   return {
@@ -65,6 +80,8 @@ export async function buildClaimExtractionVariables(
     category: insight.category || "",
     ask_question: askSession?.question || "",
     ask_description: askSession?.description || "",
+    project_name: projectData?.name || "",
+    project_description: projectData?.description || "",
     challenge_name: challengeData?.name || "",
     challenge_description: challengeData?.description || "",
   };

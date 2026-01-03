@@ -454,6 +454,12 @@ export async function PATCH(
 
         if (planData) {
           // Step 3: Update the step by step_identifier within this plan
+          console.log('[timer] Updating step:', {
+            planId: planData.id,
+            stepIdentifier: body.currentStepId,
+            stepElapsedSeconds: Math.floor(body.stepElapsedSeconds),
+          });
+
           const { data: updateResult, error: stepUpdateError } = await admin
             .from('ask_conversation_plan_steps')
             .update({ elapsed_active_seconds: Math.floor(body.stepElapsedSeconds) })
@@ -462,10 +468,19 @@ export async function PATCH(
             .select();
 
           if (stepUpdateError) {
-            console.warn('Failed to update step elapsed time:', stepUpdateError.message);
+            console.error('[timer] Failed to update step elapsed time:', stepUpdateError.message, stepUpdateError.details, stepUpdateError.hint);
           } else if (updateResult && updateResult.length > 0) {
+            console.log('[timer] Step updated successfully:', updateResult[0]);
             stepElapsedSeconds = Math.floor(body.stepElapsedSeconds);
+          } else {
+            console.warn('[timer] Step update returned 0 rows - step_identifier might not match:', {
+              planId: planData.id,
+              stepIdentifier: body.currentStepId,
+              updateResult,
+            });
           }
+        } else {
+          console.warn('[timer] No plan found for thread:', threadData.id);
         }
       }
     }

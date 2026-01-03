@@ -156,7 +156,9 @@ export interface PromptVariables {
   participant_description?: string;
   participant_role?: string;
   project_name?: string;
+  project_description?: string;
   challenge_name?: string;
+  challenge_description?: string;
   previous_messages?: string;
   delivery_mode?: string;
   conversation_mode?: string;
@@ -199,12 +201,14 @@ interface AskSessionRow {
 interface ProjectRow {
   id: string;
   name?: string | null;
+  description?: string | null;
   system_prompt?: string | null;
 }
 
 interface ChallengeRow {
   id: string;
   name?: string | null;
+  description?: string | null;
   system_prompt?: string | null;
 }
 
@@ -239,7 +243,7 @@ export async function buildChatAgentVariables(
   if (askRow.project_id) {
     const { data, error } = await supabase
       .from('projects')
-      .select('id, name, system_prompt')
+      .select('id, name, description, system_prompt')
       .eq('id', askRow.project_id)
       .maybeSingle<ProjectRow>();
 
@@ -255,7 +259,7 @@ export async function buildChatAgentVariables(
   if (askRow.challenge_id) {
     const { data, error } = await supabase
       .from('challenges')
-      .select('id, name, system_prompt')
+      .select('id, name, description, system_prompt')
       .eq('id', askRow.challenge_id)
       .maybeSingle<ChallengeRow>();
 
@@ -282,6 +286,11 @@ export async function buildChatAgentVariables(
     system_prompt_ask: askRow.system_prompt ?? '',
     system_prompt_project: projectData?.system_prompt ?? '',
     system_prompt_challenge: challengeData?.system_prompt ?? '',
+    // Project and challenge context
+    project_name: projectData?.name ?? '',
+    project_description: projectData?.description ?? '',
+    challenge_name: challengeData?.name ?? '',
+    challenge_description: challengeData?.description ?? '',
     ...pacingVariables,
     ...additionalVariables,
   };

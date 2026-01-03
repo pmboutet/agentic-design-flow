@@ -234,6 +234,13 @@ export const PROMPT_VARIABLES: PromptVariableDefinition[] = [
     category: "project",
   },
   {
+    key: "project_description",
+    label: "Description du projet",
+    description: "Description détaillée du projet",
+    type: "string",
+    category: "project",
+  },
+  {
     key: "project_goal",
     label: "Objectif du projet",
     description: "Objectif principal du projet",
@@ -256,9 +263,17 @@ export const PROMPT_VARIABLES: PromptVariableDefinition[] = [
     category: "challenge",
   },
   {
+    key: "challenge_name",
+    label: "Nom du challenge",
+    description: "Nom du challenge associé à l'ASK",
+    example: "Améliorer l'onboarding",
+    type: "string",
+    category: "challenge",
+  },
+  {
     key: "challenge_title",
     label: "Titre du challenge",
-    description: "Titre du challenge en cours",
+    description: "Titre du challenge en cours (alias de challenge_name)",
     example: "Améliorer l'onboarding",
     type: "string",
     category: "challenge",

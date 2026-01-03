@@ -160,12 +160,14 @@ export interface AskSessionRow {
 export interface ProjectRow {
   id: string;
   name?: string | null;
+  description?: string | null;
   system_prompt?: string | null;
 }
 
 export interface ChallengeRow {
   id: string;
   name?: string | null;
+  description?: string | null;
   system_prompt?: string | null;
 }
 
@@ -621,7 +623,7 @@ export async function fetchProject(
 
   const { data, error } = await supabase
     .from('projects')
-    .select('id, name, system_prompt')
+    .select('id, name, description, system_prompt')
     .eq('id', projectId)
     .maybeSingle<ProjectRow>();
 
@@ -645,7 +647,7 @@ export async function fetchChallenge(
 
   const { data, error } = await supabase
     .from('challenges')
-    .select('id, name, system_prompt')
+    .select('id, name, description, system_prompt')
     .eq('id', challengeId)
     .maybeSingle<ChallengeRow>();
 

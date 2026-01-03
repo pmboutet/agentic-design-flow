@@ -33,8 +33,16 @@ export interface ConversationAgentContext {
     expected_duration_minutes?: number | null;
     conversation_mode?: string | null;
   };
-  project?: { system_prompt?: string | null } | null;
-  challenge?: { system_prompt?: string | null } | null;
+  project?: {
+    name?: string | null;
+    description?: string | null;
+    system_prompt?: string | null;
+  } | null;
+  challenge?: {
+    name?: string | null;
+    description?: string | null;
+    system_prompt?: string | null;
+  } | null;
   messages: ConversationMessageSummary[];
   participants: ConversationParticipantSummary[];
   /** Name of the current participant (for filtering in individual mode) */
@@ -418,6 +426,11 @@ export function buildConversationAgentVariables(context: ConversationAgentContex
     system_prompt_ask: context.ask.system_prompt ?? '',
     system_prompt_project: context.project?.system_prompt ?? '',
     system_prompt_challenge: context.challenge?.system_prompt ?? '',
+    // Project and challenge context
+    project_name: context.project?.name ?? '',
+    project_description: context.project?.description ?? '',
+    challenge_name: context.challenge?.name ?? '',
+    challenge_description: context.challenge?.description ?? '',
     // Conversation plan variables
     conversation_plan: conversationPlanFormatted,
     current_step: currentStepFormatted,
