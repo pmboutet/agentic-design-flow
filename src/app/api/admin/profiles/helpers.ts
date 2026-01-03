@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ClientMembership, ManagedUser, ProjectMembership, ClientRole } from "@/types";
+import { safeQuery, safeQueryNoThrow, addDbBreadcrumb } from "@/lib/supabaseQuery";
 
 type ProjectMembershipRow = {
   id: string;
@@ -58,6 +59,9 @@ export async function fetchProjectMemberships(
   supabase: SupabaseClient,
   userIds?: string[]
 ): Promise<Map<string, string[]>> {
+  addDbBreadcrumb("Fetching project memberships", { userIds });
+
+  // Build the query with optional user filter
   let query = supabase
     .from("project_members")
     .select("project_id, user_id")
@@ -67,13 +71,18 @@ export async function fetchProjectMemberships(
     query = query.in("user_id", userIds);
   }
 
-  const { data, error } = await query;
-  if (error) {
-    throw error;
-  }
+  const data = await safeQuery<{ project_id: string; user_id: string }[]>(
+    () => query,
+    {
+      table: "project_members",
+      operation: "select",
+      filters: userIds ? { user_ids: userIds } : undefined,
+      description: "Fetch project memberships for users",
+    }
+  );
 
   const map = new Map<string, string[]>();
-  (data as { project_id: string; user_id: string }[] | null | undefined)?.forEach(row => {
+  (data ?? []).forEach(row => {
     if (!row?.user_id || !row?.project_id) {
       return;
     }
@@ -311,13 +320,20 @@ export async function getOrCreateUser(
 
   if (userId) {
     // Existing user mode - verify user exists
-    const { data: existingUser, error: userError } = await supabase
-      .from("profiles")
-      .select("id")
-      .eq("id", userId)
-      .single();
+    addDbBreadcrumb("Verifying user exists", { userId });
 
-    if (userError || !existingUser) {
+    const existingUser = await safeQuery<{ id: string }>(
+      () => supabase.from("profiles").select("id").eq("id", userId).single(),
+      {
+        table: "profiles",
+        operation: "select",
+        expectData: true,
+        filters: { id: userId },
+        description: "Verify user exists by ID",
+      }
+    );
+
+    if (!existingUser) {
       throw new Error("User not found");
     }
 

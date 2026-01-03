@@ -3,14 +3,16 @@
 import { useState, useEffect } from "react";
 import dynamic from "next/dynamic";
 import { motion, AnimatePresence } from "framer-motion";
-import { 
-  RefreshCw, 
-  Search, 
-  Clock, 
-  CheckCircle, 
-  XCircle, 
+import {
+  RefreshCw,
+  Search,
+  Clock,
+  CheckCircle,
+  XCircle,
   AlertCircle,
-  Download
+  Download,
+  ChevronLeft,
+  ChevronRight
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -350,6 +352,8 @@ interface LogsResponse {
   error?: string;
 }
 
+const LOGS_PER_PAGE = 30;
+
 const statusIcons = {
   pending: Clock,
   processing: RefreshCw,
@@ -359,6 +363,8 @@ const statusIcons = {
 
 export default function AiLogsPage() {
   const [logs, setLogs] = useState<AiAgentLog[]>([]);
+  const [totalLogs, setTotalLogs] = useState(0);
+  const [currentPage, setCurrentPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filters, setFilters] = useState({
@@ -371,6 +377,8 @@ export default function AiLogsPage() {
   const [expandedLogs, setExpandedLogs] = useState<Set<string>>(new Set());
   const [agentTemplatesCache, setAgentTemplatesCache] = useState<Record<string, AgentTemplates | null>>({});
   const [loadingTemplates, setLoadingTemplates] = useState<Set<string>>(new Set());
+
+  const totalPages = Math.ceil(totalLogs / LOGS_PER_PAGE);
 
   // Initialiser avec la date du jour par défaut
   useEffect(() => {
@@ -391,18 +399,20 @@ export default function AiLogsPage() {
     });
   }, []);
 
-  const fetchLogs = async () => {
+  const fetchLogs = async (page: number = currentPage) => {
     try {
       setLoading(true);
       setError(null);
 
+      const offset = (page - 1) * LOGS_PER_PAGE;
       const params = new URLSearchParams();
-      params.append('limit', '200'); // Augmenter la limite pour voir plus de logs
+      params.append('limit', String(LOGS_PER_PAGE));
+      params.append('offset', String(offset));
       if (filters.status) params.append('status', filters.status);
       if (filters.interactionType) params.append('interactionType', filters.interactionType);
       if (filters.dateFrom) params.append('dateFrom', filters.dateFrom);
       if (filters.dateTo) params.append('dateTo', filters.dateTo);
-      
+
       const response = await fetch(`/api/admin/ai/logs?${params.toString()}`);
       const data: LogsResponse = await response.json();
 
@@ -411,6 +421,7 @@ export default function AiLogsPage() {
       }
 
       setLogs(data.data?.logs || []);
+      setTotalLogs(data.data?.total || 0);
     } catch (err) {
       console.error('Error fetching logs:', err);
       setError(err instanceof Error ? err.message : 'Failed to fetch logs');
@@ -419,8 +430,16 @@ export default function AiLogsPage() {
     }
   };
 
+  const goToPage = (page: number) => {
+    if (page < 1 || page > totalPages) return;
+    setCurrentPage(page);
+    fetchLogs(page);
+  };
+
+  // Reset to page 1 and fetch when filters change
   useEffect(() => {
-    fetchLogs();
+    setCurrentPage(1);
+    fetchLogs(1);
   }, [filters.status, filters.interactionType, filters.dateFrom, filters.dateTo]);
 
   const filteredLogs = logs.filter(log => {
@@ -544,7 +563,7 @@ export default function AiLogsPage() {
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-semibold text-slate-100">Filtres et actions</h3>
                 <div className="flex gap-2">
-                  <Button onClick={fetchLogs} disabled={loading} variant="outline" size="sm" className="border-slate-500/40 bg-slate-800/50 text-slate-200 hover:bg-slate-700/50">
+                  <Button onClick={() => fetchLogs(currentPage)} disabled={loading} variant="outline" size="sm" className="border-slate-500/40 bg-slate-800/50 text-slate-200 hover:bg-slate-700/50">
                     <RefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
                     Actualiser
                   </Button>
@@ -719,7 +738,12 @@ export default function AiLogsPage() {
             </div>
 
             <div className="rounded-xl border border-slate-500/30 bg-slate-900/40 p-6 backdrop-blur-sm">
-              <h3 className="text-lg font-semibold text-slate-100 mb-4">Logs d'interactions IA</h3>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-slate-100">Logs d'interactions IA</h3>
+                <span className="text-sm text-slate-400">
+                  {totalLogs > 0 && `${(currentPage - 1) * LOGS_PER_PAGE + 1}-${Math.min(currentPage * LOGS_PER_PAGE, totalLogs)} sur ${totalLogs}`}
+                </span>
+              </div>
               {loading ? (
                 <div className="flex items-center justify-center py-8 text-slate-300">
                   <RefreshCw className="mr-2 h-6 w-6 animate-spin" />
@@ -901,6 +925,85 @@ export default function AiLogsPage() {
                       );
                     })}
                   </AnimatePresence>
+
+                  {/* Pagination */}
+                  {totalPages > 1 && (
+                    <div className="mt-6 flex items-center justify-between border-t border-slate-600/30 pt-4">
+                      <div className="text-sm text-slate-400">
+                        Page {currentPage} sur {totalPages}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          onClick={() => goToPage(1)}
+                          disabled={currentPage === 1 || loading}
+                          variant="outline"
+                          size="sm"
+                          className="border-slate-500/40 bg-slate-800/50 text-slate-200 hover:bg-slate-700/50 disabled:opacity-50"
+                        >
+                          Début
+                        </Button>
+                        <Button
+                          onClick={() => goToPage(currentPage - 1)}
+                          disabled={currentPage === 1 || loading}
+                          variant="outline"
+                          size="sm"
+                          className="border-slate-500/40 bg-slate-800/50 text-slate-200 hover:bg-slate-700/50 disabled:opacity-50"
+                        >
+                          <ChevronLeft className="h-4 w-4" />
+                        </Button>
+
+                        {/* Page numbers */}
+                        <div className="flex items-center gap-1">
+                          {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                            let pageNum: number;
+                            if (totalPages <= 5) {
+                              pageNum = i + 1;
+                            } else if (currentPage <= 3) {
+                              pageNum = i + 1;
+                            } else if (currentPage >= totalPages - 2) {
+                              pageNum = totalPages - 4 + i;
+                            } else {
+                              pageNum = currentPage - 2 + i;
+                            }
+                            return (
+                              <Button
+                                key={pageNum}
+                                onClick={() => goToPage(pageNum)}
+                                disabled={loading}
+                                variant={currentPage === pageNum ? "default" : "outline"}
+                                size="sm"
+                                className={currentPage === pageNum
+                                  ? "bg-blue-600 text-white hover:bg-blue-700"
+                                  : "border-slate-500/40 bg-slate-800/50 text-slate-200 hover:bg-slate-700/50"
+                                }
+                              >
+                                {pageNum}
+                              </Button>
+                            );
+                          })}
+                        </div>
+
+                        <Button
+                          onClick={() => goToPage(currentPage + 1)}
+                          disabled={currentPage === totalPages || loading}
+                          variant="outline"
+                          size="sm"
+                          className="border-slate-500/40 bg-slate-800/50 text-slate-200 hover:bg-slate-700/50 disabled:opacity-50"
+                        >
+                          <ChevronRight className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          onClick={() => goToPage(totalPages)}
+                          disabled={currentPage === totalPages || loading}
+                          variant="outline"
+                          size="sm"
+                          className="border-slate-500/40 bg-slate-800/50 text-slate-200 hover:bg-slate-700/50 disabled:opacity-50"
+                        >
+                          Fin
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
