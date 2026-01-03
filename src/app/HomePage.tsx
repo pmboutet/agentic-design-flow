@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
-import { motion, AnimatePresence, useMotionValue, useTransform, PanInfo } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { AlertCircle, Clock, MessageSquare, Sparkles, ChevronDown, ChevronUp, MessageCircle, Lightbulb, RefreshCw, Info, Mic, MessageSquareText } from "lucide-react";
 import { ChatComponent } from "@/components/chat/ChatComponent";
 import { InsightPanel } from "@/components/insight/InsightPanel";
@@ -148,7 +148,6 @@ function MobileLayout({
 }: MobileLayoutProps) {
   const [panelWidth, setPanelWidth] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
-  const x = useMotionValue(0);
 
   useEffect(() => {
     const updateWidth = () => {
@@ -160,34 +159,6 @@ function MobileLayout({
     window.addEventListener('resize', updateWidth);
     return () => window.removeEventListener('resize', updateWidth);
   }, []);
-
-  const handleDragEnd = (_event: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
-    if (panelWidth === 0) return;
-    
-    const threshold = panelWidth * 0.25;
-    const velocity = info.velocity.x;
-    const currentX = mobileActivePanel === 'chat' ? 0 : -panelWidth;
-    const newX = currentX + info.offset.x;
-    
-    // Check velocity first (fast swipe)
-    if (Math.abs(velocity) > 500) {
-      if (velocity > 0 && mobileActivePanel === 'insights') {
-        setMobileActivePanel('chat');
-      } else if (velocity < 0 && mobileActivePanel === 'chat') {
-        setMobileActivePanel('insights');
-      }
-    } 
-    // Then check position (slow drag)
-    else {
-      if (newX > -threshold && mobileActivePanel === 'insights') {
-        setMobileActivePanel('chat');
-      } else if (newX < -threshold && mobileActivePanel === 'chat') {
-        setMobileActivePanel('insights');
-      }
-    }
-    
-    x.set(0);
-  };
 
   return (
     <div className="flex flex-col h-[calc(100dvh-44px)] overflow-hidden min-w-0 w-full max-w-full overflow-x-hidden touch-pan-y">
@@ -298,14 +269,9 @@ function MobileLayout({
         </motion.div>
       )}
 
-      {/* Swipeable Panels Container */}
+      {/* Panels Container - navigation via buttons only, no swipe */}
       <div className="flex-1 relative overflow-hidden min-w-0 max-w-full overflow-x-hidden" ref={containerRef}>
         <motion.div
-          drag="x"
-          dragConstraints={panelWidth > 0 ? { left: -panelWidth, right: 0 } : { left: 0, right: 0 }}
-          dragElastic={0.2}
-          onDragEnd={handleDragEnd}
-          style={{ x }}
           className="flex h-full min-w-0 max-w-full"
           animate={{
             x: mobileActivePanel === 'chat' ? 0 : panelWidth > 0 ? -panelWidth : 0,
@@ -314,10 +280,6 @@ function MobileLayout({
             type: "spring",
             stiffness: 300,
             damping: 30,
-          }}
-          onAnimationComplete={() => {
-            // Reset drag position after animation
-            x.set(0);
           }}
         >
           {/* Chat Panel */}
@@ -2294,12 +2256,12 @@ export default function HomePage() {
     const userName = currentParticipantName?.split(' ')[0] || currentParticipantName || 'vous';
 
     return (
-      <div className="min-h-[100dvh] bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-900 flex items-start sm:items-center justify-center p-4 py-8 overflow-y-auto">
+      <div className="min-h-[100dvh] bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-900 flex items-start sm:items-center justify-center p-4 pt-8 pb-24 sm:py-8 overflow-y-auto">
         <motion.div
           initial={{ opacity: 0, scale: 0.9 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ duration: 0.5, ease: "easeOut" }}
-          className="w-full max-w-lg my-auto"
+          className="w-full max-w-lg sm:my-auto"
         >
           {/* Welcome message */}
           <motion.div
