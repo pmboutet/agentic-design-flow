@@ -32,7 +32,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { DateTimePicker } from "@/components/ui/date-time-picker";
 import { ProjectJourneyBoard } from "@/components/project/ProjectJourneyBoard";
-import { AddUserToProjectDialog } from "@/components/project/AddUserToProjectDialog";
+import { ManageProjectParticipantsDialog } from "@/components/project/ManageProjectParticipantsDialog";
 import { FormDateTimeField } from "./FormDateTimeField";
 import { GraphRAGPanel } from "./GraphRAGPanel";
 import { ProjectGraphVisualization } from "@/components/graph/ProjectGraphVisualization";
@@ -222,7 +222,7 @@ function ChallengeDetailDialog({ challenge, projectName, onClose }: ChallengeDet
 }
 
 
-// AddParticipantsDialog removed - now using shared AddUserToProjectDialog component
+// AddParticipantsDialog removed - now using shared ManageProjectParticipantsDialog component
 
 export function AdminDashboard({ initialProjectId = null, mode = "default" }: AdminDashboardProps = {}) {
   const router = useRouter();
@@ -1682,14 +1682,27 @@ export function AdminDashboard({ initialProjectId = null, mode = "default" }: Ad
         onClose={() => setChallengeDetailId(null)}
       />
       {selectedProjectId && (
-        <AddUserToProjectDialog
+        <ManageProjectParticipantsDialog
           open={showAddParticipantsDialog}
           onOpenChange={setShowAddParticipantsDialog}
           projectId={selectedProjectId}
-          currentMemberUserIds={users
+          projectMembers={users
             .filter(u => u.projectIds?.includes(selectedProjectId))
-            .map(u => u.id)}
-          onUserAdded={() => refreshUsers()}
+            .map(u => {
+              // Find the project membership to get project-specific role/description
+              const projectMembership = u.projectMemberships?.find(pm => pm.projectId === selectedProjectId);
+              return {
+                id: u.id,
+                firstName: u.firstName ?? null,
+                lastName: u.lastName ?? null,
+                fullName: u.fullName ?? null,
+                email: u.email ?? null,
+                role: projectMembership?.role ?? u.role ?? null,
+                jobTitle: u.jobTitle ?? null,
+                description: projectMembership?.description ?? null,
+              };
+            })}
+          onMembersChanged={() => refreshUsers()}
         />
       )}
       <div className="h-screen bg-slate-950 text-slate-100">

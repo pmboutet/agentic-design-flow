@@ -551,6 +551,31 @@ export interface ChallengeRecord {
   aiAskSuggestions?: PersistedAskSuggestions | null;
 }
 
+/**
+ * Progress data for a participant's conversation plan
+ */
+export interface ParticipantProgressInfo {
+  completedSteps: number;
+  totalSteps: number;
+  currentStepTitle: string | null;
+  planStatus: "active" | "completed" | "abandoned" | null;
+  isCompleted: boolean;
+  isActive: boolean;
+  threadId: string | null;
+}
+
+/**
+ * Progress data container for all participants in an ask session
+ */
+export interface AskProgressData {
+  /** For individual_parallel mode: progress keyed by participant user_id */
+  byParticipant: Record<string, ParticipantProgressInfo>;
+  /** For shared modes: single shared progress */
+  shared: ParticipantProgressInfo | null;
+  /** Conversation mode determines which progress to display */
+  mode: AskConversationMode;
+}
+
 export interface AskSessionRecord {
   id: string;
   askKey: string;
@@ -573,6 +598,8 @@ export interface AskSessionRecord {
   updatedAt: string;
   participants?: AskParticipant[];
   systemPrompt?: string | null;
+  /** Progress data for participants (only present when fetched with includeProgress) */
+  progressData?: AskProgressData | null;
 }
 
 export interface AskPromptTemplate {
@@ -693,6 +720,8 @@ export interface ProjectChallengeNode {
 
 export interface ProjectMember {
   id: string;
+  firstName: string | null;
+  lastName: string | null;
   fullName: string | null;
   email: string | null;
   role: string | null;

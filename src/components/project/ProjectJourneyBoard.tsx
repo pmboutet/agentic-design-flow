@@ -58,9 +58,10 @@ import {
   type ProjectParticipantSummary,
 } from "@/types";
 import { AiChallengeBuilderModal } from "@/components/project/AiChallengeBuilderModal";
+import { ParticipantSectionPanel, type ParticipantProgressData } from "@/components/project/participants";
 import { AiChallengeBuilderContent } from "@/components/project/AiChallengeBuilderPanel";
 import { AiAskGeneratorPanel } from "@/components/project/AiAskGeneratorPanel";
-import { AddUserToProjectDialog } from "@/components/project/AddUserToProjectDialog";
+import { ManageProjectParticipantsDialog } from "@/components/project/ManageProjectParticipantsDialog";
 import { ClientEditDialog } from "@/components/project/ClientEditDialog";
 import { AskPromptTemplateSelector } from "@/components/admin/AskPromptTemplateSelector";
 import { GraphRAGPanel } from "@/components/admin/GraphRAGPanel";
@@ -579,13 +580,16 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
   }, [boardData]);
 
   const ensureAskDetails = useCallback(
-    async (askId: string): Promise<AskSessionRecord> => {
+    async (askId: string, forceRefresh = false): Promise<AskSessionRecord> => {
       const existing = askDetails[askId];
-      if (existing) {
+      // Return cached data only if it has progressData (to ensure fresh progress)
+      // or if forceRefresh is not requested
+      if (existing && !forceRefresh && existing.progressData !== undefined) {
         return existing;
       }
 
-      const response = await fetch(`/api/admin/asks/${askId}`, {
+      // Include progress data for participant progress display
+      const response = await fetch(`/api/admin/asks/${askId}?includeProgress=true`, {
         cache: "no-store",
         credentials: "include",
       });
@@ -2094,8 +2098,11 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
       return next;
     });
 
-    // Load ASK details if not already loaded
-    if (!askDetails[askId]) {
+    // Load ASK details if not already loaded, or if missing progress data
+    const existingRecord = askDetails[askId];
+    const needsProgressData = existingRecord && existingRecord.progressData === undefined;
+
+    if (!existingRecord || needsProgressData) {
       setIsLoadingAskDetails(true);
       try {
         const record = await ensureAskDetails(askId);
@@ -2111,9 +2118,8 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
         setIsLoadingAskDetails(false);
       }
     } else {
-      const record = askDetails[askId];
-      const participantIds = record.participants?.map(p => p.id) ?? [];
-      const spokespersonId = record.participants?.find(p => p.isSpokesperson)?.id ?? "";
+      const participantIds = existingRecord.participants?.map(p => p.id) ?? [];
+      const spokespersonId = existingRecord.participants?.find(p => p.isSpokesperson)?.id ?? "";
       setAskParticipantEdits(prev => ({
         ...prev,
         [askId]: { participantIds, spokespersonId }
@@ -3400,8 +3406,8 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
               onClick={() => setShowAddParticipantsDialog(true)}
               className="gap-2"
             >
-              <UserPlus className="h-4 w-4" />
-              Ajouter des participants
+              <Users className="h-4 w-4" />
+              Gérer les participants
             </Button>
             <Button
               type="button"
@@ -3477,32 +3483,25 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
       </header>
       ) : null}
 
-      {/* Add Participants to Project Dialog */}
+      {/* Manage Project Participants Dialog */}
       {boardData && (
-        <AddUserToProjectDialog
+        <ManageProjectParticipantsDialog
           open={showAddParticipantsDialog}
           onOpenChange={setShowAddParticipantsDialog}
           projectId={projectId}
-          currentMemberUserIds={boardData.projectMembers.map(m => m.id)}
-          onUserAdded={() => loadJourneyData({ silent: true })}
+          projectMembers={boardData.projectMembers}
+          onMembersChanged={() => loadJourneyData({ silent: true })}
         />
       )}
 
       {/* Add Participant to ASK Dialog */}
       {addParticipantDialogAskId && (
-        <AddUserToProjectDialog
+        <ManageProjectParticipantsDialog
           open={!!addParticipantDialogAskId}
           onOpenChange={(open) => !open && setAddParticipantDialogAskId(null)}
           projectId={projectId}
           askId={addParticipantDialogAskId}
-          currentMemberUserIds={
-            boardData?.asks
-              .find(a => a.id === addParticipantDialogAskId)
-              ?.participants
-              .map(p => p.userId)
-              .filter((id): id is string => !!id) ?? []
-          }
-          onUserAdded={() => loadJourneyData({ silent: true })}
+          onMembersChanged={() => loadJourneyData({ silent: true })}
         />
       )}
 
@@ -4324,223 +4323,28 @@ export function ProjectJourneyBoard({ projectId, onClose }: ProjectJourneyBoardP
                             </div>
 
                             {/* Expandable Participants Section */}
-                            <div className="rounded-xl border border-indigo-500/30 bg-indigo-500/5 overflow-hidden">
-                              <button
-                                type="button"
-                                className="w-full flex items-center justify-between gap-2 px-4 py-3 text-left hover:bg-indigo-500/10 transition-colors"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  void handleToggleAskParticipants(ask.id);
-                                }}
-                              >
-                                <div className="flex items-center gap-2">
-                                  <Users className="h-4 w-4 text-indigo-300" />
-                                  <span className="text-sm font-semibold text-indigo-200">
-                                    Participants ({participantEdits?.participantIds?.length ?? ask.participants?.length ?? 0})
-                                  </span>
-                                </div>
-                                <ChevronRight
-                                  className={cn(
-                                    "h-4 w-4 text-indigo-300 transition-transform",
-                                    isParticipantsExpanded && "rotate-90"
-                                  )}
-                                />
-                              </button>
-
-                              {isParticipantsExpanded && (
-                                <div className="border-t border-indigo-500/20 p-4 space-y-4" onClick={(e) => e.stopPropagation()}>
-                                  {isLoadingAskDetails && !participantEdits ? (
-                                    <div className="flex items-center gap-2 text-sm text-slate-300">
-                                      <Loader2 className="h-4 w-4 animate-spin text-indigo-300" />
-                                      Loading participants…
-                                    </div>
-                                  ) : (
-                                    <>
-                                      {/* Participant Selection Grid */}
-                                      {availableUsers.length > 0 ? (
-                                        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                                          {availableUsers.map(user => {
-                                            const isSelected = participantEdits?.participantIds?.includes(user.id) ?? false;
-                                            return (
-                                              <label
-                                                key={user.id}
-                                                className={cn(
-                                                  "inline-flex cursor-pointer items-center gap-2 rounded-lg border bg-slate-950/60 px-3 py-2 text-sm transition",
-                                                  isSelected
-                                                    ? "border-indigo-400/70 bg-indigo-500/10 text-indigo-100"
-                                                    : "border-white/10 text-slate-200 hover:border-indigo-300/50",
-                                                )}
-                                              >
-                                                <input
-                                                  type="checkbox"
-                                                  className="h-4 w-4 rounded border-white/30 bg-slate-900 text-indigo-500 focus:ring-indigo-400"
-                                                  checked={isSelected}
-                                                  onChange={() => handleAskParticipantToggleInCard(ask.id, user.id)}
-                                                  disabled={isSavingThisAsk}
-                                                />
-                                                <span className="flex flex-col leading-tight">
-                                                  <span className="font-medium text-white">{user.name}</span>
-                                                  {user.role ? <span className="text-xs text-slate-400">{user.role}</span> : null}
-                                                </span>
-                                              </label>
-                                            );
-                                          })}
-                                        </div>
-                                      ) : (
-                                        <p className="text-sm text-slate-400">No collaborators are available for this project yet.</p>
-                                      )}
-
-                                      {/* Add new participant button */}
-                                      <Button
-                                        type="button"
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={() => setAddParticipantDialogAskId(ask.id)}
-                                        disabled={isSavingThisAsk}
-                                        className="gap-1.5 border-indigo-400/40 bg-indigo-500/10 text-indigo-200 hover:bg-indigo-500/20"
-                                      >
-                                        <UserPlus className="h-4 w-4" />
-                                        Ajouter un participant
-                                      </Button>
-
-                                      {/* Spokesperson selector for group_reporter and consultant modes */}
-                                      {(askRecord?.conversationMode === "group_reporter" || askRecord?.conversationMode === "consultant") && participantEdits?.participantIds?.length ? (
-                                        <div className="flex flex-col gap-2">
-                                          <Label htmlFor={`spokesperson-${ask.id}`} className="text-sm text-indigo-200">
-                                            {askRecord?.conversationMode === "consultant" ? "Facilitator (voit les questions suggérées)" : "Spokesperson (rapporteur)"}
-                                          </Label>
-                                          <select
-                                            id={`spokesperson-${ask.id}`}
-                                            value={participantEdits.spokespersonId}
-                                            onChange={(e) => handleAskSpokespersonChangeInCard(ask.id, e.target.value)}
-                                            className="h-10 rounded-md border border-white/10 bg-slate-900/70 px-3 text-sm text-white focus:border-indigo-400 focus:outline-none focus:ring focus:ring-indigo-400/20"
-                                            disabled={isSavingThisAsk}
-                                          >
-                                            <option value="">No spokesperson</option>
-                                            {participantEdits.participantIds
-                                              .map(pid => availableUsers.find(u => u.id === pid))
-                                              .filter((u): u is NonNullable<typeof u> => Boolean(u))
-                                              .map(user => (
-                                                <option key={user.id} value={user.id}>
-                                                  {user.name}
-                                                </option>
-                                              ))}
-                                          </select>
-                                        </div>
-                                      ) : null}
-
-                                      {/* Invite Links Section */}
-                                      {participantEdits?.participantIds?.length ? (
-                                        <div className="space-y-2 pt-2 border-t border-white/10">
-                                          <div className="flex items-center justify-between">
-                                            <span className="text-xs font-medium text-slate-300">Invite links</span>
-                                            <Button
-                                              type="button"
-                                              variant="outline"
-                                              size="sm"
-                                              onClick={() => void handleSendAskInvitesInCard(ask.id)}
-                                              disabled={isSendingAskInvites || isSavingThisAsk}
-                                              className="h-7 gap-1 border-indigo-400/40 bg-indigo-500/20 text-indigo-100 hover:bg-indigo-500/30 text-xs"
-                                            >
-                                              {isSendingAskInvites ? (
-                                                <Loader2 className="h-3 w-3 animate-spin" />
-                                              ) : (
-                                                <Mail className="h-3 w-3" />
-                                              )}
-                                              Send invites
-                                            </Button>
-                                          </div>
-                                          <div className="max-h-48 space-y-2 overflow-y-auto">
-                                            {participantEdits.participantIds.map(participantId => {
-                                              const user = availableUsers.find(u => u.id === participantId);
-                                              const recordParticipant = askRecord?.participants?.find(p => p.id === participantId);
-                                              const name = user?.name ?? recordParticipant?.name ?? participantId;
-                                              const email = recordParticipant?.email ?? null;
-                                              const inviteToken = recordParticipant?.inviteToken ?? null;
-                                              const link = getInviteLinkForAsk(ask.askKey, inviteToken);
-                                              const isCopied = copiedInviteLinks.has(participantId);
-
-                                              return (
-                                                <div
-                                                  key={participantId}
-                                                  className="rounded-lg border border-white/10 bg-slate-950/70 p-2"
-                                                >
-                                                  <div className="flex items-center justify-between gap-2">
-                                                    <div className="min-w-0 flex-1">
-                                                      <p className="text-xs font-medium text-white truncate">{name}</p>
-                                                      {email && <p className="text-xs text-slate-400 truncate">{email}</p>}
-                                                    </div>
-                                                    {link && (
-                                                      <button
-                                                        type="button"
-                                                        onClick={async () => {
-                                                          try {
-                                                            await navigator.clipboard.writeText(link);
-                                                            setCopiedInviteLinks(prev => {
-                                                              const next = new Set(prev);
-                                                              next.add(participantId);
-                                                              return next;
-                                                            });
-                                                            setTimeout(() => {
-                                                              setCopiedInviteLinks(prev => {
-                                                                const next = new Set(prev);
-                                                                next.delete(participantId);
-                                                                return next;
-                                                              });
-                                                            }, 2000);
-                                                          } catch {
-                                                            setAskFeedback({ type: "error", message: "Unable to copy link" });
-                                                          }
-                                                        }}
-                                                        className="rounded-lg border border-white/10 bg-slate-900/60 p-1.5 text-slate-300 transition hover:bg-slate-800/60 hover:text-white shrink-0"
-                                                        title="Copy invite link"
-                                                      >
-                                                        {isCopied ? (
-                                                          <Check className="h-3 w-3 text-emerald-400" />
-                                                        ) : (
-                                                          <Copy className="h-3 w-3" />
-                                                        )}
-                                                      </button>
-                                                    )}
-                                                  </div>
-                                                </div>
-                                              );
-                                            })}
-                                          </div>
-                                        </div>
-                                      ) : null}
-
-                                      {/* Action Buttons */}
-                                      <div className="flex items-center gap-2 pt-2">
-                                        <Button
-                                          type="button"
-                                          size="sm"
-                                          onClick={() => void handleSaveAskParticipantsInCard(ask.id)}
-                                          disabled={isSavingThisAsk || !participantEdits}
-                                          className="gap-1"
-                                        >
-                                          {isSavingThisAsk ? (
-                                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                          ) : (
-                                            <Save className="h-3.5 w-3.5" />
-                                          )}
-                                          Update Participants
-                                        </Button>
-                                        <Button
-                                          type="button"
-                                          size="sm"
-                                          variant="glassDark"
-                                          onClick={() => void handleToggleAskParticipants(ask.id)}
-                                          disabled={isSavingThisAsk}
-                                        >
-                                          Close
-                                        </Button>
-                                      </div>
-                                    </>
-                                  )}
-                                </div>
-                              )}
-                            </div>
+                            <ParticipantSectionPanel
+                              askId={ask.id}
+                              askKey={ask.askKey}
+                              conversationMode={askRecord?.conversationMode ?? "collaborative"}
+                              participants={askRecord?.participants ?? []}
+                              availableUsers={availableUsers}
+                              selectedIds={participantEdits?.participantIds ?? []}
+                              initialParticipantCount={ask.participants?.length}
+                              spokespersonId={participantEdits?.spokespersonId ?? ""}
+                              onParticipantToggle={(userId) => handleAskParticipantToggleInCard(ask.id, userId)}
+                              onSpokespersonChange={(id) => handleAskSpokespersonChangeInCard(ask.id, id)}
+                              onSave={() => void handleSaveAskParticipantsInCard(ask.id)}
+                              onSendAllInvites={() => void handleSendAskInvitesInCard(ask.id)}
+                              onAddParticipant={() => setAddParticipantDialogAskId(ask.id)}
+                              onClose={() => void handleToggleAskParticipants(ask.id)}
+                              isExpanded={isParticipantsExpanded}
+                              onToggleExpand={() => void handleToggleAskParticipants(ask.id)}
+                              isLoading={isLoadingAskDetails && !participantEdits}
+                              isSaving={isSavingThisAsk}
+                              isSendingInvites={isSendingAskInvites}
+                              progressData={askRecord?.progressData as ParticipantProgressData | null | undefined}
+                            />
 
                             {/* Collected Insights */}
                             <div>

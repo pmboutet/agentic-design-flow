@@ -335,8 +335,8 @@ export async function getOrCreateUser(
       .maybeSingle();
 
     if (existingByEmail) {
-      // User already exists with this email, use them instead
-      return { userId: existingByEmail.id, userCreated: false };
+      // User already exists with this email - block creation
+      throw new Error("Un utilisateur avec cet email existe déjà");
     }
 
     // Create new profile

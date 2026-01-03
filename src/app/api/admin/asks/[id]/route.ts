@@ -3,7 +3,7 @@ import { z } from "zod";
 import { createServerSupabaseClient, requireAdmin } from "@/lib/supabaseServer";
 import { sanitizeOptional, sanitizeText } from "@/lib/sanitize";
 import { parseErrorMessage } from "@/lib/utils";
-import { type ApiResponse, type AskSessionRecord } from "@/types";
+import { type ApiResponse, type AskSessionRecord, type AskProgressData, type ParticipantProgressInfo, type AskConversationMode } from "@/types";
 import { randomBytes } from "crypto";
 import { buildParticipantDisplayName, type ParticipantRow, type UserRow } from "@/lib/conversation-context";
 
@@ -11,6 +11,26 @@ const statusValues = ["active", "inactive", "draft", "closed"] as const;
 const deliveryModes = ["physical", "digital"] as const;
 const conversationModes = ["individual_parallel", "collaborative", "group_reporter", "consultant"] as const;
 const askSelect = "*, projects(name), ask_participants(id, user_id, role, participant_name, participant_email, is_spokesperson, invite_token)";
+
+// Extended select that includes conversation threads and plans for progress tracking
+const askSelectWithProgress = `
+  *,
+  projects(name),
+  ask_participants(id, user_id, role, participant_name, participant_email, is_spokesperson, invite_token),
+  conversation_threads(
+    id,
+    user_id,
+    is_shared,
+    ask_conversation_plans(
+      id,
+      completed_steps,
+      total_steps,
+      status,
+      current_step_id,
+      ask_conversation_plan_steps(id, title, status, step_order)
+    )
+  )
+`;
 
 const updateSchema = z.object({
   name: z.string().trim().min(1).max(255).optional(),
@@ -78,7 +98,103 @@ async function ensureParticipantTokens(supabase: any, askId: string): Promise<vo
   }
 }
 
-function mapAsk(row: any): AskSessionRecord {
+/**
+ * Normalize Supabase nested data to always be an array (Supabase can return object or array)
+ */
+function normalizeToArray(data: any): any[] {
+  if (!data) return [];
+  return Array.isArray(data) ? data : [data];
+}
+
+/**
+ * Build progress data from conversation threads and plans
+ */
+function buildProgressData(row: any): AskProgressData | null {
+  const rawThreads = row.conversation_threads ?? [];
+  const conversationMode = (row.conversation_mode ?? "collaborative") as AskConversationMode;
+
+  // Normalize threads to ensure ask_conversation_plans is always an array
+  const threads = rawThreads.map((t: any) => ({
+    ...t,
+    ask_conversation_plans: normalizeToArray(t.ask_conversation_plans),
+  }));
+
+  if (threads.length === 0) {
+    return null;
+  }
+
+  const isSharedMode = conversationMode !== "individual_parallel";
+
+  if (isSharedMode) {
+    // Find the shared thread
+    const sharedThread = threads.find((t: any) => t.is_shared);
+    if (!sharedThread) {
+      return { byParticipant: {}, shared: null, mode: conversationMode };
+    }
+
+    const plans = sharedThread.ask_conversation_plans ?? [];
+    const plan = plans[0]; // There should be only one plan per thread
+
+    if (!plan) {
+      return { byParticipant: {}, shared: null, mode: conversationMode };
+    }
+
+    const steps = normalizeToArray(plan.ask_conversation_plan_steps);
+    const currentStep = steps.find((s: any) => s.id === plan.current_step_id);
+
+    const shared: ParticipantProgressInfo = {
+      completedSteps: plan.completed_steps ?? 0,
+      totalSteps: plan.total_steps ?? steps.length,
+      currentStepTitle: currentStep?.title ?? null,
+      planStatus: plan.status ?? null,
+      isCompleted: plan.status === "completed",
+      isActive: plan.status === "active",
+      threadId: sharedThread.id,
+    };
+
+    return { byParticipant: {}, shared, mode: conversationMode };
+  }
+
+  // Individual parallel mode - each participant has their own thread
+  const byParticipant: Record<string, ParticipantProgressInfo> = {};
+
+  for (const thread of threads) {
+    if (!thread.user_id) continue;
+
+    const plans = thread.ask_conversation_plans ?? [];
+    const plan = plans[0];
+
+    if (!plan) {
+      byParticipant[thread.user_id] = {
+        completedSteps: 0,
+        totalSteps: 0,
+        currentStepTitle: null,
+        planStatus: null,
+        isCompleted: false,
+        isActive: false,
+        threadId: thread.id,
+      };
+      continue;
+    }
+
+    const steps = normalizeToArray(plan.ask_conversation_plan_steps);
+    const currentStep = steps.find((s: any) => s.id === plan.current_step_id);
+
+    byParticipant[thread.user_id] = {
+      completedSteps: plan.completed_steps ?? 0,
+      totalSteps: plan.total_steps ?? steps.length,
+      currentStepTitle: currentStep?.title ?? null,
+      planStatus: plan.status ?? null,
+      isCompleted: plan.status === "completed",
+      isActive: plan.status === "active",
+      threadId: thread.id,
+    };
+  }
+
+  return { byParticipant, shared: null, mode: conversationMode };
+}
+
+function mapAsk(row: any, includeProgress = false): AskSessionRecord {
   const participants = (row.ask_participants ?? []).map((participant: any, index: number) => {
     const user = participant.users ?? {};
 
@@ -89,7 +205,7 @@ function mapAsk(row: any): AskSessionRecord {
       index
     );
 
-    const mapped = {
+    return {
       id: String(participant.user_id ?? participant.id),
       name: displayName,
       email: participant.participant_email || user.email || null,
@@ -98,15 +214,9 @@ function mapAsk(row: any): AskSessionRecord {
       isActive: true,
       inviteToken: participant.invite_token || null,
     };
-
-    console.log(`👤 Mapping participant ${mapped.id}: token=${mapped.inviteToken ? mapped.inviteToken.substring(0, 8) + '...' : 'NULL'}`);
-
-    return mapped;
   });
 
-  console.log(`📦 mapAsk returning ${participants.length} participants with tokens`);
-
-  return {
+  const result: AskSessionRecord = {
     id: row.id,
     askKey: row.ask_key,
     name: row.name,
@@ -129,10 +239,17 @@ function mapAsk(row: any): AskSessionRecord {
     participants,
     systemPrompt: row.system_prompt ?? null,
   };
+
+  // Include progress data if requested
+  if (includeProgress) {
+    result.progressData = buildProgressData(row);
+  }
+
+  return result;
 }
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
@@ -141,12 +258,18 @@ export async function GET(
     const resolvedParams = await params;
     const askId = z.string().uuid().parse(resolvedParams.id);
 
+    // Check if progress data is requested via query param
+    const includeProgress = request.nextUrl.searchParams.get("includeProgress") === "true";
+
     // Ensure all participants have tokens before fetching
     await ensureParticipantTokens(supabase, askId);
 
+    // Use extended select if progress is requested
+    const selectQuery = includeProgress ? askSelectWithProgress : askSelect;
+
     const { data, error, status } = await supabase
       .from("ask_sessions")
-      .select(askSelect)
+      .select(selectQuery)
       .eq("id", askId)
       .single();
 
@@ -169,7 +292,7 @@ export async function GET(
 
     return NextResponse.json<ApiResponse<AskSessionRecord>>({
       success: true,
-      data: mapAsk(data),
+      data: mapAsk(data, includeProgress),
     });
   } catch (error) {
     let status = 500;

@@ -99,6 +99,8 @@ export async function GET(
       .filter(user => !existingMemberIds.has(user.id))
       .map(user => ({
         id: user.id,
+        firstName: null,
+        lastName: null,
         fullName: user.full_name ?? null,
         email: user.email ?? null,
         role: user.role ?? null,
