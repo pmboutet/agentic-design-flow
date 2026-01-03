@@ -2294,12 +2294,12 @@ export default function HomePage() {
     const userName = currentParticipantName?.split(' ')[0] || currentParticipantName || 'vous';
 
     return (
-      <div className="min-h-[100dvh] bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-900 flex items-center justify-center p-4 py-8">
+      <div className="min-h-[100dvh] bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-900 flex items-start sm:items-center justify-center p-4 py-8 overflow-y-auto">
         <motion.div
           initial={{ opacity: 0, scale: 0.9 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ duration: 0.5, ease: "easeOut" }}
-          className="w-full max-w-lg"
+          className="w-full max-w-lg my-auto"
         >
           {/* Welcome message */}
           <motion.div

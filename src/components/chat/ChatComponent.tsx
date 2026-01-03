@@ -82,6 +82,7 @@ export function ChatComponent({
   const [editContent, setEditContent] = useState("");
   const [isSubmittingEdit, setIsSubmittingEdit] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -195,6 +196,9 @@ export function ChatComponent({
 
     setInputValue("");
     setSelectedFiles([]);
+
+    // Close keyboard on mobile after sending message
+    textareaRef.current?.blur();
   };
 
   const handleInputChange = (value: string) => {
@@ -623,6 +627,7 @@ export function ChatComponent({
               <div className="flex flex-col @[320px]:flex-row items-stretch @[320px]:items-end gap-2 min-w-0 max-w-full">
                 <div className="flex-1 min-w-0">
                   <Textarea
+                    ref={textareaRef}
                     value={inputValue}
                     onChange={(e) => handleInputChange(e.target.value)}
                     placeholder="Type your response..."
