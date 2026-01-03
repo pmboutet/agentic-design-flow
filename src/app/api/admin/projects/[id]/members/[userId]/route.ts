@@ -10,7 +10,8 @@ import { type ApiResponse } from "@/types";
 // Schema for updating a project member (and optionally the user profile)
 const updateMemberSchema = z.object({
   // Project member fields
-  role: z.string().trim().max(50).optional().or(z.literal("")),
+  role: z.string().trim().max(50).optional().or(z.literal("")), // Permission: owner | admin | member | observer
+  jobTitle: z.string().trim().max(255).optional().or(z.literal("")), // Fonction: texte libre
   description: z.string().trim().max(2000).optional().or(z.literal("")),
   // Profile fields (optional - updates the user's profile)
   firstName: z.string().trim().max(100).optional().or(z.literal("")),
@@ -81,6 +82,9 @@ export async function PATCH(
     const memberUpdateData: Record<string, unknown> = {};
     if (payload.role !== undefined) {
       memberUpdateData.role = sanitizeOptional(payload.role) || null;
+    }
+    if (payload.jobTitle !== undefined) {
+      memberUpdateData.job_title = sanitizeOptional(payload.jobTitle) || null;
     }
     if (payload.description !== undefined) {
       memberUpdateData.description = sanitizeOptional(payload.description) || null;

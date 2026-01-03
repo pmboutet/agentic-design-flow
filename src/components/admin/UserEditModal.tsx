@@ -267,12 +267,13 @@ export function UserEditModal({
               </div>
 
               <div className="flex flex-col gap-2 md:col-span-2">
-                <Label htmlFor="role">Global Role</Label>
+                <Label htmlFor="role">Niveau d&apos;accès système</Label>
                 <select
                   id="role"
                   className="h-10 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm text-white"
                   {...form.register("role")}
                   disabled={isBusy}
+                  title="Permissions maximales de l'utilisateur dans l'application"
                 >
                   {globalRoles.map((role) => (
                     <option key={role.value} value={role.value}>
@@ -281,7 +282,7 @@ export function UserEditModal({
                   ))}
                 </select>
                 <p className="text-xs text-slate-400">
-                  This is the user&apos;s global role. They may have different roles per client.
+                  Détermine les permissions maximales. L&apos;utilisateur peut avoir des rôles différents par client/projet.
                 </p>
               </div>
 

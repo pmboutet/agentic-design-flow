@@ -29,9 +29,31 @@ interface EditingMember {
   firstName: string;
   lastName: string;
   email: string;
-  role: string;
+  role: string; // Permission: owner | admin | member | observer
+  jobTitle: string; // Fonction: texte libre (Product Owner, Designer, etc.)
   description: string;
 }
+
+// Permission options for project members
+const PERMISSION_OPTIONS = [
+  { value: "owner", label: "Propriétaire" },
+  { value: "admin", label: "Administrateur" },
+  { value: "member", label: "Membre" },
+  { value: "observer", label: "Observateur" },
+] as const;
+
+// Suggested job titles for the combobox
+const JOB_TITLE_SUGGESTIONS = [
+  "Product Owner",
+  "Designer UX",
+  "Développeur",
+  "Consultant",
+  "Chef de projet",
+  "Sponsor",
+  "Expert métier",
+  "Architecte",
+  "Scrum Master",
+] as const;
 
 /**
  * Dialog for managing project participants.
@@ -231,7 +253,8 @@ export function ManageProjectParticipantsDialog({
       firstName: member.firstName || "",
       lastName: member.lastName || "",
       email: member.email || "",
-      role: member.role || "",
+      role: member.role || "member",
+      jobTitle: member.jobTitle || "",
       description: member.description || "",
     });
     setError(null);
@@ -272,6 +295,7 @@ export function ManageProjectParticipantsDialog({
             lastName: editingMember.lastName.trim(),
             email: editingMember.email.trim() || undefined,
             role: editingMember.role.trim(),
+            jobTitle: editingMember.jobTitle.trim(),
             description: editingMember.description.trim(),
           }),
         }
@@ -498,30 +522,51 @@ export function ManageProjectParticipantsDialog({
                                   />
                                 </div>
                               </div>
+                              <div>
+                                <Label className="text-xs text-slate-400">Email</Label>
+                                <Input
+                                  type="email"
+                                  value={editingMember.email}
+                                  onChange={e => setEditingMember({ ...editingMember, email: e.target.value })}
+                                  placeholder="email@exemple.com"
+                                  className="h-8 text-sm mt-1"
+                                  disabled={isSaving}
+                                />
+                              </div>
                               <div className="grid grid-cols-2 gap-2">
                                 <div>
-                                  <Label className="text-xs text-slate-400">Email</Label>
-                                  <Input
-                                    type="email"
-                                    value={editingMember.email}
-                                    onChange={e => setEditingMember({ ...editingMember, email: e.target.value })}
-                                    placeholder="email@exemple.com"
-                                    className="h-8 text-sm mt-1"
-                                    disabled={isSaving}
-                                  />
-                                </div>
-                                <div>
-                                  <Label className="text-xs text-slate-400">Rôle</Label>
+                                  <Label className="text-xs text-slate-400">Permission</Label>
                                   <select
                                     value={editingMember.role}
                                     onChange={e => setEditingMember({ ...editingMember, role: e.target.value })}
                                     className="h-8 w-full text-sm mt-1 rounded-md border border-white/10 bg-slate-900/60 px-3 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
                                     disabled={isSaving}
+                                    title="Ce que l'utilisateur peut faire dans ce projet"
                                   >
-                                    <option value="member">Member</option>
-                                    <option value="admin">Admin</option>
-                                    <option value="owner">Owner</option>
+                                    {PERMISSION_OPTIONS.map(opt => (
+                                      <option key={opt.value} value={opt.value}>
+                                        {opt.label}
+                                      </option>
+                                    ))}
                                   </select>
+                                </div>
+                                <div>
+                                  <Label className="text-xs text-slate-400">Fonction</Label>
+                                  <Input
+                                    type="text"
+                                    list="job-title-suggestions"
+                                    value={editingMember.jobTitle}
+                                    onChange={e => setEditingMember({ ...editingMember, jobTitle: e.target.value })}
+                                    placeholder="Product Owner, Designer..."
+                                    className="h-8 text-sm mt-1"
+                                    disabled={isSaving}
+                                    title="Rôle métier dans ce projet"
+                                  />
+                                  <datalist id="job-title-suggestions">
+                                    {JOB_TITLE_SUGGESTIONS.map(title => (
+                                      <option key={title} value={title} />
+                                    ))}
+                                  </datalist>
                                 </div>
                               </div>
                               <div>
@@ -554,9 +599,16 @@ export function ManageProjectParticipantsDialog({
                                 {member.fullName || member.email}
                               </h4>
                               <p className="text-xs text-slate-400 truncate">{member.email}</p>
-                              {member.role && (
-                                <p className="text-xs text-indigo-400 mt-0.5">{member.role}</p>
-                              )}
+                              <div className="flex items-center gap-2 mt-0.5">
+                                {member.role && (
+                                  <span className="text-xs px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300">
+                                    {PERMISSION_OPTIONS.find(o => o.value === member.role)?.label || member.role}
+                                  </span>
+                                )}
+                                {member.jobTitle && (
+                                  <span className="text-xs text-slate-400">{member.jobTitle}</span>
+                                )}
+                              </div>
                               {member.description && (
                                 <p className="text-xs text-slate-500 italic mt-1 line-clamp-2">
                                   {member.description}
